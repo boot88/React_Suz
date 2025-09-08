@@ -8,22 +8,21 @@
     "react-router-dom": "^7.8.2",
     "react-scripts": "5.0.1",
     "web-vitals": "^5.1.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "mysql2": "^3.6.5"
   },
   "scripts": {
-
     "start": "node server/server.js",
-    "build": "npm install && npm run build-client",
-    "build-client": "cd client && npm install && npm run build",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "server": "node server/server.js",
-    "client": "cd client && npm start",
+    "server": "nodemon server/server.js",
+    "client": "react-scripts start",
     "heroku-postbuild": "npm run build"
-    
   },
-
- 
-  
   "eslintConfig": {
     "extends": [
       "react-app",
@@ -44,19 +43,13 @@
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
-    "cors": "^2.8.5",
-    "express": "^4.18.2",
-    "mysql2": "^3.6.5",
     "nodemon": "^3.0.1"
   },
-   "engines": {
+  "engines": {
     "node": "18.x",
     "npm": "9.x"
   },
   "cacheDirectories": [
-    "node_modules",
-    "client/node_modules"
+    "node_modules"
   ]
-
-  
 }
