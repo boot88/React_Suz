@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import './EditApplicationsTable.css';
 
 function EditApplicationsTable() {
-  const navigate = useNavigate();
+  //const navigate = useNavigate();
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
