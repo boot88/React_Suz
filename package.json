@@ -2,7 +2,6 @@
   "name": "my-react-app",
   "version": "0.1.0",
   "private": true,
-  "proxy": "http://localhost:5000",
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -12,13 +11,19 @@
     "xlsx": "^0.18.5"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject",
+
+    "start": "node server/server.js",
+    "build": "npm install && npm run build-client",
+    "build-client": "cd client && npm install && npm run build",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "node server/server.js",
-    "dev": "concurrently \"npm start\" \"npm run server\""
+    "client": "cd client && npm start",
+    "heroku-postbuild": "npm run build"
+    
   },
+
+ 
+  
   "eslintConfig": {
     "extends": [
       "react-app",
@@ -43,5 +48,15 @@
     "express": "^4.18.2",
     "mysql2": "^3.6.5",
     "nodemon": "^3.0.1"
-  }
+  },
+   "engines": {
+    "node": "18.x",
+    "npm": "9.x"
+  },
+  "cacheDirectories": [
+    "node_modules",
+    "client/node_modules"
+  ]
+
+  
 }
