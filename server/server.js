@@ -1,16 +1,18 @@
 // server/server.js
 const express = require('express');
-//const mysql = require('mysql2/promise');
 const cors = require('cors');
+const path = require('path');
 const employeeRoutes = require('./routes/employees');
-const pool = require('./config/database'); // Импортируем общий пул
+const pool = require('./config/database');
 
 const app = express();
-const PORT = 5000;
+const PORT = process.env.PORT || 5000; // Важно для Render
 
 // Middleware
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://192.168.1.35:3000'],
+  origin: process.env.NODE_ENV === 'production' 
+    ? ['https://react-suz.onrender.com'] // ЗАМЕНИТЕ на ваш URL
+    : ['http://localhost:3000', 'http://192.168.1.35:3000'],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true,
   exposedHeaders: ['Content-Type', 'Authorization']
@@ -18,22 +20,6 @@ app.use(cors({
 app.use(express.json());
 
 app.use('/api/employees', employeeRoutes);
-
-// Настройка подключения к MySQL
-/*const dbConfig = {
-  host: 'localhost',
-  user: 'root',
-  password: 'usbw',
-  database: 'its',
-  port: 3306,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-};
-
-const pool = mysql.createPool(dbConfig);
-*/
-
 
 // Функция для преобразования дат в правильный формат MySQL
 const formatDateForMySQL = (dateString) => {
@@ -43,7 +29,6 @@ const formatDateForMySQL = (dateString) => {
     const date = new Date(dateString);
     if (isNaN(date.getTime())) return null;
     
-    // Ручное форматирование для гарантии совместимости
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
@@ -66,53 +51,12 @@ const handleNullValues = (value, defaultValue = null) => {
   return value;
 };
 
-
-/*
-app.get('/api/employees/search', async (req, res) => {
-  try {
-    const { field, query } = req.query;
-    
-    if (!field || !query) {
-      return res.status(400).json({ error: 'Не указаны поле поиска или запрос' });
-    }
-
-    const validFields = ['full_name', 'position', 'department', 'room', 'internal_phone', 'email'];
-    if (!validFields.includes(field)) {
-      return res.status(400).json({ error: 'Недопустимое поле для поиска' });
-    }
-
-    const sql = `SELECT * FROM phone_book WHERE ${field} LIKE ? ORDER BY full_name`;
-    const [results] = await pool.execute(sql, [`%${query}%`]);
-
-    res.json(results);
-  } catch (error) {
-    console.error('Search error:', error);
-    res.status(500).json({ error: 'Ошибка при поиске сотрудников' });
-  }
-});
-
-app.get('/api/employees/departments', async (req, res) => {
-  try {
-    const sql = `SELECT DISTINCT department FROM phone_book WHERE department IS NOT NULL ORDER BY department`;
-    const [results] = await pool.execute(sql);
-    
-    const departments = results.map(row => row.department);
-    res.json(departments);
-  } catch (error) {
-    console.error('Departments error:', error);
-    res.status(500).json({ error: 'Ошибка при получении отделов' });
-  }
-});
-*/
-
-
 app.get('/api/applications/export', async (req, res) => {
   const { status, from, to } = req.query;
 
   let whereClause = [];
   const queryParams = [];
 
-  // 🔹 Фильтр по статусу
   if (status === 'done') {
     whereClause.push('fl = ?');
     queryParams.push(1);
@@ -121,7 +65,6 @@ app.get('/api/applications/export', async (req, res) => {
     queryParams.push(0);
   }
 
-  // 🔹 Фильтр по дате
   if (from) {
     const fromDate = new Date(from);
     if (isNaN(fromDate)) {
@@ -143,7 +86,6 @@ app.get('/api/applications/export', async (req, res) => {
   const whereSql = whereClause.length > 0 ? 'WHERE ' + whereClause.join(' AND ') : '';
 
   try {
-    // 📥 Получаем ВСЕ заявки без лимитов
     const applicationsQuery = `
       SELECT 
         id, name, cabinet, application, process, N_tel, executor, 
@@ -170,7 +112,6 @@ app.get('/api/applications/export', async (req, res) => {
   }
 });
 
-// Маршрут: получение заявок с пагинацией, фильтрами и статистикой
 app.get('/api/applications', async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 10));
@@ -181,7 +122,6 @@ app.get('/api/applications', async (req, res) => {
   let whereClause = [];
   const queryParams = [];
 
-  // 🔹 Фильтр по статусу
   if (status === 'done') {
     whereClause.push('fl = ?');
     queryParams.push(1);
@@ -190,7 +130,6 @@ app.get('/api/applications', async (req, res) => {
     queryParams.push(0);
   }
 
-  // 🔹 Фильтр по дате
   if (from) {
     const fromDate = new Date(from);
     if (isNaN(fromDate)) {
@@ -212,7 +151,6 @@ app.get('/api/applications', async (req, res) => {
   const whereSql = whereClause.length > 0 ? 'WHERE ' + whereClause.join(' AND ') : '';
 
   try {
-    // 🔢 Общая статистика
     const totalQuery = `SELECT COUNT(*) AS total FROM application ${whereSql}`;
     const [totalResult] = await pool.execute(totalQuery, queryParams);
 
@@ -234,7 +172,6 @@ app.get('/api/applications', async (req, res) => {
     const pending = pendingResult[0].count;
     const totalPages = Math.ceil(total / limit);
 
-    // 📥 Получаем заявки
     const applicationsQuery = `
       SELECT 
         id, name, cabinet, application, process, N_tel, executor, 
@@ -271,7 +208,6 @@ app.post('/api/applications', async (req, res) => {
   } = req.body;
 
   try {
-    // Обрабатываем NULL значения и устанавливаем значения по умолчанию
     const processedData = {
       name: handleNullValues(name, ''),
       cabinet: handleNullValues(cabinet, ''),
@@ -305,26 +241,19 @@ app.post('/api/applications', async (req, res) => {
       ]
     );
 
-    console.log('Результат добавления:', result);
-
     res.status(201).json({ 
       message: 'Заявка добавлена',
       id: result.insertId 
     });
   } catch (error) {
     console.error('Ошибка при добавлении заявки:', error);
-    console.error('Детали ошибки:', error.sqlMessage);
-    console.error('Код ошибки:', error.code);
-    
     res.status(500).json({ 
       error: 'Не удалось добавить заявку',
-      details: error.sqlMessage || error.message,
-      code: error.code
+      details: error.sqlMessage || error.message
     });
   }
 });
 
-// Обработчик PUT-запроса для обновления заявки
 app.put('/api/applications/:id', async (req, res) => {
   const { id } = req.params;
   const {
@@ -333,7 +262,6 @@ app.put('/api/applications/:id', async (req, res) => {
   } = req.body;
 
   try {
-    // Проверяем существование заявки
     const [existingApp] = await pool.execute(
       'SELECT id FROM application WHERE id = ?',
       [id]
@@ -343,7 +271,6 @@ app.put('/api/applications/:id', async (req, res) => {
       return res.status(404).json({ error: 'Заявка не найдена' });
     }
 
-    // Подготавливаем значения для базы данных
     const processedData = {
       name: handleNullValues(name),
       cabinet: handleNullValues(cabinet),
@@ -357,9 +284,6 @@ app.put('/api/applications/:id', async (req, res) => {
       fl: fl ? 1 : 0
     };
 
-    console.log('Обновление заявки с данными:', { id, ...processedData });
-
-    // Обновляем все данные
     const [result] = await pool.execute(
       `UPDATE application SET 
         name = ?, cabinet = ?, N_tel = ?, application = ?, 
@@ -380,8 +304,6 @@ app.put('/api/applications/:id', async (req, res) => {
         id
       ]
     );
-
-    console.log('Результат обновления:', result);
 
     res.status(200).json({ message: 'Заявка успешно обновлена' });
   } catch (error) {
@@ -434,7 +356,6 @@ app.delete('/api/applications/:id', async (req, res) => {
   }
 });
 
-// ✅ Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Сервер работает', timestamp: new Date() });
 });
@@ -444,16 +365,17 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Произошла внутренняя ошибка сервера' });
 });
 
+// ✅ ОБСЛУЖИВАНИЕ СТАТИЧЕСКИХ ФАЙЛОВ ДЛЯ RENDER
 if (process.env.NODE_ENV === 'production') {
-  const path = require('path');
   app.use(express.static(path.join(__dirname, '../build')));
+  
   app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '../build', 'index.html'));
   });
 }
 
-// Запуск
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Сервер запущен на http://localhost:${PORT}`);
-  console.log(`✅ Сервер также доступен по сетевому IP: http://192.168.1.35:${PORT}`);
+// Запуск сервера
+app.listen(PORT, () => {
+  console.log(`✅ Сервер запущен на порту ${PORT}`);
+  console.log(`✅ Режим: ${process.env.NODE_ENV || 'development'}`);
 });
