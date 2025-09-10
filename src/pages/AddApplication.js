@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import './AddApplication.css';
+import { API_BASE_URL } from '../utils/apiConfig';
 
 const AddApplication = () => {
   const [formData, setFormData] = useState({
@@ -48,7 +49,7 @@ const AddApplication = () => {
 
       console.log('Отправляемые данные:', submissionData);
 
-      const response = await fetch('http://localhost:5000/api/applications', {
+      const response = await fetch(`${API_BASE_URL}/applications`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(submissionData)

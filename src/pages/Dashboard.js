@@ -1,6 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import './Dashboard.css';
+import { API_BASE_URL } from '../utils/apiConfig';
+
+
+/*
+const getApiBaseUrl = () => {
+  const { hostname } = window.location;
+  
+  // Если мы в development (localhost или локальный IP)
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '192.168.1.35') {
+    return 'http://192.168.1.35:5000';
+  }
+  
+  // Для продакшена (Render) - используем относительный путь
+  return '';
+};
+
+const API_BASE_URL = getApiBaseUrl();
+*/
+
+
+
 
 const Dashboard = () => {
   const [applications, setApplications] = useState([]);
@@ -30,14 +51,16 @@ const Dashboard = () => {
   const exportToExcel = async () => {
     setExportLoading(true);
     try {
-      let url = '/api/applications/export';
+      let url = '/applications/export';
       if (filter === 'done') url += '?status=done';
       if (filter === 'pending') url += '?status=pending';
       if (fromDate) url += `${url.includes('?') ? '&' : '?'}from=${fromDate}`;
       if (toDate) url += `${url.includes('?') ? '&' : '?'}to=${toDate}`;
 
-      const response = await fetch(`http://localhost:5000${url}`);
-      const data = await response.json();
+      //const response = await fetch(`http://localhost:5000${url}`);
+      const response = await fetch(`${API_BASE_URL}${url}`);
+	  
+	  const data = await response.json();
       const allApplications = data.applications || [];
 
       if (allApplications.length === 0) {
@@ -87,8 +110,9 @@ const Dashboard = () => {
 
   const fetchGeneralStats = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/applications?limit=1');
-      const data = await response.json();
+      //const response = await fetch('http://localhost:5000/api/applications?limit=1');
+      const response = await fetch(`${API_BASE_URL}/applications?limit=1`);
+	  const data = await response.json();
       setStats(data.stats || { total: 0, completed: 0, pending: 0 });
     } catch (error) {
       console.error('Ошибка загрузки статистики:', error);
@@ -98,14 +122,15 @@ const Dashboard = () => {
   const fetchApplications = async () => {
     setLoading(true);
     try {
-      let url = `/api/applications?page=${currentPage}&limit=${limit}`;
+      let url = `/applications?page=${currentPage}&limit=${limit}`;
       if (filter === 'done') url += '&status=done';
       if (filter === 'pending') url += '&status=pending';
       if (fromDate) url += `&from=${fromDate}`;
       if (toDate) url += `&to=${toDate}`;
 
-      const response = await fetch(`http://localhost:5000${url}`);
-      const data = await response.json();
+      //const response = await fetch(`http://localhost:5000${url}`);
+      const response = await fetch(`${API_BASE_URL}${url}`);
+	  const data = await response.json();
 
       setApplications(data.applications || []);
       setTotalPages(data.totalPages || 1);

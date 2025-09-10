@@ -1,7 +1,8 @@
 // src/services/employeeService.js
 //const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+import { API_BASE_URL } from '../utils/apiConfig';
 
-
+/*
 const getApiBaseUrl = () => {
   // Если мы в development и на localhost - используем localhost
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
@@ -12,12 +13,14 @@ const getApiBaseUrl = () => {
 };
 
 const API_BASE_URL = getApiBaseUrl();
+*/
+
 
 // Поиск сотрудников
 export const searchEmployees = async (field, query) => {
   try {
     const response = await fetch(
-      `${API_BASE_URL}/api/employees/search?field=${field}&query=${encodeURIComponent(query)}`
+      `${API_BASE_URL}/employees/search?field=${field}&query=${encodeURIComponent(query)}`
     );
     
     if (!response.ok) {
@@ -35,7 +38,7 @@ export const searchEmployees = async (field, query) => {
 // Получение всех отделов
 export const getDepartments = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/employees/departments`);
+    const response = await fetch(`${API_BASE_URL}/employees/departments`);
     
     if (!response.ok) {
       throw new Error('Ошибка при получении отделов');
@@ -51,7 +54,7 @@ export const getDepartments = async () => {
 // Получение всех сотрудников (опционально)
 export const getAllEmployees = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/employees/search?field=full_name&query=`);
+    const response = await fetch(`${API_BASE_URL}/employees/search?field=full_name&query=`);
     
     if (!response.ok) {
       throw new Error('Ошибка при получении сотрудников');

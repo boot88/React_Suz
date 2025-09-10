@@ -8,11 +8,13 @@ const pool = require('./config/database');
 const app = express();
 const PORT = process.env.PORT || 5000; // Важно для Render
 
+app.options('*', cors());
+
 // Middleware
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
     ? ['https://react-suz.onrender.com'] // ЗАМЕНИТЕ на ваш URL
-    : ['http://localhost:3000', 'http://192.168.1.35:3000'],
+    : ['http://localhost:3000', 'http://192.168.1.35:3000', 'http://192.168.1.35:5000','http://192.168.1.35'],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true,
   exposedHeaders: ['Content-Type', 'Authorization']
@@ -375,7 +377,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Запуск сервера
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Сервер запущен на порту ${PORT}`);
   console.log(`✅ Режим: ${process.env.NODE_ENV || 'development'}`);
 });

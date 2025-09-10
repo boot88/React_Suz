@@ -1,9 +1,11 @@
 /* src/components/Dashboard/Dashboard.css */
 .dashboard-container {
   padding: 30px;
-  /*margin-left: 280px;*/
   min-height: 100vh;
+  min-height: 100dvh;
   background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  box-sizing: border-box;
+  margin-left: 240px;
 }
 
 .dashboard-header {
@@ -299,12 +301,14 @@
 
 .table-responsive {
   overflow-x: auto;
+  max-width: 100%;
 }
 
 .applications-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 14px;
+  min-width: 600px;
 }
 
 .applications-table th {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+//import { useNavigate } from 'react-router-dom';
 import './EditApplicationsTable.css';
+import { API_BASE_URL } from '../utils/apiConfig';
 
 function EditApplicationsTable() {
   //const navigate = useNavigate();
@@ -15,7 +16,7 @@ function EditApplicationsTable() {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [totalItems, setTotalItems] = useState(0);
 
-  const API_BASE_URL = 'http://localhost:5000/api';
+  //const API_BASE_URL = 'http://localhost:5000/api';
 
   // Функция для загрузки данных
   const fetchApplications = useCallback(async () => {
