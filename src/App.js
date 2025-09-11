@@ -1,7 +1,7 @@
 // src/App.js
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { useAuth } from './AuthContext';
+import { useAuth } from './context/AuthContext';
 import Dashboard from './pages/Dashboard';
 import AddApplication from './pages/AddApplication';
 import EditApplication from './pages/EditApplicationsTable';
@@ -9,14 +9,18 @@ import Login from './pages/Login';
 import EmployeeSearch from './pages/EmployeeSearch';
 import { ApplicationsProvider } from './context/ApplicationsProvider';
 import './App.css';
+import { Link } from 'react-router-dom';
 
 function App() {
+  const { isAuthenticated } = useAuth();
+  
   return (
     <Router>
       <ApplicationsProvider>
         <div className="app-container">
-          <Sidebar />
-          <div className="app-content">
+          {/* Сайдбар рендерится только для аутентифицированных пользователей */}
+          {isAuthenticated && <Sidebar />}
+          <div className={`app-content ${isAuthenticated ? 'app-content--with-sidebar' : ''}`}>
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
@@ -33,7 +37,7 @@ function App() {
 }
 
 function Sidebar() {
-  const { isAuthenticated, logout, user } = useAuth();
+  const { logout, user } = useAuth();
   const location = useLocation();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
@@ -54,14 +58,12 @@ function Sidebar() {
     setIsMobileOpen(false);
   };
 
-  if (!isAuthenticated) return null;
-
   const isActive = (path) => location.pathname === path;
 
   return (
     <>
       {/* Кнопка меню для мобильных */}
-      {isAuthenticated && isMobile && (
+      {isMobile && (
         <button 
           className="mobile-menu-toggle"
           onClick={() => setIsMobileOpen(!isMobileOpen)}
@@ -84,7 +86,7 @@ function Sidebar() {
             <span className="logo-icon">⚗️</span>
           </div>
           <div className="sidebar-title">
-            <h2>ИОХ Система</h2>
+            <h2>НИОХ Система</h2>
             <p>Учёт заявок</p>
           </div>
         </div>
@@ -92,28 +94,28 @@ function Sidebar() {
         <nav className="sidebar-nav">
           <ul>
             <li className={isActive('/') ? 'nav-item active' : 'nav-item'}>
-              <a href="/" className="nav-link" onClick={() => setIsMobileOpen(false)}>
+              <Link to="/" className="nav-link" onClick={() => setIsMobileOpen(false)}>
                 <span className="nav-icon">📊</span>
                 <span className="nav-text">Дашборд</span>
-              </a>
+              </Link>
             </li>
             <li className={isActive('/add') ? 'nav-item active' : 'nav-item'}>
-              <a href="/add" className="nav-link" onClick={() => setIsMobileOpen(false)}>
+              <Link to="/add" className="nav-link" onClick={() => setIsMobileOpen(false)}>
                 <span className="nav-icon">➕</span>
                 <span className="nav-text">Новая заявка</span>
-              </a>
+              </Link>
             </li>
             <li className={isActive('/edit/0') ? 'nav-item active' : 'nav-item'}>
-              <a href="/edit/0" className="nav-link" onClick={() => setIsMobileOpen(false)}>
+              <Link to="/edit/0" className="nav-link" onClick={() => setIsMobileOpen(false)}>
                 <span className="nav-icon">✏️</span>
                 <span className="nav-text">Редактирование</span>
-              </a>
+              </Link>
             </li>
             <li className={isActive('/employee-search') ? 'nav-item active' : 'nav-item'}>
-              <a href="/employee-search" className="nav-link" onClick={() => setIsMobileOpen(false)}>
+              <Link to="/employee-search" className="nav-link" onClick={() => setIsMobileOpen(false)}>
                 <span className="nav-icon">👥</span>
                 <span className="nav-text">Сотрудники</span>
-              </a>
+              </Link>
             </li>
           </ul>
         </nav>

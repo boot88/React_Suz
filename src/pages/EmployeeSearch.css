@@ -1,3 +1,4 @@
+/*
 .employee-search-container {
   padding: 30px;
   margin-left: 220px;
@@ -6,7 +7,24 @@
   background: #f8f9fa;
   background-image: linear-gradient(to bottom, #f8f9fa 0%, #e9ecef 100%);
   box-sizing: border-box;
+}*/
+
+.employee-search-container {
+  padding: 30px;
+  /*margin-left: 220px;*/ 
+  padding-left: 140px;
+  padding-right: 140px;
+  margin-left: 0px;
+  margin-right: 0px;
+  max-width: 100%;
+  min-height: 100vh;
+  background: #f8f9fa;
+  background-image: linear-gradient(to bottom, #f8f9fa 0%, #e9ecef 100%);
+  box-sizing: border-box;
 }
+
+
+
 
 .employee-search-header {
   text-align: center;

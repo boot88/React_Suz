@@ -194,9 +194,17 @@ const Dashboard = () => {
   const goToNextPage = () => goToPage(currentPage + 1);
 
   const formatDate = (dateString) => {
-    if (!dateString) return '—';
-    return new Date(dateString).toLocaleString('ru-RU');
-  };
+  if (!dateString) return '—';
+  return new Date(dateString).toLocaleDateString('ru-RU');
+};
+
+const formatTime = (dateString) => {
+  if (!dateString) return '—';
+  return new Date(dateString).toLocaleTimeString('ru-RU', {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
 
   const getStatusLabel = (fl) => {
     return fl ? (
@@ -435,6 +443,8 @@ const Dashboard = () => {
         </div>
       </div>
 
+     
+
       {/* Таблица */}
       {loading ? (
         <div className="loading-spinner">
@@ -448,8 +458,8 @@ const Dashboard = () => {
               <table className="applications-table">
                 <thead>
                   <tr>
-                    <th>ID</th>
-                    <th>Клиент</th>
+                   {/*<th>ID</th>*/} 
+                    <th>ФИО</th>
                     <th>Кабинет</th>
                     <th>Телефон</th>
                     <th>Заявка</th>
@@ -465,7 +475,7 @@ const Dashboard = () => {
                   {applications.length > 0 ? (
                     applications.map((app) => (
                       <tr key={app.id} className={app.fl ? 'row-completed' : ''}>
-                        <td className="cell-id">{app.id}</td>
+						  {/*<td className="cell-id">{app.id}</td>*/}
                         <td className="cell-name">{app.name}</td>
                         <td>{app.cabinet || '—'}</td>
                         <td>{app.N_tel || '—'}</td>
@@ -473,8 +483,8 @@ const Dashboard = () => {
                         <td className="cell-process">{app.process || '—'}</td>
                         <td>{app.executor || 'Не назначен'}</td>
                         <td className="cell-date">{formatDate(app.data)}</td>
-                        <td className="cell-date">{formatDate(app.start_data)}</td>
-                        <td className="cell-date">{formatDate(app.end_data)}</td>
+                        <td className="cell-date">{formatTime(app.start_data)}</td>
+                        <td className="cell-date">{formatTime(app.end_data)}</td>
                         <td>{getStatusLabel(app.fl)}</td>
                       </tr>
                     ))

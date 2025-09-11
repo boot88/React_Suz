@@ -1,7 +1,9 @@
 .add-application-container {
   padding: 30px;
-  margin-left: 220px;
-  max-width: 1000px;
+  /*margin-left: 220px;*/
+  padding-left: 170px;
+  padding-right: 170px;
+  max-width: 100%;
   min-height: 100vh;
   background: #f8f9fa;
   background-image: linear-gradient(to bottom, #f8f9fa 0%, #e9ecef 100%);

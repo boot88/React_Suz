@@ -6,6 +6,11 @@
   background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
 }
 
+.app-content--with-sidebar {
+  margin-left: 280px;
+  width: calc(100% - 280px);
+}
+
 .app-content {
   flex: 1;
   /*margin-left: 280px;*/
