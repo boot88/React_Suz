@@ -10,6 +10,7 @@ import EmployeeSearch from './pages/EmployeeSearch';
 import { ApplicationsProvider } from './context/ApplicationsProvider';
 import './App.css';
 import { Link } from 'react-router-dom';
+import Support from './components/Support';
 
 function App() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -38,6 +39,7 @@ function App() {
               <Route path="/edit/:id" element={<ProtectedRoute><EditApplication /></ProtectedRoute>} />
               <Route path="/employee-search" element={<ProtectedRoute><EmployeeSearch /></ProtectedRoute>} />
               <Route path="*" element={<Navigate to="/" replace />} />
+			  <Route path="/support" element={<Support />} />
             </Routes>
           </div>
         </div>
