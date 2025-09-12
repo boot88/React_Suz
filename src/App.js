@@ -12,7 +12,17 @@ import './App.css';
 import { Link } from 'react-router-dom';
 
 function App() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
+  
+  // Показываем загрузку пока проверяем аутентификацию
+  if (isLoading) {
+    return (
+      <div className="app-loading">
+        <div className="spinner"></div>
+        <p>Проверка авторизации...</p>
+      </div>
+    );
+  }
   
   return (
     <Router>
@@ -141,7 +151,17 @@ function Sidebar() {
 }
 
 function ProtectedRoute({ children }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
+  
+  if (isLoading) {
+    return (
+      <div className="app-loading">
+        <div className="spinner"></div>
+        <p>Проверка авторизации...</p>
+      </div>
+    );
+  }
+  
   return !isAuthenticated ? <Navigate to="/login" replace /> : children;
 }
 

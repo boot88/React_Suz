@@ -1,0 +1,72 @@
+[33mcommit 50733a3c9dd14a3628a37a5efb0d2049d6f5005b[m[33m ([m[1;36mHEAD -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m
+Author: John <povisok888@gmail.com>
+Date:   Thu Sep 11 16:53:23 2025 +0700
+
+    работает с 15 минутами
+
+[33mcommit 5f78b02f4411604c681c71c112d9f40a7911360a[m
+Author: John <povisok888@gmail.com>
+Date:   Wed Sep 10 17:02:02 2025 +0700
+
+    Работает на лок.
+
+[33mcommit 46e8824f25b9f48b4c513affbfc2aba69bacbed6[m
+Author: John <povisok888@gmail.com>
+Date:   Mon Sep 8 17:49:59 2025 +0700
+
+    fix: add pg package for postgresql
+
+[33mcommit 9a0759057cd0d89d3bc495fadaac8f98735c1477[m
+Author: John <povisok888@gmail.com>
+Date:   Mon Sep 8 17:27:01 2025 +0700
+
+    build: successful build with minor eslint warning2
+
+[33mcommit 52234d957f9699f4ef153abda0821598b64e49ca[m
+Author: John <povisok888@gmail.com>
+Date:   Mon Sep 8 16:49:12 2025 +0700
+
+    build: successful build with minor eslint warning
+
+[33mcommit 110e8af2fc7a7b76514c8e890f53d76bb3c9006e[m
+Author: John <povisok888@gmail.com>
+Date:   Mon Sep 8 16:36:19 2025 +0700
+
+    fix: correct project structure for deployment
+
+[33mcommit 98eabc2ff1252c42f1a593ec5a8fd7d209dd7c16[m
+Merge: f1b7526 ab571fa
+Author: John <povisok888@gmail.com>
+Date:   Mon Sep 8 12:51:41 2025 +0700
+
+    Merge branch 'main' of https://github.com/boot88/React_Suz
+
+[33mcommit f1b7526677d3ed42e31f9fd913ba27382bd63693[m
+Author: John <povisok888@gmail.com>
+Date:   Mon Sep 8 12:49:11 2025 +0700
+
+    Добавлена новая папка client
+
+[33mcommit ab571fa5cc125c462e7d9cf83fb52158983f7c15[m
+Author: boot88 <116805971+boot88@users.noreply.github.com>
+Date:   Mon Sep 8 10:32:11 2025 +0700
+
+    Update package.json
+
+[33mcommit 24fffc7e0110fe2efb80dcde9ae17acc14b5d62c[m
+Author: boot88 <116805971+boot88@users.noreply.github.com>
+Date:   Mon Sep 8 10:26:47 2025 +0700
+
+    Create Procfile
+
+[33mcommit 8507a72864f1a7afe0e76e1a4bc6ada8787e3eed[m
+Author: John <povisok888@gmail.com>
+Date:   Fri Sep 5 17:49:33 2025 +0700
+
+    первый коммит
+
+[33mcommit 3c11b873cf12eb886e8c22a848f6eaf7b67fef8e[m[33m ([m[1;32mmaster[m[33m)[m
+Author: John <povisok888@gmail.com>
+Date:   Fri Sep 5 17:33:00 2025 +0700
+
+    Initial commit

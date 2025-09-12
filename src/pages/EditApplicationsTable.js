@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-//import { useNavigate } from 'react-router-dom';
 import './EditApplicationsTable.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 
 function EditApplicationsTable() {
-  //const navigate = useNavigate();
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -15,8 +13,7 @@ function EditApplicationsTable() {
   const [totalPages, setTotalPages] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [totalItems, setTotalItems] = useState(0);
-
-  //const API_BASE_URL = 'http://localhost:5000/api';
+  const [fieldErrors, setFieldErrors] = useState({});
 
   // Функция для загрузки данных
   const fetchApplications = useCallback(async () => {
@@ -41,26 +38,160 @@ function EditApplicationsTable() {
       setError('Не удалось загрузить данные. Проверьте подключение к серверу.');
       setLoading(false);
     }
-  }, [currentPage, itemsPerPage, API_BASE_URL]);
+  }, [currentPage, itemsPerPage]);
 
   useEffect(() => {
     fetchApplications();
   }, [fetchApplications]);
 
+  // Валидация полей
+  const validateField = (name, value) => {
+    let error = '';
+    
+    switch(name) {
+      case 'name':
+        if (!value || value.trim() === '') {
+          error = 'ФИО обязательно для заполнения';
+        } else if (value.length > 40) {
+          error = 'Максимум 40 символов';
+        } else if (!/^[а-яА-ЯёЁ\s]+$/.test(value)) {
+          error = 'Только русские буквы и пробелы';
+        }
+        break;
+        
+      case 'cabinet':
+        if (value && value.length > 15) {
+          error = 'Максимум 15 символов';
+        } else if (value && !/^[а-яА-ЯёЁ0-9\s,\-]+$/.test(value)) {
+          error = 'Только цифры, русские буквы, пробелы, запятые, дефис';
+        }
+        break;
+        
+      case 'N_tel':
+        if (value && value.length > 15) {
+          error = 'Максимум 15 символов';
+        } else if (value && !/^[0-9\s\-]+$/.test(value)) {
+          error = 'Только цифры, пробел и дефис';
+        }
+        break;
+        
+      case 'application':
+        if (!value || value.trim() === '') {
+          error = 'Заявка обязательна для заполнения';
+        } else if (value.length > 500) {
+          error = 'Максимум 500 символов';
+        }
+        break;
+        
+      case 'process':
+        if (value && value.length > 1500) {
+          error = 'Максимум 1500 символов';
+        }
+        break;
+        
+      case 'executor':
+        if (value && value.length > 60) {
+          error = 'Максимум 60 символов';
+        } else if (value && !/^[а-яА-ЯёЁ\s,\.]+$/.test(value)) {
+          error = 'Только русские буквы, пробелы, запятые, точка';
+        }
+        break;
+        
+      default:
+        break;
+    }
+    
+    return error;
+  };
+
   // Начало редактирования записи
   const startEditing = (app) => {
     setEditing(true);
     setEditingApp({...app});
+    setFieldErrors({});
+  };
+
+  // Обработчик изменения полей с валидацией
+  const handleChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    
+    let processedValue = type === 'checkbox' ? checked : value;
+    
+    // Обработка полей даты
+    if (name === 'data') {
+      // Для даты подачи сохраняем только дату (без времени)
+      if (value) {
+        const date = new Date(value);
+        processedValue = date.toISOString().split('T')[0];
+      } else {
+        processedValue = null;
+      }
+    } else if (name === 'start_data' || name === 'end_data') {
+      // Для даты начала/окончания сохраняем дату и время
+      if (value) {
+        const date = new Date(value);
+        processedValue = date.toISOString();
+      } else {
+        processedValue = null;
+      }
+    }
+    
+    // Валидация поля
+    const error = validateField(name, processedValue);
+    setFieldErrors(prev => ({
+      ...prev,
+      [name]: error
+    }));
+    
+    setEditingApp(prev => ({
+      ...prev,
+      [name]: processedValue
+    }));
+  };
+
+  // Проверка всей формы перед отправкой
+  const validateForm = () => {
+    const errors = {};
+    let isValid = true;
+    
+    // Проверяем обязательные поля
+    const nameError = validateField('name', editingApp.name);
+    if (nameError) {
+      errors.name = nameError;
+      isValid = false;
+    }
+    
+    const applicationError = validateField('application', editingApp.application);
+    if (applicationError) {
+      errors.application = applicationError;
+      isValid = false;
+    }
+    
+    // Проверяем необязательные поля
+    const cabinetError = validateField('cabinet', editingApp.cabinet);
+    if (cabinetError) errors.cabinet = cabinetError;
+    
+    const telError = validateField('N_tel', editingApp.N_tel);
+    if (telError) errors.N_tel = telError;
+    
+    const processError = validateField('process', editingApp.process);
+    if (processError) errors.process = processError;
+    
+    const executorError = validateField('executor', editingApp.executor);
+    if (executorError) errors.executor = executorError;
+    
+    setFieldErrors(errors);
+    return isValid;
   };
 
   // Сохранение изменений
   const saveChanges = async () => {
-    try {
-      if (!editingApp.id || !editingApp.name || !editingApp.name.trim()) {
-        alert('Имя клиента не может быть пустым');
-        return;
-      }
+    if (!validateForm()) {
+      alert('Пожалуйста, исправьте ошибки в форме');
+      return;
+    }
 
+    try {
       const response = await fetch(`${API_BASE_URL}/applications/${editingApp.id}`, {
         method: 'PUT',
         headers: { 
@@ -89,6 +220,7 @@ function EditApplicationsTable() {
   const cancelEditing = () => {
     setEditing(false);
     setEditingApp({});
+    setFieldErrors({});
   };
 
   // Удаление записи
@@ -125,27 +257,25 @@ function EditApplicationsTable() {
     }
   };
 
-  // Обработчик изменения полей
-  const handleChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    
-    let processedValue = type === 'checkbox' ? checked : value;
-    
-    if (name === 'data' || name === 'start_data' || name === 'end_data') {
-      if (value) {
-        processedValue = new Date(value).toISOString();
-      } else {
-        processedValue = null;
-      }
-    }
-    
-    setEditingApp(prev => ({
-      ...prev,
-      [name]: processedValue
-    }));
+  // Функция для преобразования даты в формат YYYY-MM-DD (без времени)
+  const formatDateForInput = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    return date.toISOString().split('T')[0];
   };
 
-  // Пагинация
+  // Функция для преобразования даты и времени в формат для input[type="datetime-local"]
+  const formatDateTimeForInput = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    
+    // Корректируем смещение времени (убираем смещение на 17 часов)
+    const correctedDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
+    
+    return correctedDate.toISOString().slice(0, 16);
+  };
+
+  // Пагинация (как в Dashboard)
   const getVisiblePages = () => {
     const visiblePages = 6;
     const halfVisible = Math.floor(visiblePages / 2);
@@ -171,16 +301,78 @@ function EditApplicationsTable() {
   const goToPrevPage = () => goToPage(currentPage - 1);
   const goToNextPage = () => goToPage(currentPage + 1);
 
-  // Форматирование даты
+  // Форматирование даты для отображения
   const formatDate = (dateString) => {
     if (!dateString) return '—';
-    return new Date(dateString).toLocaleString('ru-RU', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
+    return new Date(dateString).toLocaleDateString('ru-RU');
+  };
+
+  // Форматирование времени для отображения
+  const formatTime = (dateString) => {
+    if (!dateString) return '—';
+    return new Date(dateString).toLocaleTimeString('ru-RU', {
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  // Рендер пагинации (как в Dashboard)
+  const renderPagination = () => {
+    if (totalPages <= 1) return null;
+
+    return (
+      <div className="pagination">
+        <button
+          onClick={goToFirstPage}
+          disabled={currentPage === 1}
+          className="pagination-btn"
+          title="Первая страница"
+        >
+          ««
+        </button>
+        
+        <button
+          onClick={goToPrevPage}
+          disabled={currentPage === 1}
+          className="pagination-btn"
+          title="Предыдущая страница"
+        >
+          «
+        </button>
+
+        {getVisiblePages().map((page) => (
+          <button
+            key={page}
+            onClick={() => goToPage(page)}
+            className={`pagination-btn ${currentPage === page ? 'active' : ''}`}
+          >
+            {page}
+          </button>
+        ))}
+
+        <button
+          onClick={goToNextPage}
+          disabled={currentPage === totalPages}
+          className="pagination-btn"
+          title="Следующая страница"
+        >
+          »
+        </button>
+        
+        <button
+          onClick={goToLastPage}
+          disabled={currentPage === totalPages}
+          className="pagination-btn"
+          title="Последняя страница"
+        >
+          »»
+        </button>
+
+        <span className="pagination-info">
+          Страница {currentPage} из {totalPages}
+        </span>
+      </div>
+    );
   };
 
   if (loading && applications.length === 0) {
@@ -229,49 +421,75 @@ function EditApplicationsTable() {
           <form onSubmit={(e) => { e.preventDefault(); saveChanges(); }}>
             <div className="form-grid">
               <div className="form-group">
-                <label>ID:</label>
-                <input type="text" value={editingApp.id} disabled />
-              </div>
-              
-              <div className="form-group">
-                <label>Клиент *</label>
+                <label>ФИО научного сотрудника *</label>
                 <input 
                   type="text" 
                   name="name" 
                   value={editingApp.name || ''} 
                   onChange={handleChange} 
+                  maxLength={40}
+                  className={fieldErrors.name ? 'error' : ''}
                   required
                 />
+                {fieldErrors.name && <span className="field-error">{fieldErrors.name}</span>}
+                <div className="character-count">{(editingApp.name || '').length}/40</div>
               </div>
               
               <div className="form-group">
-                <label>Кабинет</label>
+                <label>Лаборатория/Кабинет</label>
                 <input 
                   type="text" 
                   name="cabinet" 
                   value={editingApp.cabinet || ''} 
                   onChange={handleChange} 
+                  maxLength={15}
+                  className={fieldErrors.cabinet ? 'error' : ''}
                 />
+                {fieldErrors.cabinet && <span className="field-error">{fieldErrors.cabinet}</span>}
+                <div className="character-count">{(editingApp.cabinet || '').length}/15</div>
               </div>
               
               <div className="form-group">
-                <label>Телефон</label>
+                <label>Внутренний телефон</label>
                 <input 
                   type="text" 
                   name="N_tel" 
                   value={editingApp.N_tel || ''} 
                   onChange={handleChange} 
+                  maxLength={15}
+                  className={fieldErrors.N_tel ? 'error' : ''}
                 />
+                {fieldErrors.N_tel && <span className="field-error">{fieldErrors.N_tel}</span>}
+                <div className="character-count">{(editingApp.N_tel || '').length}/15</div>
               </div>
               
-              <div className="form-group">
-                <label>Процесс</label>
-                <input 
-                  type="text" 
+              <div className="form-group full-width">
+                <label>Суть заявки *</label>
+                <textarea 
+                  name="application" 
+                  value={editingApp.application || ''} 
+                  onChange={handleChange}
+                  rows="3"
+                  maxLength={500}
+                  className={fieldErrors.application ? 'error' : ''}
+                  required
+                />
+                <div className="character-count">{(editingApp.application || '').length}/500</div>
+                {fieldErrors.application && <span className="field-error">{fieldErrors.application}</span>}
+              </div>
+              
+              <div className="form-group full-width">
+                <label>Выполненные работы</label>
+                <textarea 
                   name="process" 
                   value={editingApp.process || ''} 
-                  onChange={handleChange} 
+                  onChange={handleChange}
+                  rows="3"
+                  maxLength={1500}
+                  className={fieldErrors.process ? 'error' : ''}
                 />
+                <div className="character-count">{(editingApp.process || '').length}/1500</div>
+                {fieldErrors.process && <span className="field-error">{fieldErrors.process}</span>}
               </div>
               
               <div className="form-group">
@@ -281,26 +499,19 @@ function EditApplicationsTable() {
                   name="executor" 
                   value={editingApp.executor || ''} 
                   onChange={handleChange} 
+                  maxLength={60}
+                  className={fieldErrors.executor ? 'error' : ''}
                 />
-              </div>
-              
-              <div className="form-group full-width">
-                <label>Заявка *</label>
-                <textarea 
-                  name="application" 
-                  value={editingApp.application || ''} 
-                  onChange={handleChange}
-                  rows="3"
-                  required
-                />
+                {fieldErrors.executor && <span className="field-error">{fieldErrors.executor}</span>}
+                <div className="character-count">{(editingApp.executor || '').length}/60</div>
               </div>
               
               <div className="form-group">
                 <label>Дата подачи</label>
                 <input 
-                  type="datetime-local" 
+                  type="date" 
                   name="data" 
-                  value={editingApp.data ? new Date(editingApp.data).toISOString().slice(0, 16) : ''} 
+                  value={formatDateForInput(editingApp.data)} 
                   onChange={handleChange} 
                 />
               </div>
@@ -310,7 +521,7 @@ function EditApplicationsTable() {
                 <input 
                   type="datetime-local" 
                   name="start_data" 
-                  value={editingApp.start_data ? new Date(editingApp.start_data).toISOString().slice(0, 16) : ''} 
+                  value={formatDateTimeForInput(editingApp.start_data)} 
                   onChange={handleChange} 
                 />
               </div>
@@ -320,7 +531,7 @@ function EditApplicationsTable() {
                 <input 
                   type="datetime-local" 
                   name="end_data" 
-                  value={editingApp.end_data ? new Date(editingApp.end_data).toISOString().slice(0, 16) : ''} 
+                  value={formatDateTimeForInput(editingApp.end_data)} 
                   onChange={handleChange} 
                 />
               </div>
@@ -362,7 +573,6 @@ function EditApplicationsTable() {
                 <table className="applications-table">
                   <thead>
                     <tr>
-                      <th>ID</th>
                       <th>Клиент</th>
                       <th>Кабинет</th>
                       <th>Телефон</th>
@@ -370,6 +580,8 @@ function EditApplicationsTable() {
                       <th>Процесс</th>
                       <th>Исполнитель</th>
                       <th>Дата подачи</th>
+                      <th>Начало</th>
+                      <th>Окончание</th>
                       <th>Статус</th>
                       <th>Действия</th>
                     </tr>
@@ -377,7 +589,6 @@ function EditApplicationsTable() {
                   <tbody>
                     {applications.map(app => (
                       <tr key={app.id} className={app.fl ? 'completed' : ''}>
-                        <td className="cell-id">{app.id}</td>
                         <td className="cell-name">{app.name}</td>
                         <td>{app.cabinet || '—'}</td>
                         <td>{app.N_tel || '—'}</td>
@@ -385,6 +596,8 @@ function EditApplicationsTable() {
                         <td className="cell-process">{app.process || '—'}</td>
                         <td>{app.executor || '—'}</td>
                         <td className="cell-date">{formatDate(app.data)}</td>
+                        <td className="cell-date">{formatTime(app.start_data)}</td>
+                        <td className="cell-date">{formatTime(app.end_data)}</td>
                         <td>
                           <span className={`status-badge ${app.fl ? 'completed' : 'pending'}`}>
                             {app.fl ? '✅ Выполнено' : '⏳ В процессе'}
@@ -414,60 +627,8 @@ function EditApplicationsTable() {
                 </table>
               </div>
 
-              {/* Пагинация */}
-              {totalPages > 1 && (
-                <div className="pagination">
-                  <button
-                    onClick={goToFirstPage}
-                    disabled={currentPage === 1}
-                    className="pagination-btn"
-                    title="Первая страница"
-                  >
-                    ««
-                  </button>
-                  
-                  <button
-                    onClick={goToPrevPage}
-                    disabled={currentPage === 1}
-                    className="pagination-btn"
-                    title="Предыдущая страница"
-                  >
-                    «
-                  </button>
-
-                  {getVisiblePages().map((page) => (
-                    <button
-                      key={page}
-                      onClick={() => goToPage(page)}
-                      className={`pagination-btn ${currentPage === page ? 'active' : ''}`}
-                    >
-                      {page}
-                    </button>
-                  ))}
-
-                  <button
-                    onClick={goToNextPage}
-                    disabled={currentPage === totalPages}
-                    className="pagination-btn"
-                    title="Следующая страница"
-                  >
-                    »
-                  </button>
-                  
-                  <button
-                    onClick={goToLastPage}
-                    disabled={currentPage === totalPages}
-                    className="pagination-btn"
-                    title="Последняя страница"
-                  >
-                    »»
-                  </button>
-
-                  <span className="pagination-info">
-                    Страница {currentPage} из {totalPages}
-                  </span>
-                </div>
-              )}
+              {/* Пагинация (как в Dashboard) */}
+              {renderPagination()}
             </>
           )}
         </>

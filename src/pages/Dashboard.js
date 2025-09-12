@@ -3,26 +3,6 @@ import * as XLSX from 'xlsx';
 import './Dashboard.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 
-
-/*
-const getApiBaseUrl = () => {
-  const { hostname } = window.location;
-  
-  // Если мы в development (localhost или локальный IP)
-  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '192.168.1.35') {
-    return 'http://192.168.1.35:5000';
-  }
-  
-  // Для продакшена (Render) - используем относительный путь
-  return '';
-};
-
-const API_BASE_URL = getApiBaseUrl();
-*/
-
-
-
-
 const Dashboard = () => {
   const [applications, setApplications] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
@@ -46,6 +26,7 @@ const Dashboard = () => {
 
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [dateFilterActive, setDateFilterActive] = useState(false);
 
   // Функция для экспорта ВСЕХ данных без фильтров
   const exportToExcel = async () => {
@@ -57,10 +38,8 @@ const Dashboard = () => {
       if (fromDate) url += `${url.includes('?') ? '&' : '?'}from=${fromDate}`;
       if (toDate) url += `${url.includes('?') ? '&' : '?'}to=${toDate}`;
 
-      //const response = await fetch(`http://localhost:5000${url}`);
       const response = await fetch(`${API_BASE_URL}${url}`);
-	  
-	  const data = await response.json();
+      const data = await response.json();
       const allApplications = data.applications || [];
 
       if (allApplications.length === 0) {
@@ -110,9 +89,8 @@ const Dashboard = () => {
 
   const fetchGeneralStats = async () => {
     try {
-      //const response = await fetch('http://localhost:5000/api/applications?limit=1');
       const response = await fetch(`${API_BASE_URL}/applications?limit=1`);
-	  const data = await response.json();
+      const data = await response.json();
       setStats(data.stats || { total: 0, completed: 0, pending: 0 });
     } catch (error) {
       console.error('Ошибка загрузки статистики:', error);
@@ -123,14 +101,21 @@ const Dashboard = () => {
     setLoading(true);
     try {
       let url = `/applications?page=${currentPage}&limit=${limit}`;
-      if (filter === 'done') url += '&status=done';
-      if (filter === 'pending') url += '&status=pending';
-      if (fromDate) url += `&from=${fromDate}`;
-      if (toDate) url += `&to=${toDate}`;
+      
+      // Если активен фильтр по дате, применяем его вместе с другими фильтрами
+      if (dateFilterActive) {
+        if (filter === 'done') url += '&status=done';
+        if (filter === 'pending') url += '&status=pending';
+        if (fromDate) url += `&from=${fromDate}`;
+        if (toDate) url += `&to=${toDate}`;
+      } else {
+        // Если фильтр по дате не активен, применяем только фильтр по статусу
+        if (filter === 'done') url += '&status=done';
+        if (filter === 'pending') url += '&status=pending';
+      }
 
-      //const response = await fetch(`http://localhost:5000${url}`);
       const response = await fetch(`${API_BASE_URL}${url}`);
-	  const data = await response.json();
+      const data = await response.json();
 
       setApplications(data.applications || []);
       setTotalPages(data.totalPages || 1);
@@ -150,15 +135,18 @@ const Dashboard = () => {
   useEffect(() => {
     fetchApplications();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, limit, filter, fromDate, toDate]);
+  }, [currentPage, limit, filter, fromDate, toDate, dateFilterActive]);
 
   const setFilterAndResetPage = (newFilter) => {
     setFilter(newFilter);
     setCurrentPage(1);
+    // При переключении между статусами сбрасываем фильтр по дате
+    setDateFilterActive(false);
   };
 
   const applyFilters = () => {
     setCurrentPage(1);
+    setDateFilterActive(true);
   };
 
   const clearFilters = () => {
@@ -166,6 +154,7 @@ const Dashboard = () => {
     setFromDate('');
     setToDate('');
     setCurrentPage(1);
+    setDateFilterActive(false);
   };
 
   const getVisiblePages = () => {
@@ -194,17 +183,17 @@ const Dashboard = () => {
   const goToNextPage = () => goToPage(currentPage + 1);
 
   const formatDate = (dateString) => {
-  if (!dateString) return '—';
-  return new Date(dateString).toLocaleDateString('ru-RU');
-};
+    if (!dateString) return '—';
+    return new Date(dateString).toLocaleDateString('ru-RU');
+  };
 
-const formatTime = (dateString) => {
-  if (!dateString) return '—';
-  return new Date(dateString).toLocaleTimeString('ru-RU', {
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-};
+  const formatTime = (dateString) => {
+    if (!dateString) return '—';
+    return new Date(dateString).toLocaleTimeString('ru-RU', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
 
   const getStatusLabel = (fl) => {
     return fl ? (
@@ -219,27 +208,6 @@ const formatTime = (dateString) => {
       </span>
     );
   };
-
-  const getDisplayStats = () => {
-    if (filter === 'all') {
-      return stats;
-    } else if (filter === 'done') {
-      return {
-        total: stats.total,
-        completed: filteredStats.total,
-        pending: stats.pending
-      };
-    } else if (filter === 'pending') {
-      return {
-        total: stats.total,
-        completed: stats.completed,
-        pending: filteredStats.total
-      };
-    }
-    return stats;
-  };
-
-  const displayStats = getDisplayStats();
 
   const renderPagination = () => {
     if (totalPages <= 1) return null;
@@ -324,49 +292,59 @@ const formatTime = (dateString) => {
         </button>
       </div>
 
-      {/* Статистика */}
+      {/* Статистика - всегда статическая */}
       <div className="stats-grid">
         <div 
-          className={`stat-card ${filter === 'all' ? 'stat-active' : ''}`}
-          onClick={() => setFilterAndResetPage('all')}
+          className={`stat-card ${filter === 'all' && !dateFilterActive ? 'stat-active' : ''}`}
+          onClick={() => {
+            setFilterAndResetPage('all');
+            setFromDate('');
+            setToDate('');
+          }}
         >
           <span className="stat-label">📊 Всего заявок</span>
           <div className="stat-number">
-            {displayStats.total}
+            {stats.total}
           </div>
           <small>Всего в системе</small>
         </div>
 
         <div 
-          className={`stat-card stat-completed ${filter === 'done' ? 'stat-active' : ''}`}
+          className={`stat-card stat-completed ${filter === 'done' && !dateFilterActive ? 'stat-active' : ''}`}
           onClick={() => setFilterAndResetPage('done')}
         >
           <span className="stat-label">✅ Выполнено</span>
           <div className="stat-number">
-            {displayStats.completed}
+            {stats.completed}
           </div>
           <small>Успешно закрыто</small>
         </div>
 
         <div 
-          className={`stat-card stat-pending ${filter === 'pending' ? 'stat-active' : ''}`}
+          className={`stat-card stat-pending ${filter === 'pending' && !dateFilterActive ? 'stat-active' : ''}`}
           onClick={() => setFilterAndResetPage('pending')}
         >
           <span className="stat-label">🔄 В работе</span>
           <div className="stat-number">
-            {displayStats.pending}
+            {stats.pending}
           </div>
           <small>Требуют внимания</small>
         </div>
       </div>
 
       {/* Информация о текущем фильтре */}
-      {filter !== 'all' && (
+      {(filter !== 'all' || dateFilterActive) && (
         <div className="filter-info">
           <strong>Текущий фильтр:</strong> 
-          {filter === 'done' 
-            ? ` Показаны выполненные заявки: ${filteredStats.total} из ${stats.completed}` 
-            : ` Показаны заявки в работе: ${filteredStats.total} из ${stats.pending}`
+          {dateFilterActive 
+            ? filter === 'done' 
+              ? ` Показаны выполненные заявки за период: ${filteredStats.total} из ${stats.completed}` 
+              : filter === 'pending'
+              ? ` Показаны заявки в работе за период: ${filteredStats.total} из ${stats.pending}`
+              : ` Показаны все заявки за период: ${filteredStats.total} из ${stats.total}`
+            : filter === 'done' 
+            ? ` Показаны все выполненные заявки: ${filteredStats.total} из ${stats.completed}` 
+            : ` Показаны все заявки в работе: ${filteredStats.total} из ${stats.pending}`
           }
           {fromDate && ` с ${fromDate}`}
           {toDate && ` по ${toDate}`}
@@ -378,7 +356,7 @@ const formatTime = (dateString) => {
         <div className="filters-group">
           <h3>
             <span className="filter-icon">🔍</span>
-            Фильтры
+            Фильтры по дате
           </h3>
           <div className="date-filters">
             <div className="filter-group">
@@ -406,11 +384,11 @@ const formatTime = (dateString) => {
             <div className="filter-actions">
               <button onClick={applyFilters} className="btn-primary">
                 <span className="science-icon">✅</span>
-                Применить
+                Применить фильтр по дате
               </button>
               <button onClick={clearFilters} className="btn-secondary">
                 <span className="science-icon">🔄</span>
-                Сбросить
+                Сбросить все фильтры
               </button>
             </div>
           </div>
@@ -443,8 +421,6 @@ const formatTime = (dateString) => {
         </div>
       </div>
 
-     
-
       {/* Таблица */}
       {loading ? (
         <div className="loading-spinner">
@@ -458,7 +434,6 @@ const formatTime = (dateString) => {
               <table className="applications-table">
                 <thead>
                   <tr>
-                   {/*<th>ID</th>*/} 
                     <th>ФИО</th>
                     <th>Кабинет</th>
                     <th>Телефон</th>
@@ -475,7 +450,6 @@ const formatTime = (dateString) => {
                   {applications.length > 0 ? (
                     applications.map((app) => (
                       <tr key={app.id} className={app.fl ? 'row-completed' : ''}>
-						  {/*<td className="cell-id">{app.id}</td>*/}
                         <td className="cell-name">{app.name}</td>
                         <td>{app.cabinet || '—'}</td>
                         <td>{app.N_tel || '—'}</td>
@@ -490,7 +464,7 @@ const formatTime = (dateString) => {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan="11" className="no-data">
+                      <td colSpan="10" className="no-data">
                         <span className="science-icon">🔍</span>
                         Нет заявок по данному фильтру
                       </td>

@@ -628,3 +628,83 @@ input[type="checkbox"] {
   pointer-events: none;
   z-index: -1;
 }
+
+
+/* Добавьте эти стили в EditApplicationsTable.css */
+
+.character-count {
+  font-size: 12px;
+  color: #7f8c8d;
+  text-align: right;
+  margin-top: 5px;
+}
+
+.character-count:empty {
+  display: none;
+}
+
+.field-error {
+  color: #e74c3c;
+  font-size: 12px;
+  margin-top: 5px;
+  display: block;
+}
+
+.form-group input.error,
+.form-group textarea.error {
+  border-color: #e74c3c;
+  box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1);
+}
+
+/* Стили для пагинации как в Dashboard */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 25px;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+}
+
+.pagination-btn {
+  padding: 10px 16px;
+  border: 2px solid #e2e8f0;
+  background: white;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 45px;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background: #2c5aa0;
+  color: white;
+  border-color: #2c5aa0;
+  transform: translateY(-1px);
+}
+
+.pagination-btn.active {
+  background: linear-gradient(135deg, #2c5aa0 0%, #4caf50 100%);
+  color: white;
+  border-color: transparent;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.pagination-info {
+  margin-left: 20px;
+  color: #718096;
+  font-size: 14px;
+  font-weight: 600;
+}

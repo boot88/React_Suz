@@ -10,6 +10,7 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState(null);
+  const [isLoading, setIsLoading] = useState(true); // Добавляем состояние загрузки
 
   const login = (username) => {
     setIsAuthenticated(true);
@@ -29,24 +30,31 @@ export const AuthProvider = ({ children }) => {
   useInactivityTimer(logout, 15 * 60 * 1000);
 
   useEffect(() => {
-  try {
-    const auth = localStorage.getItem('isAuthenticated');
-    const userData = localStorage.getItem('user');
-    
-    if (auth === 'true' && userData) {
-      setIsAuthenticated(true);
-      setUser(userData);
-    }
-  } catch (error) {
-    console.error('Ошибка при чтении из localStorage:', error);
-  }
-}, []);
+    const checkAuth = async () => {
+      try {
+        const auth = localStorage.getItem('isAuthenticated');
+        const userData = localStorage.getItem('user');
+        
+        if (auth === 'true' && userData) {
+          setIsAuthenticated(true);
+          setUser(userData);
+        }
+      } catch (error) {
+        console.error('Ошибка при чтении из localStorage:', error);
+      } finally {
+        setIsLoading(false); // Завершаем загрузку независимо от результата
+      }
+    };
+
+    checkAuth();
+  }, []);
 
   const value = {
     isAuthenticated,
     user,
     login,
-    logout
+    logout,
+    isLoading // Добавляем состояние загрузки в контекст
   };
 
   return (

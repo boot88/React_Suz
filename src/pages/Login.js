@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import './Login.css';
 
 const Login = () => {
-  const { login, isAuthenticated } = useAuth();
+  const { login, isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   
@@ -13,16 +13,16 @@ const Login = () => {
     password: ''
   });
   const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   // Если пользователь уже авторизован, перенаправляем его
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && !isLoading) {
       const from = location.state?.from?.pathname || '/';
       navigate(from, { replace: true });
     }
-  }, [isAuthenticated, navigate, location]);
+  }, [isAuthenticated, isLoading, navigate, location]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -36,7 +36,7 @@ const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setIsLoading(true);
+    setIsSubmitting(true);
     setError('');
 
     try {
@@ -54,7 +54,7 @@ const Login = () => {
       setError('Произошла ошибка при входе. Попробуйте снова.');
       console.error('Login error:', err);
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
 
@@ -68,7 +68,19 @@ const Login = () => {
     setFormData(demoCredentials[role]);
   };
 
-  // Если уже авторизован, показываем загрузку
+  // Показываем загрузку пока проверяем аутентификацию
+  if (isLoading) {
+    return (
+      <div className="login-container">
+        <div className="login-loading">
+          <div className="spinner"></div>
+          <p>Проверка авторизации...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Если уже авторизован, показываем загрузку перенаправления
   if (isAuthenticated) {
     return (
       <div className="login-container">
@@ -110,7 +122,7 @@ const Login = () => {
               placeholder="Введите ваш логин"
               value={formData.username}
               onChange={handleChange}
-              disabled={isLoading}
+              disabled={isSubmitting}
               required
             />
           </div>
@@ -125,7 +137,7 @@ const Login = () => {
                 placeholder="Введите ваш пароль"
                 value={formData.password}
                 onChange={handleChange}
-                disabled={isLoading}
+                disabled={isSubmitting}
                 required
               />
               <button
@@ -142,9 +154,9 @@ const Login = () => {
           <button 
             type="submit" 
             className="login-button"
-            disabled={isLoading}
+            disabled={isSubmitting}
           >
-            {isLoading ? (
+            {isSubmitting ? (
               <>
                 <div className="button-spinner"></div>
                 Вход...
@@ -162,7 +174,7 @@ const Login = () => {
               type="button" 
               className="demo-button admin"
               onClick={() => handleDemoLogin('admin')}
-              disabled={isLoading}
+              disabled={isSubmitting}
             >
               Администратор
             </button>
@@ -170,7 +182,7 @@ const Login = () => {
               type="button" 
               className="demo-button tech"
               onClick={() => handleDemoLogin('tech')}
-              disabled={isLoading}
+              disabled={isSubmitting}
             >
               Техник
             </button>
@@ -178,7 +190,7 @@ const Login = () => {
               type="button" 
               className="demo-button user"
               onClick={() => handleDemoLogin('user')}
-              disabled={isLoading}
+              disabled={isSubmitting}
             >
               Пользователь
             </button>
