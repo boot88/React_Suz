@@ -592,9 +592,32 @@ function EditApplicationsTable() {
                         <td className="cell-name">{app.name}</td>
                         <td>{app.cabinet || '—'}</td>
                         <td>{app.N_tel || '—'}</td>
-                        <td className="cell-application">{app.application || '—'}</td>
-                        <td className="cell-process">{app.process || '—'}</td>
-                        <td>{app.executor || '—'}</td>
+                        
+						
+						<td 
+                             className="cell-application" 
+                             data-tooltip={app.application}
+                             onMouseMove={(e) => {
+    // Сохраняем позицию курсора для позиционирования тултипа
+                             document.documentElement.style.setProperty('--mouse-x', `${e.clientX}px`);
+                             document.documentElement.style.setProperty('--mouse-y', `${e.clientY}px`);
+                        }}
+                        >
+                             {app.application}
+                        </td>
+                        <td 
+                              className="cell-process" 
+                              data-tooltip={app.process || 'Информация отсутствует'}
+                              onMouseMove={(e) => {
+                              document.documentElement.style.setProperty('--mouse-x', `${e.clientX}px`);
+                              document.documentElement.style.setProperty('--mouse-y', `${e.clientY}px`);
+                        }}
+                        >
+                             {app.process || '—'}
+                        </td>
+                        
+						
+						<td>{app.executor || '—'}</td>
                         <td className="cell-date">{formatDate(app.data)}</td>
                         <td className="cell-date">{formatTime(app.start_data)}</td>
                         <td className="cell-date">{formatTime(app.end_data)}</td>

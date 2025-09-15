@@ -453,10 +453,70 @@ const Dashboard = () => {
                         <td className="cell-name">{app.name}</td>
                         <td>{app.cabinet || '—'}</td>
                         <td>{app.N_tel || '—'}</td>
-                        <td className="cell-application">{app.application}</td>
-                        <td className="cell-process">{app.process || '—'}</td>
-                        <td>{app.executor || 'Не назначен'}</td>
-                        <td className="cell-date">{formatDate(app.data)}</td>
+						
+                        <td 
+                             className="cell-application" 
+                             data-tooltip={app.application}
+                             onMouseMove={(e) => {
+    // Сохраняем позицию курсора для позиционирования тултипа
+                             document.documentElement.style.setProperty('--mouse-x', `${e.clientX}px`);
+                             document.documentElement.style.setProperty('--mouse-y', `${e.clientY}px`);
+                        }}
+                        >
+                             {app.application}
+                        </td>
+                        <td 
+                              className="cell-process" 
+                              data-tooltip={app.process || 'Информация отсутствует'}
+                              onMouseMove={(e) => {
+                              document.documentElement.style.setProperty('--mouse-x', `${e.clientX}px`);
+                              document.documentElement.style.setProperty('--mouse-y', `${e.clientY}px`);
+                        }}
+                        >
+                             {app.process || '—'}
+</td>
+
+
+                        <td className="cell-executor">
+  {app.executor ? (
+    <>
+      {app.executor.split('\n').map((name, index, array) => {
+        // Разбиваем строку по пробелам
+        const parts = name.split(/\s+/);
+        
+        // Собираем обратно с <br /> после каждой пары "Фамилия И.О."
+        const result = [];
+        for (let i = 0; i < parts.length; i += 2) {
+          if (i > 0) {
+            result.push(<br key={`br-${i}`} />);
+          }
+          if (i + 1 < parts.length) {
+            result.push(
+              <span key={i}>
+                {parts[i]} {parts[i + 1]}
+              </span>
+            );
+          } else {
+            result.push(<span key={i}>{parts[i]}</span>);
+          }
+        }
+        
+        return (
+          <span key={index} className="executor-name">
+            {result}
+            {index < array.length - 1 && <br />}
+          </span>
+        );
+      })}
+    </>
+  ) : (
+    'Не назначен'
+  )}
+</td>
+                        
+						
+						
+						 <td className="cell-date">{formatDate(app.data)}</td>
                         <td className="cell-date">{formatTime(app.start_data)}</td>
                         <td className="cell-date">{formatTime(app.end_data)}</td>
                         <td>{getStatusLabel(app.fl)}</td>

@@ -708,3 +708,64 @@ input[type="checkbox"] {
   font-size: 14px;
   font-weight: 600;
 }
+
+
+
+/* Убираем старые стили для тултипов и заменяем на новые */
+
+/* Улучшенные стили для тултипов */
+.cell-application,
+.cell-process {
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #4a5568;
+  position: relative;
+  cursor: help;
+}
+
+.cell-application:hover::after,
+.cell-process:hover::after {
+  content: attr(data-tooltip);
+  position: fixed; /* Используем fixed вместо absolute для лучшего позиционирования */
+  background-color: #2d3748;
+  color: white;
+  padding: 12px;
+  border-radius: 8px;
+  white-space: normal;
+  width: 300px;
+  z-index: 10000; /* Очень высокий z-index чтобы было поверх всего */
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  font-size: 13px;
+  line-height: 1.4;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* Позиционируем тултип рядом с курсором */
+.cell-application:hover::after {
+  top: calc(var(--mouse-y, 0px) + 20px);
+  left: calc(var(--mouse-x, 0px) + 10px);
+}
+
+.cell-process:hover::after {
+  top: calc(var(--mouse-y, 0px) + 20px);
+  left: calc(var(--mouse-x, 0px) + 10px);
+}
+
+/* Для пустых значений */
+.cell-process[data-tooltip="Информация отсутствует"]:hover::after {
+  content: "Информация отсутствует";
+}
+
+@media (max-width: 768px) {
+  .cell-application:hover::after,
+  .cell-process:hover::after {
+    width: 200px;
+    font-size: 12px;
+    left: 10px;
+    right: 10px;
+    margin: 0 auto;
+  }
+}
