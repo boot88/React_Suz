@@ -1,0 +1,622 @@
+// server/server.js
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+const employeeRoutes = require('./routes/employees');
+const authRoutes = require('./routes/auth');
+const pool = require('./config/database');
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+
+// ✅ ПРОСТАЯ И РАБОЧАЯ CORS НАСТРОЙКА
+app.use(cors({
+  origin: true, // Разрешить все домены
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
+
+// Body parsing middleware
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// 3. Health check endpoint (для тестирования CORS)
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    message: 'Сервер работает', 
+    timestamp: new Date(),
+    cors: 'enabled'
+  });
+});
+
+// Подключение маршрутов
+app.use('/api/auth', authRoutes);
+app.use('/api/employees', employeeRoutes);
+
+//app.use('/api/employees', employeeRoutes);
+
+// Добавьте после CORS middleware
+app.use((err, req, res, next) => {
+  if (err.message === 'Not allowed by CORS') {
+    return res.status(403).json({ 
+      error: 'CORS Error', 
+      message: 'Доступ с этого домена запрещен' 
+    });
+  }
+  next(err);
+});
+
+
+// Функция для преобразования дат в правильный формат MySQL
+const formatDateForMySQL = (dateString) => {
+  if (!dateString) return null;
+  
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return null;
+    
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+  } catch (error) {
+    console.error('Ошибка форматирования даты:', error);
+    return null;
+  }
+};
+
+// Безопасный парсинг JSON для изображений
+const safeParseImages = (imagesString) => {
+  if (!imagesString) return [];
+  
+  try {
+    // Если imagesString уже массив, возвращаем его
+    if (Array.isArray(imagesString)) {
+      return imagesString;
+    }
+    
+    // Если это строка, пытаемся распарсить
+    if (typeof imagesString === 'string') {
+      // Проверяем, не пустая ли строка
+      if (imagesString.trim() === '') {
+        return [];
+      }
+      
+      const parsed = JSON.parse(imagesString);
+      return Array.isArray(parsed) ? parsed : [];
+    }
+    
+    return [];
+  } catch (error) {
+    console.error('Ошибка парсинга изображений:', error, 'Строка:', imagesString);
+    return [];
+  }
+};
+
+// API для базы знаний - ОБНОВЛЕННЫЕ МАРШРУТЫ С БЕЗОПАСНЫМ ПАРСИНГОМ
+app.get('/api/knowledge-base', async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM knowledge_base ORDER BY created_at DESC');
+    
+    // Используем безопасный парсинг для изображений
+    const formattedRows = rows.map(row => ({
+      ...row,
+      images: safeParseImages(row.images),
+      category: row.category || 'Общее'
+    }));
+    
+    res.json(formattedRows);
+  } catch (error) {
+    console.error('Error fetching knowledge base:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/knowledge-base', async (req, res) => {
+  try {
+    const { title, solution, category, images } = req.body;
+    
+    if (!title || !solution) {
+      return res.status(400).json({ error: 'Title and solution are required' });
+    }
+
+    // Обрабатываем images - преобразуем в JSON строку или NULL
+    let imagesJson = null;
+    if (images && images.length > 0) {
+      try {
+        // Проверяем, что images - это массив
+        if (!Array.isArray(images)) {
+          throw new Error('Images must be an array');
+        }
+        
+        // Ограничиваем размер данных изображений
+        const processedImages = images.map(img => ({
+          name: img.name || `image_${Date.now()}`,
+          type: img.type || 'image/jpeg',
+          size: img.size || 0,
+          data: img.data, // Оставляем base64 данные
+          uploadedAt: img.uploadedAt || new Date().toISOString()
+        }));
+        
+        imagesJson = JSON.stringify(processedImages);
+        
+        // Проверяем общий размер (примерно)
+        const totalSize = imagesJson.length;
+        if (totalSize > 10 * 1024 * 1024) { // 10MB лимит
+          return res.status(400).json({ error: 'Total images size too large' });
+        }
+      } catch (parseError) {
+        console.error('Error processing images:', parseError);
+        return res.status(400).json({ error: 'Invalid images format' });
+      }
+    }
+
+    const categoryValue = category || 'Общее';
+
+    const [result] = await pool.execute(
+      'INSERT INTO knowledge_base (title, solution, category, images) VALUES (?, ?, ?, ?)',
+      [title, solution, categoryValue, imagesJson]
+    );
+    
+    // Получаем созданную запись
+    const [rows] = await pool.execute(
+      'SELECT * FROM knowledge_base WHERE id = LAST_INSERT_ID()'
+    );
+    
+    // Форматируем ответ с безопасным парсингом
+    const formattedRow = {
+      ...rows[0],
+      images: safeParseImages(rows[0].images),
+      category: rows[0].category || 'Общее'
+    };
+    
+    res.json(formattedRow);
+  } catch (error) {
+    console.error('Error creating knowledge base article:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: error.message 
+    });
+  }
+});
+
+app.put('/api/knowledge-base/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, solution, category, images } = req.body;
+    
+    if (!title || !solution) {
+      return res.status(400).json({ error: 'Title and solution are required' });
+    }
+
+    // Обрабатываем images - преобразуем в JSON строку или NULL
+    let imagesJson = null;
+    if (images && images.length > 0) {
+      try {
+        // Проверяем, что images - это массив
+        if (!Array.isArray(images)) {
+          throw new Error('Images must be an array');
+        }
+        
+        // Ограничиваем размер данных изображений
+        const processedImages = images.map(img => ({
+          name: img.name || `image_${Date.now()}`,
+          type: img.type || 'image/jpeg',
+          size: img.size || 0,
+          data: img.data, // Оставляем base64 данные
+          uploadedAt: img.uploadedAt || new Date().toISOString()
+        }));
+        
+        imagesJson = JSON.stringify(processedImages);
+        
+        // Проверяем общий размер (примерно)
+        const totalSize = imagesJson.length;
+        if (totalSize > 10 * 1024 * 1024) { // 10MB лимит
+          return res.status(400).json({ error: 'Total images size too large' });
+        }
+      } catch (parseError) {
+        console.error('Error processing images:', parseError);
+        return res.status(400).json({ error: 'Invalid images format' });
+      }
+    }
+
+    const categoryValue = category || 'Общее';
+
+    const [result] = await pool.execute(
+      'UPDATE knowledge_base SET title = ?, solution = ?, category = ?, images = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [title, solution, categoryValue, imagesJson, id]
+    );
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Article not found' });
+    }
+    
+    // Получаем обновленную запись
+    const [rows] = await pool.execute(
+      'SELECT * FROM knowledge_base WHERE id = ?',
+      [id]
+    );
+    
+    // Форматируем ответ с безопасным парсингом
+    const formattedRow = {
+      ...rows[0],
+      images: safeParseImages(rows[0].images),
+      category: rows[0].category || 'Общее'
+    };
+    
+    res.json(formattedRow);
+  } catch (error) {
+    console.error('Error updating knowledge base article:', error);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: error.message 
+    });
+  }
+});
+
+app.delete('/api/knowledge-base/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const [result] = await pool.execute(
+      'DELETE FROM knowledge_base WHERE id = ?',
+      [id]
+    );
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Article not found' });
+    }
+    
+    res.json({ message: 'Article deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting knowledge base article:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ... остальной существующий код для заявок ...
+
+// Функция для обработки NULL значений
+const handleNullValues = (value, defaultValue = null) => {
+  if (value === null || value === undefined || value === '') {
+    return defaultValue;
+  }
+  return value;
+};
+
+app.get('/api/applications/export', async (req, res) => {
+  const { status, from, to } = req.query;
+
+  let whereClause = [];
+  const queryParams = [];
+
+  if (status === 'done') {
+    whereClause.push('fl = ?');
+    queryParams.push(1);
+  } else if (status === 'pending') {
+    whereClause.push('fl = ?');
+    queryParams.push(0);
+  }
+
+  if (from) {
+    const fromDate = new Date(from);
+    if (isNaN(fromDate)) {
+      return res.status(400).json({ error: 'Неверный формат даты "from". Используйте YYYY-MM-DD' });
+    }
+    whereClause.push('data >= ?');
+    queryParams.push(fromDate.toISOString().split('T')[0] + ' 00:00:00');
+  }
+
+  if (to) {
+    const toDate = new Date(to);
+    if (isNaN(toDate)) {
+      return res.status(400).json({ error: 'Неверный формат даты "to". Используйте YYYY-MM-DD' });
+    }
+    whereClause.push('data <= ?');
+    queryParams.push(toDate.toISOString().split('T')[0] + ' 23:59:59');
+  }
+
+  const whereSql = whereClause.length > 0 ? 'WHERE ' + whereClause.join(' AND ') : '';
+
+  try {
+    const applicationsQuery = `
+      SELECT 
+        id, name, cabinet, application, process, N_tel, executor, 
+        data, start_data, end_data, fl
+      FROM application
+      ${whereSql}
+      ORDER BY data DESC
+    `;
+
+    const [applications] = await pool.execute(applicationsQuery, queryParams);
+
+    const formattedApplications = applications.map(app => ({
+      ...app,
+      fl: Boolean(app.fl)
+    }));
+
+    res.json({
+      applications: formattedApplications,
+      total: applications.length
+    });
+  } catch (error) {
+    console.error('Ошибка при экспорте заявок:', error);
+    res.status(500).json({ error: 'Ошибка сервера при экспорте заявок' });
+  }
+});
+
+app.get('/api/applications', async (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 10));
+  const offset = (page - 1) * limit;
+
+  const { status, from, to } = req.query;
+
+  let whereClause = [];
+  const queryParams = [];
+
+  if (status === 'done') {
+    whereClause.push('fl = ?');
+    queryParams.push(1);
+  } else if (status === 'pending') {
+    whereClause.push('fl = ?');
+    queryParams.push(0);
+  }
+
+  if (from) {
+    const fromDate = new Date(from);
+    if (isNaN(fromDate)) {
+      return res.status(400).json({ error: 'Неверный формат даты "from". Используйте YYYY-MM-DD' });
+    }
+    whereClause.push('data >= ?');
+    queryParams.push(fromDate.toISOString().split('T')[0] + ' 00:00:00');
+  }
+
+  if (to) {
+    const toDate = new Date(to);
+    if (isNaN(toDate)) {
+      return res.status(400).json({ error: 'Неверный формат даты "to". Используйте YYYY-MM-DD' });
+    }
+    whereClause.push('data <= ?');
+    queryParams.push(toDate.toISOString().split('T')[0] + ' 23:59:59');
+  }
+
+  const whereSql = whereClause.length > 0 ? 'WHERE ' + whereClause.join(' AND ') : '';
+
+  try {
+    // Исправление для запроса общего количества
+    const totalQuery = `SELECT COUNT(*) AS total FROM application ${whereSql}`;
+    const [totalResult] = await pool.execute(totalQuery, whereSql ? queryParams : []);
+
+    // Исправление для запросов статистики
+    const [completedResult] = await pool.execute(
+      `SELECT COUNT(*) AS count FROM application ${whereSql ? whereSql + ' AND fl = ?' : 'WHERE fl = ?'}`,
+      whereSql ? [...queryParams, 1] : [1]
+    );
+
+    const [pendingResult] = await pool.execute(
+      `SELECT COUNT(*) AS count FROM application ${whereSql ? whereSql + ' AND fl = ?' : 'WHERE fl = ?'}`,
+      whereSql ? [...queryParams, 0] : [0]
+    );
+
+    const total = totalResult[0].total;
+    const completed = completedResult[0].count;
+    const pending = pendingResult[0].count;
+    const totalPages = Math.ceil(total / limit);
+
+    const applicationsQuery = `
+      SELECT 
+        id, name, cabinet, application, process, N_tel, executor, 
+        data, start_data, end_data, fl
+      FROM application
+      ${whereSql}
+      ORDER BY data DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    // ИСПРАВЛЕНИЕ: Правильная передача параметров
+    const query = pool.format(applicationsQuery, [...queryParams, limit, offset]);
+    const [applications] = await pool.query(query);
+
+    const formattedApplications = applications.map(app => ({
+      ...app,
+      fl: Boolean(app.fl)
+    }));
+
+    res.json({
+      applications: formattedApplications,
+      totalPages,
+      currentPage: page,
+      stats: { total, completed, pending }
+    });
+  } catch (error) {
+    console.error('Ошибка при запросе к БД:', error);
+    res.status(500).json({ error: 'Ошибка сервера при получении заявок' });
+  }
+});
+
+app.post('/api/applications', async (req, res) => {
+  const {
+    name, cabinet, N_tel, application, process, executor,
+    data, start_data, end_data, fl
+  } = req.body;
+
+  try {
+    const processedData = {
+      name: handleNullValues(name, ''),
+      cabinet: handleNullValues(cabinet, ''),
+      N_tel: handleNullValues(N_tel, ''),
+      application: handleNullValues(application, ''),
+      process: handleNullValues(process, ''),
+      executor: handleNullValues(executor, ''),
+      data: formatDateForMySQL(data) || formatDateForMySQL(new Date()),
+      start_data: formatDateForMySQL(start_data),
+      end_data: formatDateForMySQL(end_data),
+      fl: fl ? 1 : 0
+    };
+
+    console.log('Добавление заявки с обработанными данными:', processedData);
+
+    const [result] = await pool.execute(
+      `INSERT INTO application 
+      (name, cabinet, N_tel, application, process, executor, data, start_data, end_data, fl)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        processedData.name,
+        processedData.cabinet,
+        processedData.N_tel,
+        processedData.application,
+        processedData.process,
+        processedData.executor,
+        processedData.data,
+        processedData.start_data,
+        processedData.end_data,
+        processedData.fl
+      ]
+    );
+
+    res.status(201).json({ 
+      message: 'Заявка добавлена',
+      id: result.insertId 
+    });
+  } catch (error) {
+    console.error('Ошибка при добавлении заявки:', error);
+    res.status(500).json({ 
+      error: 'Не удалось добавить заявку',
+      details: error.sqlMessage || error.message
+    });
+  }
+});
+
+app.put('/api/applications/:id', async (req, res) => {
+  const { id } = req.params;
+  const {
+    name, cabinet, N_tel, application, process, executor,
+    data, start_data, end_data, fl
+  } = req.body;
+
+  try {
+    const [existingApp] = await pool.execute(
+      'SELECT id FROM application WHERE id = ?',
+      [id]
+    );
+
+    if (!existingApp || existingApp.length === 0) {
+      return res.status(404).json({ error: 'Заявка не найдена' });
+    }
+
+    const processedData = {
+      name: handleNullValues(name),
+      cabinet: handleNullValues(cabinet),
+      N_tel: handleNullValues(N_tel),
+      application: handleNullValues(application),
+      process: handleNullValues(process),
+      executor: handleNullValues(executor),
+      data: formatDateForMySQL(data),
+      start_data: formatDateForMySQL(start_data),
+      end_data: formatDateForMySQL(end_data),
+      fl: fl ? 1 : 0
+    };
+
+    const [result] = await pool.execute(
+      `UPDATE application SET 
+        name = ?, cabinet = ?, N_tel = ?, application = ?, 
+        process = ?, executor = ?, data = ?, 
+        start_data = ?, end_data = ?, fl = ?
+       WHERE id = ?`,
+      [
+        processedData.name,
+        processedData.cabinet,
+        processedData.N_tel,
+        processedData.application,
+        processedData.process,
+        processedData.executor,
+        processedData.data,
+        processedData.start_data,
+        processedData.end_data,
+        processedData.fl,
+        id
+      ]
+    );
+
+    res.status(200).json({ message: 'Заявка успешно обновлена' });
+  } catch (error) {
+    console.error('Ошибка при обновлении заявки:', error);
+    res.status(500).json({ 
+      error: 'Не удалось обновить заявку',
+      details: error.sqlMessage || error.message 
+    });
+  }
+});
+
+app.delete('/api/applications/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const applicationId = parseInt(id, 10);
+    
+    if (isNaN(applicationId)) {
+      return res.status(400).json({ error: 'Неверный формат ID' });
+    }
+    
+    const [existing] = await pool.execute(
+      'SELECT id FROM application WHERE id = ?',
+      [applicationId]
+    );
+    
+    if (!existing || existing.length === 0) {
+      return res.status(404).json({ error: 'Заявка не найдена' });
+    }
+    
+    const [result] = await pool.execute(
+      'DELETE FROM application WHERE id = ?',
+      [applicationId]
+    );
+    
+    if (result.affectedRows === 0) {
+      return res.status(500).json({ error: 'Удаление не выполнено' });
+    }
+    
+    res.status(200).json({ 
+      message: 'Заявка успешно удалена', 
+      id: applicationId 
+    });
+    
+  } catch (error) {
+    console.error('Ошибка при удалении:', error);
+    res.status(500).json({ 
+      error: 'Произошла ошибка при удалении', 
+      details: error.message 
+    });
+  }
+});
+
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'OK', message: 'Сервер работает', timestamp: new Date() });
+});
+
+app.use((err, req, res, next) => {
+  console.error('Произошла ошибка:', err);
+  res.status(500).json({ error: 'Произошла внутренняя ошибка сервера' });
+});
+
+// ✅ ОБСЛУЖИВАНИЕ СТАТИЧЕСКИХ ФАЙЛОВ ДЛЯ RENDER
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, '../build')));
+  
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../build', 'index.html'));
+  });
+}
+
+// Запуск сервера
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`✅ Сервер запущен на порту ${PORT}`);
+  console.log(`✅ Режим: ${process.env.NODE_ENV || 'development'}`);
+});
