@@ -12,6 +12,9 @@ import { ApplicationsProvider } from './context/ApplicationsProvider';
 import './App.css';
 import { Link } from 'react-router-dom';
 import Support from './components/Support';
+import Statistics from './pages/Statistics';
+
+
 
 function App() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -38,6 +41,7 @@ function App() {
               <Route path="/edit/:id" element={<ProtectedRoute><EditApplication /></ProtectedRoute>} />
               <Route path="/employee-search" element={<ProtectedRoute><EmployeeSearch /></ProtectedRoute>} />
               <Route path="/knowledge-base" element={<ProtectedRoute><KnowledgeBase /></ProtectedRoute>} /> {/* Новый маршрут */}
+			  <Route path="/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
               <Route path="/support" element={<Support />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
@@ -121,12 +125,24 @@ function Sidebar() {
                 <span className="nav-text">Редактирование</span>
               </Link>
             </li>
-            <li className={isActive('/employee-search') ? 'nav-item active' : 'nav-item'}>
+            
+			
+			 <li className={isActive('/edit/0') ? 'nav-item active' : 'nav-item'}>
+              <Link to="/statistics" className="nav-link" onClick={() => setIsMobileOpen(false)}>
+                <span className="nav-icon">📊</span>
+                <span className="nav-text">Статистика</span>
+              </Link>
+            </li>
+			
+			
+			<li className={isActive('/employee-search') ? 'nav-item active' : 'nav-item'}>
               <Link to="/employee-search" className="nav-link" onClick={() => setIsMobileOpen(false)}>
                 <span className="nav-icon">👥</span>
                 <span className="nav-text">Сотрудники</span>
               </Link>
             </li>
+			
+			
             {/* Новый пункт меню - База Знаний */}
             <li className={isActive('/knowledge-base') ? 'nav-item active' : 'nav-item'}>
               <Link to="/knowledge-base" className="nav-link" onClick={() => setIsMobileOpen(false)}>

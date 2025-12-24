@@ -328,7 +328,7 @@ app.get('/api/applications/export', async (req, res) => {
 
 app.get('/api/applications', async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 10));
+  const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit) || 10));
   const offset = (page - 1) * limit;
 
   const { status, from, to } = req.query;

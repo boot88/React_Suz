@@ -9,17 +9,25 @@ const ApplicationsProvider = ({ children }) => {
   const fetchApplications = async () => {
     try {
       setLoading(true);
+      setError(null);
       
       const response = await fetch('http://localhost:5000/api/applications');
       
       if (!response.ok) {
-        throw new Error('Ошибка при загрузке данных');
+        throw new Error(`Ошибка при загрузке данных: ${response.status}`);
       }
       
       const data = await response.json();
-      setApplications(data);
+      
+      // ИСПРАВЛЕНИЕ: берем только массив applications из ответа
+      setApplications(data.applications || []);
+      
+      console.log('Загружено заявок:', data.applications?.length || 0);
+      console.log('Пример заявки:', data.applications?.[0]);
+      
     } catch (err) {
       setError(err.message);
+      console.error('Ошибка загрузки заявок:', err);
     } finally {
       setLoading(false);
     }
