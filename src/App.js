@@ -127,7 +127,7 @@ function Sidebar() {
             </li>
             
 			
-			 <li className={isActive('/edit/0') ? 'nav-item active' : 'nav-item'}>
+			 <li className={isActive('/statistics') ? 'nav-item active' : 'nav-item'}>
               <Link to="/statistics" className="nav-link" onClick={() => setIsMobileOpen(false)}>
                 <span className="nav-icon">📊</span>
                 <span className="nav-text">Статистика</span>

@@ -266,7 +266,7 @@ const handleNullValues = (value, defaultValue = null) => {
 };
 
 app.get('/api/applications/export', async (req, res) => {
-  const { status, from, to } = req.query;
+  const { status, from, to, search } = req.query; // Добавлен параметр search
 
   let whereClause = [];
   const queryParams = [];
@@ -295,6 +295,12 @@ app.get('/api/applications/export', async (req, res) => {
     }
     whereClause.push('data <= ?');
     queryParams.push(toDate.toISOString().split('T')[0] + ' 23:59:59');
+  }
+
+  // Добавлен поиск по тексту заявки
+  if (search && search.trim()) {
+    whereClause.push('application LIKE ?');
+    queryParams.push(`%${search.trim()}%`);
   }
 
   const whereSql = whereClause.length > 0 ? 'WHERE ' + whereClause.join(' AND ') : '';
@@ -331,7 +337,7 @@ app.get('/api/applications', async (req, res) => {
   const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit) || 10));
   const offset = (page - 1) * limit;
 
-  const { status, from, to } = req.query;
+  const { status, from, to, search } = req.query; // Добавлен параметр search
 
   let whereClause = [];
   const queryParams = [];
@@ -362,21 +368,30 @@ app.get('/api/applications', async (req, res) => {
     queryParams.push(toDate.toISOString().split('T')[0] + ' 23:59:59');
   }
 
+  // Добавлен поиск по тексту заявки
+  if (search && search.trim()) {
+    whereClause.push('application LIKE ?');
+    queryParams.push(`%${search.trim()}%`);
+  }
+
   const whereSql = whereClause.length > 0 ? 'WHERE ' + whereClause.join(' AND ') : '';
 
   try {
-    // Исправление для запроса общего количества
+    // Запрос общего количества с учетом фильтров
     const totalQuery = `SELECT COUNT(*) AS total FROM application ${whereSql}`;
     const [totalResult] = await pool.execute(totalQuery, whereSql ? queryParams : []);
 
-    // Исправление для запросов статистики
+    // Запрос количества выполненных заявок с учетом фильтров
+    const completedQuery = `SELECT COUNT(*) AS count FROM application ${whereSql ? whereSql + ' AND fl = ?' : 'WHERE fl = ?'}`;
     const [completedResult] = await pool.execute(
-      `SELECT COUNT(*) AS count FROM application ${whereSql ? whereSql + ' AND fl = ?' : 'WHERE fl = ?'}`,
+      completedQuery,
       whereSql ? [...queryParams, 1] : [1]
     );
 
+    // Запрос количества заявок в работе с учетом фильтров
+    const pendingQuery = `SELECT COUNT(*) AS count FROM application ${whereSql ? whereSql + ' AND fl = ?' : 'WHERE fl = ?'}`;
     const [pendingResult] = await pool.execute(
-      `SELECT COUNT(*) AS count FROM application ${whereSql ? whereSql + ' AND fl = ?' : 'WHERE fl = ?'}`,
+      pendingQuery,
       whereSql ? [...queryParams, 0] : [0]
     );
 
@@ -385,6 +400,7 @@ app.get('/api/applications', async (req, res) => {
     const pending = pendingResult[0].count;
     const totalPages = Math.ceil(total / limit);
 
+    // Запрос заявок с пагинацией
     const applicationsQuery = `
       SELECT 
         id, name, cabinet, application, process, N_tel, executor, 
@@ -395,7 +411,7 @@ app.get('/api/applications', async (req, res) => {
       LIMIT ? OFFSET ?
     `;
 
-    // ИСПРАВЛЕНИЕ: Правильная передача параметров
+    // Формируем запрос с параметрами
     const query = pool.format(applicationsQuery, [...queryParams, limit, offset]);
     const [applications] = await pool.query(query);
 
@@ -412,7 +428,10 @@ app.get('/api/applications', async (req, res) => {
     });
   } catch (error) {
     console.error('Ошибка при запросе к БД:', error);
-    res.status(500).json({ error: 'Ошибка сервера при получении заявок' });
+    res.status(500).json({ 
+      error: 'Ошибка сервера при получении заявок',
+      details: error.message 
+    });
   }
 });
 

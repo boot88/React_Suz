@@ -2,8 +2,8 @@
 
 const dbConfig = {
   host: 'localhost',
-  user: 'root',
-  password: 'usbw',
+  user: 'admin',
+  password: 'MyPass123!',
   database: 'its',
   port: 3306,
   waitForConnections: true,

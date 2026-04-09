@@ -11,6 +11,8 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [exportLoading, setExportLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchLoading, setSearchLoading] = useState(false);
 
   const [stats, setStats] = useState({
     total: 0,
@@ -28,7 +30,6 @@ const Dashboard = () => {
   const [toDate, setToDate] = useState('');
   const [dateFilterActive, setDateFilterActive] = useState(false);
 
-  // Функция для экспорта ВСЕХ данных без фильтров
   const exportToExcel = async () => {
     setExportLoading(true);
     try {
@@ -37,6 +38,7 @@ const Dashboard = () => {
       if (filter === 'pending') url += '?status=pending';
       if (fromDate) url += `${url.includes('?') ? '&' : '?'}from=${fromDate}`;
       if (toDate) url += `${url.includes('?') ? '&' : '?'}to=${toDate}`;
+      if (searchTerm) url += `${url.includes('?') ? '&' : '?'}search=${encodeURIComponent(searchTerm.trim())}`;
 
       const response = await fetch(`${API_BASE_URL}${url}`);
       const data = await response.json();
@@ -74,10 +76,12 @@ const Dashboard = () => {
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Заявки');
 
       const date = new Date().toLocaleDateString('ru-RU').replace(/\./g, '-');
-      const fileName = `все_заявки_${date}.xlsx`;
+      const fileName = searchTerm 
+        ? `заявки_поиск_${searchTerm}_${date}.xlsx`
+        : `все_заявки_${date}.xlsx`;
 
       XLSX.writeFile(workbook, fileName);
-      alert(`Все данные успешно экспортированы в файл: ${fileName}`);
+      alert(`Данные успешно экспортированы в файл: ${fileName}`);
 
     } catch (error) {
       console.error('Ошибка при экспорте:', error);
@@ -102,14 +106,16 @@ const Dashboard = () => {
     try {
       let url = `/applications?page=${currentPage}&limit=${limit}`;
       
-      // Если активен фильтр по дате, применяем его вместе с другими фильтрами
+      if (searchTerm.trim()) {
+        url += `&search=${encodeURIComponent(searchTerm.trim())}`;
+      }
+      
       if (dateFilterActive) {
         if (filter === 'done') url += '&status=done';
         if (filter === 'pending') url += '&status=pending';
         if (fromDate) url += `&from=${fromDate}`;
         if (toDate) url += `&to=${toDate}`;
       } else {
-        // Если фильтр по дате не активен, применяем только фильтр по статусу
         if (filter === 'done') url += '&status=done';
         if (filter === 'pending') url += '&status=pending';
       }
@@ -128,25 +134,40 @@ const Dashboard = () => {
     }
   };
 
+  const handleSearch = (value) => {
+    setSearchTerm(value);
+    setCurrentPage(1);
+  };
+
+  const clearSearch = () => {
+    setSearchTerm('');
+    setCurrentPage(1);
+  };
+
   useEffect(() => {
     fetchGeneralStats();
   }, []);
 
   useEffect(() => {
-    fetchApplications();
+    const timer = setTimeout(() => {
+      fetchApplications();
+    }, 500);
+
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, limit, filter, fromDate, toDate, dateFilterActive]);
+  }, [currentPage, limit, filter, fromDate, toDate, dateFilterActive, searchTerm]);
 
   const setFilterAndResetPage = (newFilter) => {
     setFilter(newFilter);
     setCurrentPage(1);
-    // При переключении между статусами сбрасываем фильтр по дате
+    setSearchTerm('');
     setDateFilterActive(false);
   };
 
   const applyFilters = () => {
     setCurrentPage(1);
     setDateFilterActive(true);
+    setSearchTerm('');
   };
 
   const clearFilters = () => {
@@ -155,6 +176,7 @@ const Dashboard = () => {
     setToDate('');
     setCurrentPage(1);
     setDateFilterActive(false);
+    setSearchTerm('');
   };
 
   const getVisiblePages = () => {
@@ -276,7 +298,7 @@ const Dashboard = () => {
           onClick={exportToExcel}
           disabled={exportLoading || stats.total === 0}
           className="export-btn"
-          title="Экспортировать ВСЕ данные в Excel"
+          title="Экспортировать данные в Excel"
         >
           {exportLoading ? (
             <>
@@ -292,10 +314,10 @@ const Dashboard = () => {
         </button>
       </div>
 
-      {/* Статистика - всегда статическая */}
+      {/* Статистика */}
       <div className="stats-grid">
         <div 
-          className={`stat-card ${filter === 'all' && !dateFilterActive ? 'stat-active' : ''}`}
+          className={`stat-card ${filter === 'all' && !dateFilterActive && !searchTerm ? 'stat-active' : ''}`}
           onClick={() => {
             setFilterAndResetPage('all');
             setFromDate('');
@@ -310,7 +332,7 @@ const Dashboard = () => {
         </div>
 
         <div 
-          className={`stat-card stat-completed ${filter === 'done' && !dateFilterActive ? 'stat-active' : ''}`}
+          className={`stat-card stat-completed ${filter === 'done' && !dateFilterActive && !searchTerm ? 'stat-active' : ''}`}
           onClick={() => setFilterAndResetPage('done')}
         >
           <span className="stat-label">✅ Выполнено</span>
@@ -321,7 +343,7 @@ const Dashboard = () => {
         </div>
 
         <div 
-          className={`stat-card stat-pending ${filter === 'pending' && !dateFilterActive ? 'stat-active' : ''}`}
+          className={`stat-card stat-pending ${filter === 'pending' && !dateFilterActive && !searchTerm ? 'stat-active' : ''}`}
           onClick={() => setFilterAndResetPage('pending')}
         >
           <span className="stat-label">🔄 В работе</span>
@@ -332,31 +354,12 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Информация о текущем фильтре */}
-      {(filter !== 'all' || dateFilterActive) && (
-        <div className="filter-info">
-          <strong>Текущий фильтр:</strong> 
-          {dateFilterActive 
-            ? filter === 'done' 
-              ? ` Показаны выполненные заявки за период: ${filteredStats.total} из ${stats.completed}` 
-              : filter === 'pending'
-              ? ` Показаны заявки в работе за период: ${filteredStats.total} из ${stats.pending}`
-              : ` Показаны все заявки за период: ${filteredStats.total} из ${stats.total}`
-            : filter === 'done' 
-            ? ` Показаны все выполненные заявки: ${filteredStats.total} из ${stats.completed}` 
-            : ` Показаны все заявки в работе: ${filteredStats.total} из ${stats.pending}`
-          }
-          {fromDate && ` с ${fromDate}`}
-          {toDate && ` по ${toDate}`}
-        </div>
-      )}
-
-      {/* Фильтры по дате */}
+      {/* Фильтры */}
       <div className="filters-section">
         <div className="filters-group">
           <h3>
             <span className="filter-icon">🔍</span>
-            Фильтры по дате
+            Фильтры и поиск
           </h3>
           <div className="date-filters">
             <div className="filter-group">
@@ -392,6 +395,40 @@ const Dashboard = () => {
               </button>
             </div>
           </div>
+
+          {/* Поиск по заявкам - перемещен сюда для лучшей логической группировки */}
+          <div className="filter-group search-container" style={{marginTop: '20px'}}>
+            <label>
+              <span className="science-icon">🔍</span>
+              Поиск по тексту заявки:
+              {searchTerm && (
+                <span className="search-count">
+                  Найдено: {filteredStats.total}
+                </span>
+              )}
+            </label>
+            <div className="search-input-container">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => handleSearch(e.target.value)}
+                placeholder="Введите слово или фразу (например, 'интернет', 'принтер')"
+                className="search-input"
+              />
+              {searchTerm && (
+                <button 
+                  onClick={clearSearch} 
+                  className="clear-search"
+                  title="Очистить поиск"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            <div className="search-info">
+              {searchTerm ? `Поиск по запросу: "${searchTerm}"` : 'Поиск по полю "Заявка"'}
+            </div>
+          </div>
         </div>
 
         <div className="filters-group">
@@ -421,6 +458,27 @@ const Dashboard = () => {
         </div>
       </div>
 
+      {/* Информация о текущем фильтре - теперь перед таблицей */}
+      {(filter !== 'all' || dateFilterActive || searchTerm) && (
+        <div className="filter-info">
+          <strong>Текущий фильтр:</strong> 
+          {searchTerm 
+            ? ` Поиск: "${searchTerm}" - найдено: ${filteredStats.total} заявок`
+            : dateFilterActive 
+              ? filter === 'done' 
+                ? ` Показаны выполненные заявки за период: ${filteredStats.total} из ${stats.completed}` 
+                : filter === 'pending'
+                ? ` Показаны заявки в работе за период: ${filteredStats.total} из ${stats.pending}`
+                : ` Показаны все заявки за период: ${filteredStats.total} из ${stats.total}`
+              : filter === 'done' 
+              ? ` Показаны все выполненные заявки: ${filteredStats.total} из ${stats.completed}` 
+              : ` Показаны все заявки в работе: ${filteredStats.total} из ${stats.pending}`
+          }
+          {fromDate && ` с ${fromDate}`}
+          {toDate && ` по ${toDate}`}
+        </div>
+      )}
+
       {/* Таблица */}
       {loading ? (
         <div className="loading-spinner">
@@ -429,6 +487,19 @@ const Dashboard = () => {
         </div>
       ) : (
         <>
+          {/* Заголовок таблицы с информацией о результатах */}
+          <div className="table-header">
+            <h3>
+              <span className="science-icon">📋</span>
+              Список заявок
+              {applications.length > 0 && (
+                <span className="table-count">
+                  ({applications.length} из {filteredStats.total})
+                </span>
+              )}
+            </h3>
+          </div>
+
           <div className="table-container">
             <div className="table-responsive">
               <table className="applications-table">
@@ -458,10 +529,9 @@ const Dashboard = () => {
                              className="cell-application" 
                              data-tooltip={app.application}
                              onMouseMove={(e) => {
-    // Сохраняем позицию курсора для позиционирования тултипа
-                             document.documentElement.style.setProperty('--mouse-x', `${e.clientX}px`);
-                             document.documentElement.style.setProperty('--mouse-y', `${e.clientY}px`);
-                        }}
+                               document.documentElement.style.setProperty('--mouse-x', `${e.clientX}px`);
+                               document.documentElement.style.setProperty('--mouse-y', `${e.clientY}px`);
+                             }}
                         >
                              {app.application}
                         </td>
@@ -469,54 +539,48 @@ const Dashboard = () => {
                               className="cell-process" 
                               data-tooltip={app.process || 'Информация отсутствует'}
                               onMouseMove={(e) => {
-                              document.documentElement.style.setProperty('--mouse-x', `${e.clientX}px`);
-                              document.documentElement.style.setProperty('--mouse-y', `${e.clientY}px`);
-                        }}
+                                document.documentElement.style.setProperty('--mouse-x', `${e.clientX}px`);
+                                document.documentElement.style.setProperty('--mouse-y', `${e.clientY}px`);
+                              }}
                         >
                              {app.process || '—'}
-</td>
-
+                        </td>
 
                         <td className="cell-executor">
-  {app.executor ? (
-    <>
-      {app.executor.split('\n').map((name, index, array) => {
-        // Разбиваем строку по пробелам
-        const parts = name.split(/\s+/);
-        
-        // Собираем обратно с <br /> после каждой пары "Фамилия И.О."
-        const result = [];
-        for (let i = 0; i < parts.length; i += 2) {
-          if (i > 0) {
-            result.push(<br key={`br-${i}`} />);
-          }
-          if (i + 1 < parts.length) {
-            result.push(
-              <span key={i}>
-                {parts[i]} {parts[i + 1]}
-              </span>
-            );
-          } else {
-            result.push(<span key={i}>{parts[i]}</span>);
-          }
-        }
-        
-        return (
-          <span key={index} className="executor-name">
-            {result}
-            {index < array.length - 1 && <br />}
-          </span>
-        );
-      })}
-    </>
-  ) : (
-    'Не назначен'
-  )}
-</td>
+                          {app.executor ? (
+                            <>
+                              {app.executor.split('\n').map((name, index, array) => {
+                                const parts = name.split(/\s+/);
+                                const result = [];
+                                for (let i = 0; i < parts.length; i += 2) {
+                                  if (i > 0) {
+                                    result.push(<br key={`br-${i}`} />);
+                                  }
+                                  if (i + 1 < parts.length) {
+                                    result.push(
+                                      <span key={i}>
+                                        {parts[i]} {parts[i + 1]}
+                                      </span>
+                                    );
+                                  } else {
+                                    result.push(<span key={i}>{parts[i]}</span>);
+                                  }
+                                }
+                                
+                                return (
+                                  <span key={index} className="executor-name">
+                                    {result}
+                                    {index < array.length - 1 && <br />}
+                                  </span>
+                                );
+                              })}
+                            </>
+                          ) : (
+                            'Не назначен'
+                          )}
+                        </td>
                         
-						
-						
-						 <td className="cell-date">{formatDate(app.data)}</td>
+                        <td className="cell-date">{formatDate(app.data)}</td>
                         <td className="cell-date">{formatTime(app.start_data)}</td>
                         <td className="cell-date">{formatTime(app.end_data)}</td>
                         <td>{getStatusLabel(app.fl)}</td>
@@ -526,7 +590,10 @@ const Dashboard = () => {
                     <tr>
                       <td colSpan="10" className="no-data">
                         <span className="science-icon">🔍</span>
-                        Нет заявок по данному фильтру
+                        {searchTerm 
+                          ? `Не найдено заявок по запросу "${searchTerm}"`
+                          : 'Нет заявок по данному фильтру'
+                        }
                       </td>
                     </tr>
                   )}
