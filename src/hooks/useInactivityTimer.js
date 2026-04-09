@@ -1,63 +1,118 @@
 import { useEffect, useRef, useCallback } from 'react';
 
-export const useInactivityTimer = (logout, delay = 15 * 60 * 1000) => {
-  const timerRef = useRef(null);
-  const isNavigatingRef = useRef(false);
+const LAST_ACTIVITY_KEY = 'lastActivityAt';
 
-  const resetTimer = useCallback(() => {
-    // Не сбрасываем таймер во время навигации
-    if (isNavigatingRef.current) return;
-    
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
+export const useInactivityTimer = (
+  logout,
+  delay = 15 * 60 * 1000,
+  enabled = true
+) => {
+  const timeoutRef = useRef(null);
+  const intervalRef = useRef(null);
+
+  const clearTimers = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
     }
-    
-    timerRef.current = setTimeout(() => {
+
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }, []);
+
+  const getLastActivity = useCallback(() => {
+    const stored = Number(localStorage.getItem(LAST_ACTIVITY_KEY));
+    if (Number.isFinite(stored) && stored > 0) {
+      return stored;
+    }
+    return Date.now();
+  }, []);
+
+  const scheduleTimeout = useCallback(() => {
+    if (!enabled) {
+      return;
+    }
+
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+
+    const elapsed = Date.now() - getLastActivity();
+    const remaining = Math.max(delay - elapsed, 0);
+
+    timeoutRef.current = setTimeout(() => {
       logout();
-    }, delay);
-  }, [logout, delay]);
+    }, remaining);
+  }, [delay, enabled, getLastActivity, logout]);
 
-  const clearTimer = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
+  const markActivity = useCallback(() => {
+    if (!enabled) {
+      return;
     }
-  }, []);
 
-  // Отслеживаем клики по ссылкам
+    localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+    scheduleTimeout();
+  }, [enabled, scheduleTimeout]);
+
+  const checkInactivity = useCallback(() => {
+    if (!enabled) {
+      return;
+    }
+
+    const lastActivity = getLastActivity();
+    if (Date.now() - lastActivity >= delay) {
+      logout();
+      return;
+    }
+
+    scheduleTimeout();
+  }, [delay, enabled, getLastActivity, logout, scheduleTimeout]);
+
   useEffect(() => {
-    const handleLinkClick = (e) => {
-      if (e.target.tagName === 'A' || e.target.closest('a')) {
-        isNavigatingRef.current = true;
-        setTimeout(() => {
-          isNavigatingRef.current = false;
-        }, 100);
-      }
-    };
+    if (!enabled) {
+      clearTimers();
+      localStorage.removeItem(LAST_ACTIVITY_KEY);
+      return;
+    }
 
-    document.addEventListener('click', handleLinkClick);
-    
-    return () => {
-      document.removeEventListener('click', handleLinkClick);
-    };
-  }, []);
+    if (!localStorage.getItem(LAST_ACTIVITY_KEY)) {
+      localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+    }
 
-  useEffect(() => {
-    const events = ['mousedown', 'keypress', 'mousemove', 'scroll', 'touchstart'];
-    
-    events.forEach(event => {
-      document.addEventListener(event, resetTimer);
+    const activityEvents = [
+      'mousedown',
+      'mousemove',
+      'keydown',
+      'scroll',
+      'touchstart',
+      'click',
+      'wheel'
+    ];
+
+    activityEvents.forEach((eventName) => {
+      window.addEventListener(eventName, markActivity, { passive: true });
     });
+    window.addEventListener('focus', checkInactivity);
+    document.addEventListener('visibilitychange', checkInactivity);
+    window.addEventListener('pageshow', checkInactivity);
+    window.addEventListener('storage', checkInactivity);
 
-    resetTimer();
+    scheduleTimeout();
+    intervalRef.current = setInterval(checkInactivity, 30 * 1000);
 
     return () => {
-      events.forEach(event => {
-        document.removeEventListener(event, resetTimer);
+      activityEvents.forEach((eventName) => {
+        window.removeEventListener(eventName, markActivity);
       });
-      clearTimer();
+      window.removeEventListener('focus', checkInactivity);
+      document.removeEventListener('visibilitychange', checkInactivity);
+      window.removeEventListener('pageshow', checkInactivity);
+      window.removeEventListener('storage', checkInactivity);
+      clearTimers();
     };
-  }, [resetTimer, clearTimer]);
+  }, [checkInactivity, clearTimers, enabled, markActivity, scheduleTimeout]);
 
-  return { resetTimer, clearTimer };
+  return { markActivity, clearTimers, checkInactivity };
 };

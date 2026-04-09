@@ -26,8 +26,8 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('user');
   };
 
-  // Используем хук для таймера неактивности
-  useInactivityTimer(logout, 15 * 60 * 1000);
+  // Используем хук для таймера неактивности только для авторизованного пользователя
+  useInactivityTimer(logout, 15 * 60 * 1000, isAuthenticated && !isLoading);
 
   useEffect(() => {
     const checkAuth = async () => {

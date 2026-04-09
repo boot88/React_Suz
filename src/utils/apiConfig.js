@@ -1,14 +1,25 @@
 // src/utils/apiConfig.js
 export const getApiBaseUrl = () => {
-  const { hostname } = window.location;
-  
-  // Если мы в development (localhost или локальный IP)
-  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '192.168.1.35') {
-    return 'http://192.168.1.35:5000/api';
+  const envApiUrl = process.env.REACT_APP_API_URL;
+  if (envApiUrl) {
+    return envApiUrl.replace(/\/$/, '');
   }
-  
-  // Для продакшена (Render) - используем относительный путь
-  return '/api';
+
+  const { hostname, protocol } = window.location;
+
+  // Локальная разработка
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'http://localhost:5000/api';
+  }
+
+  // Render/production со встроенным API через тот же домен
+  if (hostname.endsWith('onrender.com')) {
+    return '/api';
+  }
+
+  // Работа в локальной сети: используем текущий хост клиента и API порт
+  const apiPort = process.env.REACT_APP_API_PORT || '5000';
+  return `${protocol}//${hostname}:${apiPort}/api`;
 };
 
 export const API_BASE_URL = getApiBaseUrl();
