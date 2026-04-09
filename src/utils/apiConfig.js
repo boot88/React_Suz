@@ -4,8 +4,20 @@ export const getApiBaseUrl = () => {
   if (envApiUrl && (envApiUrl.startsWith('http') || envApiUrl.startsWith('/'))) {
     return envApiUrl.replace(/\/$/, '');
   }
-  
-  // Универсальный дефолт: в development используется CRA proxy, в production — same-origin /api.
+
+  const { hostname, protocol } = window.location;
+  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+  const isLanIp = /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname);
+
+  if (isLocalhost) {
+    return 'http://localhost:5000/api';
+  }
+
+  if (isLanIp) {
+    return `${protocol}//${hostname}:5000/api`;
+  }
+
+  // Для production и reverse-proxy сценариев
   return '/api';
 };
 
