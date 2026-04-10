@@ -90,3 +90,25 @@ button:disabled {
 .register-links a:hover {
   text-decoration: underline;
 }
+.success-message {
+  background: #ecfdf3;
+  color: #166534;
+  padding: 10px;
+  border-radius: 5px;
+  margin-bottom: 15px;
+  border: 1px solid #bbf7d0;
+}
+
+.verify-form {
+  margin-top: 18px;
+}
+
+.verification-hint {
+  font-size: 14px;
+  color: #334155;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  padding: 8px;
+  margin: 0 0 14px;
+}

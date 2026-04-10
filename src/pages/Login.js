@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
+import { ADMIN_CREDENTIALS } from '../config/authConfig';
 import './Login.css';
 
 const Login = () => {
-  const { login, isAuthenticated, isLoading } = useAuth();
+  const { login, isAuthenticated, isLoading, user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  
+
   const [formData, setFormData] = useState({
     username: '',
     password: ''
@@ -16,21 +17,25 @@ const Login = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  // Если пользователь уже авторизован, перенаправляем его
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
-      const from = location.state?.from?.pathname || '/';
-      navigate(from, { replace: true });
+      const from = location.state?.from?.pathname;
+      if (from) {
+        navigate(from, { replace: true });
+        return;
+      }
+
+      navigate(user?.role === 'employee' ? '/employee' : '/', { replace: true });
     }
-  }, [isAuthenticated, isLoading, navigate, location]);
+  }, [isAuthenticated, isLoading, navigate, location, user]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       [name]: value
     }));
-    // Очищаем ошибку при изменении поля
+
     if (error) setError('');
   };
 
@@ -40,53 +45,26 @@ const Login = () => {
     setError('');
 
     try {
-      // В реальном проекте здесь будет запрос к API
-      if (formData.username === 'admin' && formData.password === '123') {
-        await login(formData.username);
-        
-        // Перенаправляем на предыдущую страницу или на главную
-        const from = location.state?.from?.pathname || '/';
-        navigate(from, { replace: true });
-      } else {
-        setError('Неверный логин или пароль');
-      }
+      const loggedInUser = await login(formData.username, formData.password);
+      navigate(loggedInUser.role === 'employee' ? '/employee' : '/', { replace: true });
     } catch (err) {
-      setError('Произошла ошибка при входе. Попробуйте снова.');
-      console.error('Login error:', err);
+      setError(err.message || 'Произошла ошибка при входе. Попробуйте снова.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleDemoLogin = (role) => {
-    const demoCredentials = {
-      admin: { username: 'admin', password: '123' },
-      user: { username: 'user', password: '123' },
-      tech: { username: 'tech', password: '123' }
-    };
-    
-    setFormData(demoCredentials[role]);
+  const fillAdminCredentials = (admin) => {
+    setFormData({ username: admin.username, password: admin.password });
+    if (error) setError('');
   };
 
-  // Показываем загрузку пока проверяем аутентификацию
-  if (isLoading) {
+  if (isLoading || isAuthenticated) {
     return (
       <div className="login-container">
         <div className="login-loading">
           <div className="spinner"></div>
-          <p>Проверка авторизации...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Если уже авторизован, показываем загрузку перенаправления
-  if (isAuthenticated) {
-    return (
-      <div className="login-container">
-        <div className="login-loading">
-          <div className="spinner"></div>
-          <p>Перенаправление...</p>
+          <p>{isLoading ? 'Проверка авторизации...' : 'Перенаправление...'}</p>
         </div>
       </div>
     );
@@ -102,7 +80,7 @@ const Login = () => {
             </svg>
           </div>
           <h1>Добро пожаловать</h1>
-          <p>Введите ваши учетные данные для входа</p>
+          <p>Введите учетные данные</p>
         </div>
 
         <form onSubmit={handleSubmit} className="login-form">
@@ -114,12 +92,12 @@ const Login = () => {
           )}
 
           <div className="form-group">
-            <label htmlFor="username">Логин</label>
+            <label htmlFor="username">Логин или Email</label>
             <input
               id="username"
               name="username"
               type="text"
-              placeholder="Введите ваш логин"
+              placeholder="admin_* или employee@email.ru"
               value={formData.username}
               onChange={handleChange}
               disabled={isSubmitting}
@@ -151,8 +129,8 @@ const Login = () => {
             </div>
           </div>
 
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             className="login-button"
             disabled={isSubmitting}
           >
@@ -168,37 +146,24 @@ const Login = () => {
         </form>
 
         <div className="demo-section">
-          <p className="demo-title">Демо доступ:</p>
+          <p className="demo-title">Быстрый вход администраторов:</p>
           <div className="demo-buttons">
-            <button 
-              type="button" 
-              className="demo-button admin"
-              onClick={() => handleDemoLogin('admin')}
-              disabled={isSubmitting}
-            >
-              Администратор
-            </button>
-            <button 
-              type="button" 
-              className="demo-button tech"
-              onClick={() => handleDemoLogin('tech')}
-              disabled={isSubmitting}
-            >
-              Техник
-            </button>
-            <button 
-              type="button" 
-              className="demo-button user"
-              onClick={() => handleDemoLogin('user')}
-              disabled={isSubmitting}
-            >
-              Пользователь
-            </button>
+            {ADMIN_CREDENTIALS.map((admin) => (
+              <button
+                key={admin.username}
+                type="button"
+                className="demo-button admin"
+                onClick={() => fillAdminCredentials(admin)}
+                disabled={isSubmitting}
+              >
+                {admin.name}
+              </button>
+            ))}
           </div>
         </div>
 
         <div className="login-footer">
-          <p>© 2025 ITS System. Все права защищены.</p>
+          <p>Нет аккаунта сотрудника? <Link to="/register">Зарегистрироваться</Link></p>
           <div className="support-link">
             <a href="/support">Нужна помощь?</a>
           </div>
