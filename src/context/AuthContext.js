@@ -24,6 +24,7 @@ export const AuthProvider = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [employeeDirectory, setEmployeeDirectory] = useState([]);
 
   const persistAuthState = (nextUser) => {
     if (!nextUser) {
@@ -79,6 +80,14 @@ export const AuthProvider = ({ children }) => {
       name: employee.email
     };
 
+    const nextEmployees = employees.map((item) => (
+      item.email.toLowerCase() === employee.email.toLowerCase()
+        ? { ...item, isOnline: true, lastSeen: new Date().toISOString() }
+        : item
+    ));
+    saveEmployees(nextEmployees);
+    setEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
+
     setIsAuthenticated(true);
     setUser(employeeUser);
     persistAuthState(employeeUser);
@@ -108,6 +117,8 @@ export const AuthProvider = ({ children }) => {
         email: normalizedEmail,
         password,
         isVerified: false,
+        isOnline: false,
+        lastSeen: null,
         verificationCode,
         createdAt: new Date().toISOString()
       }
@@ -145,12 +156,49 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = () => {
+    if (user?.role === 'employee') {
+      const employees = getStoredEmployees();
+      const nextEmployees = employees.map((item) => (
+        item.email.toLowerCase() === user.username.toLowerCase()
+          ? { ...item, isOnline: false, lastSeen: new Date().toISOString() }
+          : item
+      ));
+      saveEmployees(nextEmployees);
+      setEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
+    }
+
     setIsAuthenticated(false);
     setUser(null);
     persistAuthState(null);
   };
 
   useInactivityTimer(logout, 15 * 60 * 1000);
+
+  useEffect(() => {
+    const updateDirectory = () => {
+      const employees = getStoredEmployees();
+      setEmployeeDirectory(
+        employees
+          .filter((item) => item.isVerified)
+          .map((item) => ({
+            email: item.email,
+            isOnline: Boolean(item.isOnline),
+            lastSeen: item.lastSeen || null
+          }))
+      );
+    };
+
+    updateDirectory();
+
+    const onStorage = (event) => {
+      if (event.key === LOCAL_EMPLOYEES_KEY) {
+        updateDirectory();
+      }
+    };
+
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
 
   useEffect(() => {
     try {
@@ -166,6 +214,38 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
+  useEffect(() => {
+    if (user?.role !== 'employee') return undefined;
+
+    const markOffline = () => {
+      const employees = getStoredEmployees();
+      const nextEmployees = employees.map((item) => (
+        item.email.toLowerCase() === user.username.toLowerCase()
+          ? { ...item, isOnline: false, lastSeen: new Date().toISOString() }
+          : item
+      ));
+      saveEmployees(nextEmployees);
+    };
+
+    window.addEventListener('beforeunload', markOffline);
+
+    const heartbeat = setInterval(() => {
+      const employees = getStoredEmployees();
+      const nextEmployees = employees.map((item) => (
+        item.email.toLowerCase() === user.username.toLowerCase()
+          ? { ...item, isOnline: true, lastSeen: new Date().toISOString() }
+          : item
+      ));
+      saveEmployees(nextEmployees);
+      setEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
+    }, 20000);
+
+    return () => {
+      clearInterval(heartbeat);
+      window.removeEventListener('beforeunload', markOffline);
+    };
+  }, [user]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -175,7 +255,8 @@ export const AuthProvider = ({ children }) => {
         login,
         logout,
         registerEmployee,
-        verifyEmployeeEmail
+        verifyEmployeeEmail,
+        employeeDirectory
       }}
     >
       {children}

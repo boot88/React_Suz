@@ -8,6 +8,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import EmployeeSearch from './pages/EmployeeSearch';
 import KnowledgeBase from './pages/KnowledgeBase';
+import EmployeeChat from './pages/EmployeeChat';
 import { ApplicationsProvider } from './context/ApplicationsProvider';
 import './App.css';
 import Support from './components/Support';
@@ -37,7 +38,7 @@ function App() {
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
 
-              <Route path="/employee" element={<ProtectedRoute><EmployeeWorkspace /></ProtectedRoute>} />
+              <Route path="/employee" element={<ProtectedRoute><EmployeeChat /></ProtectedRoute>} />
 
               <Route path="/" element={<AdminRoute><Dashboard /></AdminRoute>} />
               <Route path="/add" element={<AdminRoute><AddApplication /></AdminRoute>} />
@@ -121,23 +122,6 @@ function Sidebar() {
         </div>
       </div>
     </>
-  );
-}
-
-function EmployeeWorkspace() {
-  const { logout, user } = useAuth();
-
-  return (
-    <div className="employee-workspace">
-      <div className="employee-empty-content" />
-      <div className="employee-footer-panel">
-        <div className="employee-caption">
-          <strong>{user?.name || 'Сотрудник'}</strong>
-          <span>Сотрудник</span>
-        </div>
-        <button onClick={logout} className="logout-btn">Выход</button>
-      </div>
-    </div>
   );
 }
 
