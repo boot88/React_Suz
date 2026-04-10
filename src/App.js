@@ -13,16 +13,9 @@ import { ApplicationsProvider } from './context/ApplicationsProvider';
 import './App.css';
 import Support from './components/Support';
 import Statistics from './pages/Statistics';
-import { LAN_HOST } from './utils/apiConfig';
 
 function App() {
   const { isAuthenticated, isLoading, user } = useAuth();
-
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    const target = `http://${LAN_HOST}:3000${window.location.pathname}${window.location.search}${window.location.hash}`;
-    window.location.replace(target);
-    return null;
-  }
 
   if (isLoading) {
     return (
