@@ -1,24 +1,10 @@
 import { useState, useEffect, createContext, useContext } from 'react';
 import { useInactivityTimer } from '../hooks/useInactivityTimer';
-import { ADMIN_CREDENTIALS, AUTH_STATE_KEY, LOCAL_EMPLOYEES_KEY } from '../config/authConfig';
+import { ADMIN_CREDENTIALS, AUTH_STATE_KEY } from '../config/authConfig';
 import { API_BASE_CANDIDATES } from '../utils/apiConfig';
 
 const AuthContext = createContext();
 const ONLINE_PING_MS = 20000;
-const ONLINE_TTL_MS = 2 * 60 * 1000;
-
-const getStoredEmployees = () => {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(LOCAL_EMPLOYEES_KEY) || '[]');
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
-
-const saveStoredEmployees = (employees) => {
-  localStorage.setItem(LOCAL_EMPLOYEES_KEY, JSON.stringify(employees));
-};
 
 export const useAuth = () => useContext(AuthContext);
 
@@ -39,21 +25,13 @@ export const AuthProvider = ({ children }) => {
         let payload = {};
         try {
           payload = raw ? JSON.parse(raw) : {};
-        } catch (parseError) {
+        } catch {
           payload = { message: raw || `Некорректный ответ сервера (${response.status})` };
         }
 
-        if (response.ok) {
-          return payload;
-        }
+        if (response.ok) return payload;
 
-        // Пробрасываем понятную ошибку, если сервер ответил, но с ошибкой
         lastError = new Error(payload.message || `Ошибка ${response.status}`);
-
-        // Если это proxy/html error, пробуем следующий baseUrl
-        if (typeof payload.message === 'string' && payload.message.toLowerCase().includes('proxy error')) {
-          continue;
-        }
       } catch (error) {
         lastError = error;
       }
@@ -72,39 +50,16 @@ export const AuthProvider = ({ children }) => {
   };
 
   const fetchEmployeesDirectory = async () => {
-    try {
-      const data = await requestAuthApi('/auth/employees');
-      setEmployeeDirectory(Array.isArray(data) ? data : []);
-    } catch (error) {
-      const localEmployees = getStoredEmployees();
-      setEmployeeDirectory(
-        localEmployees.map((item) => ({
-          email: item.email,
-          isOnline: Boolean(item.isOnline)
-            && item.lastSeen
-            && (Date.now() - new Date(item.lastSeen).getTime()) < ONLINE_TTL_MS,
-          lastSeen: item.lastSeen || null
-        }))
-      );
-    }
+    const data = await requestAuthApi('/auth/employees');
+    setEmployeeDirectory(Array.isArray(data) ? data : []);
   };
 
   const updatePresence = async (login, isOnline) => {
-    try {
-      await requestAuthApi('/auth/presence', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ login, isOnline })
-      });
-    } catch (error) {
-      const employees = getStoredEmployees();
-      const nextEmployees = employees.map((item) => (
-        item.email.toLowerCase() === String(login).toLowerCase()
-          ? { ...item, isOnline: Boolean(isOnline), lastSeen: new Date().toISOString() }
-          : item
-      ));
-      saveStoredEmployees(nextEmployees);
-    }
+    await requestAuthApi('/auth/presence', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login, isOnline })
+    });
   };
 
   const login = async (identifier, password) => {
@@ -122,29 +77,11 @@ export const AuthProvider = ({ children }) => {
       return adminUser;
     }
 
-    let payload;
-    try {
-      payload = await requestAuthApi('/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ login: loginValue, password })
-      });
-    } catch (apiError) {
-      const localEmployee = getStoredEmployees().find(
-        (item) => item.email.toLowerCase() === loginValue.toLowerCase() && item.password === password
-      );
-
-      if (!localEmployee) {
-        throw apiError;
-      }
-
-      payload = {
-        user: {
-          login: localEmployee.email,
-          role: 'employee'
-        }
-      };
-    }
+    const payload = await requestAuthApi('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login: loginValue, password })
+    });
 
     const employeeUser = {
       username: payload.user.login,
@@ -172,28 +109,11 @@ export const AuthProvider = ({ children }) => {
       throw new Error('Введите корректный email');
     }
 
-    try {
-      await requestAuthApi('/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ login: normalizedEmail, password })
-      });
-    } catch (apiError) {
-      const employees = getStoredEmployees();
-      if (employees.some((item) => item.email.toLowerCase() === normalizedEmail)) {
-        throw new Error('Пользователь с таким логином уже существует');
-      }
-
-      saveStoredEmployees([
-        ...employees,
-        {
-          email: normalizedEmail,
-          password,
-          isOnline: false,
-          lastSeen: null
-        }
-      ]);
-    }
+    await requestAuthApi('/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login: normalizedEmail, password })
+    });
 
     await fetchEmployeesDirectory();
 
@@ -204,7 +124,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = () => {
     if (user?.role === 'employee') {
-      updatePresence(user.username, false);
+      updatePresence(user.username, false).catch(console.error);
     }
 
     setIsAuthenticated(false);
@@ -215,7 +135,7 @@ export const AuthProvider = ({ children }) => {
   useInactivityTimer(logout, 15 * 60 * 1000);
 
   useEffect(() => {
-    fetchEmployeesDirectory();
+    fetchEmployeesDirectory().catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -235,14 +155,14 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     if (user?.role !== 'employee') return undefined;
 
-    updatePresence(user.username, true);
+    updatePresence(user.username, true).catch(console.error);
     const timer = setInterval(() => {
-      updatePresence(user.username, true);
-      fetchEmployeesDirectory();
+      updatePresence(user.username, true).catch(console.error);
+      fetchEmployeesDirectory().catch(console.error);
     }, ONLINE_PING_MS);
 
     const markOffline = () => {
-      updatePresence(user.username, false);
+      updatePresence(user.username, false).catch(console.error);
     };
 
     window.addEventListener('beforeunload', markOffline);
