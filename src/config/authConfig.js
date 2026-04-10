@@ -1,5 +1,10 @@
 export const ADMIN_CREDENTIALS = [
   {
+    username: 'admin',
+    password: '123',
+    name: 'Администратор (legacy)'
+  },
+  {
     username: 'admin_nioh_1',
     password: 'NiohAdm!2026',
     name: 'Администратор 1'
