@@ -12,10 +12,8 @@ const dbConfig = {
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  // Таймауты
-  connectTimeout: 5000,
-  acquireTimeout: 5000,
-  timeout: 5000
+  // Корректный таймаут подключения для mysql2
+  connectTimeout: 5000
 };
 
 const pool = mysql.createPool(dbConfig);
