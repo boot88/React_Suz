@@ -177,8 +177,26 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const updateDirectory = () => {
       const employees = getStoredEmployees();
+      const now = Date.now();
+      let changed = false;
+      const normalizedEmployees = employees.map((item) => {
+        const lastSeenTimestamp = item.lastSeen ? new Date(item.lastSeen).getTime() : 0;
+        const isStaleOnline = Boolean(item.isOnline) && (!lastSeenTimestamp || now - lastSeenTimestamp > 2 * 60 * 1000);
+
+        if (isStaleOnline) {
+          changed = true;
+          return { ...item, isOnline: false };
+        }
+
+        return item;
+      });
+
+      if (changed) {
+        saveEmployees(normalizedEmployees);
+      }
+
       setEmployeeDirectory(
-        employees
+        normalizedEmployees
           .filter((item) => item.isVerified)
           .map((item) => ({
             email: item.email,

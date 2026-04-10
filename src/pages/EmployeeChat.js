@@ -6,6 +6,13 @@ import './EmployeeChat.css';
 const ONLINE_TIMEOUT_MS = 2 * 60 * 1000;
 
 const getConversationId = (a, b) => [a.toLowerCase(), b.toLowerCase()].sort().join('::');
+const createMessageId = () => {
+  if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+    return window.crypto.randomUUID();
+  }
+
+  return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+};
 
 const readThreads = () => {
   try {
@@ -48,8 +55,8 @@ const EmployeeChat = () => {
       .filter((item) => item.email !== user?.username)
       .filter((item) => !normalizedSearch || item.email.toLowerCase().includes(normalizedSearch))
       .sort((a, b) => {
-        const aOnline = a.lastSeen && Date.now() - new Date(a.lastSeen).getTime() < ONLINE_TIMEOUT_MS;
-        const bOnline = b.lastSeen && Date.now() - new Date(b.lastSeen).getTime() < ONLINE_TIMEOUT_MS;
+        const aOnline = Boolean(a.isOnline) && a.lastSeen && Date.now() - new Date(a.lastSeen).getTime() < ONLINE_TIMEOUT_MS;
+        const bOnline = Boolean(b.isOnline) && b.lastSeen && Date.now() - new Date(b.lastSeen).getTime() < ONLINE_TIMEOUT_MS;
         if (aOnline !== bOnline) return bOnline - aOnline;
         return a.email.localeCompare(b.email);
       });
@@ -68,7 +75,7 @@ const EmployeeChat = () => {
     if (!draft.trim() || !currentConversationId) return;
 
     const newMessage = {
-      id: crypto.randomUUID(),
+      id: createMessageId(),
       sender: user.username,
       text: draft.trim(),
       createdAt: new Date().toISOString(),
@@ -130,7 +137,9 @@ const EmployeeChat = () => {
 
         <div className="employee-chat-list">
           {availableEmployees.map((employee) => {
-            const isOnline = employee.lastSeen && Date.now() - new Date(employee.lastSeen).getTime() < ONLINE_TIMEOUT_MS;
+            const isOnline = Boolean(employee.isOnline)
+              && employee.lastSeen
+              && Date.now() - new Date(employee.lastSeen).getTime() < ONLINE_TIMEOUT_MS;
             return (
               <button
                 key={employee.email}
