@@ -51,7 +51,22 @@ export const AuthProvider = ({ children }) => {
 
   const fetchEmployeesDirectory = async () => {
     const data = await requestAuthApi('/auth/employees');
-    setEmployeeDirectory(Array.isArray(data) ? data : []);
+    const now = Date.now();
+    const normalizedEmployees = Array.isArray(data)
+      ? data.map((item) => {
+          const lastSeenTimestamp = item.lastSeen ? new Date(item.lastSeen).getTime() : 0;
+          const isStaleOnline = Boolean(item.isOnline)
+            && (!lastSeenTimestamp || now - lastSeenTimestamp > 2 * 60 * 1000);
+
+          if (isStaleOnline) {
+            return { ...item, isOnline: false };
+          }
+
+          return item;
+        })
+      : [];
+
+    setEmployeeDirectory(normalizedEmployees);
   };
 
   const updatePresence = async (login, isOnline) => {
