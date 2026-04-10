@@ -1,10 +1,10 @@
 // src/utils/apiConfig.js
 export const getApiBaseUrl = () => {
-  const { hostname } = window.location;
-  
-  // Если мы в development (localhost или локальный IP)
-  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '192.168.1.35') {
-    return 'http://192.168.1.35:5000/api';
+  const { hostname, protocol } = window.location;
+
+  // Development/local network: используем текущий хост, чтобы localhost и LAN-IP вели в один и тот же backend
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || /^192\\.168\\./.test(hostname)) {
+    return `${protocol}//${hostname}:5000/api`;
   }
   
   // Для продакшена (Render) - используем относительный путь

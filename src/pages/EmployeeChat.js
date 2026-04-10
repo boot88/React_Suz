@@ -24,11 +24,16 @@ const readThreads = () => {
 };
 
 const EmployeeChat = () => {
-  const { user, logout, employeeDirectory } = useAuth();
+  const { user, logout, employeeDirectory, refreshEmployeesDirectory } = useAuth();
   const [threads, setThreads] = useState(readThreads);
   const [selectedEmail, setSelectedEmail] = useState('');
   const [draft, setDraft] = useState('');
   const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    refreshEmployeesDirectory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const onStorage = (event) => {

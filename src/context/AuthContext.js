@@ -1,22 +1,10 @@
 import { useState, useEffect, createContext, useContext } from 'react';
 import { useInactivityTimer } from '../hooks/useInactivityTimer';
-import { ADMIN_CREDENTIALS, AUTH_STATE_KEY, LOCAL_EMPLOYEES_KEY } from '../config/authConfig';
+import { ADMIN_CREDENTIALS, AUTH_STATE_KEY } from '../config/authConfig';
+import { API_BASE_URL } from '../utils/apiConfig';
 
 const AuthContext = createContext();
-
-const getStoredEmployees = () => {
-  try {
-    const employees = JSON.parse(localStorage.getItem(LOCAL_EMPLOYEES_KEY) || '[]');
-    return Array.isArray(employees) ? employees : [];
-  } catch (error) {
-    console.error('Ошибка чтения списка сотрудников:', error);
-    return [];
-  }
-};
-
-const saveEmployees = (employees) => {
-  localStorage.setItem(LOCAL_EMPLOYEES_KEY, JSON.stringify(employees));
-};
+const ONLINE_PING_MS = 20000;
 
 export const useAuth = () => useContext(AuthContext);
 
@@ -32,13 +20,31 @@ export const AuthProvider = ({ children }) => {
       return;
     }
 
-    localStorage.setItem(
-      AUTH_STATE_KEY,
-      JSON.stringify({
-        isAuthenticated: true,
-        user: nextUser
-      })
-    );
+    localStorage.setItem(AUTH_STATE_KEY, JSON.stringify({ isAuthenticated: true, user: nextUser }));
+  };
+
+  const fetchEmployeesDirectory = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/employees`);
+      if (!response.ok) return;
+
+      const data = await response.json();
+      setEmployeeDirectory(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('Ошибка загрузки списка сотрудников:', error);
+    }
+  };
+
+  const updatePresence = async (login, isOnline) => {
+    try {
+      await fetch(`${API_BASE_URL}/auth/presence`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ login, isOnline })
+      });
+    } catch (error) {
+      console.error('Ошибка обновления presence:', error);
+    }
   };
 
   const login = async (identifier, password) => {
@@ -49,122 +55,71 @@ export const AuthProvider = ({ children }) => {
     );
 
     if (admin) {
-      const adminUser = {
-        username: admin.username,
-        role: 'admin',
-        name: admin.name
-      };
-
+      const adminUser = { username: admin.username, role: 'admin', name: admin.name };
       setIsAuthenticated(true);
       setUser(adminUser);
       persistAuthState(adminUser);
       return adminUser;
     }
 
-    const employees = getStoredEmployees();
-    const employee = employees.find(
-      (item) => item.email.toLowerCase() === loginValue.toLowerCase()
-    );
+    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login: loginValue, password })
+    });
 
-    if (!employee || employee.password !== password) {
-      throw new Error('Неверный логин/email или пароль');
-    }
-
-    if (!employee.isVerified) {
-      throw new Error('Email не подтвержден. Завершите подтверждение в регистрации.');
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.message || 'Неверный логин/email или пароль');
     }
 
     const employeeUser = {
-      username: employee.email,
-      role: 'employee',
-      name: employee.email
+      username: payload.user.login,
+      role: payload.user.role,
+      name: payload.user.login
     };
 
-    const nextEmployees = employees.map((item) => (
-      item.email.toLowerCase() === employee.email.toLowerCase()
-        ? { ...item, isOnline: true, lastSeen: new Date().toISOString() }
-        : item
-    ));
-    saveEmployees(nextEmployees);
-    setEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
+    if (employeeUser.role !== 'employee') {
+      throw new Error('Этот аккаунт не является сотрудником');
+    }
 
     setIsAuthenticated(true);
     setUser(employeeUser);
     persistAuthState(employeeUser);
+    await updatePresence(employeeUser.username, true);
+    await fetchEmployeesDirectory();
+
     return employeeUser;
   };
 
-  const registerEmployee = (email, password) => {
+  const registerEmployee = async (email, password) => {
     const normalizedEmail = email.trim().toLowerCase();
-    const employees = getStoredEmployees();
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       throw new Error('Введите корректный email');
     }
 
-    if (employees.some((item) => item.email.toLowerCase() === normalizedEmail)) {
-      throw new Error('Сотрудник с таким email уже зарегистрирован');
+    const response = await fetch(`${API_BASE_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login: normalizedEmail, password })
+    });
+
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.message || 'Ошибка регистрации');
     }
 
-    if (ADMIN_CREDENTIALS.some((admin) => admin.username.toLowerCase() === normalizedEmail)) {
-      throw new Error('Этот логин зарезервирован для администратора');
-    }
+    await fetchEmployeesDirectory();
 
-    const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
-    const nextEmployees = [
-      ...employees,
-      {
-        email: normalizedEmail,
-        password,
-        isVerified: false,
-        isOnline: false,
-        lastSeen: null,
-        verificationCode,
-        createdAt: new Date().toISOString()
-      }
-    ];
-
-    saveEmployees(nextEmployees);
-
-    return {
-      email: normalizedEmail,
-      verificationCode
-    };
+    return { email: normalizedEmail, verificationCode: '000000' };
   };
 
-  const verifyEmployeeEmail = (email, verificationCode) => {
-    const normalizedEmail = email.trim().toLowerCase();
-    const employees = getStoredEmployees();
-    const employeeIndex = employees.findIndex((item) => item.email.toLowerCase() === normalizedEmail);
-
-    if (employeeIndex === -1) {
-      throw new Error('Пользователь не найден');
-    }
-
-    if (employees[employeeIndex].verificationCode !== verificationCode.trim()) {
-      throw new Error('Неверный код подтверждения');
-    }
-
-    employees[employeeIndex] = {
-      ...employees[employeeIndex],
-      isVerified: true,
-      verificationCode: null,
-      verifiedAt: new Date().toISOString()
-    };
-
-    saveEmployees(employees);
-  };
+  const verifyEmployeeEmail = async () => true;
 
   const logout = () => {
     if (user?.role === 'employee') {
-      const employees = getStoredEmployees();
-      const nextEmployees = employees.map((item) => (
-        item.email.toLowerCase() === user.username.toLowerCase()
-          ? { ...item, isOnline: false, lastSeen: new Date().toISOString() }
-          : item
-      ));
-      saveEmployees(nextEmployees);
-      setEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
+      updatePresence(user.username, false);
     }
 
     setIsAuthenticated(false);
@@ -175,47 +130,7 @@ export const AuthProvider = ({ children }) => {
   useInactivityTimer(logout, 15 * 60 * 1000);
 
   useEffect(() => {
-    const updateDirectory = () => {
-      const employees = getStoredEmployees();
-      const now = Date.now();
-      let changed = false;
-      const normalizedEmployees = employees.map((item) => {
-        const lastSeenTimestamp = item.lastSeen ? new Date(item.lastSeen).getTime() : 0;
-        const isStaleOnline = Boolean(item.isOnline) && (!lastSeenTimestamp || now - lastSeenTimestamp > 2 * 60 * 1000);
-
-        if (isStaleOnline) {
-          changed = true;
-          return { ...item, isOnline: false };
-        }
-
-        return item;
-      });
-
-      if (changed) {
-        saveEmployees(normalizedEmployees);
-      }
-
-      setEmployeeDirectory(
-        normalizedEmployees
-          .filter((item) => item.isVerified)
-          .map((item) => ({
-            email: item.email,
-            isOnline: Boolean(item.isOnline),
-            lastSeen: item.lastSeen || null
-          }))
-      );
-    };
-
-    updateDirectory();
-
-    const onStorage = (event) => {
-      if (event.key === LOCAL_EMPLOYEES_KEY) {
-        updateDirectory();
-      }
-    };
-
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+    fetchEmployeesDirectory();
   }, []);
 
   useEffect(() => {
@@ -235,31 +150,20 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     if (user?.role !== 'employee') return undefined;
 
+    updatePresence(user.username, true);
+    const timer = setInterval(() => {
+      updatePresence(user.username, true);
+      fetchEmployeesDirectory();
+    }, ONLINE_PING_MS);
+
     const markOffline = () => {
-      const employees = getStoredEmployees();
-      const nextEmployees = employees.map((item) => (
-        item.email.toLowerCase() === user.username.toLowerCase()
-          ? { ...item, isOnline: false, lastSeen: new Date().toISOString() }
-          : item
-      ));
-      saveEmployees(nextEmployees);
+      updatePresence(user.username, false);
     };
 
     window.addEventListener('beforeunload', markOffline);
 
-    const heartbeat = setInterval(() => {
-      const employees = getStoredEmployees();
-      const nextEmployees = employees.map((item) => (
-        item.email.toLowerCase() === user.username.toLowerCase()
-          ? { ...item, isOnline: true, lastSeen: new Date().toISOString() }
-          : item
-      ));
-      saveEmployees(nextEmployees);
-      setEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
-    }, 20000);
-
     return () => {
-      clearInterval(heartbeat);
+      clearInterval(timer);
       window.removeEventListener('beforeunload', markOffline);
     };
   }, [user]);
@@ -274,7 +178,8 @@ export const AuthProvider = ({ children }) => {
         logout,
         registerEmployee,
         verifyEmployeeEmail,
-        employeeDirectory
+        employeeDirectory,
+        refreshEmployeesDirectory: fetchEmployeesDirectory
       }}
     >
       {children}
