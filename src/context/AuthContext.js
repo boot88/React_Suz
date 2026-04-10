@@ -1,7 +1,7 @@
 import { useState, useEffect, createContext, useContext } from 'react';
 import { useInactivityTimer } from '../hooks/useInactivityTimer';
 import { ADMIN_CREDENTIALS, AUTH_STATE_KEY } from '../config/authConfig';
-import { API_BASE_URL } from '../utils/apiConfig';
+import { API_BASE_CANDIDATES } from '../utils/apiConfig';
 
 const AuthContext = createContext();
 const ONLINE_PING_MS = 20000;
@@ -14,6 +14,40 @@ export const AuthProvider = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [employeeDirectory, setEmployeeDirectory] = useState([]);
 
+  const requestAuthApi = async (path, options = {}) => {
+    let lastError = null;
+
+    for (const baseUrl of API_BASE_CANDIDATES) {
+      try {
+        const response = await fetch(`${baseUrl}${path}`, options);
+        const raw = await response.text();
+
+        let payload = {};
+        try {
+          payload = raw ? JSON.parse(raw) : {};
+        } catch (parseError) {
+          payload = { message: raw || `Некорректный ответ сервера (${response.status})` };
+        }
+
+        if (response.ok) {
+          return payload;
+        }
+
+        // Пробрасываем понятную ошибку, если сервер ответил, но с ошибкой
+        lastError = new Error(payload.message || `Ошибка ${response.status}`);
+
+        // Если это proxy/html error, пробуем следующий baseUrl
+        if (typeof payload.message === 'string' && payload.message.toLowerCase().includes('proxy error')) {
+          continue;
+        }
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw lastError || new Error('Не удалось подключиться к серверу авторизации');
+  };
+
   const persistAuthState = (nextUser) => {
     if (!nextUser) {
       localStorage.removeItem(AUTH_STATE_KEY);
@@ -25,10 +59,7 @@ export const AuthProvider = ({ children }) => {
 
   const fetchEmployeesDirectory = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/employees`);
-      if (!response.ok) return;
-
-      const data = await response.json();
+      const data = await requestAuthApi('/auth/employees');
       setEmployeeDirectory(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Ошибка загрузки списка сотрудников:', error);
@@ -37,7 +68,7 @@ export const AuthProvider = ({ children }) => {
 
   const updatePresence = async (login, isOnline) => {
     try {
-      await fetch(`${API_BASE_URL}/auth/presence`, {
+      await requestAuthApi('/auth/presence', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ login, isOnline })
@@ -62,16 +93,11 @@ export const AuthProvider = ({ children }) => {
       return adminUser;
     }
 
-    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+    const payload = await requestAuthApi('/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ login: loginValue, password })
     });
-
-    const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.message || 'Неверный логин/email или пароль');
-    }
 
     const employeeUser = {
       username: payload.user.login,
@@ -99,16 +125,11 @@ export const AuthProvider = ({ children }) => {
       throw new Error('Введите корректный email');
     }
 
-    const response = await fetch(`${API_BASE_URL}/auth/register`, {
+    await requestAuthApi('/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ login: normalizedEmail, password })
     });
-
-    const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.message || 'Ошибка регистрации');
-    }
 
     await fetchEmployeesDirectory();
 
