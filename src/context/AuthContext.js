@@ -1,6 +1,6 @@
 import { useState, useEffect, createContext, useContext } from 'react';
 import { useInactivityTimer } from '../hooks/useInactivityTimer';
-import { ADMIN_CREDENTIALS, AUTH_STATE_KEY, LOCAL_EMPLOYEES_KEY } from '../config/authConfig';
+import { ADMIN_CREDENTIALS, MANAGER_CREDENTIALS, AUTH_STATE_KEY, LOCAL_EMPLOYEES_KEY } from '../config/authConfig';
 import { API_BASE_URL } from '../utils/apiConfig';
 
 const AuthContext = createContext();
@@ -89,6 +89,19 @@ export const AuthProvider = ({ children }) => {
       return adminUser;
     }
 
+    if (loginValue === MANAGER_CREDENTIALS.username && password === MANAGER_CREDENTIALS.password) {
+      const managerUser = {
+        username: MANAGER_CREDENTIALS.username,
+        role: 'manager',
+        name: MANAGER_CREDENTIALS.name
+      };
+
+      setIsAuthenticated(true);
+      setUser(managerUser);
+      persistAuthState(managerUser);
+      return managerUser;
+    }
+
     const response = await fetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
       headers: {
@@ -107,7 +120,7 @@ export const AuthProvider = ({ children }) => {
 
     const employeeUser = {
       username: data?.user?.login || loginValue,
-      role: 'employee',
+      role: data?.user?.role || 'employee',
       name: data?.user?.full_name || data?.user?.login || loginValue
     };
 
@@ -127,8 +140,8 @@ export const AuthProvider = ({ children }) => {
       throw new Error('Введите корректный email');
     }
 
-    if (ADMIN_CREDENTIALS.some((admin) => admin.username.toLowerCase() === normalizedEmail)) {
-      throw new Error('Этот логин зарезервирован для администратора');
+    if (ADMIN_CREDENTIALS.some((admin) => admin.username.toLowerCase() === normalizedEmail) || MANAGER_CREDENTIALS.username.toLowerCase() === normalizedEmail) {
+      throw new Error('Этот логин зарезервирован для служебной учетной записи');
     }
 
     const response = await fetch(`${API_BASE_URL}/auth/register`, {

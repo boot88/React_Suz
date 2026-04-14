@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { ADMIN_CREDENTIALS } from '../config/authConfig';
+import { ADMIN_CREDENTIALS, MANAGER_CREDENTIALS } from '../config/authConfig';
 import './Login.css';
 
 const Login = () => {
@@ -25,7 +25,7 @@ const Login = () => {
         return;
       }
 
-      navigate(user?.role === 'employee' ? '/employee' : '/', { replace: true });
+      navigate(user?.role === 'employee' || user?.role === 'manager' ? '/employee' : '/', { replace: true });
     }
   }, [isAuthenticated, isLoading, navigate, location, user]);
 
@@ -46,7 +46,7 @@ const Login = () => {
 
     try {
       const loggedInUser = await login(formData.username, formData.password);
-      navigate(loggedInUser.role === 'employee' ? '/employee' : '/', { replace: true });
+      navigate(loggedInUser.role === 'employee' || loggedInUser.role === 'manager' ? '/employee' : '/', { replace: true });
     } catch (err) {
       setError(err.message || 'Произошла ошибка при входе. Попробуйте снова.');
     } finally {
@@ -159,6 +159,14 @@ const Login = () => {
                 {admin.name}
               </button>
             ))}
+            <button
+              type="button"
+              className="demo-button tech"
+              onClick={() => fillAdminCredentials(MANAGER_CREDENTIALS)}
+              disabled={isSubmitting}
+            >
+              {MANAGER_CREDENTIALS.name}
+            </button>
           </div>
         </div>
 

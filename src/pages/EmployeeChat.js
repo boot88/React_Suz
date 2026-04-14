@@ -14,15 +14,44 @@ const createMessageId = () => {
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 };
 
+const getParticipantsFromThreadId = (threadId = '') => threadId.split('::').filter(Boolean);
+
 const EmployeeChat = () => {
   const { user, logout, employeeDirectory } = useAuth();
+  const isManager = user?.role === 'manager';
+
   const [threads, setThreads] = useState({});
   const [selectedEmail, setSelectedEmail] = useState('');
+  const [selectedThreadId, setSelectedThreadId] = useState('');
   const [draft, setDraft] = useState('');
   const [search, setSearch] = useState('');
 
+  const [employees, setEmployees] = useState([]);
+  const [employeeForm, setEmployeeForm] = useState({
+    id: null,
+    login: '',
+    password: '',
+    full_name: '',
+    department: '',
+    phone: '',
+    room: ''
+  });
+
+  const resetEmployeeForm = () => {
+    setEmployeeForm({
+      id: null,
+      login: '',
+      password: '',
+      full_name: '',
+      department: '',
+      phone: '',
+      room: ''
+    });
+  };
+
   const currentConversationId = selectedEmail ? getConversationId(user.username, selectedEmail) : null;
   const currentMessages = currentConversationId ? (threads[currentConversationId] || []) : [];
+  const selectedThreadMessages = selectedThreadId ? (threads[selectedThreadId] || []) : [];
 
   const fetchThreads = useCallback(async () => {
     try {
@@ -33,10 +62,23 @@ const EmployeeChat = () => {
       const nextThreads = data?.threads && typeof data.threads === 'object' ? data.threads : {};
       setThreads(nextThreads);
     } catch (error) {
-      // без падения UI: чат продолжит работать с текущим стейтом
       console.error('Ошибка загрузки переписки:', error);
     }
   }, []);
+
+  const fetchEmployees = useCallback(async () => {
+    if (!isManager) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/employees`);
+      if (!response.ok) return;
+
+      const data = await response.json();
+      setEmployees(Array.isArray(data?.employees) ? data.employees : []);
+    } catch (error) {
+      console.error('Ошибка загрузки сотрудников:', error);
+    }
+  }, [isManager]);
 
   const persistThreadMessages = useCallback(async (conversationId, messages) => {
     const response = await fetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}`, {
@@ -74,10 +116,15 @@ const EmployeeChat = () => {
 
   useEffect(() => {
     fetchThreads();
+    fetchEmployees();
 
-    const poller = setInterval(fetchThreads, 2000);
+    const poller = setInterval(() => {
+      fetchThreads();
+      fetchEmployees();
+    }, 3000);
+
     return () => clearInterval(poller);
-  }, [fetchThreads]);
+  }, [fetchThreads, fetchEmployees]);
 
   useEffect(() => {
     if (!selectedEmail && employeeDirectory.length > 0) {
@@ -99,6 +146,8 @@ const EmployeeChat = () => {
         return a.email.localeCompare(b.email);
       });
   }, [employeeDirectory, search, user]);
+
+  const allConversationIds = useMemo(() => Object.keys(threads).sort(), [threads]);
 
   const handleSend = async (e) => {
     e.preventDefault();
@@ -122,28 +171,30 @@ const EmployeeChat = () => {
     }
   };
 
-  const deleteMessage = async (messageId) => {
-    if (!currentConversationId) return;
+  const deleteMessage = async (messageId, targetConversationId = currentConversationId) => {
+    if (!targetConversationId) return;
 
-    const nextMessages = currentMessages.filter((item) => item.id !== messageId);
+    const sourceMessages = threads[targetConversationId] || [];
+    const nextMessages = sourceMessages.filter((item) => item.id !== messageId);
     try {
-      await persistThreadMessages(currentConversationId, nextMessages);
+      await persistThreadMessages(targetConversationId, nextMessages);
     } catch (error) {
       window.alert(error.message || 'Не удалось удалить сообщение');
     }
   };
 
-  const editMessage = async (messageId) => {
+  const editMessage = async (messageId, targetConversationId = currentConversationId) => {
     const nextText = window.prompt('Изменить сообщение:');
-    if (!nextText || !currentConversationId) return;
+    if (!nextText || !targetConversationId) return;
 
-    const nextMessages = currentMessages.map((item) => {
+    const sourceMessages = threads[targetConversationId] || [];
+    const nextMessages = sourceMessages.map((item) => {
       if (item.id !== messageId) return item;
       return { ...item, text: nextText.trim(), editedAt: new Date().toISOString() };
     });
 
     try {
-      await persistThreadMessages(currentConversationId, nextMessages);
+      await persistThreadMessages(targetConversationId, nextMessages);
     } catch (error) {
       window.alert(error.message || 'Не удалось изменить сообщение');
     }
@@ -158,6 +209,60 @@ const EmployeeChat = () => {
     } catch (error) {
       window.alert(error.message || 'Не удалось удалить переписку');
     }
+  };
+
+  const saveEmployee = async (e) => {
+    e.preventDefault();
+    if (!employeeForm.login.trim() || (!employeeForm.id && !employeeForm.password.trim())) {
+      window.alert('Укажите логин и пароль (для нового сотрудника).');
+      return;
+    }
+
+    const payload = {
+      login: employeeForm.login,
+      password: employeeForm.password,
+      full_name: employeeForm.full_name,
+      department: employeeForm.department,
+      phone: employeeForm.phone,
+      room: employeeForm.room
+    };
+
+    const isEdit = Boolean(employeeForm.id);
+    const url = isEdit
+      ? `${API_BASE_URL}/auth/employees/${employeeForm.id}`
+      : `${API_BASE_URL}/auth/register`;
+    const method = isEdit ? 'PUT' : 'POST';
+
+    const response = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      window.alert(data.message || 'Не удалось сохранить сотрудника');
+      return;
+    }
+
+    await fetchEmployees();
+    resetEmployeeForm();
+  };
+
+  const deleteEmployee = async (employeeId) => {
+    if (!window.confirm('Удалить сотрудника?')) return;
+
+    const response = await fetch(`${API_BASE_URL}/auth/employees/${employeeId}`, {
+      method: 'DELETE'
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      window.alert(data.message || 'Не удалось удалить сотрудника');
+      return;
+    }
+
+    await fetchEmployees();
   };
 
   return (
@@ -209,6 +314,7 @@ const EmployeeChat = () => {
             <div className="messages-wrap">
               {currentMessages.length === 0 && <div className="empty-chat">Сообщений пока нет.</div>}
               {currentMessages.map((message) => {
+                const canEdit = isManager || message.sender === user.username;
                 const isMine = message.sender === user.username;
                 return (
                   <div key={message.id} className={`message-row ${isMine ? 'mine' : ''}`}>
@@ -219,7 +325,7 @@ const EmployeeChat = () => {
                       </div>
                       <div>{message.text}</div>
                       {message.editedAt && <small>изменено</small>}
-                      {isMine && (
+                      {canEdit && (
                         <div className="message-controls">
                           <button onClick={() => editMessage(message.id)}>Изменить</button>
                           <button onClick={() => deleteMessage(message.id)}>Удалить</button>
@@ -241,6 +347,105 @@ const EmployeeChat = () => {
               <button type="submit">Отправить</button>
             </form>
           </>
+        )}
+
+        {isManager && (
+          <div className="manager-panels">
+            <section className="manager-panel">
+              <h3>Управление сотрудниками</h3>
+              <form className="manager-form" onSubmit={saveEmployee}>
+                <input
+                  placeholder="Логин (email)"
+                  value={employeeForm.login}
+                  onChange={(e) => setEmployeeForm((prev) => ({ ...prev, login: e.target.value }))}
+                  required
+                />
+                <input
+                  placeholder={employeeForm.id ? 'Новый пароль (опционально)' : 'Пароль'}
+                  value={employeeForm.password}
+                  onChange={(e) => setEmployeeForm((prev) => ({ ...prev, password: e.target.value }))}
+                />
+                <input
+                  placeholder="ФИО"
+                  value={employeeForm.full_name}
+                  onChange={(e) => setEmployeeForm((prev) => ({ ...prev, full_name: e.target.value }))}
+                />
+                <input
+                  placeholder="Отдел"
+                  value={employeeForm.department}
+                  onChange={(e) => setEmployeeForm((prev) => ({ ...prev, department: e.target.value }))}
+                />
+                <div className="manager-form-actions">
+                  <button type="submit">{employeeForm.id ? 'Сохранить' : 'Добавить'}</button>
+                  {employeeForm.id && <button type="button" onClick={resetEmployeeForm}>Отмена</button>}
+                </div>
+              </form>
+
+              <div className="manager-list">
+                {employees.map((employee) => (
+                  <div className="manager-list-item" key={employee.id}>
+                    <div>
+                      <strong>{employee.login}</strong>
+                      <div>{employee.full_name || '—'}</div>
+                    </div>
+                    <div className="manager-list-actions">
+                      <button
+                        onClick={() => setEmployeeForm({
+                          id: employee.id,
+                          login: employee.login || '',
+                          password: '',
+                          full_name: employee.full_name || '',
+                          department: employee.department || '',
+                          phone: employee.phone || '',
+                          room: employee.room || ''
+                        })}
+                      >
+                        Редактировать
+                      </button>
+                      <button onClick={() => deleteEmployee(employee.id)}>Удалить</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="manager-panel">
+              <h3>Переписка сотрудников</h3>
+              <div className="threads-grid">
+                <div className="threads-list">
+                  {allConversationIds.map((threadId) => {
+                    const participants = getParticipantsFromThreadId(threadId);
+                    return (
+                      <button
+                        key={threadId}
+                        className={`thread-item ${selectedThreadId === threadId ? 'active' : ''}`}
+                        onClick={() => setSelectedThreadId(threadId)}
+                      >
+                        {participants.join(' ↔ ')}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="threads-messages">
+                  {!selectedThreadId && <div className="empty-chat">Выберите переписку.</div>}
+                  {selectedThreadId && selectedThreadMessages.map((message) => (
+                    <div key={message.id} className="audit-message">
+                      <div className="message-meta">
+                        <span>{message.sender}</span>
+                        <span>{new Date(message.createdAt).toLocaleString('ru-RU')}</span>
+                      </div>
+                      <div>{message.text}</div>
+                      <div className="message-controls">
+                        <button onClick={() => editMessage(message.id, selectedThreadId)}>Изменить</button>
+                        <button onClick={() => deleteMessage(message.id, selectedThreadId)}>Удалить</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+          </div>
         )}
       </section>
     </div>
