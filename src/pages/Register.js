@@ -7,16 +7,13 @@ const Register = () => {
   const [formData, setFormData] = useState({
     email: '',
     password: '',
-    confirmPassword: '',
-    verificationCode: ''
+    confirmPassword: ''
   });
-  const [pendingEmail, setPendingEmail] = useState('');
-  const [generatedCode, setGeneratedCode] = useState('');
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const { registerEmployee, verifyEmployeeEmail } = useAuth();
+  const { registerEmployee } = useAuth();
   const navigate = useNavigate();
 
   const handleChange = (e) => {
@@ -29,7 +26,7 @@ const Register = () => {
     if (successMessage) setSuccessMessage('');
   };
 
-  const handleRegister = (e) => {
+  const handleRegister = async (e) => {
     e.preventDefault();
     setError('');
     setSuccessMessage('');
@@ -47,28 +44,13 @@ const Register = () => {
     setIsLoading(true);
 
     try {
-      const result = registerEmployee(formData.email, formData.password);
-      setPendingEmail(result.email);
-      setGeneratedCode(result.verificationCode);
-      setSuccessMessage('Сотрудник зарегистрирован. Подтвердите email кодом.');
+      await registerEmployee(formData.email, formData.password);
+      setSuccessMessage('Сотрудник зарегистрирован. Теперь можно войти в систему.');
+      setTimeout(() => navigate('/login'), 1000);
     } catch (err) {
       setError(err.message || 'Ошибка регистрации');
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleVerify = (e) => {
-    e.preventDefault();
-    setError('');
-    setSuccessMessage('');
-
-    try {
-      verifyEmployeeEmail(pendingEmail, formData.verificationCode);
-      setSuccessMessage('Email подтвержден. Теперь можно входить в систему.');
-      setTimeout(() => navigate('/login'), 800);
-    } catch (err) {
-      setError(err.message || 'Ошибка подтверждения email');
     }
   };
 
@@ -87,7 +69,7 @@ const Register = () => {
               value={formData.email}
               onChange={handleChange}
               required
-              disabled={Boolean(pendingEmail)}
+              disabled={isLoading}
             />
           </div>
           <div className="form-group">
@@ -99,7 +81,7 @@ const Register = () => {
               value={formData.password}
               onChange={handleChange}
               required
-              disabled={Boolean(pendingEmail)}
+              disabled={isLoading}
             />
           </div>
           <div className="form-group">
@@ -111,35 +93,13 @@ const Register = () => {
               value={formData.confirmPassword}
               onChange={handleChange}
               required
-              disabled={Boolean(pendingEmail)}
+              disabled={isLoading}
             />
           </div>
-          {!pendingEmail && (
-            <button type="submit" disabled={isLoading}>
-              {isLoading ? 'Регистрация...' : 'Зарегистрировать сотрудника'}
-            </button>
-          )}
+          <button type="submit" disabled={isLoading}>
+            {isLoading ? 'Регистрация...' : 'Зарегистрировать сотрудника'}
+          </button>
         </form>
-
-        {pendingEmail && (
-          <form onSubmit={handleVerify} className="verify-form">
-            <div className="form-group">
-              <label htmlFor="verificationCode">Код подтверждения email *</label>
-              <input
-                type="text"
-                id="verificationCode"
-                name="verificationCode"
-                value={formData.verificationCode}
-                onChange={handleChange}
-                required
-              />
-            </div>
-            <div className="verification-hint">
-              Техническая заглушка этапа 1: код отправки по email = <strong>{generatedCode}</strong>
-            </div>
-            <button type="submit">Подтвердить email</button>
-          </form>
-        )}
 
         {error && <div className="error-message">{error}</div>}
         {successMessage && <div className="success-message">{successMessage}</div>}
