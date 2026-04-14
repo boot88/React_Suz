@@ -36,7 +36,7 @@
 .employee-chat-user {
   width: 100%;
   display: grid;
-  grid-template-columns: 10px 1fr auto;
+  grid-template-columns: 10px 1fr auto auto;
   gap: 10px;
   align-items: center;
   padding: 10px;
@@ -289,4 +289,19 @@
   .threads-grid {
     grid-template-columns: 1fr;
   }
+}
+
+
+.employee-chat-user-unread {
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
 }

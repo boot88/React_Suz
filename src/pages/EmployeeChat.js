@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../utils/apiConfig';
+import { MANAGER_CREDENTIALS } from '../config/authConfig';
 import './EmployeeChat.css';
 
 const ONLINE_TIMEOUT_MS = 2 * 60 * 1000;
@@ -16,6 +17,28 @@ const createMessageId = () => {
 
 const getParticipantsFromThreadId = (threadId = '') => threadId.split('::').filter(Boolean);
 
+
+const CHAT_READ_STATE_KEY = 'chatReadState';
+
+const readReadState = (username) => {
+  try {
+    const all = JSON.parse(localStorage.getItem(CHAT_READ_STATE_KEY) || '{}');
+    return all?.[username] && typeof all[username] === 'object' ? all[username] : {};
+  } catch {
+    return {};
+  }
+};
+
+const saveReadState = (username, nextState) => {
+  try {
+    const all = JSON.parse(localStorage.getItem(CHAT_READ_STATE_KEY) || '{}');
+    all[username] = nextState;
+    localStorage.setItem(CHAT_READ_STATE_KEY, JSON.stringify(all));
+  } catch {
+    // noop
+  }
+};
+
 const EmployeeChat = () => {
   const { user, logout, employeeDirectory } = useAuth();
   const isManager = user?.role === 'manager';
@@ -25,6 +48,7 @@ const EmployeeChat = () => {
   const [selectedThreadId, setSelectedThreadId] = useState('');
   const [draft, setDraft] = useState('');
   const [search, setSearch] = useState('');
+  const [readState, setReadState] = useState(() => readReadState(user?.username || 'guest'));
 
   const [directoryEmployees, setDirectoryEmployees] = useState([]);
   const [employeeForm, setEmployeeForm] = useState({
@@ -52,6 +76,12 @@ const EmployeeChat = () => {
   const currentConversationId = selectedEmail ? getConversationId(user.username, selectedEmail) : null;
   const currentMessages = currentConversationId ? (threads[currentConversationId] || []) : [];
   const selectedThreadMessages = selectedThreadId ? (threads[selectedThreadId] || []) : [];
+
+
+  useEffect(() => {
+    setReadState(readReadState(user?.username || 'guest'));
+  }, [user?.username]);
+
 
   const fetchThreads = useCallback(async () => {
     try {
@@ -137,7 +167,18 @@ const EmployeeChat = () => {
       employeeDirectory.map((item) => [item.email?.toLowerCase(), item])
     );
 
-    return directoryEmployees
+    const sourceEmployees = [...directoryEmployees];
+    const hasManager = sourceEmployees.some((item) => item.login.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase());
+
+    if (!hasManager) {
+      sourceEmployees.push({
+        id: 'manager-static',
+        login: MANAGER_CREDENTIALS.username,
+        full_name: MANAGER_CREDENTIALS.name
+      });
+    }
+
+    return sourceEmployees
       .filter((item) => item.login !== user?.username)
       .filter((item) => !normalizedSearch || item.login.toLowerCase().includes(normalizedSearch))
       .map((item) => {
@@ -158,13 +199,53 @@ const EmployeeChat = () => {
 
   const allConversationIds = useMemo(() => Object.keys(threads).sort(), [threads]);
 
+  const unreadByEmail = useMemo(() => {
+    const map = {};
+    availableEmployees.forEach((employee) => {
+      const conversationId = getConversationId(user.username, employee.email);
+      const lastReadAt = readState[conversationId] ? new Date(readState[conversationId]).getTime() : 0;
+      const unreadCount = (threads[conversationId] || []).filter((message) => (
+        message.sender !== user.username
+        && new Date(message.createdAt).getTime() > lastReadAt
+      )).length;
+      map[employee.email] = unreadCount;
+    });
+    return map;
+  }, [availableEmployees, readState, threads, user.username]);
+
+
   useEffect(() => {
     if (!selectedEmail) return;
-    const exists = directoryEmployees.some((item) => item.login === selectedEmail);
+    const exists = availableEmployees.some((item) => item.email === selectedEmail);
     if (!exists) {
       setSelectedEmail('');
     }
-  }, [directoryEmployees, selectedEmail]);
+  }, [availableEmployees, selectedEmail]);
+
+
+  useEffect(() => {
+    if (!currentConversationId) return;
+
+    const latestIncoming = (threads[currentConversationId] || [])
+      .filter((message) => message.sender !== user.username)
+      .reduce((latest, message) => {
+        if (!latest) return message.createdAt;
+        return new Date(message.createdAt).getTime() > new Date(latest).getTime() ? message.createdAt : latest;
+      }, null);
+
+    if (!latestIncoming) return;
+
+    setReadState((prev) => {
+      const currentRead = prev[currentConversationId];
+      if (currentRead && new Date(currentRead).getTime() >= new Date(latestIncoming).getTime()) {
+        return prev;
+      }
+
+      const next = { ...prev, [currentConversationId]: latestIncoming };
+      saveReadState(user.username, next);
+      return next;
+    });
+  }, [currentConversationId, threads, user.username]);
 
   const handleSend = async (e) => {
     e.preventDefault();
@@ -311,6 +392,9 @@ const EmployeeChat = () => {
                 <span className={`status-dot ${isOnline ? 'online' : 'offline'}`} />
                 <span className="employee-chat-user-email">{employee.email}</span>
                 <span className="employee-chat-user-status">{isOnline ? 'online' : 'offline'}</span>
+                {unreadByEmail[employee.email] > 0 && (
+                  <span className="employee-chat-user-unread">{unreadByEmail[employee.email]}</span>
+                )}
               </button>
             );
           })}
