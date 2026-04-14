@@ -26,7 +26,7 @@ const EmployeeChat = () => {
   const [draft, setDraft] = useState('');
   const [search, setSearch] = useState('');
 
-  const [employees, setEmployees] = useState([]);
+  const [directoryEmployees, setDirectoryEmployees] = useState([]);
   const [employeeForm, setEmployeeForm] = useState({
     id: null,
     login: '',
@@ -67,18 +67,16 @@ const EmployeeChat = () => {
   }, []);
 
   const fetchEmployees = useCallback(async () => {
-    if (!isManager) return;
-
     try {
       const response = await fetch(`${API_BASE_URL}/auth/employees`);
       if (!response.ok) return;
 
       const data = await response.json();
-      setEmployees(Array.isArray(data?.employees) ? data.employees : []);
+      setDirectoryEmployees(Array.isArray(data?.employees) ? data.employees : []);
     } catch (error) {
       console.error('Ошибка загрузки сотрудников:', error);
     }
-  }, [isManager]);
+  }, []);
 
   const persistThreadMessages = useCallback(async (conversationId, messages) => {
     const response = await fetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}`, {
@@ -127,27 +125,46 @@ const EmployeeChat = () => {
   }, [fetchThreads, fetchEmployees]);
 
   useEffect(() => {
-    if (!selectedEmail && employeeDirectory.length > 0) {
-      const fallback = employeeDirectory.find((item) => item.email !== user?.username);
-      if (fallback) setSelectedEmail(fallback.email);
+    if (!selectedEmail && directoryEmployees.length > 0) {
+      const fallback = directoryEmployees.find((item) => item.login !== user?.username);
+      if (fallback) setSelectedEmail(fallback.login);
     }
-  }, [employeeDirectory, selectedEmail, user]);
+  }, [directoryEmployees, selectedEmail, user]);
 
   const availableEmployees = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
+    const presenceMap = new Map(
+      employeeDirectory.map((item) => [item.email?.toLowerCase(), item])
+    );
 
-    return employeeDirectory
-      .filter((item) => item.email !== user?.username)
-      .filter((item) => !normalizedSearch || item.email.toLowerCase().includes(normalizedSearch))
+    return directoryEmployees
+      .filter((item) => item.login !== user?.username)
+      .filter((item) => !normalizedSearch || item.login.toLowerCase().includes(normalizedSearch))
+      .map((item) => {
+        const presence = presenceMap.get(item.login.toLowerCase());
+        return {
+          email: item.login,
+          isOnline: Boolean(presence?.isOnline),
+          lastSeen: presence?.lastSeen || null
+        };
+      })
       .sort((a, b) => {
         const aOnline = Boolean(a.isOnline) && a.lastSeen && Date.now() - new Date(a.lastSeen).getTime() < ONLINE_TIMEOUT_MS;
         const bOnline = Boolean(b.isOnline) && b.lastSeen && Date.now() - new Date(b.lastSeen).getTime() < ONLINE_TIMEOUT_MS;
         if (aOnline !== bOnline) return bOnline - aOnline;
         return a.email.localeCompare(b.email);
       });
-  }, [employeeDirectory, search, user]);
+  }, [directoryEmployees, employeeDirectory, search, user]);
 
   const allConversationIds = useMemo(() => Object.keys(threads).sort(), [threads]);
+
+  useEffect(() => {
+    if (!selectedEmail) return;
+    const exists = directoryEmployees.some((item) => item.login === selectedEmail);
+    if (!exists) {
+      setSelectedEmail('');
+    }
+  }, [directoryEmployees, selectedEmail]);
 
   const handleSend = async (e) => {
     e.preventDefault();
@@ -382,7 +399,7 @@ const EmployeeChat = () => {
               </form>
 
               <div className="manager-list">
-                {employees.map((employee) => (
+                {directoryEmployees.map((employee) => (
                   <div className="manager-list-item" key={employee.id}>
                     <div>
                       <strong>{employee.login}</strong>
