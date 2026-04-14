@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { CHAT_THREADS_KEY } from '../config/authConfig';
+import { API_BASE_URL } from '../utils/apiConfig';
 import './EmployeeChat.css';
 
 const ONLINE_TIMEOUT_MS = 2 * 60 * 1000;
@@ -14,32 +14,70 @@ const createMessageId = () => {
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 };
 
-const readThreads = () => {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(CHAT_THREADS_KEY) || '{}');
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch (error) {
-    return {};
-  }
-};
-
 const EmployeeChat = () => {
   const { user, logout, employeeDirectory } = useAuth();
-  const [threads, setThreads] = useState(readThreads);
+  const [threads, setThreads] = useState({});
   const [selectedEmail, setSelectedEmail] = useState('');
   const [draft, setDraft] = useState('');
   const [search, setSearch] = useState('');
 
-  useEffect(() => {
-    const onStorage = (event) => {
-      if (event.key === CHAT_THREADS_KEY) {
-        setThreads(readThreads());
-      }
-    };
+  const currentConversationId = selectedEmail ? getConversationId(user.username, selectedEmail) : null;
+  const currentMessages = currentConversationId ? (threads[currentConversationId] || []) : [];
 
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+  const fetchThreads = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/chat/threads`);
+      if (!response.ok) return;
+
+      const data = await response.json();
+      const nextThreads = data?.threads && typeof data.threads === 'object' ? data.threads : {};
+      setThreads(nextThreads);
+    } catch (error) {
+      // без падения UI: чат продолжит работать с текущим стейтом
+      console.error('Ошибка загрузки переписки:', error);
+    }
   }, []);
+
+  const persistThreadMessages = useCallback(async (conversationId, messages) => {
+    const response = await fetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ messages })
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.message || 'Не удалось сохранить сообщение');
+    }
+
+    if (data?.threads && typeof data.threads === 'object') {
+      setThreads(data.threads);
+    }
+  }, []);
+
+  const deleteConversationOnServer = useCallback(async (conversationId) => {
+    const response = await fetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}`, {
+      method: 'DELETE'
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.message || 'Не удалось удалить переписку');
+    }
+
+    if (data?.threads && typeof data.threads === 'object') {
+      setThreads(data.threads);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchThreads();
+
+    const poller = setInterval(fetchThreads, 2000);
+    return () => clearInterval(poller);
+  }, [fetchThreads]);
 
   useEffect(() => {
     if (!selectedEmail && employeeDirectory.length > 0) {
@@ -62,15 +100,7 @@ const EmployeeChat = () => {
       });
   }, [employeeDirectory, search, user]);
 
-  const currentConversationId = selectedEmail ? getConversationId(user.username, selectedEmail) : null;
-  const currentMessages = currentConversationId ? (threads[currentConversationId] || []) : [];
-
-  const persistThreads = (nextThreads) => {
-    localStorage.setItem(CHAT_THREADS_KEY, JSON.stringify(nextThreads));
-    setThreads(nextThreads);
-  };
-
-  const handleSend = (e) => {
+  const handleSend = async (e) => {
     e.preventDefault();
     if (!draft.trim() || !currentConversationId) return;
 
@@ -82,24 +112,28 @@ const EmployeeChat = () => {
       editedAt: null
     };
 
-    const nextThreads = {
-      ...threads,
-      [currentConversationId]: [...currentMessages, newMessage]
-    };
+    const nextMessages = [...currentMessages, newMessage];
 
-    persistThreads(nextThreads);
-    setDraft('');
+    try {
+      await persistThreadMessages(currentConversationId, nextMessages);
+      setDraft('');
+    } catch (error) {
+      window.alert(error.message || 'Не удалось отправить сообщение');
+    }
   };
 
-  const deleteMessage = (messageId) => {
+  const deleteMessage = async (messageId) => {
     if (!currentConversationId) return;
 
     const nextMessages = currentMessages.filter((item) => item.id !== messageId);
-    const nextThreads = { ...threads, [currentConversationId]: nextMessages };
-    persistThreads(nextThreads);
+    try {
+      await persistThreadMessages(currentConversationId, nextMessages);
+    } catch (error) {
+      window.alert(error.message || 'Не удалось удалить сообщение');
+    }
   };
 
-  const editMessage = (messageId) => {
+  const editMessage = async (messageId) => {
     const nextText = window.prompt('Изменить сообщение:');
     if (!nextText || !currentConversationId) return;
 
@@ -108,16 +142,22 @@ const EmployeeChat = () => {
       return { ...item, text: nextText.trim(), editedAt: new Date().toISOString() };
     });
 
-    persistThreads({ ...threads, [currentConversationId]: nextMessages });
+    try {
+      await persistThreadMessages(currentConversationId, nextMessages);
+    } catch (error) {
+      window.alert(error.message || 'Не удалось изменить сообщение');
+    }
   };
 
-  const clearConversation = () => {
+  const clearConversation = async () => {
     if (!currentConversationId) return;
     if (!window.confirm('Удалить всю переписку с этим сотрудником?')) return;
 
-    const nextThreads = { ...threads };
-    delete nextThreads[currentConversationId];
-    persistThreads(nextThreads);
+    try {
+      await deleteConversationOnServer(currentConversationId);
+    } catch (error) {
+      window.alert(error.message || 'Не удалось удалить переписку');
+    }
   };
 
   return (
