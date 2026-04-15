@@ -26,7 +26,7 @@ function App() {
     );
   }
 
-  const isEmployee = user?.role === 'employee';
+  const isEmployee = user?.role === 'employee' || user?.role === 'manager';
 
   return (
     <Router>
