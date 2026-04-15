@@ -1,18 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { ADMIN_CREDENTIALS } from '../config/authConfig';
 import './Login.css';
+
+const SUPPORT_CONTACTS = {
+  internalPhone: '1-380',
+  mobilePhone: '8 913 0080146',
+  room: '309 НТК',
+  email: 'povisok@nioch.nsc.ru'
+};
 
 const Login = () => {
   const { login, isAuthenticated, isLoading, user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [formData, setFormData] = useState({
-    username: '',
-    password: ''
-  });
+  const [formData, setFormData] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -24,150 +27,102 @@ const Login = () => {
         navigate(from, { replace: true });
         return;
       }
-
-      navigate(user?.role === 'employee' ? '/employee' : '/', { replace: true });
+      navigate(user?.role === 'employee' || user?.role === 'manager' ? '/employee' : '/', { replace: true });
     }
   }, [isAuthenticated, isLoading, navigate, location, user]);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value
-    }));
-
-    if (error) setError('');
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setIsSubmitting(true);
     setError('');
+    setIsSubmitting(true);
 
     try {
       const loggedInUser = await login(formData.username, formData.password);
-      navigate(loggedInUser.role === 'employee' ? '/employee' : '/', { replace: true });
+      navigate(loggedInUser.role === 'employee' || loggedInUser.role === 'manager' ? '/employee' : '/', { replace: true });
     } catch (err) {
-      setError(err.message || 'Произошла ошибка при входе. Попробуйте снова.');
+      setError(err.message || 'Произошла ошибка при входе.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const fillAdminCredentials = (admin) => {
-    setFormData({ username: admin.username, password: admin.password });
-    if (error) setError('');
-  };
-
   if (isLoading || isAuthenticated) {
     return (
       <div className="login-container">
-        <div className="login-loading">
-          <div className="spinner"></div>
-          <p>{isLoading ? 'Проверка авторизации...' : 'Перенаправление...'}</p>
-        </div>
+        <div className="login-loading"><div className="spinner"></div><p>{isLoading ? 'Проверка авторизации...' : 'Перенаправление...'}</p></div>
       </div>
     );
   }
 
   return (
-    <div className="login-container">
-      <div className="login-card">
-        <div className="login-header">
-          <div className="login-logo">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13h-1v6l4.25 2.52.75-1.23-3.5-2.08V7z"/>
-            </svg>
-          </div>
-          <h1>Добро пожаловать</h1>
-          <p>Введите учетные данные</p>
-        </div>
+    <div className="login-container login-container-v1">
+      <div className="login-shell">
+        <section className="login-hero">
+          <p className="hero-location">Новосибирск · 2026</p>
+          <h1>Цифровая платформа для заявок, сервиса и коммуникации сотрудников</h1>
+          <p className="hero-description">
+            Единое пространство для внутренних обращений:
+            система создана для прозрачной и быстрой рабочей координации между подразделениями
+            — и для ежедневного взаимодействия сотрудников в защищённой сети.
+          </p>
 
-        <form onSubmit={handleSubmit} className="login-form">
-          {error && (
-            <div className="error-message">
-              <span>⚠️</span>
-              {error}
+          <div className="support-card">
+            <h3>Техническая поддержка</h3>
+            <div className="support-grid">
+              <div><label>Внутренний</label><strong>{SUPPORT_CONTACTS.internalPhone}</strong></div>
+              <div><label>Сотовый</label><strong>{SUPPORT_CONTACTS.mobilePhone}</strong></div>
+              <div><label>Кабинет</label><strong>{SUPPORT_CONTACTS.room}</strong></div>
+              <div><label>Email</label><a href={`mailto:${SUPPORT_CONTACTS.email}`}>{SUPPORT_CONTACTS.email}</a></div>
             </div>
-          )}
-
-          <div className="form-group">
-            <label htmlFor="username">Логин или Email</label>
-            <input
-              id="username"
-              name="username"
-              type="text"
-              placeholder="admin_* или employee@email.ru"
-              value={formData.username}
-              onChange={handleChange}
-              disabled={isSubmitting}
-              required
-            />
           </div>
+        </section>
 
-          <div className="form-group">
-            <label htmlFor="password">Пароль</label>
-            <div className="password-input-container">
+        <section className="login-card">
+          <div className="card-topline">⚗️ Secure Intranet Access</div>
+          <h2>Вход в систему</h2>
+          <p className="card-subtitle">Только для сотрудников локальной сети</p>
+
+          <form onSubmit={handleSubmit} className="login-form">
+            {error && <div className="error-message">{error}</div>}
+
+            <label>
+              Логин
               <input
-                id="password"
-                name="password"
-                type={showPassword ? 'text' : 'password'}
-                placeholder="Введите ваш пароль"
-                value={formData.password}
-                onChange={handleChange}
-                disabled={isSubmitting}
+                name="username"
+                type="text"
+                placeholder="employee@email"
+                value={formData.username}
+                onChange={(e) => setFormData((prev) => ({ ...prev, username: e.target.value }))}
                 required
-              />
-              <button
-                type="button"
-                className="password-toggle"
-                onClick={() => setShowPassword(!showPassword)}
-                tabIndex="-1"
-              >
-                {showPassword ? '🙈' : '👁️'}
-              </button>
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            className="login-button"
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? (
-              <>
-                <div className="button-spinner"></div>
-                Вход...
-              </>
-            ) : (
-              'Войти'
-            )}
-          </button>
-        </form>
-
-        <div className="demo-section">
-          <p className="demo-title">Быстрый вход администраторов:</p>
-          <div className="demo-buttons">
-            {ADMIN_CREDENTIALS.map((admin) => (
-              <button
-                key={admin.username}
-                type="button"
-                className="demo-button admin"
-                onClick={() => fillAdminCredentials(admin)}
                 disabled={isSubmitting}
-              >
-                {admin.name}
-              </button>
-            ))}
-          </div>
-        </div>
+              />
+            </label>
 
-        <div className="login-footer">
-          <p>Нет аккаунта сотрудника? <Link to="/register">Зарегистрироваться</Link></p>
-          <div className="support-link">
-            <a href="/support">Нужна помощь?</a>
+            <label>
+              Пароль
+              <div className="password-input-container">
+                <input
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="••••••••"
+                  value={formData.password}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, password: e.target.value }))}
+                  required
+                  disabled={isSubmitting}
+                />
+                <button type="button" className="password-toggle" onClick={() => setShowPassword((prev) => !prev)}>
+                  {showPassword ? '🙈' : '👁️'}
+                </button>
+              </div>
+            </label>
+
+            <button type="submit" className="login-button" disabled={isSubmitting}>{isSubmitting ? 'Вход...' : 'Войти'}</button>
+          </form>
+
+          <div className="card-footer">
+            <p>Нет аккаунта сотрудника? <Link to="/register">Зарегистрироваться</Link></p>
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );
