@@ -5,8 +5,12 @@ import { MANAGER_CREDENTIALS } from '../config/authConfig';
 import './EmployeeChat.css';
 
 const ONLINE_TIMEOUT_MS = 2 * 60 * 1000;
+const CHAT_READ_STATE_KEY = 'chatReadState';
 
 const getConversationId = (a, b) => [a.toLowerCase(), b.toLowerCase()].sort().join('::');
+const getParticipantsFromThreadId = (threadId = '') => threadId.split('::').filter(Boolean);
+const getAvatarKey = (username = 'unknown') => `employeeAvatar:${username.toLowerCase()}`;
+
 const createMessageId = () => {
   if (window.crypto && typeof window.crypto.randomUUID === 'function') {
     return window.crypto.randomUUID();
@@ -14,11 +18,6 @@ const createMessageId = () => {
 
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 };
-
-const getParticipantsFromThreadId = (threadId = '') => threadId.split('::').filter(Boolean);
-
-
-const CHAT_READ_STATE_KEY = 'chatReadState';
 
 const readReadState = (username) => {
   try {
@@ -42,6 +41,7 @@ const saveReadState = (username, nextState) => {
 const EmployeeChat = () => {
   const { user, logout, employeeDirectory } = useAuth();
   const isManager = user?.role === 'manager';
+  const baseDisplayName = user?.name || user?.username || 'Сотрудник';
 
   const [threads, setThreads] = useState({});
   const [selectedEmail, setSelectedEmail] = useState('');
@@ -49,8 +49,10 @@ const EmployeeChat = () => {
   const [draft, setDraft] = useState('');
   const [search, setSearch] = useState('');
   const [readState, setReadState] = useState(() => readReadState(user?.username || 'guest'));
-
   const [directoryEmployees, setDirectoryEmployees] = useState([]);
+  const [avatarUrl, setAvatarUrl] = useState('');
+  const [headerName, setHeaderName] = useState(baseDisplayName);
+
   const [employeeForm, setEmployeeForm] = useState({
     id: null,
     login: '',
@@ -77,11 +79,21 @@ const EmployeeChat = () => {
   const currentMessages = currentConversationId ? (threads[currentConversationId] || []) : [];
   const selectedThreadMessages = selectedThreadId ? (threads[selectedThreadId] || []) : [];
 
-
   useEffect(() => {
     setReadState(readReadState(user?.username || 'guest'));
   }, [user?.username]);
 
+  useEffect(() => {
+    if (!user?.username) return;
+
+    const storedAvatar = localStorage.getItem(getAvatarKey(user.username)) || '';
+    setAvatarUrl(storedAvatar);
+
+    const greeting = `Здравствуйте, ${baseDisplayName}!`;
+    setHeaderName(greeting);
+    const timer = setTimeout(() => setHeaderName(baseDisplayName), 2000);
+    return () => clearTimeout(timer);
+  }, [baseDisplayName, user?.username]);
 
   const fetchThreads = useCallback(async () => {
     try {
@@ -111,9 +123,7 @@ const EmployeeChat = () => {
   const persistThreadMessages = useCallback(async (conversationId, messages) => {
     const response = await fetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}`, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages })
     });
 
@@ -154,19 +164,16 @@ const EmployeeChat = () => {
     return () => clearInterval(poller);
   }, [fetchThreads, fetchEmployees]);
 
-  useEffect(() => {
-    if (!selectedEmail && directoryEmployees.length > 0) {
-      const fallback = directoryEmployees.find((item) => item.login !== user?.username);
-      if (fallback) setSelectedEmail(fallback.login);
-    }
-  }, [directoryEmployees, selectedEmail, user]);
+  const employeeProfiles = useMemo(() => {
+    const map = new Map();
+    directoryEmployees.forEach((item) => {
+      map.set(item.login?.toLowerCase(), item);
+    });
+    return map;
+  }, [directoryEmployees]);
 
-  const availableEmployees = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
-    const presenceMap = new Map(
-      employeeDirectory.map((item) => [item.email?.toLowerCase(), item])
-    );
-
+  const chatCandidates = useMemo(() => {
+    const presenceMap = new Map(employeeDirectory.map((item) => [item.email?.toLowerCase(), item]));
     const sourceEmployees = [...directoryEmployees];
     const hasManager = sourceEmployees.some((item) => item.login.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase());
 
@@ -174,19 +181,22 @@ const EmployeeChat = () => {
       sourceEmployees.push({
         id: 'manager-static',
         login: MANAGER_CREDENTIALS.username,
-        full_name: MANAGER_CREDENTIALS.name
+        full_name: MANAGER_CREDENTIALS.name,
+        department: 'Старший сотрудник',
+        phone: '',
+        room: ''
       });
     }
 
     return sourceEmployees
       .filter((item) => item.login !== user?.username)
-      .filter((item) => !normalizedSearch || item.login.toLowerCase().includes(normalizedSearch))
       .map((item) => {
         const presence = presenceMap.get(item.login.toLowerCase());
         return {
           email: item.login,
           isOnline: Boolean(presence?.isOnline),
-          lastSeen: presence?.lastSeen || null
+          lastSeen: presence?.lastSeen || null,
+          profile: item
         };
       })
       .sort((a, b) => {
@@ -195,33 +205,39 @@ const EmployeeChat = () => {
         if (aOnline !== bOnline) return bOnline - aOnline;
         return a.email.localeCompare(b.email);
       });
-  }, [directoryEmployees, employeeDirectory, search, user]);
+  }, [directoryEmployees, employeeDirectory, user?.username]);
+
+  const availableEmployees = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+    return chatCandidates.filter((item) => !normalizedSearch || item.email.toLowerCase().includes(normalizedSearch));
+  }, [chatCandidates, search]);
 
   const allConversationIds = useMemo(() => Object.keys(threads).sort(), [threads]);
 
   const unreadByEmail = useMemo(() => {
     const map = {};
-    availableEmployees.forEach((employee) => {
+    chatCandidates.forEach((employee) => {
       const conversationId = getConversationId(user.username, employee.email);
       const lastReadAt = readState[conversationId] ? new Date(readState[conversationId]).getTime() : 0;
       const unreadCount = (threads[conversationId] || []).filter((message) => (
-        message.sender !== user.username
-        && new Date(message.createdAt).getTime() > lastReadAt
+        message.sender !== user.username && new Date(message.createdAt).getTime() > lastReadAt
       )).length;
       map[employee.email] = unreadCount;
     });
     return map;
-  }, [availableEmployees, readState, threads, user.username]);
+  }, [chatCandidates, readState, threads, user.username]);
 
+  useEffect(() => {
+    if (!selectedEmail && chatCandidates.length > 0) {
+      setSelectedEmail(chatCandidates[0].email);
+    }
+  }, [chatCandidates, selectedEmail]);
 
   useEffect(() => {
     if (!selectedEmail) return;
-    const exists = availableEmployees.some((item) => item.email === selectedEmail);
-    if (!exists) {
-      setSelectedEmail('');
-    }
-  }, [availableEmployees, selectedEmail]);
-
+    const exists = chatCandidates.some((item) => item.email === selectedEmail);
+    if (!exists) setSelectedEmail('');
+  }, [chatCandidates, selectedEmail]);
 
   useEffect(() => {
     if (!currentConversationId) return;
@@ -240,12 +256,34 @@ const EmployeeChat = () => {
       if (currentRead && new Date(currentRead).getTime() >= new Date(latestIncoming).getTime()) {
         return prev;
       }
-
       const next = { ...prev, [currentConversationId]: latestIncoming };
       saveReadState(user.username, next);
       return next;
     });
   }, [currentConversationId, threads, user.username]);
+
+  const handleAvatarUpload = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      window.alert('Разрешены только PNG, JPG, WEBP.');
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      window.alert('Максимальный размер файла 2MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      setAvatarUrl(result);
+      localStorage.setItem(getAvatarKey(user.username), result);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSend = async (e) => {
     e.preventDefault();
@@ -259,10 +297,8 @@ const EmployeeChat = () => {
       editedAt: null
     };
 
-    const nextMessages = [...currentMessages, newMessage];
-
     try {
-      await persistThreadMessages(currentConversationId, nextMessages);
+      await persistThreadMessages(currentConversationId, [...currentMessages, newMessage]);
       setDraft('');
     } catch (error) {
       window.alert(error.message || 'Не удалось отправить сообщение');
@@ -271,9 +307,7 @@ const EmployeeChat = () => {
 
   const deleteMessage = async (messageId, targetConversationId = currentConversationId) => {
     if (!targetConversationId) return;
-
-    const sourceMessages = threads[targetConversationId] || [];
-    const nextMessages = sourceMessages.filter((item) => item.id !== messageId);
+    const nextMessages = (threads[targetConversationId] || []).filter((item) => item.id !== messageId);
     try {
       await persistThreadMessages(targetConversationId, nextMessages);
     } catch (error) {
@@ -285,8 +319,7 @@ const EmployeeChat = () => {
     const nextText = window.prompt('Изменить сообщение:');
     if (!nextText || !targetConversationId) return;
 
-    const sourceMessages = threads[targetConversationId] || [];
-    const nextMessages = sourceMessages.map((item) => {
+    const nextMessages = (threads[targetConversationId] || []).map((item) => {
       if (item.id !== messageId) return item;
       return { ...item, text: nextText.trim(), editedAt: new Date().toISOString() };
     });
@@ -326,9 +359,7 @@ const EmployeeChat = () => {
     };
 
     const isEdit = Boolean(employeeForm.id);
-    const url = isEdit
-      ? `${API_BASE_URL}/auth/employees/${employeeForm.id}`
-      : `${API_BASE_URL}/auth/register`;
+    const url = isEdit ? `${API_BASE_URL}/auth/employees/${employeeForm.id}` : `${API_BASE_URL}/auth/register`;
     const method = isEdit ? 'PUT' : 'POST';
 
     const response = await fetch(url, {
@@ -350,10 +381,7 @@ const EmployeeChat = () => {
   const deleteEmployee = async (employeeId) => {
     if (!window.confirm('Удалить сотрудника?')) return;
 
-    const response = await fetch(`${API_BASE_URL}/auth/employees/${employeeId}`, {
-      method: 'DELETE'
-    });
-
+    const response = await fetch(`${API_BASE_URL}/auth/employees/${employeeId}`, { method: 'DELETE' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       window.alert(data.message || 'Не удалось удалить сотрудника');
@@ -367,8 +395,17 @@ const EmployeeChat = () => {
     <div className="employee-chat-layout">
       <aside className="employee-chat-sidebar">
         <div className="employee-chat-header">
-          <h2>Чаты сотрудников</h2>
-          <p>{user?.username}</p>
+          <div className="employee-avatar-wrap">
+            <label className="employee-avatar-upload" htmlFor="avatar-upload-input">
+              {avatarUrl ? <img src={avatarUrl} alt="avatar" className="employee-avatar-image" /> : <span>+</span>}
+            </label>
+            <input id="avatar-upload-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={handleAvatarUpload} hidden />
+
+            <div className="employee-header-meta">
+              <h2>Чаты сотрудников</h2>
+              <p>{headerName}</p>
+            </div>
+          </div>
         </div>
 
         <input
@@ -380,9 +417,9 @@ const EmployeeChat = () => {
 
         <div className="employee-chat-list">
           {availableEmployees.map((employee) => {
-            const isOnline = Boolean(employee.isOnline)
-              && employee.lastSeen
-              && Date.now() - new Date(employee.lastSeen).getTime() < ONLINE_TIMEOUT_MS;
+            const isOnline = Boolean(employee.isOnline) && employee.lastSeen && Date.now() - new Date(employee.lastSeen).getTime() < ONLINE_TIMEOUT_MS;
+            const profile = employeeProfiles.get(employee.email.toLowerCase()) || employee.profile || {};
+
             return (
               <button
                 key={employee.email}
@@ -395,6 +432,14 @@ const EmployeeChat = () => {
                 {unreadByEmail[employee.email] > 0 && (
                   <span className="employee-chat-user-unread">{unreadByEmail[employee.email]}</span>
                 )}
+
+                <div className="employee-tooltip">
+                  <strong>{profile.full_name || employee.email}</strong>
+                  <span>Отдел: {profile.department || '—'}</span>
+                  <span>Телефон: {profile.phone || '—'}</span>
+                  <span>Почта: {profile.login || employee.email}</span>
+                  <span>Кабинет: {profile.room || '—'}</span>
+                </div>
               </button>
             );
           })}
@@ -455,27 +500,10 @@ const EmployeeChat = () => {
             <section className="manager-panel">
               <h3>Управление сотрудниками</h3>
               <form className="manager-form" onSubmit={saveEmployee}>
-                <input
-                  placeholder="Логин (email)"
-                  value={employeeForm.login}
-                  onChange={(e) => setEmployeeForm((prev) => ({ ...prev, login: e.target.value }))}
-                  required
-                />
-                <input
-                  placeholder={employeeForm.id ? 'Новый пароль (опционально)' : 'Пароль'}
-                  value={employeeForm.password}
-                  onChange={(e) => setEmployeeForm((prev) => ({ ...prev, password: e.target.value }))}
-                />
-                <input
-                  placeholder="ФИО"
-                  value={employeeForm.full_name}
-                  onChange={(e) => setEmployeeForm((prev) => ({ ...prev, full_name: e.target.value }))}
-                />
-                <input
-                  placeholder="Отдел"
-                  value={employeeForm.department}
-                  onChange={(e) => setEmployeeForm((prev) => ({ ...prev, department: e.target.value }))}
-                />
+                <input placeholder="Логин (email)" value={employeeForm.login} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, login: e.target.value }))} required />
+                <input placeholder={employeeForm.id ? 'Новый пароль (опционально)' : 'Пароль'} value={employeeForm.password} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, password: e.target.value }))} />
+                <input placeholder="ФИО" value={employeeForm.full_name} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, full_name: e.target.value }))} />
+                <input placeholder="Отдел" value={employeeForm.department} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, department: e.target.value }))} />
                 <div className="manager-form-actions">
                   <button type="submit">{employeeForm.id ? 'Сохранить' : 'Добавить'}</button>
                   {employeeForm.id && <button type="button" onClick={resetEmployeeForm}>Отмена</button>}
@@ -490,19 +518,16 @@ const EmployeeChat = () => {
                       <div>{employee.full_name || '—'}</div>
                     </div>
                     <div className="manager-list-actions">
-                      <button
-                        onClick={() => setEmployeeForm({
-                          id: employee.id,
-                          login: employee.login || '',
-                          password: '',
-                          full_name: employee.full_name || '',
-                          department: employee.department || '',
-                          phone: employee.phone || '',
-                          room: employee.room || ''
-                        })}
-                      >
-                        Редактировать
-                      </button>
+                      <button onClick={() => setEmployeeForm({
+                        id: employee.id,
+                        login: employee.login || '',
+                        password: '',
+                        full_name: employee.full_name || '',
+                        department: employee.department || '',
+                        phone: employee.phone || '',
+                        room: employee.room || ''
+                      })}
+                      >Редактировать</button>
                       <button onClick={() => deleteEmployee(employee.id)}>Удалить</button>
                     </div>
                   </div>
