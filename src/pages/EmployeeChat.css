@@ -1,31 +1,63 @@
 .employee-chat-layout {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 320px 1fr;
-  background: #f1f5f9;
+  grid-template-columns: 330px 1fr;
+  background: linear-gradient(145deg, #081729, #123251);
 }
 
 .employee-chat-sidebar {
-  border-right: 1px solid #dbe2ea;
-  background: #ffffff;
+  border-right: 1px solid rgba(164, 204, 233, 0.28);
+  background: rgba(8, 25, 41, 0.72);
+  color: #eaf6ff;
   display: flex;
   flex-direction: column;
+  backdrop-filter: blur(10px);
 }
 
 .employee-chat-header {
   padding: 16px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid rgba(164, 204, 233, 0.24);
 }
 
-.employee-chat-header h2 { margin: 0 0 8px; }
-.employee-chat-header p { margin: 0; color: #64748b; }
+.employee-avatar-wrap {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 12px;
+  align-items: center;
+}
+
+.employee-avatar-upload {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  border: 1px dashed rgba(157, 204, 239, 0.7);
+  background: rgba(255, 255, 255, 0.08);
+  color: #bcdfff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  overflow: hidden;
+  font-size: 26px;
+  font-weight: 600;
+}
+
+.employee-avatar-image { width: 100%; height: 100%; object-fit: cover; }
+
+.employee-header-meta h2 { margin: 0 0 6px; }
+.employee-header-meta p { margin: 0; color: #8fc9f4; font-weight: 600; }
+.employee-header-meta p.greeting { color: #d8ffef; text-shadow: 0 0 10px rgba(31, 182, 161, 0.55); }
 
 .employee-chat-search {
   margin: 12px;
   padding: 10px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid rgba(164, 204, 233, 0.45);
   border-radius: 8px;
+  background: rgba(255, 255, 255, 0.09);
+  color: #fff;
 }
+
+.employee-chat-search::placeholder { color: #a7c9df; }
 
 .employee-chat-list {
   flex: 1;
@@ -36,7 +68,7 @@
 .employee-chat-user {
   width: 100%;
   display: grid;
-  grid-template-columns: 10px 1fr auto;
+  grid-template-columns: 10px 1fr auto auto;
   gap: 10px;
   align-items: center;
   padding: 10px;
@@ -45,50 +77,76 @@
   background: transparent;
   cursor: pointer;
   text-align: left;
+  color: #d7ebfa;
 }
 
 .employee-chat-user:hover,
 .employee-chat-user.active {
-  background: #eff6ff;
+  background: rgba(59, 124, 244, 0.2);
 }
 
-.status-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-}
+.status-dot { width: 9px; height: 9px; border-radius: 50%; }
 .status-dot.online { background: #22c55e; }
 .status-dot.offline { background: #94a3b8; }
 
 .employee-chat-user-email { font-weight: 600; }
-.employee-chat-user-status { font-size: 12px; color: #64748b; }
+.employee-chat-user-status { font-size: 12px; color: #97bbd8; }
+.employee-meta-inline { grid-column: 2 / -1; font-size: 11px; color: #8db2cd; }
+
+.employee-chat-user-unread {
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+}
 
 .employee-chat-actions {
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid rgba(164, 204, 233, 0.24);
   padding: 12px;
   display: grid;
   gap: 8px;
 }
 
-.clear-btn {
-  background: #f97316;
-  color: #fff;
+.clear-btn,
+.logout-btn {
   border: 0;
   border-radius: 8px;
   padding: 10px;
+  color: #fff;
 }
+
+.clear-btn { background: #f97316; }
+.logout-btn { background: #3b82f6; }
 
 .employee-chat-main {
   display: flex;
   flex-direction: column;
+  background: rgba(8, 25, 41, 0.2);
 }
 
 .conversation-header {
   padding: 16px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.92);
   border-bottom: 1px solid #e2e8f0;
   font-weight: 600;
 }
+
+.pinned-wrap {
+  margin: 12px 16px 0;
+  background: #fff9db;
+  border: 1px solid #f4dd8f;
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.pinned-item { font-size: 13px; margin-top: 4px; color: #8c6500; }
 
 .messages-wrap {
   flex: 1;
@@ -100,7 +158,7 @@
 .message-row.mine { justify-content: flex-end; }
 
 .message-bubble {
-  max-width: 70%;
+  max-width: 72%;
   background: #fff;
   border: 1px solid #dbe2ea;
   border-radius: 12px;
@@ -121,10 +179,37 @@
   margin-bottom: 6px;
 }
 
+.reply-preview {
+  padding: 6px 8px;
+  border-left: 3px solid #60a5fa;
+  background: #eff6ff;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: #334155;
+}
+
+.reaction-row {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.reaction-btn {
+  border: 1px solid #d5e0eb;
+  border-radius: 999px;
+  background: #f8fbff;
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .message-controls {
   margin-top: 8px;
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .message-controls button {
@@ -132,6 +217,50 @@
   background: #e2e8f0;
   border-radius: 6px;
   padding: 4px 8px;
+}
+
+.read-state {
+  display: block;
+  margin-top: 6px;
+  color: #64748b;
+}
+
+.typing-indicator {
+  color: #d7ecff;
+  background: rgba(31, 182, 161, 0.25);
+  border: 1px solid rgba(31, 182, 161, 0.5);
+  border-radius: 10px;
+  width: fit-content;
+  padding: 6px 10px;
+}
+
+.reply-banner {
+  margin: 0 12px 8px;
+  padding: 8px 10px;
+  background: #eff6ff;
+  border: 1px solid #cde0ff;
+  border-radius: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.reply-banner button { border: 0; background: transparent; cursor: pointer; }
+
+.template-row {
+  padding: 0 12px 8px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.template-row button {
+  border: 1px solid #d5e0eb;
+  border-radius: 999px;
+  background: #f8fbff;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
 }
 
 .message-form {
@@ -143,27 +272,102 @@
   gap: 8px;
 }
 
-.message-form input {
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  padding: 10px;
-}
+.message-form input { border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; }
 
-.message-form button {
-  border: 0;
-  border-radius: 8px;
-  padding: 0 16px;
-  background: #2563eb;
-  color: #fff;
-}
+.message-form button { border: 0; border-radius: 8px; padding: 0 16px; background: #2563eb; color: #fff; }
 
-.empty-chat {
-  margin: auto;
-  color: #64748b;
-}
+.empty-chat { margin: auto; color: #64748b; }
 
 @media (max-width: 900px) {
-  .employee-chat-layout {
+  .employee-chat-layout { grid-template-columns: 1fr; }
+}
+
+.manager-panels {
+  border-top: 1px solid #dbe2ea;
+  background: #f8fafc;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.manager-panel {
+  background: #fff;
+  border: 1px solid #dbe2ea;
+  border-radius: 10px;
+  padding: 10px;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.manager-panel h3 { margin: 0; font-size: 15px; }
+
+.manager-form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.manager-form input { border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px; }
+
+.manager-form-actions { grid-column: 1 / -1; display: flex; gap: 8px; }
+
+.manager-form-actions button,
+.manager-list-actions button,
+.thread-item,
+.audit-message .message-controls button {
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: #e2e8f0;
+  cursor: pointer;
+}
+
+.manager-list { overflow-y: auto; display: grid; gap: 8px; }
+
+.manager-list-item {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.manager-list-actions { display: flex; flex-direction: column; gap: 6px; }
+
+.threads-grid {
+  display: grid;
+  grid-template-columns: 230px 1fr;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+
+.threads-list {
+  border-right: 1px solid #e2e8f0;
+  padding-right: 8px;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.thread-item.active { background: #dbeafe; }
+
+.threads-messages { overflow-y: auto; display: grid; align-content: start; gap: 8px; }
+
+.audit-message {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px;
+  background: #f8fafc;
+}
+
+@media (max-width: 1200px) {
+  .manager-panels { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 700px) {
+  .manager-form,
+  .threads-grid {
     grid-template-columns: 1fr;
   }
 }

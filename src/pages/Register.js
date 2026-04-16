@@ -1,35 +1,92 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE_URL } from '../utils/apiConfig';
 import './Register.css';
 
 const Register = () => {
   const [formData, setFormData] = useState({
+    fullName: '',
+    room: '',
+    department: '',
+    internalPhone: '',
     email: '',
     password: '',
-    confirmPassword: '',
-    verificationCode: ''
+    confirmPassword: ''
   });
-  const [pendingEmail, setPendingEmail] = useState('');
-  const [generatedCode, setGeneratedCode] = useState('');
+  const [departments, setDepartments] = useState([]);
+  const [nameHints, setNameHints] = useState([]);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const { registerEmployee, verifyEmployeeEmail } = useAuth();
+  const { registerEmployee } = useAuth();
   const navigate = useNavigate();
 
-  const handleChange = (e) => {
+  useEffect(() => {
+    const loadDepartments = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/employees/departments`);
+        if (!response.ok) return;
+        const data = await response.json();
+        if (Array.isArray(data)) setDepartments(data);
+      } catch {
+        // ignore optional helper data
+      }
+    };
+
+    loadDepartments();
+  }, []);
+
+  useEffect(() => {
+    const query = formData.fullName.trim();
+    if (query.length < 2) {
+      setNameHints([]);
+      return;
+    }
+
+    const timeout = setTimeout(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/employees/search?field=full_name&query=${encodeURIComponent(query)}`);
+        if (!response.ok) return;
+        const data = await response.json();
+        if (Array.isArray(data)) {
+          setNameHints(data.slice(0, 6));
+        }
+      } catch {
+        setNameHints([]);
+      }
+    }, 250);
+
+    return () => clearTimeout(timeout);
+  }, [formData.fullName]);
+
+  const hasHints = useMemo(() => nameHints.length > 0, [nameHints]);
+
+  const applyHint = (hint) => {
     setFormData((prev) => ({
       ...prev,
-      [e.target.name]: e.target.value
+      fullName: hint.full_name || prev.fullName,
+      room: hint.room || prev.room,
+      department: hint.department || prev.department,
+      internalPhone: hint.internal_phone || prev.internalPhone,
+      email: hint.email || prev.email
+    }));
+    setNameHints([]);
+  };
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value
     }));
 
     if (error) setError('');
     if (successMessage) setSuccessMessage('');
   };
 
-  const handleRegister = (e) => {
+  const handleRegister = async (e) => {
     e.preventDefault();
     setError('');
     setSuccessMessage('');
@@ -47,10 +104,14 @@ const Register = () => {
     setIsLoading(true);
 
     try {
-      const result = registerEmployee(formData.email, formData.password);
-      setPendingEmail(result.email);
-      setGeneratedCode(result.verificationCode);
-      setSuccessMessage('Сотрудник зарегистрирован. Подтвердите email кодом.');
+      await registerEmployee(formData.email, formData.password, {
+        fullName: formData.fullName,
+        room: formData.room,
+        department: formData.department,
+        internalPhone: formData.internalPhone
+      });
+      setSuccessMessage('Сотрудник зарегистрирован. Теперь можно войти в систему.');
+      setTimeout(() => navigate('/login'), 1000);
     } catch (err) {
       setError(err.message || 'Ошибка регистрации');
     } finally {
@@ -58,93 +119,126 @@ const Register = () => {
     }
   };
 
-  const handleVerify = (e) => {
-    e.preventDefault();
-    setError('');
-    setSuccessMessage('');
-
-    try {
-      verifyEmployeeEmail(pendingEmail, formData.verificationCode);
-      setSuccessMessage('Email подтвержден. Теперь можно входить в систему.');
-      setTimeout(() => navigate('/login'), 800);
-    } catch (err) {
-      setError(err.message || 'Ошибка подтверждения email');
-    }
-  };
-
   return (
     <div className="register-container">
-      <div className="register-form">
-        <h2>Регистрация сотрудника</h2>
+      <div className="register-card">
+        <div className="register-header">
+          <p>Новосибирск · 2026</p>
+          <h2>Регистрация сотрудника</h2>
+        </div>
 
-        <form onSubmit={handleRegister}>
-          <div className="form-group">
-            <label htmlFor="email">Email (логин) *</label>
+        <form onSubmit={handleRegister} className="register-form">
+          <label>
+            ФИО сотрудника *
             <input
-              type="email"
-              id="email"
-              name="email"
-              value={formData.email}
+              type="text"
+              name="fullName"
+              value={formData.fullName}
               onChange={handleChange}
               required
-              disabled={Boolean(pendingEmail)}
+              disabled={isLoading}
+              placeholder="Иванов Иван Иванович"
             />
-          </div>
-          <div className="form-group">
-            <label htmlFor="password">Пароль *</label>
-            <input
-              type="password"
-              id="password"
-              name="password"
-              value={formData.password}
-              onChange={handleChange}
-              required
-              disabled={Boolean(pendingEmail)}
-            />
-          </div>
-          <div className="form-group">
-            <label htmlFor="confirmPassword">Подтверждение пароля *</label>
-            <input
-              type="password"
-              id="confirmPassword"
-              name="confirmPassword"
-              value={formData.confirmPassword}
-              onChange={handleChange}
-              required
-              disabled={Boolean(pendingEmail)}
-            />
-          </div>
-          {!pendingEmail && (
-            <button type="submit" disabled={isLoading}>
-              {isLoading ? 'Регистрация...' : 'Зарегистрировать сотрудника'}
-            </button>
+          </label>
+
+          {hasHints && (
+            <div className="name-hints">
+              {nameHints.map((hint) => (
+                <button key={`${hint.full_name}-${hint.email || hint.room}`} type="button" onClick={() => applyHint(hint)}>
+                  {hint.full_name} · {hint.department || 'без отдела'} · {hint.room || '—'}
+                </button>
+              ))}
+            </div>
           )}
-        </form>
 
-        {pendingEmail && (
-          <form onSubmit={handleVerify} className="verify-form">
-            <div className="form-group">
-              <label htmlFor="verificationCode">Код подтверждения email *</label>
+          <div className="grid-two">
+            <label>
+              Отдел
+              <select
+                name="department"
+                value={formData.department}
+                onChange={handleChange}
+                disabled={isLoading}
+              >
+                <option value="">Выберите отдел</option>
+                {departments.map((department) => (
+                  <option key={department} value={department}>{department}</option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              Кабинет
               <input
                 type="text"
-                id="verificationCode"
-                name="verificationCode"
-                value={formData.verificationCode}
+                name="room"
+                value={formData.room}
+                onChange={handleChange}
+                disabled={isLoading}
+              />
+            </label>
+          </div>
+
+          <div className="grid-two">
+            <label>
+              Внутренний телефон
+              <input
+                type="text"
+                name="internalPhone"
+                value={formData.internalPhone}
+                onChange={handleChange}
+                disabled={isLoading}
+              />
+            </label>
+
+            <label>
+              Email (логин) *
+              <input
+                type="email"
+                name="email"
+                value={formData.email}
                 onChange={handleChange}
                 required
+                disabled={isLoading}
               />
-            </div>
-            <div className="verification-hint">
-              Техническая заглушка этапа 1: код отправки по email = <strong>{generatedCode}</strong>
-            </div>
-            <button type="submit">Подтвердить email</button>
-          </form>
-        )}
+            </label>
+          </div>
 
-        {error && <div className="error-message">{error}</div>}
-        {successMessage && <div className="success-message">{successMessage}</div>}
+          <div className="grid-two">
+            <label>
+              Пароль *
+              <input
+                type="password"
+                name="password"
+                value={formData.password}
+                onChange={handleChange}
+                required
+                disabled={isLoading}
+              />
+            </label>
 
-        <div className="register-links">
+            <label>
+              Подтверждение пароля *
+              <input
+                type="password"
+                name="confirmPassword"
+                value={formData.confirmPassword}
+                onChange={handleChange}
+                required
+                disabled={isLoading}
+              />
+            </label>
+          </div>
+
+          <button type="submit" disabled={isLoading}>
+            {isLoading ? 'Регистрация...' : 'Зарегистрировать сотрудника'}
+          </button>
+        </form>
+
+        {error && <div className="register-error">{error}</div>}
+        {successMessage && <div className="register-success">{successMessage}</div>}
+
+        <div className="register-footer">
           <p>Уже есть аккаунт? <Link to="/login">Войти</Link></p>
         </div>
       </div>
