@@ -6,6 +6,8 @@ import './EmployeeChat.css';
 
 const ONLINE_TIMEOUT_MS = 2 * 60 * 1000;
 const CHAT_READ_STATE_KEY = 'chatReadState';
+const TEMPLATE_MESSAGES = ['✅ Принято в работу', '🔧 Проверяю сейчас', '👍 Спасибо, получил'];
+const REACTION_EMOJIS = ['👍', '✅', '🔧'];
 
 const getConversationId = (a, b) => [a.toLowerCase(), b.toLowerCase()].sort().join('::');
 const getParticipantsFromThreadId = (threadId = '') => threadId.split('::').filter(Boolean);
@@ -15,7 +17,6 @@ const createMessageId = () => {
   if (window.crypto && typeof window.crypto.randomUUID === 'function') {
     return window.crypto.randomUUID();
   }
-
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 };
 
@@ -38,6 +39,33 @@ const saveReadState = (username, nextState) => {
   }
 };
 
+const processAvatar = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const image = new Image();
+    image.onload = () => {
+      const size = 256;
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+
+      const minSide = Math.min(image.width, image.height);
+      const sx = (image.width - minSide) / 2;
+      const sy = (image.height - minSide) / 2;
+      ctx.drawImage(image, sx, sy, minSide, minSide, 0, 0, size, size);
+
+      resolve(canvas.toDataURL('image/jpeg', 0.92));
+    };
+    image.onerror = reject;
+    image.src = String(reader.result || '');
+  };
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
+
 const EmployeeChat = () => {
   const { user, logout, employeeDirectory } = useAuth();
   const isManager = user?.role === 'manager';
@@ -48,6 +76,7 @@ const EmployeeChat = () => {
   const [selectedThreadId, setSelectedThreadId] = useState('');
   const [draft, setDraft] = useState('');
   const [search, setSearch] = useState('');
+  const [replyTo, setReplyTo] = useState(null);
   const [readState, setReadState] = useState(() => readReadState(user?.username || 'guest'));
   const [directoryEmployees, setDirectoryEmployees] = useState([]);
   const [avatarUrl, setAvatarUrl] = useState('');
@@ -63,21 +92,14 @@ const EmployeeChat = () => {
     room: ''
   });
 
-  const resetEmployeeForm = () => {
-    setEmployeeForm({
-      id: null,
-      login: '',
-      password: '',
-      full_name: '',
-      department: '',
-      phone: '',
-      room: ''
-    });
-  };
-
   const currentConversationId = selectedEmail ? getConversationId(user.username, selectedEmail) : null;
   const currentMessages = currentConversationId ? (threads[currentConversationId] || []) : [];
   const selectedThreadMessages = selectedThreadId ? (threads[selectedThreadId] || []) : [];
+
+  const pinnedMessages = useMemo(
+    () => currentMessages.filter((message) => message.pinned),
+    [currentMessages]
+  );
 
   useEffect(() => {
     setReadState(readReadState(user?.username || 'guest'));
@@ -85,13 +107,12 @@ const EmployeeChat = () => {
 
   useEffect(() => {
     if (!user?.username) return;
-
     const storedAvatar = localStorage.getItem(getAvatarKey(user.username)) || '';
     setAvatarUrl(storedAvatar);
 
     const greeting = `Здравствуйте, ${baseDisplayName}!`;
     setHeaderName(greeting);
-    const timer = setTimeout(() => setHeaderName(baseDisplayName), 2000);
+    const timer = setTimeout(() => setHeaderName(baseDisplayName), 3000);
     return () => clearTimeout(timer);
   }, [baseDisplayName, user?.username]);
 
@@ -99,10 +120,8 @@ const EmployeeChat = () => {
     try {
       const response = await fetch(`${API_BASE_URL}/chat/threads`);
       if (!response.ok) return;
-
       const data = await response.json();
-      const nextThreads = data?.threads && typeof data.threads === 'object' ? data.threads : {};
-      setThreads(nextThreads);
+      setThreads(data?.threads && typeof data.threads === 'object' ? data.threads : {});
     } catch (error) {
       console.error('Ошибка загрузки переписки:', error);
     }
@@ -112,7 +131,6 @@ const EmployeeChat = () => {
     try {
       const response = await fetch(`${API_BASE_URL}/auth/employees`);
       if (!response.ok) return;
-
       const data = await response.json();
       setDirectoryEmployees(Array.isArray(data?.employees) ? data.employees : []);
     } catch (error) {
@@ -137,21 +155,6 @@ const EmployeeChat = () => {
     }
   }, []);
 
-  const deleteConversationOnServer = useCallback(async (conversationId) => {
-    const response = await fetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}`, {
-      method: 'DELETE'
-    });
-
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(data.message || 'Не удалось удалить переписку');
-    }
-
-    if (data?.threads && typeof data.threads === 'object') {
-      setThreads(data.threads);
-    }
-  }, []);
-
   useEffect(() => {
     fetchThreads();
     fetchEmployees();
@@ -166,25 +169,20 @@ const EmployeeChat = () => {
 
   const employeeProfiles = useMemo(() => {
     const map = new Map();
-    directoryEmployees.forEach((item) => {
-      map.set(item.login?.toLowerCase(), item);
-    });
+    directoryEmployees.forEach((item) => map.set(item.login?.toLowerCase(), item));
     return map;
   }, [directoryEmployees]);
 
   const chatCandidates = useMemo(() => {
     const presenceMap = new Map(employeeDirectory.map((item) => [item.email?.toLowerCase(), item]));
     const sourceEmployees = [...directoryEmployees];
-    const hasManager = sourceEmployees.some((item) => item.login.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase());
 
-    if (!hasManager) {
+    if (!sourceEmployees.some((item) => item.login.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase())) {
       sourceEmployees.push({
         id: 'manager-static',
         login: MANAGER_CREDENTIALS.username,
         full_name: MANAGER_CREDENTIALS.name,
-        department: 'Старший сотрудник',
-        phone: '',
-        room: ''
+        department: 'Старший сотрудник'
       });
     }
 
@@ -212,57 +210,47 @@ const EmployeeChat = () => {
     return chatCandidates.filter((item) => !normalizedSearch || item.email.toLowerCase().includes(normalizedSearch));
   }, [chatCandidates, search]);
 
-  const allConversationIds = useMemo(() => Object.keys(threads).sort(), [threads]);
-
   const unreadByEmail = useMemo(() => {
     const map = {};
     chatCandidates.forEach((employee) => {
       const conversationId = getConversationId(user.username, employee.email);
       const lastReadAt = readState[conversationId] ? new Date(readState[conversationId]).getTime() : 0;
-      const unreadCount = (threads[conversationId] || []).filter((message) => (
+      map[employee.email] = (threads[conversationId] || []).filter((message) => (
         message.sender !== user.username && new Date(message.createdAt).getTime() > lastReadAt
       )).length;
-      map[employee.email] = unreadCount;
     });
     return map;
   }, [chatCandidates, readState, threads, user.username]);
 
   useEffect(() => {
-    if (!selectedEmail && chatCandidates.length > 0) {
-      setSelectedEmail(chatCandidates[0].email);
-    }
+    if (!selectedEmail && chatCandidates.length > 0) setSelectedEmail(chatCandidates[0].email);
   }, [chatCandidates, selectedEmail]);
 
   useEffect(() => {
     if (!selectedEmail) return;
-    const exists = chatCandidates.some((item) => item.email === selectedEmail);
-    if (!exists) setSelectedEmail('');
+    if (!chatCandidates.some((item) => item.email === selectedEmail)) setSelectedEmail('');
   }, [chatCandidates, selectedEmail]);
 
   useEffect(() => {
     if (!currentConversationId) return;
-
     const latestIncoming = (threads[currentConversationId] || [])
       .filter((message) => message.sender !== user.username)
       .reduce((latest, message) => {
         if (!latest) return message.createdAt;
         return new Date(message.createdAt).getTime() > new Date(latest).getTime() ? message.createdAt : latest;
       }, null);
-
     if (!latestIncoming) return;
 
     setReadState((prev) => {
       const currentRead = prev[currentConversationId];
-      if (currentRead && new Date(currentRead).getTime() >= new Date(latestIncoming).getTime()) {
-        return prev;
-      }
+      if (currentRead && new Date(currentRead).getTime() >= new Date(latestIncoming).getTime()) return prev;
       const next = { ...prev, [currentConversationId]: latestIncoming };
       saveReadState(user.username, next);
       return next;
     });
   }, [currentConversationId, threads, user.username]);
 
-  const handleAvatarUpload = (event) => {
+  const handleAvatarUpload = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -270,19 +258,18 @@ const EmployeeChat = () => {
       window.alert('Разрешены только PNG, JPG, WEBP.');
       return;
     }
-
-    if (file.size > 2 * 1024 * 1024) {
-      window.alert('Максимальный размер файла 2MB.');
+    if (file.size > 5 * 1024 * 1024) {
+      window.alert('Фото слишком большое. Рекомендуется до 5MB.');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = String(reader.result || '');
-      setAvatarUrl(result);
-      localStorage.setItem(getAvatarKey(user.username), result);
-    };
-    reader.readAsDataURL(file);
+    try {
+      const optimizedAvatar = await processAvatar(file);
+      setAvatarUrl(optimizedAvatar);
+      localStorage.setItem(getAvatarKey(user.username), optimizedAvatar);
+    } catch {
+      window.alert('Не удалось обработать изображение. Попробуйте другое фото.');
+    }
   };
 
   const handleSend = async (e) => {
@@ -294,14 +281,47 @@ const EmployeeChat = () => {
       sender: user.username,
       text: draft.trim(),
       createdAt: new Date().toISOString(),
-      editedAt: null
+      editedAt: null,
+      reactions: {},
+      pinned: false,
+      replyTo: replyTo ? { id: replyTo.id, sender: replyTo.sender, text: replyTo.text } : null
     };
 
     try {
       await persistThreadMessages(currentConversationId, [...currentMessages, newMessage]);
       setDraft('');
+      setReplyTo(null);
     } catch (error) {
       window.alert(error.message || 'Не удалось отправить сообщение');
+    }
+  };
+
+  const updateMessage = async (messageId, updater, targetConversationId = currentConversationId) => {
+    if (!targetConversationId) return;
+    const nextMessages = (threads[targetConversationId] || []).map((item) => (item.id === messageId ? updater(item) : item));
+    await persistThreadMessages(targetConversationId, nextMessages);
+  };
+
+  const toggleReaction = async (messageId, emoji, targetConversationId = currentConversationId) => {
+    try {
+      await updateMessage(messageId, (item) => {
+        const reactions = { ...(item.reactions || {}) };
+        const users = new Set(reactions[emoji] || []);
+        if (users.has(user.username)) users.delete(user.username);
+        else users.add(user.username);
+        reactions[emoji] = [...users];
+        return { ...item, reactions };
+      }, targetConversationId);
+    } catch (error) {
+      window.alert(error.message || 'Не удалось поставить реакцию');
+    }
+  };
+
+  const togglePinned = async (messageId, targetConversationId = currentConversationId) => {
+    try {
+      await updateMessage(messageId, (item) => ({ ...item, pinned: !item.pinned }), targetConversationId);
+    } catch (error) {
+      window.alert(error.message || 'Не удалось закрепить сообщение');
     }
   };
 
@@ -319,24 +339,21 @@ const EmployeeChat = () => {
     const nextText = window.prompt('Изменить сообщение:');
     if (!nextText || !targetConversationId) return;
 
-    const nextMessages = (threads[targetConversationId] || []).map((item) => {
-      if (item.id !== messageId) return item;
-      return { ...item, text: nextText.trim(), editedAt: new Date().toISOString() };
-    });
-
     try {
-      await persistThreadMessages(targetConversationId, nextMessages);
+      await updateMessage(messageId, (item) => ({ ...item, text: nextText.trim(), editedAt: new Date().toISOString() }), targetConversationId);
     } catch (error) {
       window.alert(error.message || 'Не удалось изменить сообщение');
     }
   };
 
   const clearConversation = async () => {
-    if (!currentConversationId) return;
-    if (!window.confirm('Удалить всю переписку с этим сотрудником?')) return;
+    if (!currentConversationId || !window.confirm('Удалить всю переписку с этим сотрудником?')) return;
 
     try {
-      await deleteConversationOnServer(currentConversationId);
+      const response = await fetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(currentConversationId)}`, { method: 'DELETE' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Не удалось удалить переписку');
+      if (data?.threads) setThreads(data.threads);
     } catch (error) {
       window.alert(error.message || 'Не удалось удалить переписку');
     }
@@ -375,37 +392,40 @@ const EmployeeChat = () => {
     }
 
     await fetchEmployees();
-    resetEmployeeForm();
+    setEmployeeForm({ id: null, login: '', password: '', full_name: '', department: '', phone: '', room: '' });
   };
 
   const deleteEmployee = async (employeeId) => {
     if (!window.confirm('Удалить сотрудника?')) return;
-
     const response = await fetch(`${API_BASE_URL}/auth/employees/${employeeId}`, { method: 'DELETE' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       window.alert(data.message || 'Не удалось удалить сотрудника');
       return;
     }
-
     await fetchEmployees();
   };
+
+  const allConversationIds = useMemo(() => Object.keys(threads).sort(), [threads]);
+
+  const typingHint = draft.trim().length > 0 ? 'Вы печатаете…' : '';
 
   return (
     <div className="employee-chat-layout">
       <aside className="employee-chat-sidebar">
         <div className="employee-chat-header">
           <div className="employee-avatar-wrap">
-            <label className="employee-avatar-upload" htmlFor="avatar-upload-input">
+            <label className="employee-avatar-upload" htmlFor="avatar-upload-input" title="Загрузить аватар (лучше квадратное фото)">
               {avatarUrl ? <img src={avatarUrl} alt="avatar" className="employee-avatar-image" /> : <span>+</span>}
             </label>
             <input id="avatar-upload-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={handleAvatarUpload} hidden />
 
             <div className="employee-header-meta">
               <h2>Чаты сотрудников</h2>
-              <p>{headerName}</p>
+              <p className={headerName.startsWith('Здравствуйте') ? 'greeting' : ''}>{headerName}</p>
             </div>
           </div>
+          <small className="avatar-tip">Фото автоматически приводится к квадрату 256×256 для чёткого вида.</small>
         </div>
 
         <input
@@ -418,8 +438,6 @@ const EmployeeChat = () => {
         <div className="employee-chat-list">
           {availableEmployees.map((employee) => {
             const isOnline = Boolean(employee.isOnline) && employee.lastSeen && Date.now() - new Date(employee.lastSeen).getTime() < ONLINE_TIMEOUT_MS;
-            const profile = employeeProfiles.get(employee.email.toLowerCase()) || employee.profile || {};
-
             return (
               <button
                 key={employee.email}
@@ -432,14 +450,6 @@ const EmployeeChat = () => {
                 {unreadByEmail[employee.email] > 0 && (
                   <span className="employee-chat-user-unread">{unreadByEmail[employee.email]}</span>
                 )}
-
-                <div className="employee-tooltip">
-                  <strong>{profile.full_name || employee.email}</strong>
-                  <span>Отдел: {profile.department || '—'}</span>
-                  <span>Телефон: {profile.phone || '—'}</span>
-                  <span>Почта: {profile.login || employee.email}</span>
-                  <span>Кабинет: {profile.room || '—'}</span>
-                </div>
               </button>
             );
           })}
@@ -457,11 +467,23 @@ const EmployeeChat = () => {
         ) : (
           <>
             <div className="conversation-header">Диалог с {selectedEmail}</div>
+
+            {pinnedMessages.length > 0 && (
+              <div className="pinned-box">
+                <strong>📌 Закреплённые:</strong>
+                {pinnedMessages.map((message) => (
+                  <div key={`pin-${message.id}`}>• {message.text}</div>
+                ))}
+              </div>
+            )}
+
             <div className="messages-wrap">
               {currentMessages.length === 0 && <div className="empty-chat">Сообщений пока нет.</div>}
               {currentMessages.map((message) => {
                 const canEdit = isManager || message.sender === user.username;
                 const isMine = message.sender === user.username;
+                const isRead = isMine && currentMessages.some((item) => item.sender !== user.username && new Date(item.createdAt) > new Date(message.createdAt));
+
                 return (
                   <div key={message.id} className={`message-row ${isMine ? 'mine' : ''}`}>
                     <div className="message-bubble">
@@ -469,19 +491,55 @@ const EmployeeChat = () => {
                         <span>{isMine ? 'Вы' : message.sender}</span>
                         <span>{new Date(message.createdAt).toLocaleString('ru-RU')}</span>
                       </div>
-                      <div>{message.text}</div>
-                      {message.editedAt && <small>изменено</small>}
-                      {canEdit && (
-                        <div className="message-controls">
-                          <button onClick={() => editMessage(message.id)}>Изменить</button>
-                          <button onClick={() => deleteMessage(message.id)}>Удалить</button>
+
+                      {message.replyTo && (
+                        <div className="reply-preview">
+                          ↪ {message.replyTo.sender}: {message.replyTo.text}
                         </div>
                       )}
+
+                      <div>{message.text}</div>
+                      {message.editedAt && <small>изменено</small>}
+                      {isMine && <small className="read-state">{isRead ? 'прочитано' : 'доставлено'}</small>}
+
+                      <div className="reaction-row">
+                        {REACTION_EMOJIS.map((emoji) => {
+                          const count = message.reactions?.[emoji]?.length || 0;
+                          const active = (message.reactions?.[emoji] || []).includes(user.username);
+                          return (
+                            <button key={emoji} className={active ? 'active' : ''} onClick={() => toggleReaction(message.id, emoji)}>
+                              {emoji} {count > 0 ? count : ''}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="message-controls">
+                        <button onClick={() => setReplyTo(message)}>Ответить</button>
+                        <button onClick={() => togglePinned(message.id)}>{message.pinned ? 'Открепить' : 'Закрепить'}</button>
+                        {canEdit && <button onClick={() => editMessage(message.id)}>Изменить</button>}
+                        {canEdit && <button onClick={() => deleteMessage(message.id)}>Удалить</button>}
+                      </div>
                     </div>
                   </div>
                 );
               })}
             </div>
+
+            <div className="template-row">
+              {TEMPLATE_MESSAGES.map((template) => (
+                <button key={template} type="button" onClick={() => setDraft(template)}>{template}</button>
+              ))}
+            </div>
+
+            {replyTo && (
+              <div className="reply-preview active-reply">
+                Ответ на: {replyTo.sender}: {replyTo.text}
+                <button type="button" onClick={() => setReplyTo(null)}>×</button>
+              </div>
+            )}
+
+            {typingHint && <div className="typing-hint">{typingHint}</div>}
 
             <form className="message-form" onSubmit={handleSend}>
               <input
@@ -506,7 +564,7 @@ const EmployeeChat = () => {
                 <input placeholder="Отдел" value={employeeForm.department} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, department: e.target.value }))} />
                 <div className="manager-form-actions">
                   <button type="submit">{employeeForm.id ? 'Сохранить' : 'Добавить'}</button>
-                  {employeeForm.id && <button type="button" onClick={resetEmployeeForm}>Отмена</button>}
+                  {employeeForm.id && <button type="button" onClick={() => setEmployeeForm({ id: null, login: '', password: '', full_name: '', department: '', phone: '', room: '' })}>Отмена</button>}
                 </div>
               </form>
 
@@ -542,11 +600,7 @@ const EmployeeChat = () => {
                   {allConversationIds.map((threadId) => {
                     const participants = getParticipantsFromThreadId(threadId);
                     return (
-                      <button
-                        key={threadId}
-                        className={`thread-item ${selectedThreadId === threadId ? 'active' : ''}`}
-                        onClick={() => setSelectedThreadId(threadId)}
-                      >
+                      <button key={threadId} className={`thread-item ${selectedThreadId === threadId ? 'active' : ''}`} onClick={() => setSelectedThreadId(threadId)}>
                         {participants.join(' ↔ ')}
                       </button>
                     );
