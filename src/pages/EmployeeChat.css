@@ -20,6 +20,56 @@
 .employee-chat-header h2 { margin: 0 0 8px; }
 .employee-chat-header p { margin: 0; color: #64748b; }
 
+
+.employee-profile {
+  margin: 12px;
+  padding: 10px;
+  border: 1px solid #dbe2ea;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #f8fbff;
+}
+
+.avatar-upload {
+  width: 58px;
+  height: 58px;
+  border-radius: 12px;
+  border: 1px dashed #8fb2d9;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #edf4fb;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.avatar-upload input {
+  display: none;
+}
+
+.avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-placeholder {
+  font-size: 22px;
+  color: #5f87b5;
+}
+
+.employee-profile-meta strong {
+  display: block;
+  color: #17324d;
+}
+
+.employee-profile-meta small {
+  color: #6d879e;
+  font-size: 12px;
+}
+
 .employee-chat-search {
   margin: 12px;
   padding: 10px;
@@ -36,7 +86,7 @@
 .employee-chat-user {
   width: 100%;
   display: grid;
-  grid-template-columns: 10px 1fr auto;
+  grid-template-columns: 10px 1fr auto auto;
   gap: 10px;
   align-items: center;
   padding: 10px;
@@ -45,7 +95,10 @@
   background: transparent;
   cursor: pointer;
   text-align: left;
+  position: relative;
+  overflow: visible;
 }
+
 
 .employee-chat-user:hover,
 .employee-chat-user.active {
@@ -62,6 +115,39 @@
 
 .employee-chat-user-email { font-weight: 600; }
 .employee-chat-user-status { font-size: 12px; color: #64748b; }
+
+
+.employee-card-tooltip {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: #0e2740;
+  color: #e8f4ff;
+  border: 1px solid rgba(150, 197, 235, 0.5);
+  border-radius: 10px;
+  padding: 10px;
+  min-width: 240px;
+  z-index: 30;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+
+.employee-chat-user:hover .employee-card-tooltip,
+.employee-chat-user:focus-visible .employee-card-tooltip {
+  opacity: 1;
+}
+
+.employee-card-tooltip div {
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.employee-card-tooltip div:last-child {
+  margin-bottom: 0;
+}
 
 .employee-chat-actions {
   border-top: 1px solid #e2e8f0;
@@ -166,4 +252,150 @@
   .employee-chat-layout {
     grid-template-columns: 1fr;
   }
+
+  .employee-card-tooltip {
+    left: 0;
+    right: 0;
+    top: calc(100% + 6px);
+    transform: none;
+    min-width: 0;
+  }
+}
+
+.manager-panels {
+  border-top: 1px solid #dbe2ea;
+  background: #f8fafc;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.manager-panel {
+  background: #fff;
+  border: 1px solid #dbe2ea;
+  border-radius: 10px;
+  padding: 10px;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.manager-panel h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.manager-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.manager-form input {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.manager-form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+}
+
+.manager-form-actions button,
+.manager-list-actions button,
+.thread-item,
+.audit-message .message-controls button {
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: #e2e8f0;
+  cursor: pointer;
+}
+
+.manager-list {
+  overflow-y: auto;
+  display: grid;
+  gap: 8px;
+}
+
+.manager-list-item {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.manager-list-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.threads-grid {
+  display: grid;
+  grid-template-columns: 230px 1fr;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+
+.threads-list {
+  border-right: 1px solid #e2e8f0;
+  padding-right: 8px;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.thread-item.active {
+  background: #dbeafe;
+}
+
+.threads-messages {
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.audit-message {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px;
+  background: #f8fafc;
+}
+
+@media (max-width: 1200px) {
+  .manager-panels {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .manager-form,
+  .threads-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+.employee-chat-user-unread {
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
 }
