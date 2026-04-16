@@ -110,8 +110,16 @@ const Login = () => {
                   required
                   disabled={isSubmitting}
                 />
-                <button type="button" className="password-toggle" onClick={() => setShowPassword((prev) => !prev)}>
-                  {showPassword ? '🙈' : '👁️'}
+                <button type="button" className="password-toggle" onClick={() => setShowPassword((prev) => !prev)} aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}>
+                  {showPassword ? (
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M3 3l18 18-1.4 1.4-3.1-3.1A11.9 11.9 0 0 1 12 20C6.5 20 2.1 16.5.4 12c.8-2 2.2-3.8 4-5.3L1.6 4.4 3 3zm6.5 6.5a3.5 3.5 0 0 0 5 5l-5-5zM12 4c5.5 0 9.9 3.5 11.6 8a12.2 12.2 0 0 1-5.4 6.4l-2-2A3.5 3.5 0 0 0 9.6 9.8l-2-2A12.3 12.3 0 0 1 12 4z" fill="currentColor"/>
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M12 5c5.5 0 9.9 3.5 11.6 7-1.7 3.5-6.1 7-11.6 7S2.1 15.5.4 12C2.1 8.5 6.5 5 12 5zm0 2C7.8 7 4.4 9.5 2.7 12 4.4 14.5 7.8 17 12 17s7.6-2.5 9.3-5C19.6 9.5 16.2 7 12 7zm0 2.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z" fill="currentColor"/>
+                    </svg>
+                  )}
                 </button>
               </div>
             </label>
