@@ -12,6 +12,7 @@
   backdrop-filter: blur(12px);
   display: flex;
   flex-direction: column;
+  height: 100vh;
 }
 
 .employee-chat-header {
@@ -84,7 +85,14 @@
   color: #fff;
 }
 
-.employee-chat-list { flex: 1; overflow-y: auto; padding: 8px; }
+.employee-chat-list {
+  flex: 0 1 auto;
+  max-height: calc(15 * 56px);
+  overflow-y: auto;
+  padding: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(154,200,234,.45) transparent;
+}
 
 .employee-chat-user {
   width: 100%;
@@ -149,7 +157,9 @@
   display: flex;
   flex-direction: column;
   background: rgba(8, 25, 41, 0.42);
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .conversation-header {
@@ -422,4 +432,16 @@
   border-radius: 18px;
   border: 1px solid rgba(159, 208, 255, 0.5);
   box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+
+
+.employee-chat-list::-webkit-scrollbar,
+.messages-wrap::-webkit-scrollbar {
+  width: 8px;
+}
+
+.employee-chat-list::-webkit-scrollbar-thumb,
+.messages-wrap::-webkit-scrollbar-thumb {
+  background: rgba(154,200,234,.35);
+  border-radius: 10px;
 }

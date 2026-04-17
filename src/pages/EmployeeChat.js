@@ -83,6 +83,7 @@ const EmployeeChat = () => {
   const [headerName, setHeaderName] = useState(baseDisplayName);
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
   const messagesWrapRef = useRef(null);
+  const forceScrollRef = useRef(false);
 
   const [employeeForm, setEmployeeForm] = useState({
     id: null,
@@ -262,6 +263,13 @@ const EmployeeChat = () => {
   useEffect(() => {
     const wrap = messagesWrapRef.current;
     if (!wrap) return;
+
+    if (forceScrollRef.current) {
+      wrap.scrollTop = wrap.scrollHeight;
+      forceScrollRef.current = false;
+      return;
+    }
+
     const distanceFromBottom = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight;
     if (distanceFromBottom < 140) {
       wrap.scrollTop = wrap.scrollHeight;
@@ -306,6 +314,7 @@ const EmployeeChat = () => {
     };
 
     try {
+      forceScrollRef.current = true;
       await persistThreadMessages(currentConversationId, [...currentMessages, newMessage]);
       setDraft('');
       setReplyTo(null);
