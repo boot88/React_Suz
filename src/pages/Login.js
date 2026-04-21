@@ -17,6 +17,7 @@ const Login = () => {
   const location = useLocation();
 
   const [formData, setFormData] = useState({ username: '', password: '' });
+  const [recoveryEmail, setRecoveryEmail] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRecovering, setIsRecovering] = useState(false);
@@ -50,9 +51,14 @@ const Login = () => {
 
 
   const handleForgotPassword = async () => {
-    const loginValue = (formData.username || '').trim();
-    if (!loginValue) {
-      setError('Сначала введите email/логин в поле Логин');
+    const emailValue = (recoveryEmail || '').trim().toLowerCase();
+    if (!emailValue) {
+      setError('Введите email в поле "Почта для восстановления"');
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailValue)) {
+      setError('Введите корректный email для восстановления');
       return;
     }
 
@@ -62,14 +68,14 @@ const Login = () => {
       const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ login: loginValue })
+        body: JSON.stringify({ email: emailValue })
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(data.message || 'Не удалось отправить новый пароль');
       }
       setError('');
-      window.alert(data.message || 'Новый пароль отправлен на почту');
+      window.alert(data.message || `Новый пароль отправлен на ${emailValue}`);
     } catch (err) {
       setError(err.message || 'Ошибка восстановления пароля');
     } finally {
@@ -123,9 +129,26 @@ const Login = () => {
                 type="text"
                 placeholder="employee@email"
                 value={formData.username}
-                onChange={(e) => setFormData((prev) => ({ ...prev, username: e.target.value }))}
+                onChange={(e) => {
+                  const nextValue = e.target.value;
+                  setFormData((prev) => ({ ...prev, username: nextValue }));
+                  setRecoveryEmail(nextValue);
+                }}
                 required
                 disabled={isSubmitting}
+              />
+            </label>
+
+            <label>
+              Почта для восстановления *
+              <input
+                name="recoveryEmail"
+                type="email"
+                placeholder="employee@email"
+                value={recoveryEmail}
+                onChange={(e) => setRecoveryEmail(e.target.value)}
+                disabled={isSubmitting || isRecovering}
+                required
               />
             </label>
 

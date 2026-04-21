@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 const router = express.Router();
 const db = require('../config/database');
+const mailConfig = require('../config/mail');
 
 const normalizeLogin = (value = '') => value.trim().toLowerCase();
 const hashPassword = (value) => `sha256$${crypto.createHash('sha256').update(String(value)).digest('hex')}`;
@@ -20,7 +21,7 @@ const isPasswordValid = (rawPassword, storedPassword = '') => {
 
 
 const sendEmailViaSendmail = ({ to, subject, text }) => new Promise((resolve, reject) => {
-  const sendmail = spawn('sendmail', ['-t', '-i']);
+  const sendmail = spawn(mailConfig.sendmailBin, ['-t', '-i']);
   let stderr = '';
 
   sendmail.stderr.on('data', (chunk) => {
@@ -34,6 +35,8 @@ const sendEmailViaSendmail = ({ to, subject, text }) => new Promise((resolve, re
   });
 
   sendmail.stdin.write(`To: ${to}\n`);
+  sendmail.stdin.write(`From: ${mailConfig.from}\n`);
+  sendmail.stdin.write(`Reply-To: ${mailConfig.replyTo}\n`);
   sendmail.stdin.write(`Subject: ${subject}\n`);
   sendmail.stdin.write('Content-Type: text/plain; charset=UTF-8\n\n');
   sendmail.stdin.write(text);
@@ -84,11 +87,12 @@ const mapUser = (user) => ({
 // Регистрация сотрудника
 router.post('/register', async (req, res) => {
   try {
-    const { login, password, full_name, department, phone, room } = req.body;
+    const { login, full_name, department, phone, room } = req.body;
     const normalizedLogin = normalizeLogin(login);
+    const generatedPassword = generateTemporaryPassword();
 
-    if (!normalizedLogin || !password) {
-      return res.status(400).json({ message: 'Логин и пароль обязательны' });
+    if (!normalizedLogin) {
+      return res.status(400).json({ message: 'Email (логин) обязателен' });
     }
 
     const [existingUsers] = await db.execute(
@@ -102,21 +106,22 @@ router.post('/register', async (req, res) => {
 
     await db.execute(
       'INSERT INTO users (login, password, role, full_name, department, phone, room) VALUES (?, ?, "employee", ?, ?, ?, ?)',
-      [normalizedLogin, hashPassword(password), full_name || normalizedLogin, department || null, phone || null, room || null]
+      [normalizedLogin, hashPassword(generatedPassword), full_name || normalizedLogin, department || null, phone || null, room || null]
     );
 
     const emailSent = await sendPasswordNotification({
       login: normalizedLogin,
-      password,
+      password: generatedPassword,
       fullName: full_name || normalizedLogin,
       mode: 'register'
     });
 
     res.status(201).json({
       message: emailSent
-        ? 'Пользователь успешно зарегистрирован. Пароль отправлен на почту.'
+        ? `Пользователь успешно зарегистрирован. Пароль отправлен на ${normalizedLogin}.`
         : 'Пользователь зарегистрирован, но отправка email не выполнена (проверьте sendmail).',
-      emailSent
+      emailSent,
+      sentTo: normalizedLogin
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -203,8 +208,8 @@ router.delete('/employees/:id', async (req, res) => {
 // Восстановление пароля (отправка нового временного пароля)
 router.post('/forgot-password', async (req, res) => {
   try {
-    const { login } = req.body;
-    const normalizedLogin = normalizeLogin(login);
+    const rawLogin = req.body?.login || req.body?.email;
+    const normalizedLogin = normalizeLogin(rawLogin);
 
     if (!normalizedLogin) {
       return res.status(400).json({ message: 'Укажите email/логин' });
@@ -236,9 +241,10 @@ router.post('/forgot-password', async (req, res) => {
 
     res.json({
       message: emailSent
-        ? 'Новый пароль отправлен на почту.'
+        ? `Новый пароль отправлен на ${normalizedLogin}.`
         : 'Пароль обновлен, но email не отправлен (проверьте sendmail).',
-      emailSent
+      emailSent,
+      sentTo: normalizedLogin
     });
   } catch (error) {
     console.error('Forgot password error:', error);

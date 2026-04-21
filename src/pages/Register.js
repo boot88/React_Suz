@@ -10,9 +10,7 @@ const Register = () => {
     room: '',
     department: '',
     internalPhone: '',
-    email: '',
-    password: '',
-    confirmPassword: ''
+    email: ''
   });
   const [departments, setDepartments] = useState([]);
   const [nameHints, setNameHints] = useState([]);
@@ -91,26 +89,16 @@ const Register = () => {
     setError('');
     setSuccessMessage('');
 
-    if (formData.password !== formData.confirmPassword) {
-      setError('Пароли не совпадают');
-      return;
-    }
-
-    if (formData.password.length < 6) {
-      setError('Минимальная длина пароля — 6 символов');
-      return;
-    }
-
     setIsLoading(true);
 
     try {
-      await registerEmployee(formData.email, formData.password, {
+      await registerEmployee(formData.email, {
         fullName: formData.fullName,
         room: formData.room,
         department: formData.department,
         internalPhone: formData.internalPhone
       });
-      setSuccessMessage('Сотрудник зарегистрирован. Теперь можно войти в систему.');
+      setSuccessMessage(`Сотрудник зарегистрирован. Пароль отправлен на ${formData.email.trim().toLowerCase()}.`);
       setTimeout(() => navigate('/login'), 1000);
     } catch (err) {
       setError(err.message || 'Ошибка регистрации');
@@ -204,31 +192,9 @@ const Register = () => {
             </label>
           </div>
 
-          <div className="grid-two">
-            <label>
-              Пароль *
-              <input
-                type="password"
-                name="password"
-                value={formData.password}
-                onChange={handleChange}
-                required
-                disabled={isLoading}
-              />
-            </label>
-
-            <label>
-              Подтверждение пароля *
-              <input
-                type="password"
-                name="confirmPassword"
-                value={formData.confirmPassword}
-                onChange={handleChange}
-                required
-                disabled={isLoading}
-              />
-            </label>
-          </div>
+          <p className="register-note">
+            Пароль создавать не нужно — он будет автоматически сгенерирован и отправлен на указанную почту.
+          </p>
 
           <button type="submit" disabled={isLoading}>
             {isLoading ? 'Регистрация...' : 'Зарегистрировать сотрудника'}

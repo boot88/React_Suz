@@ -133,7 +133,7 @@ export const AuthProvider = ({ children }) => {
     return employeeUser;
   };
 
-  const registerEmployee = async (email, password, profile = {}) => {
+  const registerEmployee = async (email, profile = {}) => {
     const normalizedEmail = email.trim().toLowerCase();
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
@@ -151,7 +151,6 @@ export const AuthProvider = ({ children }) => {
       },
       body: JSON.stringify({
         login: normalizedEmail,
-        password,
         full_name: profile.fullName?.trim() || normalizedEmail,
         department: profile.department || null,
         phone: profile.internalPhone || null,

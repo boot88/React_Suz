@@ -74,6 +74,16 @@
   background: linear-gradient(135deg, #1fb6a1, #3d7cf4);
 }
 
+.register-note {
+  margin: 0;
+  border: 1px solid rgba(143, 220, 255, 0.35);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(12, 39, 63, 0.55);
+  color: #c9ecff;
+  font-size: 14px;
+}
+
 .name-hints {
   border: 1px solid rgba(156, 214, 255, 0.4);
   border-radius: 12px;
