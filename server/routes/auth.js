@@ -1,5 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
+const { spawn } = require('child_process');
 const router = express.Router();
 const db = require('../config/database');
 
@@ -15,6 +16,59 @@ const isPasswordValid = (rawPassword, storedPassword = '') => {
 
   // Совместимость со старыми записями, где пароль мог храниться без хеша
   return storedPassword === rawPassword;
+};
+
+
+const sendEmailViaSendmail = ({ to, subject, text }) => new Promise((resolve, reject) => {
+  const sendmail = spawn('sendmail', ['-t', '-i']);
+  let stderr = '';
+
+  sendmail.stderr.on('data', (chunk) => {
+    stderr += chunk.toString();
+  });
+
+  sendmail.on('error', reject);
+  sendmail.on('close', (code) => {
+    if (code === 0) resolve();
+    else reject(new Error(stderr || `sendmail exited with code ${code}`));
+  });
+
+  sendmail.stdin.write(`To: ${to}\n`);
+  sendmail.stdin.write(`Subject: ${subject}\n`);
+  sendmail.stdin.write('Content-Type: text/plain; charset=UTF-8\n\n');
+  sendmail.stdin.write(text);
+  sendmail.stdin.end();
+});
+
+const sendPasswordNotification = async ({ login, password, fullName, mode }) => {
+  const subject = mode === 'forgot'
+    ? 'Восстановление доступа к системе'
+    : 'Данные доступа к системе';
+
+  const text = [
+    `Здравствуйте${fullName ? `, ${fullName}` : ''}!`,
+    '',
+    mode === 'forgot'
+      ? 'Для вас создан новый временный пароль.'
+      : 'Вам создан доступ в систему.',
+    `Логин: ${login}`,
+    `Пароль: ${password}`,
+    '',
+    'Рекомендуем сменить пароль после входа.'
+  ].join('\n');
+
+  try {
+    await sendEmailViaSendmail({ to: login, subject, text });
+    return true;
+  } catch (error) {
+    console.warn('Не удалось отправить email через sendmail:', error.message);
+    return false;
+  }
+};
+
+const generateTemporaryPassword = () => {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$';
+  return Array.from({ length: 12 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('');
 };
 
 const mapUser = (user) => ({
@@ -51,7 +105,19 @@ router.post('/register', async (req, res) => {
       [normalizedLogin, hashPassword(password), full_name || normalizedLogin, department || null, phone || null, room || null]
     );
 
-    res.status(201).json({ message: 'Пользователь успешно зарегистрирован' });
+    const emailSent = await sendPasswordNotification({
+      login: normalizedLogin,
+      password,
+      fullName: full_name || normalizedLogin,
+      mode: 'register'
+    });
+
+    res.status(201).json({
+      message: emailSent
+        ? 'Пользователь успешно зарегистрирован. Пароль отправлен на почту.'
+        : 'Пользователь зарегистрирован, но отправка email не выполнена (проверьте sendmail).',
+      emailSent
+    });
   } catch (error) {
     console.error('Registration error:', error);
     res.status(500).json({ message: 'Ошибка сервера' });
@@ -130,6 +196,53 @@ router.delete('/employees/:id', async (req, res) => {
   } catch (error) {
     console.error('Employees delete error:', error);
     res.status(500).json({ message: 'Не удалось удалить сотрудника' });
+  }
+});
+
+
+// Восстановление пароля (отправка нового временного пароля)
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { login } = req.body;
+    const normalizedLogin = normalizeLogin(login);
+
+    if (!normalizedLogin) {
+      return res.status(400).json({ message: 'Укажите email/логин' });
+    }
+
+    const [users] = await db.execute(
+      'SELECT * FROM users WHERE LOWER(login) = ? AND role = "employee"',
+      [normalizedLogin]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({ message: 'Пользователь не найден' });
+    }
+
+    const user = users[0];
+    const temporaryPassword = generateTemporaryPassword();
+
+    await db.execute(
+      'UPDATE users SET password = ? WHERE id = ?',
+      [hashPassword(temporaryPassword), user.id]
+    );
+
+    const emailSent = await sendPasswordNotification({
+      login: normalizedLogin,
+      password: temporaryPassword,
+      fullName: user.full_name,
+      mode: 'forgot'
+    });
+
+    res.json({
+      message: emailSent
+        ? 'Новый пароль отправлен на почту.'
+        : 'Пароль обновлен, но email не отправлен (проверьте sendmail).',
+      emailSent
+    });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ message: 'Ошибка сервера' });
   }
 });
 

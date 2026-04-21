@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import './Login.css';
+import { API_BASE_URL } from '../utils/apiConfig';
 
 const SUPPORT_CONTACTS = {
   internalPhone: '1-380',
@@ -18,6 +19,7 @@ const Login = () => {
   const [formData, setFormData] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRecovering, setIsRecovering] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
@@ -43,6 +45,35 @@ const Login = () => {
       setError(err.message || 'Произошла ошибка при входе.');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+
+  const handleForgotPassword = async () => {
+    const loginValue = (formData.username || '').trim();
+    if (!loginValue) {
+      setError('Сначала введите email/логин в поле Логин');
+      return;
+    }
+
+    setIsRecovering(true);
+    setError('');
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ login: loginValue })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.message || 'Не удалось отправить новый пароль');
+      }
+      setError('');
+      window.alert(data.message || 'Новый пароль отправлен на почту');
+    } catch (err) {
+      setError(err.message || 'Ошибка восстановления пароля');
+    } finally {
+      setIsRecovering(false);
     }
   };
 
@@ -124,7 +155,10 @@ const Login = () => {
               </div>
             </label>
 
-            <button type="submit" className="login-button" disabled={isSubmitting}>{isSubmitting ? 'Вход...' : 'Войти'}</button>
+            <button type="submit" className="login-button" disabled={isSubmitting || isRecovering}>{isSubmitting ? 'Вход...' : 'Войти'}</button>
+            <button type="button" className="forgot-button" onClick={handleForgotPassword} disabled={isSubmitting || isRecovering}>
+              {isRecovering ? 'Отправка...' : 'Забыли пароль? Отправить новый на почту'}
+            </button>
           </form>
 
           <div className="card-footer">
