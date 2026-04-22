@@ -51,16 +51,11 @@ const Login = () => {
 
   const handleForgotPassword = async () => {
     const prefilledValue = (formData.username || '').trim().toLowerCase();
-    const enteredEmail = window.prompt('Введите email для восстановления пароля:', prefilledValue);
-    const emailValue = (enteredEmail || '').trim().toLowerCase();
+    const enteredLogin = window.prompt('Введите логин для восстановления пароля:', prefilledValue);
+    const loginValue = (enteredLogin || '').trim().toLowerCase();
 
-    if (!emailValue) {
-      setError('Восстановление отменено: email не указан');
-      return;
-    }
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailValue)) {
-      setError('Введите корректный email для восстановления');
+    if (!loginValue) {
+      setError('Восстановление отменено: логин не указан');
       return;
     }
 
@@ -70,14 +65,14 @@ const Login = () => {
       const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailValue })
+        body: JSON.stringify({ login: loginValue })
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(data.message || 'Не удалось отправить новый пароль');
       }
       setError('');
-      window.alert(data.message || `Новый пароль отправлен на ${emailValue}`);
+      window.alert(data.message || 'Запрос отправлен менеджерам');
     } catch (err) {
       setError(err.message || 'Ошибка восстановления пароля');
     } finally {

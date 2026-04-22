@@ -70,22 +70,7 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/d
 This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
 # React_Suz
 
-## Настройка отправки паролей по email
+## Восстановление пароля
 
-Пароли сотрудникам отправляются на backend через Gmail SMTP в файле `server/routes/auth.js`.
-
-Настройки берутся из `server/config/mail.js`:
-
-- `SMTP_HOST` — SMTP-сервер (по умолчанию `smtp.gmail.com`);
-- `SMTP_PORT` — SMTP-порт (по умолчанию `465`);
-- `SMTP_SECURE` — TLS (`true` по умолчанию);
-- `SMTP_USER` — логин отправителя (по умолчанию `povisok888@gmail.com`);
-- `SMTP_APP_PASSWORD` — пароль приложения Gmail (обязательно);
-- `MAIL_FROM` — email отправителя (по умолчанию `povisok888@gmail.com`);
-- `MAIL_REPLY_TO` — reply-to адрес;
-
-Пример запуска:
-
-```bash
-SMTP_USER=povisok888@gmail.com SMTP_APP_PASSWORD=<APP_PASSWORD> MAIL_FROM=povisok888@gmail.com MAIL_REPLY_TO=povisok888@gmail.com npm start
-```
+Отправка через email отключена.  
+При `POST /api/auth/forgot-password` создаётся новый временный пароль и формируется служебное уведомление менеджерам (хранится в `server/data/managerNotifications.json`).

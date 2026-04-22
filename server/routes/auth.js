@@ -1,9 +1,9 @@
 const express = require('express');
 const crypto = require('crypto');
-const tls = require('tls');
+const fs = require('fs/promises');
+const path = require('path');
 const router = express.Router();
 const db = require('../config/database');
-const mailConfig = require('../config/mail');
 
 const normalizeLogin = (value = '') => value.trim().toLowerCase();
 const hashPassword = (value) => `sha256$${crypto.createHash('sha256').update(String(value)).digest('hex')}`;
@@ -20,101 +20,66 @@ const isPasswordValid = (rawPassword, storedPassword = '') => {
 };
 
 
-const waitForResponse = (socket, expectedCodes = []) => new Promise((resolve, reject) => {
-  let buffer = '';
-  const onData = (chunk) => {
-    buffer += chunk.toString('utf8');
-    const lines = buffer.split('\r\n').filter(Boolean);
-    if (!lines.length) return;
+const dataDir = path.join(__dirname, '..', 'data');
+const notificationsFilePath = path.join(dataDir, 'managerNotifications.json');
 
-    const lastLine = lines[lines.length - 1];
-    if (!/^\d{3}\s/.test(lastLine)) return;
+const ensureNotificationStorage = async () => {
+  await fs.mkdir(dataDir, { recursive: true });
+  try {
+    await fs.access(notificationsFilePath);
+  } catch {
+    await fs.writeFile(notificationsFilePath, JSON.stringify([], null, 2), 'utf-8');
+  }
+};
 
-    socket.off('data', onData);
-    const code = Number(lastLine.slice(0, 3));
-    if (expectedCodes.length && !expectedCodes.includes(code)) {
-      reject(new Error(`SMTP error ${code}: ${lastLine}`));
-      return;
-    }
-    resolve({ code, line: lastLine });
+const readNotifications = async () => {
+  await ensureNotificationStorage();
+  try {
+    const raw = await fs.readFile(notificationsFilePath, 'utf-8');
+    const parsed = JSON.parse(raw || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.error('Notifications read error:', error);
+    return [];
+  }
+};
+
+const writeNotifications = async (items) => {
+  await ensureNotificationStorage();
+  await fs.writeFile(notificationsFilePath, JSON.stringify(items, null, 2), 'utf-8');
+};
+
+const notifyManagersAboutPasswordReset = async ({ employee, temporaryPassword }) => {
+  const [managerRows] = await db.execute(
+    'SELECT id, login FROM users WHERE role = "manager" ORDER BY id'
+  );
+
+  const recipients = managerRows.length
+    ? managerRows.map((row) => row.login)
+    : ['manager_nioh'];
+
+  const baseNotification = {
+    createdAt: new Date().toISOString(),
+    type: 'password_reset_request',
+    employee: {
+      id: employee.id,
+      login: employee.login,
+      full_name: employee.full_name || employee.login,
+      phone: employee.phone || ''
+    },
+    temporaryPassword
   };
 
-  socket.on('data', onData);
-});
+  const notifications = await readNotifications();
+  const notificationsToAdd = recipients.map((managerLogin) => ({
+    id: crypto.randomUUID(),
+    managerLogin,
+    isRead: false,
+    ...baseNotification
+  }));
 
-const smtpCommand = async (socket, command, expectedCodes) => {
-  socket.write(`${command}\r\n`);
-  return waitForResponse(socket, expectedCodes);
-};
-
-const sendEmailViaGmailSmtp = async ({ to, subject, text }) => {
-  if (!mailConfig.pass) {
-    throw new Error('SMTP_APP_PASSWORD не задан. Укажите пароль приложения Gmail.');
-  }
-
-  const socket = tls.connect({
-    host: mailConfig.host,
-    port: mailConfig.port,
-    servername: mailConfig.host
-  });
-
-  await new Promise((resolve, reject) => {
-    socket.once('secureConnect', resolve);
-    socket.once('error', reject);
-  });
-
-  try {
-    await waitForResponse(socket, [220]);
-    await smtpCommand(socket, `EHLO localhost`, [250]);
-    await smtpCommand(socket, 'AUTH LOGIN', [334]);
-    await smtpCommand(socket, Buffer.from(mailConfig.user).toString('base64'), [334]);
-    await smtpCommand(socket, Buffer.from(mailConfig.pass).toString('base64'), [235]);
-    await smtpCommand(socket, `MAIL FROM:<${mailConfig.from}>`, [250]);
-    await smtpCommand(socket, `RCPT TO:<${to}>`, [250, 251]);
-    await smtpCommand(socket, 'DATA', [354]);
-
-    const message = [
-      `From: ${mailConfig.from}`,
-      `To: ${to}`,
-      `Reply-To: ${mailConfig.replyTo}`,
-      `Subject: ${subject}`,
-      'Content-Type: text/plain; charset=UTF-8',
-      '',
-      text
-    ].join('\r\n');
-
-    socket.write(`${message}\r\n.\r\n`);
-    await waitForResponse(socket, [250]);
-    await smtpCommand(socket, 'QUIT', [221]);
-  } finally {
-    socket.end();
-  }
-};
-
-const sendPasswordNotification = async ({ login, password, fullName, mode }) => {
-  const subject = mode === 'forgot'
-    ? 'Восстановление доступа к системе'
-    : 'Данные доступа к системе';
-
-  const text = [
-    `Здравствуйте${fullName ? `, ${fullName}` : ''}!`,
-    '',
-    mode === 'forgot'
-      ? 'Для вас создан новый временный пароль.'
-      : 'Вам создан доступ в систему.',
-    `Логин: ${login}`,
-    `Пароль: ${password}`,
-    '',
-    'Рекомендуем сменить пароль после входа.'
-  ].join('\n');
-
-  try {
-    await sendEmailViaGmailSmtp({ to: login, subject, text });
-    return true;
-  } catch (error) {
-    console.warn('Не удалось отправить email через Gmail SMTP:', error.message);
-    return false;
-  }
+  await writeNotifications([...notifications, ...notificationsToAdd]);
+  return recipients;
 };
 
 const generateTemporaryPassword = () => {
@@ -157,19 +122,9 @@ router.post('/register', async (req, res) => {
       [normalizedLogin, hashPassword(generatedPassword), full_name || normalizedLogin, department || null, phone || null, room || null]
     );
 
-    const emailSent = await sendPasswordNotification({
-      login: normalizedLogin,
-      password: generatedPassword,
-      fullName: full_name || normalizedLogin,
-      mode: 'register'
-    });
-
     res.status(201).json({
-      message: emailSent
-        ? `Пользователь успешно зарегистрирован. Пароль отправлен на ${normalizedLogin}.`
-        : 'Пользователь зарегистрирован, но отправка email не выполнена (проверьте SMTP-настройки Gmail).',
-      emailSent,
-      sentTo: normalizedLogin
+      message: `Пользователь успешно зарегистрирован. Временный пароль создан для логина ${normalizedLogin}.`,
+      temporaryPassword: generatedPassword
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -256,8 +211,7 @@ router.delete('/employees/:id', async (req, res) => {
 // Восстановление пароля (отправка нового временного пароля)
 router.post('/forgot-password', async (req, res) => {
   try {
-    const rawLogin = req.body?.login || req.body?.email;
-    const normalizedLogin = normalizeLogin(rawLogin);
+    const normalizedLogin = normalizeLogin(req.body?.login);
 
     if (!normalizedLogin) {
       return res.status(400).json({ message: 'Укажите email/логин' });
@@ -280,23 +234,35 @@ router.post('/forgot-password', async (req, res) => {
       [hashPassword(temporaryPassword), user.id]
     );
 
-    const emailSent = await sendPasswordNotification({
-      login: normalizedLogin,
-      password: temporaryPassword,
-      fullName: user.full_name,
-      mode: 'forgot'
+    const managerRecipients = await notifyManagersAboutPasswordReset({
+      employee: user,
+      temporaryPassword
     });
 
     res.json({
-      message: emailSent
-        ? `Новый пароль отправлен на ${normalizedLogin}.`
-        : 'Пароль обновлен, но email не отправлен (проверьте SMTP-настройки Gmail).',
-      emailSent,
-      sentTo: normalizedLogin
+      message: 'Запрос на восстановление пароля отправлен менеджерам.',
+      sentToManagers: managerRecipients
     });
   } catch (error) {
     console.error('Forgot password error:', error);
     res.status(500).json({ message: 'Ошибка сервера' });
+  }
+});
+
+// Получение уведомлений менеджера по логину
+router.get('/manager-notifications', async (req, res) => {
+  try {
+    const managerLogin = normalizeLogin(req.query?.managerLogin || '');
+    if (!managerLogin) {
+      return res.status(400).json({ message: 'managerLogin обязателен' });
+    }
+
+    const notifications = await readNotifications();
+    const managerItems = notifications.filter((item) => normalizeLogin(item.managerLogin) === managerLogin);
+    res.json({ notifications: managerItems });
+  } catch (error) {
+    console.error('Manager notifications error:', error);
+    res.status(500).json({ message: 'Не удалось получить уведомления менеджера' });
   }
 });
 
