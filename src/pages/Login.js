@@ -17,7 +17,6 @@ const Login = () => {
   const location = useLocation();
 
   const [formData, setFormData] = useState({ username: '', password: '' });
-  const [recoveryEmail, setRecoveryEmail] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRecovering, setIsRecovering] = useState(false);
@@ -51,9 +50,12 @@ const Login = () => {
 
 
   const handleForgotPassword = async () => {
-    const emailValue = (recoveryEmail || '').trim().toLowerCase();
+    const prefilledValue = (formData.username || '').trim().toLowerCase();
+    const enteredEmail = window.prompt('Введите email для восстановления пароля:', prefilledValue);
+    const emailValue = (enteredEmail || '').trim().toLowerCase();
+
     if (!emailValue) {
-      setError('Введите email в поле "Почта для восстановления"');
+      setError('Восстановление отменено: email не указан');
       return;
     }
 
@@ -129,26 +131,9 @@ const Login = () => {
                 type="text"
                 placeholder="employee@email"
                 value={formData.username}
-                onChange={(e) => {
-                  const nextValue = e.target.value;
-                  setFormData((prev) => ({ ...prev, username: nextValue }));
-                  setRecoveryEmail(nextValue);
-                }}
+                onChange={(e) => setFormData((prev) => ({ ...prev, username: e.target.value }))}
                 required
                 disabled={isSubmitting}
-              />
-            </label>
-
-            <label>
-              Почта для восстановления *
-              <input
-                name="recoveryEmail"
-                type="email"
-                placeholder="employee@email"
-                value={recoveryEmail}
-                onChange={(e) => setRecoveryEmail(e.target.value)}
-                disabled={isSubmitting || isRecovering}
-                required
               />
             </label>
 

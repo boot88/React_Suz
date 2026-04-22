@@ -1,6 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
-const { spawn } = require('child_process');
+const tls = require('tls');
 const router = express.Router();
 const db = require('../config/database');
 const mailConfig = require('../config/mail');
@@ -20,28 +20,76 @@ const isPasswordValid = (rawPassword, storedPassword = '') => {
 };
 
 
-const sendEmailViaSendmail = ({ to, subject, text }) => new Promise((resolve, reject) => {
-  const sendmail = spawn(mailConfig.sendmailBin, ['-t', '-i']);
-  let stderr = '';
+const waitForResponse = (socket, expectedCodes = []) => new Promise((resolve, reject) => {
+  let buffer = '';
+  const onData = (chunk) => {
+    buffer += chunk.toString('utf8');
+    const lines = buffer.split('\r\n').filter(Boolean);
+    if (!lines.length) return;
 
-  sendmail.stderr.on('data', (chunk) => {
-    stderr += chunk.toString();
-  });
+    const lastLine = lines[lines.length - 1];
+    if (!/^\d{3}\s/.test(lastLine)) return;
 
-  sendmail.on('error', reject);
-  sendmail.on('close', (code) => {
-    if (code === 0) resolve();
-    else reject(new Error(stderr || `sendmail exited with code ${code}`));
-  });
+    socket.off('data', onData);
+    const code = Number(lastLine.slice(0, 3));
+    if (expectedCodes.length && !expectedCodes.includes(code)) {
+      reject(new Error(`SMTP error ${code}: ${lastLine}`));
+      return;
+    }
+    resolve({ code, line: lastLine });
+  };
 
-  sendmail.stdin.write(`To: ${to}\n`);
-  sendmail.stdin.write(`From: ${mailConfig.from}\n`);
-  sendmail.stdin.write(`Reply-To: ${mailConfig.replyTo}\n`);
-  sendmail.stdin.write(`Subject: ${subject}\n`);
-  sendmail.stdin.write('Content-Type: text/plain; charset=UTF-8\n\n');
-  sendmail.stdin.write(text);
-  sendmail.stdin.end();
+  socket.on('data', onData);
 });
+
+const smtpCommand = async (socket, command, expectedCodes) => {
+  socket.write(`${command}\r\n`);
+  return waitForResponse(socket, expectedCodes);
+};
+
+const sendEmailViaGmailSmtp = async ({ to, subject, text }) => {
+  if (!mailConfig.pass) {
+    throw new Error('SMTP_APP_PASSWORD не задан. Укажите пароль приложения Gmail.');
+  }
+
+  const socket = tls.connect({
+    host: mailConfig.host,
+    port: mailConfig.port,
+    servername: mailConfig.host
+  });
+
+  await new Promise((resolve, reject) => {
+    socket.once('secureConnect', resolve);
+    socket.once('error', reject);
+  });
+
+  try {
+    await waitForResponse(socket, [220]);
+    await smtpCommand(socket, `EHLO localhost`, [250]);
+    await smtpCommand(socket, 'AUTH LOGIN', [334]);
+    await smtpCommand(socket, Buffer.from(mailConfig.user).toString('base64'), [334]);
+    await smtpCommand(socket, Buffer.from(mailConfig.pass).toString('base64'), [235]);
+    await smtpCommand(socket, `MAIL FROM:<${mailConfig.from}>`, [250]);
+    await smtpCommand(socket, `RCPT TO:<${to}>`, [250, 251]);
+    await smtpCommand(socket, 'DATA', [354]);
+
+    const message = [
+      `From: ${mailConfig.from}`,
+      `To: ${to}`,
+      `Reply-To: ${mailConfig.replyTo}`,
+      `Subject: ${subject}`,
+      'Content-Type: text/plain; charset=UTF-8',
+      '',
+      text
+    ].join('\r\n');
+
+    socket.write(`${message}\r\n.\r\n`);
+    await waitForResponse(socket, [250]);
+    await smtpCommand(socket, 'QUIT', [221]);
+  } finally {
+    socket.end();
+  }
+};
 
 const sendPasswordNotification = async ({ login, password, fullName, mode }) => {
   const subject = mode === 'forgot'
@@ -61,10 +109,10 @@ const sendPasswordNotification = async ({ login, password, fullName, mode }) => 
   ].join('\n');
 
   try {
-    await sendEmailViaSendmail({ to: login, subject, text });
+    await sendEmailViaGmailSmtp({ to: login, subject, text });
     return true;
   } catch (error) {
-    console.warn('Не удалось отправить email через sendmail:', error.message);
+    console.warn('Не удалось отправить email через Gmail SMTP:', error.message);
     return false;
   }
 };
@@ -119,7 +167,7 @@ router.post('/register', async (req, res) => {
     res.status(201).json({
       message: emailSent
         ? `Пользователь успешно зарегистрирован. Пароль отправлен на ${normalizedLogin}.`
-        : 'Пользователь зарегистрирован, но отправка email не выполнена (проверьте sendmail).',
+        : 'Пользователь зарегистрирован, но отправка email не выполнена (проверьте SMTP-настройки Gmail).',
       emailSent,
       sentTo: normalizedLogin
     });
@@ -242,7 +290,7 @@ router.post('/forgot-password', async (req, res) => {
     res.json({
       message: emailSent
         ? `Новый пароль отправлен на ${normalizedLogin}.`
-        : 'Пароль обновлен, но email не отправлен (проверьте sendmail).',
+        : 'Пароль обновлен, но email не отправлен (проверьте SMTP-настройки Gmail).',
       emailSent,
       sentTo: normalizedLogin
     });

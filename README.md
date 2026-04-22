@@ -72,18 +72,20 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/t
 
 ## Настройка отправки паролей по email
 
-Пароли сотрудникам отправляются на backend через локальный `sendmail` в файле `server/routes/auth.js`.
+Пароли сотрудникам отправляются на backend через Gmail SMTP в файле `server/routes/auth.js`.
 
 Настройки берутся из `server/config/mail.js`:
 
-- `MAIL_FROM` — email отправителя (по умолчанию `povisok@nioch.nsc.ru`);
+- `SMTP_HOST` — SMTP-сервер (по умолчанию `smtp.gmail.com`);
+- `SMTP_PORT` — SMTP-порт (по умолчанию `465`);
+- `SMTP_SECURE` — TLS (`true` по умолчанию);
+- `SMTP_USER` — логин отправителя (по умолчанию `povisok888@gmail.com`);
+- `SMTP_APP_PASSWORD` — пароль приложения Gmail (обязательно);
+- `MAIL_FROM` — email отправителя (по умолчанию `povisok888@gmail.com`);
 - `MAIL_REPLY_TO` — reply-to адрес;
-- `SENDMAIL_BIN` — путь к бинарнику sendmail (по умолчанию `sendmail`).
 
 Пример запуска:
 
 ```bash
-MAIL_FROM=povisok@nioch.nsc.ru MAIL_REPLY_TO=povisok@nioch.nsc.ru npm start
+SMTP_USER=povisok888@gmail.com SMTP_APP_PASSWORD=<APP_PASSWORD> MAIL_FROM=povisok888@gmail.com MAIL_REPLY_TO=povisok888@gmail.com npm start
 ```
-
-> В текущей реализации логин/пароль SMTP не вводятся в приложении: их нужно настраивать на почтовом сервере/relay, к которому подключён локальный `sendmail`.
