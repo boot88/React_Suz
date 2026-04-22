@@ -73,4 +73,4 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/t
 ## Восстановление пароля
 
 Отправка через email отключена.  
-При `POST /api/auth/forgot-password` создаётся новый временный пароль и формируется служебное уведомление менеджерам (хранится в `server/data/managerNotifications.json`).
+При `POST /api/auth/forgot-password` создаётся новый временный пароль и формируется служебное уведомление менеджерам (хранится в `server/data/managerNotifications.json`) + системное сообщение в чате менеджера/сотрудника (`server/data/chatThreads.json`).

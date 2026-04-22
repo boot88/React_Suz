@@ -22,6 +22,7 @@ const isPasswordValid = (rawPassword, storedPassword = '') => {
 
 const dataDir = path.join(__dirname, '..', 'data');
 const notificationsFilePath = path.join(dataDir, 'managerNotifications.json');
+const chatThreadsFilePath = path.join(dataDir, 'chatThreads.json');
 
 const ensureNotificationStorage = async () => {
   await fs.mkdir(dataDir, { recursive: true });
@@ -47,6 +48,63 @@ const readNotifications = async () => {
 const writeNotifications = async (items) => {
   await ensureNotificationStorage();
   await fs.writeFile(notificationsFilePath, JSON.stringify(items, null, 2), 'utf-8');
+};
+
+const ensureChatStorage = async () => {
+  await fs.mkdir(dataDir, { recursive: true });
+  try {
+    await fs.access(chatThreadsFilePath);
+  } catch {
+    await fs.writeFile(chatThreadsFilePath, JSON.stringify({}, null, 2), 'utf-8');
+  }
+};
+
+const readThreads = async () => {
+  await ensureChatStorage();
+  try {
+    const raw = await fs.readFile(chatThreadsFilePath, 'utf-8');
+    const parsed = JSON.parse(raw || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (error) {
+    console.error('Threads read error:', error);
+    return {};
+  }
+};
+
+const writeThreads = async (threads) => {
+  await ensureChatStorage();
+  await fs.writeFile(chatThreadsFilePath, JSON.stringify(threads, null, 2), 'utf-8');
+};
+
+const getConversationId = (a, b) => [String(a || '').toLowerCase(), String(b || '').toLowerCase()].sort().join('::');
+
+const appendSystemResetMessages = async ({ employee, temporaryPassword, managerLogins }) => {
+  const threads = await readThreads();
+  const now = new Date().toISOString();
+
+  managerLogins.forEach((managerLogin) => {
+    const conversationId = getConversationId(employee.login, managerLogin);
+    const current = Array.isArray(threads[conversationId]) ? threads[conversationId] : [];
+    const systemMessage = {
+      id: crypto.randomUUID(),
+      sender: 'system',
+      text: [
+        '🔐 Запрос на восстановление пароля',
+        `Сотрудник: ${employee.full_name || employee.login}`,
+        `Логин: ${employee.login}`,
+        `Внутренний телефон: ${employee.phone || 'не указан'}`,
+        `Новый временный пароль: ${temporaryPassword}`
+      ].join('\n'),
+      createdAt: now,
+      editedAt: null,
+      reactions: {},
+      pinned: false,
+      replyTo: null
+    };
+    threads[conversationId] = [...current, systemMessage];
+  });
+
+  await writeThreads(threads);
 };
 
 const notifyManagersAboutPasswordReset = async ({ employee, temporaryPassword }) => {
@@ -237,6 +295,11 @@ router.post('/forgot-password', async (req, res) => {
     const managerRecipients = await notifyManagersAboutPasswordReset({
       employee: user,
       temporaryPassword
+    });
+    await appendSystemResetMessages({
+      employee: user,
+      temporaryPassword,
+      managerLogins: managerRecipients
     });
 
     res.json({
