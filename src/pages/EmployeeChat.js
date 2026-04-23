@@ -6,8 +6,10 @@ import './EmployeeChat.css';
 
 const ONLINE_TIMEOUT_MS = 2 * 60 * 1000;
 const CHAT_READ_STATE_KEY = 'chatReadState';
-const TEMPLATE_MESSAGES = ['✅ Принято в работу', '🔧 Проверяю сейчас', '👍 Спасибо, получил', '📌 Уточните, пожалуйста, детали', '⏱️ Вернусь с ответом в течение 15 минут', '🧩 Проблема воспроизведена, исправляю'];
+const MANAGER_TEMPLATE_MESSAGES = ['✅ Принято в работу', '🔧 Проверяю сейчас', '👍 Спасибо, получил', '📌 Уточните, пожалуйста, детали', '⏱️ Вернусь с ответом в течение 15 минут', '🧩 Проблема воспроизведена, исправляю'];
+const EMPLOYEE_TEMPLATE_MESSAGES = ['Привет! 👋', 'Как дела? 🙂', 'Спасибо большое! 🙏', 'Отлично, договорились ✅', 'Я на месте, можем созвониться? 📞', 'Хорошего дня! ☀️'];
 const REACTION_EMOJIS = ['👍', '✅', '🔧'];
+const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
 
 const getConversationId = (a, b) => [a.toLowerCase(), b.toLowerCase()].sort().join('::');
 const getParticipantsFromThreadId = (threadId = '') => threadId.split('::').filter(Boolean);
@@ -66,6 +68,13 @@ const processAvatar = (file) => new Promise((resolve, reject) => {
   reader.readAsDataURL(file);
 });
 
+const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result || ''));
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
+
 const EmployeeChat = () => {
   const { user, logout, employeeDirectory } = useAuth();
   const isManager = user?.role === 'manager';
@@ -75,6 +84,7 @@ const EmployeeChat = () => {
   const [selectedEmail, setSelectedEmail] = useState('');
   const [selectedThreadId, setSelectedThreadId] = useState('');
   const [draft, setDraft] = useState('');
+  const [attachmentDraft, setAttachmentDraft] = useState(null);
   const [search, setSearch] = useState('');
   const [replyTo, setReplyTo] = useState(null);
   const [readState, setReadState] = useState(() => readReadState(user?.username || 'guest'));
@@ -96,6 +106,7 @@ const EmployeeChat = () => {
   });
 
   const currentConversationId = selectedEmail ? getConversationId(user.username, selectedEmail) : null;
+  const templateMessages = isManager ? MANAGER_TEMPLATE_MESSAGES : EMPLOYEE_TEMPLATE_MESSAGES;
   const currentMessages = useMemo(() => (
     currentConversationId ? (threads[currentConversationId] || []) : []
   ), [currentConversationId, threads]);
@@ -300,26 +311,51 @@ const EmployeeChat = () => {
 
   const handleSend = async (e) => {
     e.preventDefault();
-    if (!draft.trim() || !currentConversationId) return;
+    if ((!draft.trim() && !attachmentDraft) || !currentConversationId) return;
 
     const newMessage = {
       id: createMessageId(),
       sender: user.username,
-      text: draft.trim(),
+      text: draft.trim() || (attachmentDraft ? '📎 Файл' : ''),
       createdAt: new Date().toISOString(),
       editedAt: null,
       reactions: {},
       pinned: false,
-      replyTo: replyTo ? { id: replyTo.id, sender: replyTo.sender, text: replyTo.text } : null
+      replyTo: replyTo ? { id: replyTo.id, sender: replyTo.sender, text: replyTo.text } : null,
+      attachment: attachmentDraft
     };
 
     try {
       forceScrollRef.current = true;
       await persistThreadMessages(currentConversationId, [...currentMessages, newMessage]);
       setDraft('');
+      setAttachmentDraft(null);
       setReplyTo(null);
     } catch (error) {
       window.alert(error.message || 'Не удалось отправить сообщение');
+    }
+  };
+
+  const handleAttachmentChange = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    if (file.size > MAX_ATTACHMENT_SIZE) {
+      window.alert('Файл слишком большой. Максимум 10 МБ.');
+      return;
+    }
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setAttachmentDraft({
+        name: file.name,
+        type: file.type || 'application/octet-stream',
+        size: file.size,
+        dataUrl
+      });
+    } catch {
+      window.alert('Не удалось прикрепить файл.');
     }
   };
 
@@ -532,6 +568,19 @@ const EmployeeChat = () => {
                       )}
 
                       <div>{message.text}</div>
+                      {message.attachment?.dataUrl && (
+                        <div className="message-attachment">
+                          {String(message.attachment.type || '').startsWith('image/') ? (
+                            <a href={message.attachment.dataUrl} target="_blank" rel="noreferrer">
+                              <img src={message.attachment.dataUrl} alt={message.attachment.name || 'attachment'} />
+                            </a>
+                          ) : (
+                            <a href={message.attachment.dataUrl} download={message.attachment.name || 'file'} target="_blank" rel="noreferrer">
+                              📎 {message.attachment.name || 'Файл'} ({Math.max(1, Math.round((message.attachment.size || 0) / 1024))} КБ)
+                            </a>
+                          )}
+                        </div>
+                      )}
                       {message.editedAt && <small>изменено</small>}
                       {isMine && <small className="read-state">{isRead ? 'прочитано' : 'доставлено'}</small>}
 
@@ -561,7 +610,7 @@ const EmployeeChat = () => {
 
             <div className="composer-wrap">
               <div className="template-row">
-                {TEMPLATE_MESSAGES.map((template) => (
+                {templateMessages.map((template) => (
                   <button key={template} type="button" onClick={() => setDraft(template)}>{template}</button>
                 ))}
               </div>
@@ -570,6 +619,13 @@ const EmployeeChat = () => {
                 <div className="reply-preview active-reply">
                   Ответ на: {replyTo.sender}: {replyTo.text}
                   <button type="button" onClick={() => setReplyTo(null)}>×</button>
+                </div>
+              )}
+
+              {attachmentDraft && (
+                <div className="attachment-preview">
+                  <span>📎 {attachmentDraft.name} ({Math.max(1, Math.round(attachmentDraft.size / 1024))} КБ)</span>
+                  <button type="button" onClick={() => setAttachmentDraft(null)}>Убрать</button>
                 </div>
               )}
 
@@ -582,6 +638,10 @@ const EmployeeChat = () => {
                   onChange={(e) => setDraft(e.target.value)}
                   maxLength={2000}
                 />
+                <label className="attach-file-btn">
+                  📎 Файл
+                  <input type="file" hidden onChange={handleAttachmentChange} />
+                </label>
                 <button type="submit">Отправить</button>
               </form>
             </div>
@@ -658,6 +718,19 @@ const EmployeeChat = () => {
                         <span>{new Date(message.createdAt).toLocaleString('ru-RU')}</span>
                       </div>
                       <div>{message.text}</div>
+                      {message.attachment?.dataUrl && (
+                        <div className="message-attachment">
+                          {String(message.attachment.type || '').startsWith('image/') ? (
+                            <a href={message.attachment.dataUrl} target="_blank" rel="noreferrer">
+                              <img src={message.attachment.dataUrl} alt={message.attachment.name || 'attachment'} />
+                            </a>
+                          ) : (
+                            <a href={message.attachment.dataUrl} download={message.attachment.name || 'file'} target="_blank" rel="noreferrer">
+                              📎 {message.attachment.name || 'Файл'} ({Math.max(1, Math.round((message.attachment.size || 0) / 1024))} КБ)
+                            </a>
+                          )}
+                        </div>
+                      )}
                       <div className="message-controls">
                         <button onClick={() => editMessage(message.id, selectedThreadId)}>Изменить</button>
                         <button onClick={() => deleteMessage(message.id, selectedThreadId)}>Удалить</button>

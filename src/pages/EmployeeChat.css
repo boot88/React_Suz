@@ -279,10 +279,31 @@
   color: #9cc5df;
 }
 
+.attachment-preview {
+  margin: 0 12px 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(154, 200, 234, 0.3);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.attachment-preview button {
+  border: 1px solid rgba(154,200,234,.25);
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: rgba(255,255,255,.08);
+  color: #dff0ff;
+  cursor: pointer;
+}
+
 .message-form {
   padding: 12px;
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   gap: 8px;
 }
 
@@ -300,6 +321,32 @@
   padding: 0 16px;
   background: linear-gradient(135deg, #1fb6a1, #3d7cf4);
   color: #fff;
+}
+
+.attach-file-btn {
+  border: 1px solid rgba(154,200,234,.25);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: rgba(255,255,255,.08);
+  color: #dff0ff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+
+.message-attachment {
+  margin-top: 8px;
+}
+
+.message-attachment a {
+  color: #a8dcff;
+  text-decoration: none;
+}
+
+.message-attachment img {
+  max-width: min(320px, 100%);
+  border-radius: 10px;
+  border: 1px solid rgba(154, 200, 234, 0.25);
 }
 
 .empty-chat { margin: auto; color: #9cbfd9; }
