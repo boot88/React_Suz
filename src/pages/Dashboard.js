@@ -128,7 +128,10 @@ const Dashboard = () => {
       setFilteredStats(data.stats || { total: 0, completed: 0, pending: 0 });
     } catch (error) {
       console.error('Ошибка загрузки:', error);
-      alert('Не удалось загрузить данные');
+      // Убираем блокирующий alert при стартовой загрузке,
+      // чтобы интерфейс не показывал всплывающее окно подтверждения.
+      setApplications([]);
+      setFilteredStats({ total: 0, completed: 0, pending: 0 });
     } finally {
       setLoading(false);
     }
