@@ -1,13 +1,18 @@
 // src/utils/apiConfig.js
 export const getApiBaseUrl = () => {
   const { hostname } = window.location;
-  
-  // Если мы в development (localhost или локальный IP)
-  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '192.168.1.35') {
-    return 'http://192.168.1.35:5000/api';
+
+  // Явный override через env (если задан)
+  if (process.env.REACT_APP_API_BASE_URL) {
+    return process.env.REACT_APP_API_BASE_URL;
   }
-  
-  // Для продакшена (Render) - используем относительный путь
+
+  // Development: используем тот же host, что открыт в браузере (localhost или LAN-IP)
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
+    return `http://${hostname}:5000/api`;
+  }
+
+  // Production: относительный путь
   return '/api';
 };
 
