@@ -19,6 +19,18 @@ const saveEmployees = (employees) => {
   localStorage.setItem(LOCAL_EMPLOYEES_KEY, JSON.stringify(employees));
 };
 
+const pushPresenceToServer = async ({ login, isOnline, role }) => {
+  try {
+    await fetch(`${API_BASE_URL}/auth/presence`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login, isOnline, role })
+    });
+  } catch (error) {
+    console.error('Ошибка отправки presence на сервер:', error);
+  }
+};
+
 const upsertEmployeeOnlineStatus = (email, isOnline) => {
   const employees = getStoredEmployees();
   const normalizedEmail = email.trim().toLowerCase();
@@ -86,6 +98,7 @@ export const AuthProvider = ({ children }) => {
       setIsAuthenticated(true);
       setUser(adminUser);
       persistAuthState(adminUser);
+      await pushPresenceToServer({ login: adminUser.username, isOnline: true, role: 'admin' });
       return adminUser;
     }
 
@@ -99,6 +112,7 @@ export const AuthProvider = ({ children }) => {
       setIsAuthenticated(true);
       setUser(managerUser);
       persistAuthState(managerUser);
+      await pushPresenceToServer({ login: managerUser.username, isOnline: true, role: 'manager' });
       return managerUser;
     }
 
@@ -130,6 +144,7 @@ export const AuthProvider = ({ children }) => {
     setIsAuthenticated(true);
     setUser(employeeUser);
     persistAuthState(employeeUser);
+    await pushPresenceToServer({ login: employeeUser.username, isOnline: true, role: employeeUser.role || 'employee' });
     return employeeUser;
   };
 
@@ -171,9 +186,12 @@ export const AuthProvider = ({ children }) => {
   const verifyEmployeeEmail = () => true;
 
   const logout = () => {
-    if (user?.role === 'employee') {
-      const nextEmployees = upsertEmployeeOnlineStatus(user.username, false);
-      setEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
+    if (user?.username) {
+      if (user?.role === 'employee') {
+        const nextEmployees = upsertEmployeeOnlineStatus(user.username, false);
+        setEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
+      }
+      pushPresenceToServer({ login: user.username, isOnline: false, role: user.role || 'employee' });
     }
 
     setIsAuthenticated(false);
@@ -182,6 +200,32 @@ export const AuthProvider = ({ children }) => {
   };
 
   useInactivityTimer(logout, 15 * 60 * 1000);
+
+  useEffect(() => {
+    const syncPresence = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/presence`);
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!Array.isArray(data?.presence)) return;
+
+        setEmployeeDirectory(
+          data.presence.map((item) => ({
+            email: (item.email || '').toLowerCase(),
+            isOnline: Boolean(item.isOnline),
+            lastSeen: item.lastSeen || null,
+            role: item.role || 'employee'
+          }))
+        );
+      } catch (error) {
+        console.error('Ошибка синхронизации presence:', error);
+      }
+    };
+
+    syncPresence();
+    const interval = setInterval(syncPresence, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const updateDirectory = () => {
@@ -242,10 +286,11 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    if (user?.role !== 'employee') return undefined;
+    if (!user?.username) return undefined;
 
     const markOffline = () => {
       upsertEmployeeOnlineStatus(user.username, false);
+      pushPresenceToServer({ login: user.username, isOnline: false, role: user.role || 'employee' });
     };
 
     window.addEventListener('beforeunload', markOffline);
@@ -253,6 +298,7 @@ export const AuthProvider = ({ children }) => {
     const heartbeat = setInterval(() => {
       const nextEmployees = upsertEmployeeOnlineStatus(user.username, true);
       setEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
+      pushPresenceToServer({ login: user.username, isOnline: true, role: user.role || 'employee' });
     }, 20000);
 
     return () => {

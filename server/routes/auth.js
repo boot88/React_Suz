@@ -23,6 +23,7 @@ const isPasswordValid = (rawPassword, storedPassword = '') => {
 const dataDir = path.join(__dirname, '..', 'data');
 const notificationsFilePath = path.join(dataDir, 'managerNotifications.json');
 const chatThreadsFilePath = path.join(dataDir, 'chatThreads.json');
+const presenceFilePath = path.join(dataDir, 'presence.json');
 
 const ensureNotificationStorage = async () => {
   await fs.mkdir(dataDir, { recursive: true });
@@ -74,6 +75,70 @@ const readThreads = async () => {
 const writeThreads = async (threads) => {
   await ensureChatStorage();
   await fs.writeFile(chatThreadsFilePath, JSON.stringify(threads, null, 2), 'utf-8');
+};
+
+const ensurePresenceStorage = async () => {
+  await fs.mkdir(dataDir, { recursive: true });
+  try {
+    await fs.access(presenceFilePath);
+  } catch {
+    await fs.writeFile(presenceFilePath, JSON.stringify([], null, 2), 'utf-8');
+  }
+};
+
+const readPresence = async () => {
+  await ensurePresenceStorage();
+  try {
+    const raw = await fs.readFile(presenceFilePath, 'utf-8');
+    const parsed = JSON.parse(raw || '[]');
+    const now = Date.now();
+
+    return (Array.isArray(parsed) ? parsed : []).map((item) => {
+      const lastSeenTimestamp = item.lastSeen ? new Date(item.lastSeen).getTime() : 0;
+      const stale = Boolean(item.isOnline) && (!lastSeenTimestamp || now - lastSeenTimestamp > 2 * 60 * 1000);
+      return {
+        login: normalizeLogin(item.login || item.email || ''),
+        isOnline: stale ? false : Boolean(item.isOnline),
+        lastSeen: item.lastSeen || null,
+        role: item.role || 'employee'
+      };
+    });
+  } catch (error) {
+    console.error('Presence read error:', error);
+    return [];
+  }
+};
+
+const writePresence = async (items) => {
+  await ensurePresenceStorage();
+  await fs.writeFile(presenceFilePath, JSON.stringify(items, null, 2), 'utf-8');
+};
+
+const upsertPresence = async ({ login, isOnline, role }) => {
+  const normalizedLogin = normalizeLogin(login);
+  if (!normalizedLogin) return;
+
+  const presence = await readPresence();
+  const now = new Date().toISOString();
+  const existingIndex = presence.findIndex((item) => item.login === normalizedLogin);
+
+  if (existingIndex === -1) {
+    presence.push({
+      login: normalizedLogin,
+      isOnline: Boolean(isOnline),
+      lastSeen: now,
+      role: role || 'employee'
+    });
+  } else {
+    presence[existingIndex] = {
+      ...presence[existingIndex],
+      isOnline: Boolean(isOnline),
+      lastSeen: now,
+      role: role || presence[existingIndex].role || 'employee'
+    };
+  }
+
+  await writePresence(presence);
 };
 
 const getConversationId = (a, b) => [String(a || '').toLowerCase(), String(b || '').toLowerCase()].sort().join('::');
@@ -326,6 +391,43 @@ router.get('/manager-notifications', async (req, res) => {
   } catch (error) {
     console.error('Manager notifications error:', error);
     res.status(500).json({ message: 'Не удалось получить уведомления менеджера' });
+  }
+});
+
+router.get('/presence', async (req, res) => {
+  try {
+    const presence = await readPresence();
+    res.json({
+      presence: presence.map((item) => ({
+        email: item.login,
+        isOnline: Boolean(item.isOnline),
+        lastSeen: item.lastSeen,
+        role: item.role || 'employee'
+      }))
+    });
+  } catch (error) {
+    console.error('Presence list error:', error);
+    res.status(500).json({ message: 'Не удалось получить статус онлайн' });
+  }
+});
+
+router.post('/presence', async (req, res) => {
+  try {
+    const login = normalizeLogin(req.body?.login);
+    if (!login) {
+      return res.status(400).json({ message: 'login обязателен' });
+    }
+
+    await upsertPresence({
+      login,
+      isOnline: Boolean(req.body?.isOnline),
+      role: req.body?.role || 'employee'
+    });
+
+    res.json({ message: 'Статус обновлён' });
+  } catch (error) {
+    console.error('Presence update error:', error);
+    res.status(500).json({ message: 'Не удалось обновить статус онлайн' });
   }
 });
 

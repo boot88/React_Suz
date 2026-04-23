@@ -204,12 +204,13 @@ const EmployeeChat = () => {
           email: item.login,
           isOnline: Boolean(presence?.isOnline),
           lastSeen: presence?.lastSeen || null,
+          role: presence?.role || item.role || (item.login.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase() ? 'manager' : 'employee'),
           profile: item
         };
       })
       .sort((a, b) => {
-        const aIsManager = a.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
-        const bIsManager = b.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
+        const aIsManager = (a.role || '').toLowerCase() === 'manager' || a.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
+        const bIsManager = (b.role || '').toLowerCase() === 'manager' || b.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
         if (aIsManager !== bIsManager) return aIsManager ? -1 : 1;
 
         const aOnline = Boolean(a.isOnline) && a.lastSeen && Date.now() - new Date(a.lastSeen).getTime() < ONLINE_TIMEOUT_MS;
@@ -502,7 +503,7 @@ const EmployeeChat = () => {
         <div className="employee-chat-list">
           {availableEmployees.map((employee) => {
             const isOnline = Boolean(employee.isOnline) && employee.lastSeen && Date.now() - new Date(employee.lastSeen).getTime() < ONLINE_TIMEOUT_MS;
-            const isManagerContact = employee.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
+            const isManagerContact = (employee.role || '').toLowerCase() === 'manager' || employee.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
             const profile = employee.profile || {};
             return (
               <button
