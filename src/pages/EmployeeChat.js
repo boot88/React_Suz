@@ -224,12 +224,14 @@ const EmployeeChat = () => {
         };
       })
       .sort((a, b) => {
+        const aIsManager = (a.role || '').toLowerCase() === 'manager' || a.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
+        const bIsManager = (b.role || '').toLowerCase() === 'manager' || b.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
+
         if (!isManager) {
+          if (aIsManager !== bIsManager) return aIsManager ? -1 : 1;
           return a.email.localeCompare(b.email);
         }
 
-        const aIsManager = (a.role || '').toLowerCase() === 'manager' || a.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
-        const bIsManager = (b.role || '').toLowerCase() === 'manager' || b.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
         if (aIsManager !== bIsManager) return aIsManager ? -1 : 1;
 
         const aOnline = Boolean(a.isOnline) && a.lastSeen && Date.now() - new Date(a.lastSeen).getTime() < ONLINE_TIMEOUT_MS;
