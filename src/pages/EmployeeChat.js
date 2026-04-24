@@ -6,6 +6,7 @@ import './EmployeeChat.css';
 
 const ONLINE_TIMEOUT_MS = 2 * 60 * 1000;
 const CHAT_READ_STATE_KEY = 'chatReadState';
+const EMPLOYEE_DIRECTORY_CACHE_KEY = 'employeeDirectoryCache';
 const MANAGER_TEMPLATE_MESSAGES = ['✅ Принято в работу', '🔧 Проверяю сейчас', '👍 Спасибо, получил', '📌 Уточните, пожалуйста, детали', '⏱️ Вернусь с ответом в течение 15 минут', '🧩 Проблема воспроизведена, исправляю'];
 const EMPLOYEE_TEMPLATE_MESSAGES = ['Привет! 👋', 'Как дела? 🙂', 'Спасибо большое! 🙏', 'Отлично, договорились ✅', 'Я на месте, можем созвониться? 📞', 'Хорошего дня! ☀️'];
 const REACTION_EMOJIS = ['👍', '✅', '🔧'];
@@ -37,6 +38,23 @@ const saveReadState = (username, nextState) => {
     const all = JSON.parse(localStorage.getItem(CHAT_READ_STATE_KEY) || '{}');
     all[username] = nextState;
     localStorage.setItem(CHAT_READ_STATE_KEY, JSON.stringify(all));
+  } catch {
+    // noop
+  }
+};
+
+const readDirectoryCache = () => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(EMPLOYEE_DIRECTORY_CACHE_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveDirectoryCache = (items) => {
+  try {
+    localStorage.setItem(EMPLOYEE_DIRECTORY_CACHE_KEY, JSON.stringify(items));
   } catch {
     // noop
   }
@@ -89,8 +107,8 @@ const EmployeeChat = () => {
   const [search, setSearch] = useState('');
   const [replyTo, setReplyTo] = useState(null);
   const [readState, setReadState] = useState(() => readReadState(user?.username || 'guest'));
-  const [directoryEmployees, setDirectoryEmployees] = useState([]);
-  const [isDirectoryLoaded, setIsDirectoryLoaded] = useState(false);
+  const [directoryEmployees, setDirectoryEmployees] = useState(() => readDirectoryCache());
+  const [isDirectoryLoaded, setIsDirectoryLoaded] = useState(() => readDirectoryCache().length > 0);
   const [avatarUrl, setAvatarUrl] = useState('');
   const [headerName, setHeaderName] = useState(baseDisplayName);
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
@@ -210,7 +228,9 @@ const EmployeeChat = () => {
         return;
       }
       const data = await response.json();
-      setDirectoryEmployees(Array.isArray(data?.employees) ? data.employees : []);
+      const employees = Array.isArray(data?.employees) ? data.employees : [];
+      setDirectoryEmployees(employees);
+      saveDirectoryCache(employees);
     } catch (error) {
       console.error('Ошибка загрузки сотрудников:', error);
     } finally {
