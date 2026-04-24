@@ -4,7 +4,6 @@ import { API_BASE_URL } from '../utils/apiConfig';
 import { MANAGER_CREDENTIALS } from '../config/authConfig';
 import './EmployeeChat.css';
 
-const ONLINE_TIMEOUT_MS = 2 * 60 * 1000;
 const CHAT_READ_STATE_KEY = 'chatReadState';
 const EMPLOYEE_DIRECTORY_CACHE_KEY = 'employeeDirectoryCache';
 const MANAGER_TEMPLATE_MESSAGES = ['✅ Принято в работу', '🔧 Проверяю сейчас', '👍 Спасибо, получил', '📌 Уточните, пожалуйста, детали', '⏱️ Вернусь с ответом в течение 15 минут', '🧩 Проблема воспроизведена, исправляю'];
@@ -282,7 +281,7 @@ const EmployeeChat = () => {
     const presenceMap = new Map(employeeDirectory.map((item) => [item.email?.toLowerCase(), item]));
     const sourceEmployees = [...directoryEmployees];
 
-    const shouldInjectManagerFallback = isManager;
+    const shouldInjectManagerFallback = true;
     if (
       shouldInjectManagerFallback
       && !sourceEmployees.some((item) => item.login.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase())
@@ -312,19 +311,14 @@ const EmployeeChat = () => {
         const aIsManager = (a.role || '').toLowerCase() === 'manager' || a.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
         const bIsManager = (b.role || '').toLowerCase() === 'manager' || b.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
 
-        if (!isManager) {
-          if (aIsManager !== bIsManager) return aIsManager ? -1 : 1;
-          return a.email.localeCompare(b.email);
-        }
-
         if (aIsManager !== bIsManager) return aIsManager ? -1 : 1;
 
-        const aOnline = Boolean(a.isOnline) && a.lastSeen && Date.now() - new Date(a.lastSeen).getTime() < ONLINE_TIMEOUT_MS;
-        const bOnline = Boolean(b.isOnline) && b.lastSeen && Date.now() - new Date(b.lastSeen).getTime() < ONLINE_TIMEOUT_MS;
+        const aOnline = Boolean(a.isOnline);
+        const bOnline = Boolean(b.isOnline);
         if (aOnline !== bOnline) return bOnline - aOnline;
         return a.email.localeCompare(b.email);
       });
-  }, [directoryEmployees, employeeDirectory, isDirectoryLoaded, isManager, user?.username]);
+  }, [directoryEmployees, employeeDirectory, isDirectoryLoaded, user?.username]);
 
   const availableEmployees = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -697,7 +691,7 @@ const EmployeeChat = () => {
 
         <div className="employee-chat-list">
           {availableEmployees.map((employee) => {
-            const isOnline = Boolean(employee.isOnline) && employee.lastSeen && Date.now() - new Date(employee.lastSeen).getTime() < ONLINE_TIMEOUT_MS;
+            const isOnline = Boolean(employee.isOnline);
             const isManagerContact = (employee.role || '').toLowerCase() === 'manager' || employee.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
             const profile = employee.profile || {};
             return (
