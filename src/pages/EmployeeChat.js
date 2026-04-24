@@ -14,6 +14,7 @@ const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
 const getConversationId = (a, b) => [a.toLowerCase(), b.toLowerCase()].sort().join('::');
 const getParticipantsFromThreadId = (threadId = '') => threadId.split('::').filter(Boolean);
 const getAvatarKey = (username = 'unknown') => `employeeAvatar:${username.toLowerCase()}`;
+const getGreetingKey = (username = 'unknown') => `employeeGreetingSeen:${username.toLowerCase()}`;
 
 const createMessageId = () => {
   if (window.crypto && typeof window.crypto.randomUUID === 'function') {
@@ -141,11 +142,25 @@ const EmployeeChat = () => {
     const storedAvatar = localStorage.getItem(getAvatarKey(user.username)) || '';
     setAvatarUrl(storedAvatar);
 
+    const hasSeenGreeting = sessionStorage.getItem(getGreetingKey(user.username)) === '1';
+    if (hasSeenGreeting) {
+      setHeaderName(baseDisplayName);
+      return undefined;
+    }
+
     const greeting = `Здравствуйте, ${baseDisplayName}!`;
     setHeaderName(greeting);
+    sessionStorage.setItem(getGreetingKey(user.username), '1');
     const timer = setTimeout(() => setHeaderName(baseDisplayName), 3000);
     return () => clearTimeout(timer);
   }, [baseDisplayName, user?.username]);
+
+  const handleLogout = () => {
+    if (user?.username) {
+      sessionStorage.removeItem(getGreetingKey(user.username));
+    }
+    logout();
+  };
 
   const loadProfile = useCallback(async (login, mode = 'form') => {
     const response = await fetch(`${API_BASE_URL}/auth/profile?login=${encodeURIComponent(login)}`);
@@ -688,7 +703,7 @@ const EmployeeChat = () => {
 
         <div className="employee-chat-actions">
           <button className="clear-btn" onClick={clearConversation} disabled={!selectedEmail}>Удалить переписку</button>
-          <button className="logout-btn" onClick={logout}>Выход</button>
+          <button className="logout-btn" onClick={handleLogout}>Выход</button>
         </div>
       </aside>
 
