@@ -197,7 +197,7 @@ const EmployeeChat = () => {
     const presenceMap = new Map(employeeDirectory.map((item) => [item.email?.toLowerCase(), item]));
     const sourceEmployees = [...directoryEmployees];
 
-    const shouldInjectManagerFallback = isManager || isDirectoryLoaded;
+    const shouldInjectManagerFallback = isManager;
     if (
       shouldInjectManagerFallback
       && !sourceEmployees.some((item) => item.login.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase())

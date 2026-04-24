@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import './Dashboard.css';
 import { API_BASE_URL } from '../utils/apiConfig';
@@ -13,6 +13,7 @@ const Dashboard = () => {
   const [exportLoading, setExportLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
+  const didInitialLoadRef = useRef(false);
 
   const [stats, setStats] = useState({
     total: 0,
@@ -149,9 +150,14 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchGeneralStats();
+    fetchApplications();
+    didInitialLoadRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
+    if (!didInitialLoadRef.current) return undefined;
+
     const timer = setTimeout(() => {
       fetchApplications();
     }, 500);
