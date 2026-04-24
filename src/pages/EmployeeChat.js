@@ -89,6 +89,7 @@ const EmployeeChat = () => {
   const [replyTo, setReplyTo] = useState(null);
   const [readState, setReadState] = useState(() => readReadState(user?.username || 'guest'));
   const [directoryEmployees, setDirectoryEmployees] = useState([]);
+  const [isDirectoryLoaded, setIsDirectoryLoaded] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState('');
   const [headerName, setHeaderName] = useState(baseDisplayName);
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
@@ -146,11 +147,16 @@ const EmployeeChat = () => {
   const fetchEmployees = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/auth/employees`);
-      if (!response.ok) return;
+      if (!response.ok) {
+        setIsDirectoryLoaded(true);
+        return;
+      }
       const data = await response.json();
       setDirectoryEmployees(Array.isArray(data?.employees) ? data.employees : []);
     } catch (error) {
       console.error('Ошибка загрузки сотрудников:', error);
+    } finally {
+      setIsDirectoryLoaded(true);
     }
   }, []);
 
@@ -184,10 +190,18 @@ const EmployeeChat = () => {
   }, [fetchThreads, fetchEmployees]);
 
   const chatCandidates = useMemo(() => {
+    if (!isManager && !isDirectoryLoaded) {
+      return [];
+    }
+
     const presenceMap = new Map(employeeDirectory.map((item) => [item.email?.toLowerCase(), item]));
     const sourceEmployees = [...directoryEmployees];
 
-    if (!sourceEmployees.some((item) => item.login.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase())) {
+    const shouldInjectManagerFallback = isManager || isDirectoryLoaded;
+    if (
+      shouldInjectManagerFallback
+      && !sourceEmployees.some((item) => item.login.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase())
+    ) {
       sourceEmployees.push({
         id: 'manager-static',
         login: MANAGER_CREDENTIALS.username,
@@ -200,15 +214,20 @@ const EmployeeChat = () => {
       .filter((item) => item.login !== user?.username)
       .map((item) => {
         const presence = presenceMap.get(item.login.toLowerCase());
+        const computedRole = presence?.role || item.role || (item.login.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase() ? 'manager' : 'employee');
         return {
           email: item.login,
           isOnline: Boolean(presence?.isOnline),
           lastSeen: presence?.lastSeen || null,
-          role: presence?.role || item.role || (item.login.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase() ? 'manager' : 'employee'),
+          role: computedRole,
           profile: item
         };
       })
       .sort((a, b) => {
+        if (!isManager) {
+          return a.email.localeCompare(b.email);
+        }
+
         const aIsManager = (a.role || '').toLowerCase() === 'manager' || a.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
         const bIsManager = (b.role || '').toLowerCase() === 'manager' || b.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
         if (aIsManager !== bIsManager) return aIsManager ? -1 : 1;
@@ -218,7 +237,7 @@ const EmployeeChat = () => {
         if (aOnline !== bOnline) return bOnline - aOnline;
         return a.email.localeCompare(b.email);
       });
-  }, [directoryEmployees, employeeDirectory, user?.username]);
+  }, [directoryEmployees, employeeDirectory, isDirectoryLoaded, isManager, user?.username]);
 
   const availableEmployees = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
