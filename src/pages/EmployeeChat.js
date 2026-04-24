@@ -156,9 +156,6 @@ const EmployeeChat = () => {
 
   useEffect(() => {
     if (!user?.username) return;
-    const storedAvatar = localStorage.getItem(getAvatarKey(user.username)) || '';
-    setAvatarUrl(storedAvatar);
-
     const hasSeenGreeting = sessionStorage.getItem(getGreetingKey(user.username)) === '1';
     if (hasSeenGreeting) {
       setHeaderName(baseDisplayName);
@@ -198,10 +195,10 @@ const EmployeeChat = () => {
         website: profile.website || '',
         statusText: profile.statusText || ''
       });
-      if (profile.avatar) {
-        setAvatarUrl(profile.avatar);
-        localStorage.setItem(getAvatarKey(user.username), profile.avatar);
-      }
+      const nextAvatar = profile.avatar || '';
+      setAvatarUrl(nextAvatar);
+      if (nextAvatar) localStorage.setItem(getAvatarKey(user.username), nextAvatar);
+      else localStorage.removeItem(getAvatarKey(user.username));
       return;
     }
 
@@ -404,8 +401,7 @@ const EmployeeChat = () => {
     try {
       const optimizedAvatar = await processAvatar(file);
       setAvatarUrl(optimizedAvatar);
-      localStorage.setItem(getAvatarKey(user.username), optimizedAvatar);
-      await fetch(`${API_BASE_URL}/auth/profile`, {
+      const response = await fetch(`${API_BASE_URL}/auth/profile`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -414,9 +410,33 @@ const EmployeeChat = () => {
           avatar: optimizedAvatar
         })
       });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.message || 'Не удалось сохранить аватар');
+      }
+      localStorage.setItem(getAvatarKey(user.username), optimizedAvatar);
     } catch {
       window.alert('Не удалось обработать изображение. Попробуйте другое фото.');
     }
+  };
+
+  const removeAvatar = async () => {
+    const response = await fetch(`${API_BASE_URL}/auth/profile`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        login: user.username,
+        ...profileForm,
+        avatar: ''
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      window.alert(data.message || 'Не удалось удалить аватар');
+      return;
+    }
+    setAvatarUrl('');
+    localStorage.removeItem(getAvatarKey(user.username));
   };
 
   const handleSend = async (e) => {
@@ -648,7 +668,12 @@ const EmployeeChat = () => {
             <div className="employee-header-meta">
               <h2>Чаты сотрудников</h2>
               <p className={headerName.startsWith('Здравствуйте') ? 'greeting' : ''}>{headerName}</p>
-              <label htmlFor="avatar-upload-input" className="avatar-edit-btn">Изменить фото</label>
+              <div className="avatar-actions-row">
+                <label htmlFor="avatar-upload-input" className="avatar-edit-btn">Изменить фото</label>
+                {avatarUrl && (
+                  <button type="button" className="avatar-remove-btn" onClick={removeAvatar}>Удалить</button>
+                )}
+              </div>
             </div>
           </div>
           <small className="avatar-tip">Фото автоматически приводится к квадрату 256×256 для чёткого вида.</small>
