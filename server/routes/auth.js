@@ -24,6 +24,7 @@ const dataDir = path.join(__dirname, '..', 'data');
 const notificationsFilePath = path.join(dataDir, 'managerNotifications.json');
 const chatThreadsFilePath = path.join(dataDir, 'chatThreads.json');
 const presenceFilePath = path.join(dataDir, 'presence.json');
+const profilesFilePath = path.join(dataDir, 'profiles.json');
 
 const ensureNotificationStorage = async () => {
   await fs.mkdir(dataDir, { recursive: true });
@@ -112,6 +113,32 @@ const readPresence = async () => {
 const writePresence = async (items) => {
   await ensurePresenceStorage();
   await fs.writeFile(presenceFilePath, JSON.stringify(items, null, 2), 'utf-8');
+};
+
+const ensureProfilesStorage = async () => {
+  await fs.mkdir(dataDir, { recursive: true });
+  try {
+    await fs.access(profilesFilePath);
+  } catch {
+    await fs.writeFile(profilesFilePath, JSON.stringify({}, null, 2), 'utf-8');
+  }
+};
+
+const readProfiles = async () => {
+  await ensureProfilesStorage();
+  try {
+    const raw = await fs.readFile(profilesFilePath, 'utf-8');
+    const parsed = JSON.parse(raw || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (error) {
+    console.error('Profiles read error:', error);
+    return {};
+  }
+};
+
+const writeProfiles = async (items) => {
+  await ensureProfilesStorage();
+  await fs.writeFile(profilesFilePath, JSON.stringify(items, null, 2), 'utf-8');
 };
 
 const upsertPresence = async ({ login, isOnline, role }) => {
@@ -428,6 +455,123 @@ router.post('/presence', async (req, res) => {
   } catch (error) {
     console.error('Presence update error:', error);
     res.status(500).json({ message: 'Не удалось обновить статус онлайн' });
+  }
+});
+
+router.get('/profile', async (req, res) => {
+  try {
+    const normalizedLogin = normalizeLogin(req.query?.login || '');
+    if (!normalizedLogin) {
+      return res.status(400).json({ message: 'login обязателен' });
+    }
+
+    const [users] = await db.execute(
+      'SELECT id, login, role, full_name, department, phone, room FROM users WHERE LOWER(login) = ?',
+      [normalizedLogin]
+    );
+
+    const user = users[0] || null;
+    if (!user && normalizedLogin !== 'manager_nioh') {
+      return res.status(404).json({ message: 'Пользователь не найден' });
+    }
+
+    const profiles = await readProfiles();
+    const extras = profiles[normalizedLogin] || {};
+    res.json({
+      profile: {
+        login: user?.login || normalizedLogin,
+        role: user?.role || (normalizedLogin === 'manager_nioh' ? 'manager' : 'employee'),
+        full_name: user?.full_name || extras.full_name || normalizedLogin,
+        department: user?.department || extras.department || '',
+        phone: user?.phone || extras.phone || '',
+        room: user?.room || extras.room || '',
+        position: extras.position || '',
+        bio: extras.bio || '',
+        website: extras.website || '',
+        statusText: extras.statusText || '',
+        avatar: extras.avatar || ''
+      }
+    });
+  } catch (error) {
+    console.error('Profile get error:', error);
+    res.status(500).json({ message: 'Не удалось получить анкету' });
+  }
+});
+
+router.put('/profile', async (req, res) => {
+  try {
+    const normalizedLogin = normalizeLogin(req.body?.login || '');
+    if (!normalizedLogin) {
+      return res.status(400).json({ message: 'login обязателен' });
+    }
+
+    const [users] = await db.execute(
+      'SELECT id FROM users WHERE LOWER(login) = ?',
+      [normalizedLogin]
+    );
+
+    if (users.length > 0) {
+      await db.execute(
+        'UPDATE users SET full_name = ?, department = ?, phone = ?, room = ? WHERE LOWER(login) = ?',
+        [
+          req.body?.full_name || normalizedLogin,
+          req.body?.department || null,
+          req.body?.phone || null,
+          req.body?.room || null,
+          normalizedLogin
+        ]
+      );
+    }
+
+    const profiles = await readProfiles();
+    profiles[normalizedLogin] = {
+      ...(profiles[normalizedLogin] || {}),
+      full_name: req.body?.full_name || normalizedLogin,
+      department: req.body?.department || '',
+      phone: req.body?.phone || '',
+      room: req.body?.room || '',
+      position: req.body?.position || '',
+      bio: req.body?.bio || '',
+      website: req.body?.website || '',
+      statusText: req.body?.statusText || '',
+      avatar: req.body?.avatar || profiles[normalizedLogin]?.avatar || ''
+    };
+    await writeProfiles(profiles);
+
+    res.json({ message: 'Анкета обновлена' });
+  } catch (error) {
+    console.error('Profile update error:', error);
+    res.status(500).json({ message: 'Не удалось сохранить анкету' });
+  }
+});
+
+router.put('/change-password', async (req, res) => {
+  try {
+    const normalizedLogin = normalizeLogin(req.body?.login || '');
+    const currentPassword = String(req.body?.currentPassword || '');
+    const newPassword = String(req.body?.newPassword || '');
+
+    if (!normalizedLogin || !currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'login, currentPassword и newPassword обязательны' });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ message: 'Новый пароль должен содержать минимум 8 символов' });
+    }
+
+    const [users] = await db.execute('SELECT id, password FROM users WHERE LOWER(login) = ?', [normalizedLogin]);
+    if (!users.length) {
+      return res.status(404).json({ message: 'Пользователь не найден' });
+    }
+
+    if (!isPasswordValid(currentPassword, users[0].password)) {
+      return res.status(400).json({ message: 'Текущий пароль указан неверно' });
+    }
+
+    await db.execute('UPDATE users SET password = ? WHERE id = ?', [hashPassword(newPassword), users[0].id]);
+    res.json({ message: 'Пароль обновлён' });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({ message: 'Не удалось сменить пароль' });
   }
 });
 

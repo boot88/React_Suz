@@ -93,6 +93,20 @@ const EmployeeChat = () => {
   const [avatarUrl, setAvatarUrl] = useState('');
   const [headerName, setHeaderName] = useState(baseDisplayName);
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
+  const [isProfilePanelOpen, setIsProfilePanelOpen] = useState(false);
+  const [profileViewLogin, setProfileViewLogin] = useState('');
+  const [profilePreview, setProfilePreview] = useState(null);
+  const [profileForm, setProfileForm] = useState({
+    full_name: '',
+    department: '',
+    phone: '',
+    room: '',
+    position: '',
+    bio: '',
+    website: '',
+    statusText: ''
+  });
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
   const messagesWrapRef = useRef(null);
   const forceScrollRef = useRef(false);
 
@@ -132,6 +146,35 @@ const EmployeeChat = () => {
     const timer = setTimeout(() => setHeaderName(baseDisplayName), 3000);
     return () => clearTimeout(timer);
   }, [baseDisplayName, user?.username]);
+
+  const loadProfile = useCallback(async (login, mode = 'form') => {
+    const response = await fetch(`${API_BASE_URL}/auth/profile?login=${encodeURIComponent(login)}`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.message || 'Не удалось загрузить анкету');
+    }
+
+    const profile = data?.profile || {};
+    if (mode === 'form') {
+      setProfileForm({
+        full_name: profile.full_name || '',
+        department: profile.department || '',
+        phone: profile.phone || '',
+        room: profile.room || '',
+        position: profile.position || '',
+        bio: profile.bio || '',
+        website: profile.website || '',
+        statusText: profile.statusText || ''
+      });
+      if (profile.avatar) {
+        setAvatarUrl(profile.avatar);
+        localStorage.setItem(getAvatarKey(user.username), profile.avatar);
+      }
+      return;
+    }
+
+    setProfilePreview(profile);
+  }, [user.username]);
 
   const fetchThreads = useCallback(async () => {
     try {
@@ -188,6 +231,13 @@ const EmployeeChat = () => {
 
     return () => clearInterval(poller);
   }, [fetchThreads, fetchEmployees]);
+
+  useEffect(() => {
+    if (!user?.username) return;
+    loadProfile(user.username, 'form').catch((error) => {
+      console.error('Profile bootstrap error:', error);
+    });
+  }, [loadProfile, user?.username]);
 
   const chatCandidates = useMemo(() => {
     if (!isManager && !isDirectoryLoaded) {
@@ -326,6 +376,15 @@ const EmployeeChat = () => {
       const optimizedAvatar = await processAvatar(file);
       setAvatarUrl(optimizedAvatar);
       localStorage.setItem(getAvatarKey(user.username), optimizedAvatar);
+      await fetch(`${API_BASE_URL}/auth/profile`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          login: user.username,
+          ...profileForm,
+          avatar: optimizedAvatar
+        })
+      });
     } catch {
       window.alert('Не удалось обработать изображение. Попробуйте другое фото.');
     }
@@ -378,6 +437,58 @@ const EmployeeChat = () => {
       });
     } catch {
       window.alert('Не удалось прикрепить файл.');
+    }
+  };
+
+  const saveMyProfile = async (event) => {
+    event.preventDefault();
+    const response = await fetch(`${API_BASE_URL}/auth/profile`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        login: user.username,
+        ...profileForm,
+        avatar: avatarUrl
+      })
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      window.alert(data.message || 'Не удалось сохранить анкету');
+      return;
+    }
+
+    window.alert('Анкета сохранена');
+    await fetchEmployees();
+    setHeaderName(profileForm.full_name || baseDisplayName);
+  };
+
+  const changeMyPassword = async (event) => {
+    event.preventDefault();
+    const response = await fetch(`${API_BASE_URL}/auth/change-password`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        login: user.username,
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      window.alert(data.message || 'Не удалось сменить пароль');
+      return;
+    }
+    window.alert('Пароль обновлён');
+    setPasswordForm({ currentPassword: '', newPassword: '' });
+  };
+
+  const openProfileCard = async (login) => {
+    try {
+      await loadProfile(login, 'preview');
+      setProfileViewLogin(login);
+    } catch (error) {
+      window.alert(error.message || 'Не удалось открыть профиль сотрудника');
     }
   };
 
@@ -512,6 +623,34 @@ const EmployeeChat = () => {
             </div>
           </div>
           <small className="avatar-tip">Фото автоматически приводится к квадрату 256×256 для чёткого вида.</small>
+          <button
+            type="button"
+            className="profile-panel-toggle"
+            onClick={() => setIsProfilePanelOpen((prev) => !prev)}
+          >
+            {isProfilePanelOpen ? 'Скрыть анкету' : 'Анкета / настройки'}
+          </button>
+          {isProfilePanelOpen && (
+            <div className="profile-panel">
+              <h4>Моя страница</h4>
+              <form onSubmit={saveMyProfile} className="profile-form">
+                <input placeholder="ФИО" value={profileForm.full_name} onChange={(e) => setProfileForm((prev) => ({ ...prev, full_name: e.target.value }))} />
+                <input placeholder="Должность" value={profileForm.position} onChange={(e) => setProfileForm((prev) => ({ ...prev, position: e.target.value }))} />
+                <input placeholder="Отдел" value={profileForm.department} onChange={(e) => setProfileForm((prev) => ({ ...prev, department: e.target.value }))} />
+                <input placeholder="Кабинет" value={profileForm.room} onChange={(e) => setProfileForm((prev) => ({ ...prev, room: e.target.value }))} />
+                <input placeholder="Внутренний телефон" value={profileForm.phone} onChange={(e) => setProfileForm((prev) => ({ ...prev, phone: e.target.value }))} />
+                <input placeholder="Сайт / соцссылка" value={profileForm.website} onChange={(e) => setProfileForm((prev) => ({ ...prev, website: e.target.value }))} />
+                <input placeholder="Статус (как в соцсети)" value={profileForm.statusText} onChange={(e) => setProfileForm((prev) => ({ ...prev, statusText: e.target.value }))} />
+                <textarea placeholder="О себе" rows={3} value={profileForm.bio} onChange={(e) => setProfileForm((prev) => ({ ...prev, bio: e.target.value }))} />
+                <button type="submit">Сохранить анкету</button>
+              </form>
+              <form onSubmit={changeMyPassword} className="profile-password-form">
+                <input type="password" placeholder="Текущий пароль" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))} />
+                <input type="password" placeholder="Новый пароль" value={passwordForm.newPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))} />
+                <button type="submit">Обновить пароль</button>
+              </form>
+            </div>
+          )}
         </div>
 
         <input
@@ -531,6 +670,7 @@ const EmployeeChat = () => {
                 key={employee.email}
                 className={`employee-chat-user ${selectedEmail === employee.email ? 'active' : ''} ${isManagerContact ? 'manager-priority' : ''}`}
                 onClick={() => setSelectedEmail(employee.email)}
+                onDoubleClick={() => openProfileCard(employee.email)}
               >
                 <span className={`status-dot ${isOnline ? 'online' : 'offline'}`} />
                 <span className="employee-chat-user-main">
@@ -553,10 +693,36 @@ const EmployeeChat = () => {
       </aside>
 
       <section className="employee-chat-main">
-        {!selectedEmail ? (
-          <div className="empty-chat">Выберите сотрудника слева, чтобы начать переписку.</div>
-        ) : (
-          <>
+        {profileViewLogin && profilePreview && (
+          <div className="profile-preview-card">
+            <button type="button" className="back-to-chat-btn" onClick={() => setProfileViewLogin('')}>← Вернуться в чат</button>
+            <div className="profile-preview-head">
+              <div className="profile-preview-avatar">
+                {profilePreview.avatar ? <img src={profilePreview.avatar} alt="profile-avatar" /> : <span>{String(profilePreview.full_name || profilePreview.login || '?').slice(0, 1).toUpperCase()}</span>}
+              </div>
+              <div>
+                <h3>{profilePreview.full_name || profilePreview.login}</h3>
+                <p>@{profilePreview.login}</p>
+                <small>{profilePreview.statusText || 'Внутренняя страница сотрудника'}</small>
+              </div>
+            </div>
+            <div className="profile-preview-grid">
+              <div><strong>Должность:</strong> {profilePreview.position || '—'}</div>
+              <div><strong>Отдел:</strong> {profilePreview.department || '—'}</div>
+              <div><strong>Кабинет:</strong> {profilePreview.room || '—'}</div>
+              <div><strong>Телефон:</strong> {profilePreview.phone || '—'}</div>
+              <div><strong>Сайт:</strong> {profilePreview.website || '—'}</div>
+              <div><strong>О себе:</strong> {profilePreview.bio || '—'}</div>
+            </div>
+            <button type="button" onClick={() => { setSelectedEmail(profilePreview.login); setProfileViewLogin(''); }}>Открыть диалог</button>
+          </div>
+        )}
+
+        {!profileViewLogin && (
+          !selectedEmail ? (
+            <div className="empty-chat">Выберите сотрудника слева, чтобы начать переписку.</div>
+          ) : (
+            <>
             <div className="conversation-header">Диалог с {selectedEmail}</div>
 
             {pinnedMessages.length > 0 && (
@@ -667,7 +833,8 @@ const EmployeeChat = () => {
                 <button type="submit">Отправить</button>
               </form>
             </div>
-          </>
+            </>
+          )
         )}
 
 

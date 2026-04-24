@@ -492,3 +492,100 @@
   background: rgba(154,200,234,.35);
   border-radius: 10px;
 }
+
+.profile-panel-toggle {
+  width: 100%;
+  margin-top: 10px;
+  border: 1px solid rgba(154,200,234,.3);
+  background: rgba(255,255,255,.06);
+  color: #d9efff;
+  border-radius: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.profile-panel {
+  margin-top: 10px;
+  border: 1px solid rgba(154,200,234,.22);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(3, 26, 46, 0.72);
+  display: grid;
+  gap: 10px;
+}
+
+.profile-panel h4 {
+  margin: 0;
+  color: #e8f6ff;
+}
+
+.profile-form,
+.profile-password-form {
+  display: grid;
+  gap: 8px;
+}
+
+.profile-form input,
+.profile-form textarea,
+.profile-password-form input {
+  border: 1px solid rgba(154,200,234,.35);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(255,255,255,.08);
+  color: #fff;
+}
+
+.profile-form button,
+.profile-password-form button,
+.profile-preview-card button {
+  border: 1px solid rgba(154,200,234,.3);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: rgba(40, 118, 255, 0.22);
+  color: #e8f6ff;
+  cursor: pointer;
+}
+
+.profile-preview-card {
+  border: 1px solid rgba(154,200,234,.25);
+  border-radius: 14px;
+  background: rgba(6, 31, 55, 0.76);
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.profile-preview-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.profile-preview-avatar {
+  width: 86px;
+  height: 86px;
+  border-radius: 20px;
+  border: 1px solid rgba(159, 208, 255, 0.5);
+  background: rgba(255,255,255,.09);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  font-size: 30px;
+  color: #e8f6ff;
+}
+
+.profile-preview-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.profile-preview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+}
+
+.back-to-chat-btn {
+  justify-self: start;
+}
