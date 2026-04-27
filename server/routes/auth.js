@@ -7,6 +7,7 @@ const db = require('../config/database');
 
 const normalizeLogin = (value = '') => value.trim().toLowerCase();
 const hashPassword = (value) => `sha256$${crypto.createHash('sha256').update(String(value)).digest('hex')}`;
+const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object || {}, key);
 
 const isPasswordValid = (rawPassword, storedPassword = '') => {
   if (!storedPassword) return false;
@@ -524,8 +525,11 @@ router.put('/profile', async (req, res) => {
     }
 
     const profiles = await readProfiles();
+    const currentProfile = profiles[normalizedLogin] || {};
+    const nextAvatar = hasOwn(req.body, 'avatar') ? (req.body.avatar || '') : (currentProfile.avatar || '');
+
     profiles[normalizedLogin] = {
-      ...(profiles[normalizedLogin] || {}),
+      ...currentProfile,
       full_name: req.body?.full_name || normalizedLogin,
       department: req.body?.department || '',
       phone: req.body?.phone || '',
@@ -534,7 +538,7 @@ router.put('/profile', async (req, res) => {
       bio: req.body?.bio || '',
       website: req.body?.website || '',
       statusText: req.body?.statusText || '',
-      avatar: req.body?.avatar || profiles[normalizedLogin]?.avatar || ''
+      avatar: nextAvatar
     };
     await writeProfiles(profiles);
 
