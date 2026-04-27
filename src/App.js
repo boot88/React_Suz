@@ -13,6 +13,7 @@ import { ApplicationsProvider } from './context/ApplicationsProvider';
 import './App.css';
 import Support from './components/Support';
 import Statistics from './pages/Statistics';
+import { API_BASE_URL } from './utils/apiConfig';
 
 function App() {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -62,6 +63,7 @@ function Sidebar() {
   const location = useLocation();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [newRequestsCount, setNewRequestsCount] = useState(0);
 
   useEffect(() => {
     const handleResize = () => {
@@ -74,6 +76,45 @@ function Sidebar() {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  useEffect(() => {
+    const fetchNewRequests = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/applications?page=1&limit=300`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) return;
+        const applications = Array.isArray(data?.applications) ? data.applications : [];
+        const viewed = JSON.parse(localStorage.getItem('adminViewedApplications') || '[]');
+        const viewedSet = new Set(viewed);
+        const fresh = applications.filter((item) => !item.fl && !viewedSet.has(item.id)).length;
+        setNewRequestsCount(fresh);
+      } catch (error) {
+        console.error('Ошибка загрузки новых заявок:', error);
+      }
+    };
+
+    fetchNewRequests();
+    const interval = setInterval(fetchNewRequests, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (location.pathname !== '/') return;
+    const markViewed = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/applications?page=1&limit=300`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) return;
+        const applications = Array.isArray(data?.applications) ? data.applications : [];
+        const ids = applications.filter((item) => !item.fl).map((item) => item.id);
+        localStorage.setItem('adminViewedApplications', JSON.stringify(ids));
+        setNewRequestsCount(0);
+      } catch (error) {
+        console.error('Ошибка отметки просмотренных заявок:', error);
+      }
+    };
+    markViewed();
+  }, [location.pathname]);
 
   const isActive = (path) => location.pathname === path;
 
@@ -98,9 +139,16 @@ function Sidebar() {
 
         <nav className="sidebar-nav">
           <ul>
-            <li className={isActive('/') ? 'nav-item active' : 'nav-item'}><Link to="/" className="nav-link"><span className="nav-icon">📊</span><span className="nav-text">Дашборд</span></Link></li>
+            <li className={isActive('/') ? 'nav-item active' : 'nav-item'}>
+              <Link to="/" className="nav-link">
+                <span className="nav-icon">📊</span>
+                <span className="nav-text">Заявки</span>
+                {newRequestsCount > 0 && <span className="nav-badge">{newRequestsCount}</span>}
+              </Link>
+            </li>
             <li className={isActive('/add') ? 'nav-item active' : 'nav-item'}><Link to="/add" className="nav-link"><span className="nav-icon">➕</span><span className="nav-text">Новая заявка</span></Link></li>
             <li className={isActive('/edit/0') ? 'nav-item active' : 'nav-item'}><Link to="/edit/0" className="nav-link"><span className="nav-icon">✏️</span><span className="nav-text">Редактирование</span></Link></li>
+            <li className={isActive('/employee') ? 'nav-item active' : 'nav-item'}><Link to="/employee" className="nav-link"><span className="nav-icon">💬</span><span className="nav-text">Чат</span></Link></li>
             <li className={isActive('/statistics') ? 'nav-item active' : 'nav-item'}><Link to="/statistics" className="nav-link"><span className="nav-icon">📊</span><span className="nav-text">Статистика</span></Link></li>
             <li className={isActive('/employee-search') ? 'nav-item active' : 'nav-item'}><Link to="/employee-search" className="nav-link"><span className="nav-icon">👥</span><span className="nav-text">Сотрудники</span></Link></li>
             <li className={isActive('/knowledge-base') ? 'nav-item active' : 'nav-item'}><Link to="/knowledge-base" className="nav-link"><span className="nav-icon">📚</span><span className="nav-text">База Знаний</span></Link></li>

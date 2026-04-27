@@ -95,7 +95,7 @@ const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
 
 const EmployeeChat = () => {
   const { user, logout, employeeDirectory } = useAuth();
-  const isManager = user?.role === 'manager';
+  const isManager = user?.role === 'manager' || user?.role === 'admin';
   const baseDisplayName = user?.name || user?.username || 'Сотрудник';
 
   const [threads, setThreads] = useState({});
@@ -125,6 +125,8 @@ const EmployeeChat = () => {
     statusText: ''
   });
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
+  const [requestText, setRequestText] = useState('');
+  const [requestStatus, setRequestStatus] = useState('');
   const messagesWrapRef = useRef(null);
   const forceScrollRef = useRef(false);
 
@@ -551,6 +553,34 @@ const EmployeeChat = () => {
     }
   };
 
+  const submitRequest = async (event) => {
+    event.preventDefault();
+    if (!requestText.trim()) return;
+    setRequestStatus('Отправка...');
+
+    const response = await fetch(`${API_BASE_URL}/applications`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
+        cabinet: profileForm.room || '',
+        N_tel: profileForm.phone || '',
+        application: requestText.trim(),
+        process: '',
+        executor: '',
+        fl: false
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setRequestStatus(data.error || data.message || 'Не удалось отправить заявку');
+      return;
+    }
+
+    setRequestStatus('Заявка отправлена. Статус: в работе.');
+    setRequestText('');
+  };
+
   const updateMessage = async (messageId, updater, targetConversationId = currentConversationId) => {
     if (!targetConversationId) return;
     const nextMessages = (threads[targetConversationId] || []).map((item) => (item.id === messageId ? updater(item) : item));
@@ -754,6 +784,17 @@ const EmployeeChat = () => {
           <button className="clear-btn" onClick={clearConversation} disabled={!selectedEmail}>Удалить переписку</button>
           <button className="logout-btn" onClick={handleLogout}>Выход</button>
         </div>
+        <form className="employee-request-box" onSubmit={submitRequest}>
+          <h4>Подать заявку</h4>
+          <textarea
+            rows={3}
+            placeholder="Описание неисправности..."
+            value={requestText}
+            onChange={(e) => setRequestText(e.target.value)}
+          />
+          <button type="submit" disabled={!requestText.trim()}>Подать заявку</button>
+          {requestStatus && <small>{requestStatus}</small>}
+        </form>
       </aside>
 
       <section className="employee-chat-main">

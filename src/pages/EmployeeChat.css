@@ -604,3 +604,37 @@
   padding: 6px 10px;
   cursor: pointer;
 }
+
+.employee-request-box {
+  margin-top: 10px;
+  border: 1px solid rgba(154,200,234,.25);
+  border-radius: 12px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  background: rgba(4, 28, 49, 0.7);
+}
+
+.employee-request-box h4 {
+  margin: 0;
+  color: #e8f6ff;
+}
+
+.employee-request-box textarea {
+  resize: vertical;
+  min-height: 72px;
+  border: 1px solid rgba(154,200,234,.35);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(255,255,255,.08);
+  color: #fff;
+}
+
+.employee-request-box button {
+  border: 1px solid rgba(154,200,234,.3);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: rgba(40, 118, 255, 0.22);
+  color: #e8f6ff;
+  cursor: pointer;
+}
