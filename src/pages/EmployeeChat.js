@@ -156,6 +156,10 @@ const EmployeeChat = () => {
 
   useEffect(() => {
     if (!user?.username) return;
+    const cachedAvatar = localStorage.getItem(getAvatarKey(user.username)) || '';
+    if (cachedAvatar) {
+      setAvatarUrl(cachedAvatar);
+    }
     const hasSeenGreeting = sessionStorage.getItem(getGreetingKey(user.username)) === '1';
     if (hasSeenGreeting) {
       setHeaderName(baseDisplayName);
@@ -272,7 +276,7 @@ const EmployeeChat = () => {
     };
 
     syncProfile();
-    const interval = setInterval(syncProfile, 10000);
+    const interval = setInterval(syncProfile, 3000);
     return () => clearInterval(interval);
   }, [loadProfile, user?.username]);
 
