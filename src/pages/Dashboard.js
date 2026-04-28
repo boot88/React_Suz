@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import './Dashboard.css';
 import { API_BASE_URL } from '../utils/apiConfig';
@@ -13,6 +13,7 @@ const Dashboard = () => {
   const [exportLoading, setExportLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
+  const didInitialLoadRef = useRef(false);
 
   const [stats, setStats] = useState({
     total: 0,
@@ -128,7 +129,10 @@ const Dashboard = () => {
       setFilteredStats(data.stats || { total: 0, completed: 0, pending: 0 });
     } catch (error) {
       console.error('Ошибка загрузки:', error);
-      alert('Не удалось загрузить данные');
+      // Убираем блокирующий alert при стартовой загрузке,
+      // чтобы интерфейс не показывал всплывающее окно подтверждения.
+      setApplications([]);
+      setFilteredStats({ total: 0, completed: 0, pending: 0 });
     } finally {
       setLoading(false);
     }
@@ -146,9 +150,14 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchGeneralStats();
+    fetchApplications();
+    didInitialLoadRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
+    if (!didInitialLoadRef.current) return undefined;
+
     const timer = setTimeout(() => {
       fetchApplications();
     }, 500);

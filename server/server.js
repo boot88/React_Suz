@@ -3,6 +3,8 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const employeeRoutes = require('./routes/employees');
+const authRoutes = require('./routes/auth');
+const chatRoutes = require('./routes/chat');
 const pool = require('./config/database');
 
 const app = express();
@@ -24,6 +26,8 @@ app.use(express.json({ limit: '50mb' })); // Увеличиваем лимит �
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 app.use('/api/employees', employeeRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/chat', chatRoutes);
 
 // Функция для преобразования дат в правильный формат MySQL
 const formatDateForMySQL = (dateString) => {

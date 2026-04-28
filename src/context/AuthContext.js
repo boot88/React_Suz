@@ -1,6 +1,7 @@
 import { useState, useEffect, createContext, useContext } from 'react';
 import { useInactivityTimer } from '../hooks/useInactivityTimer';
-import { ADMIN_CREDENTIALS, AUTH_STATE_KEY, LOCAL_EMPLOYEES_KEY } from '../config/authConfig';
+import { ADMIN_CREDENTIALS, MANAGER_CREDENTIALS, AUTH_STATE_KEY, LOCAL_EMPLOYEES_KEY } from '../config/authConfig';
+import { API_BASE_URL } from '../utils/apiConfig';
 
 const AuthContext = createContext();
 
@@ -16,6 +17,45 @@ const getStoredEmployees = () => {
 
 const saveEmployees = (employees) => {
   localStorage.setItem(LOCAL_EMPLOYEES_KEY, JSON.stringify(employees));
+};
+
+const pushPresenceToServer = async ({ login, isOnline, role }) => {
+  try {
+    await fetch(`${API_BASE_URL}/auth/presence`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login, isOnline, role })
+    });
+  } catch (error) {
+    console.error('Ошибка отправки presence на сервер:', error);
+  }
+};
+
+const upsertEmployeeOnlineStatus = (email, isOnline) => {
+  const employees = getStoredEmployees();
+  const normalizedEmail = email.trim().toLowerCase();
+  const existingIndex = employees.findIndex((item) => item.email.toLowerCase() === normalizedEmail);
+  const now = new Date().toISOString();
+
+  if (existingIndex === -1) {
+    employees.push({
+      email: normalizedEmail,
+      isVerified: true,
+      isOnline,
+      lastSeen: now,
+      createdAt: now
+    });
+  } else {
+    employees[existingIndex] = {
+      ...employees[existingIndex],
+      isVerified: true,
+      isOnline,
+      lastSeen: now
+    };
+  }
+
+  saveEmployees(employees);
+  return employees;
 };
 
 export const useAuth = () => useContext(AuthContext);
@@ -58,113 +98,100 @@ export const AuthProvider = ({ children }) => {
       setIsAuthenticated(true);
       setUser(adminUser);
       persistAuthState(adminUser);
+      await pushPresenceToServer({ login: adminUser.username, isOnline: true, role: 'admin' });
       return adminUser;
     }
 
-    const employees = getStoredEmployees();
-    const employee = employees.find(
-      (item) => item.email.toLowerCase() === loginValue.toLowerCase()
-    );
+    if (loginValue === MANAGER_CREDENTIALS.username && password === MANAGER_CREDENTIALS.password) {
+      const managerUser = {
+        username: MANAGER_CREDENTIALS.username,
+        role: 'manager',
+        name: MANAGER_CREDENTIALS.name
+      };
 
-    if (!employee || employee.password !== password) {
-      throw new Error('Неверный логин/email или пароль');
+      setIsAuthenticated(true);
+      setUser(managerUser);
+      persistAuthState(managerUser);
+      await pushPresenceToServer({ login: managerUser.username, isOnline: true, role: 'manager' });
+      return managerUser;
     }
 
-    if (!employee.isVerified) {
-      throw new Error('Email не подтвержден. Завершите подтверждение в регистрации.');
+    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        login: loginValue,
+        password
+      })
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.message || 'Неверный логин/email или пароль');
     }
 
     const employeeUser = {
-      username: employee.email,
-      role: 'employee',
-      name: employee.email
+      username: data?.user?.login || loginValue,
+      role: data?.user?.role || 'employee',
+      name: data?.user?.full_name || data?.user?.login || loginValue
     };
 
-    const nextEmployees = employees.map((item) => (
-      item.email.toLowerCase() === employee.email.toLowerCase()
-        ? { ...item, isOnline: true, lastSeen: new Date().toISOString() }
-        : item
-    ));
-    saveEmployees(nextEmployees);
+    const nextEmployees = upsertEmployeeOnlineStatus(employeeUser.username, true);
     setEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
 
     setIsAuthenticated(true);
     setUser(employeeUser);
     persistAuthState(employeeUser);
+    await pushPresenceToServer({ login: employeeUser.username, isOnline: true, role: employeeUser.role || 'employee' });
     return employeeUser;
   };
 
-  const registerEmployee = (email, password) => {
+  const registerEmployee = async (email, profile = {}) => {
     const normalizedEmail = email.trim().toLowerCase();
-    const employees = getStoredEmployees();
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       throw new Error('Введите корректный email');
     }
 
-    if (employees.some((item) => item.email.toLowerCase() === normalizedEmail)) {
-      throw new Error('Сотрудник с таким email уже зарегистрирован');
+    if (ADMIN_CREDENTIALS.some((admin) => admin.username.toLowerCase() === normalizedEmail) || MANAGER_CREDENTIALS.username.toLowerCase() === normalizedEmail) {
+      throw new Error('Этот логин зарезервирован для служебной учетной записи');
     }
 
-    if (ADMIN_CREDENTIALS.some((admin) => admin.username.toLowerCase() === normalizedEmail)) {
-      throw new Error('Этот логин зарезервирован для администратора');
+    const response = await fetch(`${API_BASE_URL}/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        login: normalizedEmail,
+        full_name: profile.fullName?.trim() || normalizedEmail,
+        department: profile.department || null,
+        phone: profile.internalPhone || null,
+        room: profile.room || null
+      })
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.message || 'Ошибка регистрации');
     }
-
-    const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
-    const nextEmployees = [
-      ...employees,
-      {
-        email: normalizedEmail,
-        password,
-        isVerified: false,
-        isOnline: false,
-        lastSeen: null,
-        verificationCode,
-        createdAt: new Date().toISOString()
-      }
-    ];
-
-    saveEmployees(nextEmployees);
 
     return {
-      email: normalizedEmail,
-      verificationCode
+      email: normalizedEmail
     };
   };
 
-  const verifyEmployeeEmail = (email, verificationCode) => {
-    const normalizedEmail = email.trim().toLowerCase();
-    const employees = getStoredEmployees();
-    const employeeIndex = employees.findIndex((item) => item.email.toLowerCase() === normalizedEmail);
-
-    if (employeeIndex === -1) {
-      throw new Error('Пользователь не найден');
-    }
-
-    if (employees[employeeIndex].verificationCode !== verificationCode.trim()) {
-      throw new Error('Неверный код подтверждения');
-    }
-
-    employees[employeeIndex] = {
-      ...employees[employeeIndex],
-      isVerified: true,
-      verificationCode: null,
-      verifiedAt: new Date().toISOString()
-    };
-
-    saveEmployees(employees);
-  };
+  const verifyEmployeeEmail = () => true;
 
   const logout = () => {
-    if (user?.role === 'employee') {
-      const employees = getStoredEmployees();
-      const nextEmployees = employees.map((item) => (
-        item.email.toLowerCase() === user.username.toLowerCase()
-          ? { ...item, isOnline: false, lastSeen: new Date().toISOString() }
-          : item
-      ));
-      saveEmployees(nextEmployees);
-      setEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
+    if (user?.username) {
+      if (user?.role === 'employee') {
+        const nextEmployees = upsertEmployeeOnlineStatus(user.username, false);
+        setEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
+      }
+      pushPresenceToServer({ login: user.username, isOnline: false, role: user.role || 'employee' });
     }
 
     setIsAuthenticated(false);
@@ -173,6 +200,32 @@ export const AuthProvider = ({ children }) => {
   };
 
   useInactivityTimer(logout, 15 * 60 * 1000);
+
+  useEffect(() => {
+    const syncPresence = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/presence`);
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!Array.isArray(data?.presence)) return;
+
+        setEmployeeDirectory(
+          data.presence.map((item) => ({
+            email: (item.email || '').toLowerCase(),
+            isOnline: Boolean(item.isOnline),
+            lastSeen: item.lastSeen || null,
+            role: item.role || 'employee'
+          }))
+        );
+      } catch (error) {
+        console.error('Ошибка синхронизации presence:', error);
+      }
+    };
+
+    syncPresence();
+    const interval = setInterval(syncPresence, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const updateDirectory = () => {
@@ -233,29 +286,19 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    if (user?.role !== 'employee') return undefined;
+    if (!user?.username) return undefined;
 
     const markOffline = () => {
-      const employees = getStoredEmployees();
-      const nextEmployees = employees.map((item) => (
-        item.email.toLowerCase() === user.username.toLowerCase()
-          ? { ...item, isOnline: false, lastSeen: new Date().toISOString() }
-          : item
-      ));
-      saveEmployees(nextEmployees);
+      upsertEmployeeOnlineStatus(user.username, false);
+      pushPresenceToServer({ login: user.username, isOnline: false, role: user.role || 'employee' });
     };
 
     window.addEventListener('beforeunload', markOffline);
 
     const heartbeat = setInterval(() => {
-      const employees = getStoredEmployees();
-      const nextEmployees = employees.map((item) => (
-        item.email.toLowerCase() === user.username.toLowerCase()
-          ? { ...item, isOnline: true, lastSeen: new Date().toISOString() }
-          : item
-      ));
-      saveEmployees(nextEmployees);
+      const nextEmployees = upsertEmployeeOnlineStatus(user.username, true);
       setEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
+      pushPresenceToServer({ login: user.username, isOnline: true, role: user.role || 'employee' });
     }, 20000);
 
     return () => {
