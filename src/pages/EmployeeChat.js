@@ -755,7 +755,7 @@ const EmployeeChat = () => {
           onChange={(e) => setSearch(e.target.value)}
         />
 
-        <div className="employee-chat-list">
+        <div className={`employee-chat-list ${isManager ? 'manager-mode' : ''}`}>
           {availableEmployees.map((employee) => {
             const isOnline = Boolean(employee.isOnline);
             const isManagerContact = (employee.role || '').toLowerCase() === 'manager' || employee.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();

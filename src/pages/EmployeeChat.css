@@ -13,6 +13,8 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .employee-chat-header {
@@ -86,12 +88,17 @@
 }
 
 .employee-chat-list {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
+  min-height: 140px;
   max-height: calc(15 * 56px);
   overflow-y: auto;
   padding: 8px;
   scrollbar-width: thin;
   scrollbar-color: rgba(154,200,234,.45) transparent;
+}
+
+.employee-chat-list.manager-mode {
+  max-height: none;
 }
 
 .employee-chat-user {
@@ -159,7 +166,7 @@
   background: rgba(8, 25, 41, 0.42);
   height: 100vh;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .conversation-header {
@@ -358,6 +365,8 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+  max-height: 46vh;
+  overflow: auto;
 }
 
 .manager-panel {
