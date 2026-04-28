@@ -624,6 +624,21 @@
   background: rgba(4, 28, 49, 0.7);
 }
 
+.employee-request-wrapper {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.request-panel-toggle {
+  border: 1px solid rgba(154,200,234,.25);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(255,255,255,.08);
+  color: #e8f6ff;
+  cursor: pointer;
+}
+
 .employee-request-box h4 {
   margin: 0;
   color: #e8f6ff;

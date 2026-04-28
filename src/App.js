@@ -84,9 +84,14 @@ function Sidebar() {
         const data = await response.json().catch(() => ({}));
         if (!response.ok) return;
         const applications = Array.isArray(data?.applications) ? data.applications : [];
-        const viewed = JSON.parse(localStorage.getItem('adminViewedApplications') || '[]');
-        const viewedSet = new Set(viewed);
-        const fresh = applications.filter((item) => !item.fl && !viewedSet.has(item.id)).length;
+        const lastSeenAt = localStorage.getItem('adminApplicationsLastSeenAt') || '';
+        const lastSeenTs = lastSeenAt ? new Date(lastSeenAt).getTime() : 0;
+        const fresh = applications.filter((item) => {
+          if (item.fl) return false;
+          const createdAt = item.data || item.createdAt;
+          const createdTs = createdAt ? new Date(createdAt).getTime() : 0;
+          return !lastSeenTs || createdTs > lastSeenTs;
+        }).length;
         setNewRequestsCount(fresh);
       } catch (error) {
         console.error('Ошибка загрузки новых заявок:', error);
@@ -100,20 +105,8 @@ function Sidebar() {
 
   useEffect(() => {
     if (location.pathname !== '/') return;
-    const markViewed = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/applications?page=1&limit=300`);
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) return;
-        const applications = Array.isArray(data?.applications) ? data.applications : [];
-        const ids = applications.filter((item) => !item.fl).map((item) => item.id);
-        localStorage.setItem('adminViewedApplications', JSON.stringify(ids));
-        setNewRequestsCount(0);
-      } catch (error) {
-        console.error('Ошибка отметки просмотренных заявок:', error);
-      }
-    };
-    markViewed();
+    localStorage.setItem('adminApplicationsLastSeenAt', new Date().toISOString());
+    setNewRequestsCount(0);
   }, [location.pathname]);
 
   const isActive = (path) => location.pathname === path;

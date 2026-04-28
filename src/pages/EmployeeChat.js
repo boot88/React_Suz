@@ -98,6 +98,7 @@ const EmployeeChat = () => {
   const isManager = user?.role === 'manager' || user?.role === 'admin';
   const baseDisplayName = user?.name || user?.username || 'Сотрудник';
   const isAdmin = user?.role === 'admin';
+  const isEmployee = user?.role === 'employee';
 
   const [threads, setThreads] = useState({});
   const [selectedEmail, setSelectedEmail] = useState('');
@@ -128,6 +129,7 @@ const EmployeeChat = () => {
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
   const [requestText, setRequestText] = useState('');
   const [requestStatus, setRequestStatus] = useState('');
+  const [isRequestPanelOpen, setIsRequestPanelOpen] = useState(false);
   const messagesWrapRef = useRef(null);
   const forceScrollRef = useRef(false);
 
@@ -785,18 +787,29 @@ const EmployeeChat = () => {
           <button className="clear-btn" onClick={clearConversation} disabled={!selectedEmail}>Удалить переписку</button>
           {!isAdmin && <button className="logout-btn" onClick={handleLogout}>Выход</button>}
         </div>
-        {!isAdmin && (
-          <form className="employee-request-box" onSubmit={submitRequest}>
-            <h4>Подать заявку</h4>
-            <textarea
-              rows={3}
-              placeholder="Описание неисправности..."
-              value={requestText}
-              onChange={(e) => setRequestText(e.target.value)}
-            />
-            <button type="submit" disabled={!requestText.trim()}>Подать заявку</button>
-            {requestStatus && <small>{requestStatus}</small>}
-          </form>
+        {isEmployee && (
+          <div className="employee-request-wrapper">
+            <button
+              type="button"
+              className="request-panel-toggle"
+              onClick={() => setIsRequestPanelOpen((prev) => !prev)}
+            >
+              {isRequestPanelOpen ? 'Скрыть заявку' : 'Подать заявку'}
+            </button>
+            {isRequestPanelOpen && (
+              <form className="employee-request-box" onSubmit={submitRequest}>
+                <h4>Подать заявку</h4>
+                <textarea
+                  rows={3}
+                  placeholder="Описание неисправности..."
+                  value={requestText}
+                  onChange={(e) => setRequestText(e.target.value)}
+                />
+                <button type="submit" disabled={!requestText.trim()}>Отправить</button>
+                {requestStatus && <small>{requestStatus}</small>}
+              </form>
+            )}
+          </div>
         )}
       </aside>
 
