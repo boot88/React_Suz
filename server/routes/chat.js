@@ -10,6 +10,7 @@ const chatFilePath = path.join(dataDir, 'chatThreads.json');
 let cachedThreads = null;
 let storageReadyPromise = null;
 let writeQueue = Promise.resolve();
+const streamClients = new Set();
 
 const cloneThreads = (threads) => JSON.parse(JSON.stringify(threads || {}));
 
@@ -50,8 +51,17 @@ const readThreads = async () => {
   }
 };
 
+const broadcastThreads = () => {
+  if (!streamClients.size) return;
+  const payload = JSON.stringify({ threads: cachedThreads || {} });
+  streamClients.forEach((client) => {
+    client.write(`event: threads\ndata: ${payload}\n\n`);
+  });
+};
+
 const writeThreads = async (threads) => {
   cachedThreads = cloneThreads(threads);
+  broadcastThreads();
 
   writeQueue = writeQueue
     .catch(() => {})
@@ -71,6 +81,34 @@ router.get('/threads', async (req, res) => {
   } catch (error) {
     console.error('Chat GET /threads error:', error);
     res.status(500).json({ message: 'Не удалось загрузить сообщения' });
+  }
+});
+
+router.get('/threads/stream', async (req, res) => {
+  try {
+    const threads = await readThreads();
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no'
+    });
+
+    res.write(`event: threads\ndata: ${JSON.stringify({ threads })}\n\n`);
+    streamClients.add(res);
+
+    const heartbeat = setInterval(() => {
+      res.write(': keep-alive\n\n');
+    }, 25000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      streamClients.delete(res);
+    });
+  } catch (error) {
+    console.error('Chat GET /threads/stream error:', error);
+    res.status(500).json({ message: 'Не удалось открыть поток сообщений' });
   }
 });
 
