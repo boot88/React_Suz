@@ -85,8 +85,8 @@ function Sidebar() {
         if (!response.ok) return;
         const applications = Array.isArray(data?.applications) ? data.applications : [];
         const seenRaw = JSON.parse(localStorage.getItem('adminViewedApplications') || '[]');
-        const seenSet = new Set(Array.isArray(seenRaw) ? seenRaw : []);
-        const fresh = applications.filter((item) => !item.fl && !seenSet.has(item.id)).length;
+        const seenSet = new Set((Array.isArray(seenRaw) ? seenRaw : []).map((id) => String(id)));
+        const fresh = applications.filter((item) => !item.fl && !seenSet.has(String(item.id))).length;
         setNewRequestsCount(fresh);
       } catch (error) {
         console.error('Ошибка загрузки новых заявок:', error);
@@ -106,7 +106,7 @@ function Sidebar() {
         const data = await response.json().catch(() => ({}));
         if (!response.ok) return;
         const applications = Array.isArray(data?.applications) ? data.applications : [];
-        const ids = applications.filter((item) => !item.fl).map((item) => item.id);
+        const ids = applications.filter((item) => !item.fl).map((item) => String(item.id));
         localStorage.setItem('adminViewedApplications', JSON.stringify(ids));
         setNewRequestsCount(0);
       } catch (error) {

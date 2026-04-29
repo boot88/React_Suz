@@ -166,6 +166,22 @@ const Dashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, limit, filter, fromDate, toDate, dateFilterActive, searchTerm]);
 
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        fetchApplications();
+        fetchGeneralStats();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const setFilterAndResetPage = (newFilter) => {
     setFilter(newFilter);
     setCurrentPage(1);

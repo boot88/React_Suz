@@ -86,6 +86,8 @@ const processAvatar = (file) => new Promise((resolve, reject) => {
   reader.readAsDataURL(file);
 });
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => resolve(String(reader.result || ''));
@@ -244,20 +246,34 @@ const EmployeeChat = () => {
   }, []);
 
   const persistThreadMessages = useCallback(async (conversationId, messages) => {
-    const response = await fetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages })
-    });
+    let lastError = null;
 
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(data.message || 'Не удалось сохранить сообщение');
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await fetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages })
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.message || 'Не удалось сохранить сообщение');
+        }
+
+        if (data?.threads && typeof data.threads === 'object') {
+          setThreads(data.threads);
+        }
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt === 0) {
+          await sleep(350);
+        }
+      }
     }
 
-    if (data?.threads && typeof data.threads === 'object') {
-      setThreads(data.threads);
-    }
+    throw lastError || new Error('Не удалось сохранить сообщение');
   }, []);
 
   useEffect(() => {
@@ -560,28 +576,39 @@ const EmployeeChat = () => {
     event.preventDefault();
     if (!requestText.trim()) return;
     setRequestStatus('Отправка...');
+    let lastError = null;
 
-    const response = await fetch(`${API_BASE_URL}/applications`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
-        cabinet: profileForm.room || '',
-        N_tel: profileForm.phone || '',
-        application: requestText.trim(),
-        process: '',
-        executor: '',
-        fl: false
-      })
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      setRequestStatus(data.error || data.message || 'Не удалось отправить заявку');
-      return;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await fetch(`${API_BASE_URL}/applications`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
+            cabinet: profileForm.room || '',
+            N_tel: profileForm.phone || '',
+            application: requestText.trim(),
+            process: '',
+            executor: '',
+            fl: false
+          })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || data.message || 'Не удалось отправить заявку');
+        }
+        setRequestStatus('Заявка отправлена. Статус: в работе.');
+        setRequestText('');
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt === 0) {
+          await sleep(350);
+        }
+      }
     }
 
-    setRequestStatus('Заявка отправлена. Статус: в работе.');
-    setRequestText('');
+    setRequestStatus(lastError?.message || 'Ошибка сети при отправке заявки. Попробуйте ещё раз.');
   };
 
   const updateMessage = async (messageId, updater, targetConversationId = currentConversationId) => {
