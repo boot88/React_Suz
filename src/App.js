@@ -11,6 +11,7 @@ import KnowledgeBase from './pages/KnowledgeBase';
 import EmployeeChat from './pages/EmployeeChat';
 import { ApplicationsProvider } from './context/ApplicationsProvider';
 import './App.css';
+import './pages/EmployeeChatOverrides.css';
 import Support from './components/Support';
 import Statistics from './pages/Statistics';
 import { API_BASE_URL } from './utils/apiConfig';
@@ -63,16 +64,19 @@ function Sidebar() {
   const location = useLocation();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-  const [newRequestsCount, setNewRequestsCount] = useState(0);
+  const [newRequestsCount, setNewRequestsCount] = useState(() => {
+    try {
+      return Number(localStorage.getItem('cachedNewRequests') || 0);
+    } catch {
+      return 0;
+    }
+  });
 
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth <= 768);
-      if (window.innerWidth > 768) {
-        setIsMobileOpen(false);
-      }
+      if (window.innerWidth > 768) setIsMobileOpen(false);
     };
-
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -88,6 +92,7 @@ function Sidebar() {
         const seenSet = new Set((Array.isArray(seenRaw) ? seenRaw : []).map((id) => String(id)));
         const fresh = applications.filter((item) => !item.fl && !seenSet.has(String(item.id))).length;
         setNewRequestsCount(fresh);
+        localStorage.setItem('cachedNewRequests', String(fresh));
       } catch (error) {
         console.error('Ошибка загрузки новых заявок:', error);
       }
@@ -109,6 +114,7 @@ function Sidebar() {
         const ids = applications.filter((item) => !item.fl).map((item) => String(item.id));
         localStorage.setItem('adminViewedApplications', JSON.stringify(ids));
         setNewRequestsCount(0);
+        localStorage.setItem('cachedNewRequests', '0');
       } catch (error) {
         console.error('Ошибка отметки просмотренных заявок:', error);
       }
