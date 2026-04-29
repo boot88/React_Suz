@@ -777,14 +777,23 @@ const EmployeeChat = () => {
           )}
         </div>
 
-        <input
-          className="employee-chat-search"
-          placeholder="Поиск сотрудника..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
 
-        <div className={`employee-chat-list ${isManager ? 'manager-mode' : ''}`}>
+
+        {/* 🔥 СКРЫВАЕМ ПОИСК И СПИСОК ПРИ ОТКРЫТОЙ АНКЕТЕ */}
+{!isProfilePanelOpen && (
+  <>
+    <input
+      className="employee-chat-search"
+      placeholder="Поиск сотрудника..."
+      value={search}
+      onChange={(e) => setSearch(e.target.value)}
+    />
+
+    <div className={`employee-chat-list ${isManager ? 'manager-mode' : ''}`}>
+        
+        
+        
+        
           {availableEmployees.map((employee) => {
             const isOnline = Boolean(employee.isOnline);
             const isManagerContact = (employee.role || '').toLowerCase() === 'manager' || employee.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
@@ -809,23 +818,26 @@ const EmployeeChat = () => {
             );
           })}
         </div>
+        
+          </>
+)}
 
         <div className="employee-chat-actions">
           <button className="clear-btn" onClick={clearConversation} disabled={!selectedEmail}>Удалить переписку</button>
           {!isAdmin && <button className="logout-btn" onClick={handleLogout}>Выход</button>}
         </div>
-        {isEmployee && (
-          <div className="employee-request-wrapper">
+        {isEmployee && !isProfilePanelOpen && (
+  <div className="employee-request-wrapper">
             <button
               type="button"
               className="request-panel-toggle"
               onClick={() => setIsRequestPanelOpen((prev) => !prev)}
             >
-              {isRequestPanelOpen ? 'Скрыть заявку' : 'Подать заявку'}
+              {isRequestPanelOpen ? 'Скрыть заявку' : 'Сообщить о проблеме'}
             </button>
             {isRequestPanelOpen && (
               <form className="employee-request-box" onSubmit={submitRequest}>
-                <h4>Подать заявку</h4>
+                <h4>🛠Подать заявку</h4>
                 <textarea
                   rows={3}
                   placeholder="Описание неисправности..."

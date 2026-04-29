@@ -625,18 +625,38 @@
 }
 
 .employee-request-wrapper {
-  margin-top: 10px;
+  margin-top: 20px;
+  position: sticky;
+  bottom: 10px;
   display: grid;
   gap: 8px;
 }
 
 .request-panel-toggle {
-  border: 1px solid rgba(154,200,234,.25);
-  border-radius: 8px;
-  padding: 10px;
-  background: rgba(255,255,255,.08);
-  color: #e8f6ff;
-  cursor: pointer;
+  border: none;
+  border-radius: 12px;
+  padding: 12px;
+  font-weight: 600;
+
+  background: linear-gradient(135deg, #1fb6a1, #3d7cf4);
+  color: white;
+
+  box-shadow: 0 6px 20px rgba(31, 182, 161, 0.35);
+
+  transition: all 0.2s ease;
+  
+  animation: pulseGlow 2.5s infinite;
+}
+
+@keyframes pulseGlow {
+  0% { box-shadow: 0 0 0 rgba(31,182,161,0.3); }
+  50% { box-shadow: 0 0 20px rgba(31,182,161,0.6); }
+  100% { box-shadow: 0 0 0 rgba(31,182,161,0.3); }
+}
+
+.request-panel-toggle:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgba(31, 182, 161, 0.5);
 }
 
 .employee-request-box h4 {
