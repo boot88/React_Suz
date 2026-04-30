@@ -101,7 +101,9 @@ const EmployeeChat = () => {
   const baseDisplayName = user?.name || user?.username || 'Сотрудник';
   const isAdmin = user?.role === 'admin';
   const isEmployee = user?.role === 'employee';
-
+   
+  const avatarInputRef = useRef(null); 
+   
   const [threads, setThreads] = useState({});
   const [selectedEmail, setSelectedEmail] = useState('');
   const [selectedThreadId, setSelectedThreadId] = useState('');
@@ -743,22 +745,37 @@ const EmployeeChat = () => {
     </button>
   )}
 
+
+
+<div className={`employee-avatar-wrap ${isProfileOpen ? 'open' : ''}`}>
+
+  {isProfileOpen && (
+    <button className="profile-back" onClick={() => setIsProfileOpen(false)}>
+      ← Профиль
+    </button>
+  )}
+
   <button
     type="button"
     className="employee-avatar-upload"
     onClick={() => {
-  if (isProfileOpen) {
-    setIsAvatarFull(true);
-  } else {
-    setIsProfileOpen(true);
-  }
-}}
+      if (isProfileOpen) setIsAvatarFull(true);
+      else setIsProfileOpen(true);
+    }}
   >
     {avatarUrl
       ? <img src={avatarUrl} alt="avatar" className="employee-avatar-image" />
       : <span>+</span>
     }
   </button>
+
+ <input
+  ref={avatarInputRef}
+  type="file"
+  accept="image/png,image/jpeg,image/webp"
+  onChange={handleAvatarUpload}
+  style={{ display: 'none' }}
+/>
 
   {!isProfileOpen && (
     <div className="employee-header-meta">
@@ -770,9 +787,12 @@ const EmployeeChat = () => {
 
   {isProfileOpen && (
     <div className="avatar-profile-actions">
-      <label htmlFor="avatar-upload-input" className="avatar-edit-btn">
-        Изменить
-      </label>
+      <button
+  className="avatar-edit-btn"
+  onClick={() => avatarInputRef.current?.click()}
+>
+  Изменить
+</button>
 
       {avatarUrl && (
         <button onClick={removeAvatar} className="avatar-remove-btn">
@@ -783,6 +803,8 @@ const EmployeeChat = () => {
   )}
 
 </div>
+
+
           
           
           <small className="avatar-tip">Фото автоматически приводится к квадрату 256×256 для чёткого вида.</small>
@@ -986,7 +1008,7 @@ const EmployeeChat = () => {
                       <div className="message-controls">
                         <button onClick={() => setReplyTo(message)}>Ответить</button>
                         <button onClick={() => togglePinned(message.id)}>{message.pinned ? 'Открепить' : 'Закрепить'}</button>
-                        {canEdit && <button onClick={() => editMessage(message.id)}>Изменить</button>}
+                        {canEdit && <button onClick={() => editMessage(message.id)}></button>}
                         {canEdit && <button onClick={() => deleteMessage(message.id)}>Удалить</button>}
                       </div>
                     </div>
@@ -1048,7 +1070,7 @@ const EmployeeChat = () => {
 
       <button
         className="avatar-edit-icon"
-        onClick={() => document.getElementById('avatar-upload-input').click()}
+        onClick={() => avatarInputRef.current?.click()
       >
         ✏️
       </button>
