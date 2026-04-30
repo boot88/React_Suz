@@ -745,16 +745,6 @@ const EmployeeChat = () => {
     </button>
   )}
 
-
-
-<div className={`employee-avatar-wrap ${isProfileOpen ? 'open' : ''}`}>
-
-  {isProfileOpen && (
-    <button className="profile-back" onClick={() => setIsProfileOpen(false)}>
-      ← Профиль
-    </button>
-  )}
-
   <button
     type="button"
     className="employee-avatar-upload"
@@ -1070,7 +1060,7 @@ const EmployeeChat = () => {
 
       <button
         className="avatar-edit-icon"
-        onClick={() => avatarInputRef.current?.click()
+        onClick={() => avatarInputRef.current?.click()}
       >
         ✏️
       </button>
