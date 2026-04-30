@@ -740,7 +740,14 @@ const EmployeeChat = () => {
           <div className={`employee-avatar-wrap ${isProfileOpen ? 'open' : ''}`}>
 
   {isProfileOpen && (
-    <button className="profile-back" onClick={() => setIsProfileOpen(false)}>
+    <button
+      className="profile-back"
+      onClick={() => {
+        setIsProfileOpen(false);
+        setIsProfilePanelOpen(false);
+        setIsAvatarFull(false);
+      }}
+    >
       ← Профиль
     </button>
   )}
@@ -749,8 +756,12 @@ const EmployeeChat = () => {
     type="button"
     className="employee-avatar-upload"
     onClick={() => {
-      if (isProfileOpen) setIsAvatarFull(true);
-      else setIsProfileOpen(true);
+      if (isProfileOpen) {
+        setIsAvatarFull(true);
+      } else {
+        setIsProfileOpen(true);
+        setIsProfilePanelOpen(true);
+      }
     }}
   >
     {avatarUrl
@@ -784,11 +795,6 @@ const EmployeeChat = () => {
   Изменить
 </button>
 
-      {avatarUrl && (
-        <button onClick={removeAvatar} className="avatar-remove-btn">
-          Удалить фото
-        </button>
-      )}
     </div>
   )}
 
@@ -797,7 +803,6 @@ const EmployeeChat = () => {
 
           
           
-          <small className="avatar-tip">Фото автоматически приводится к квадрату 256×256 для чёткого вида.</small>
           <button
             type="button"
             className="profile-panel-toggle"
@@ -805,7 +810,7 @@ const EmployeeChat = () => {
           >
             {isProfilePanelOpen ? 'Скрыть анкету' : 'Анкета / настройки'}
           </button>
-          {isProfilePanelOpen && (
+          {(isProfileOpen || isProfilePanelOpen) && (
             <div className="profile-panel">
               <h4>Моя страница</h4>
               <form onSubmit={saveMyProfile} className="profile-form">
@@ -831,7 +836,7 @@ const EmployeeChat = () => {
 
 
         {/* 🔥 СКРЫВАЕМ ПОИСК И СПИСОК ПРИ ОТКРЫТОЙ АНКЕТЕ */}
-{!isProfilePanelOpen && (
+{!isProfileOpen && !isProfilePanelOpen && (
   <>
     <input
       className="employee-chat-search"
