@@ -108,6 +108,9 @@ const EmployeeChat = () => {
   const [draft, setDraft] = useState('');
   const [attachmentDraft, setAttachmentDraft] = useState(null);
   const [search, setSearch] = useState('');
+  
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  
   const [replyTo, setReplyTo] = useState(null);
   const [readState, setReadState] = useState(() => readReadState(user?.username || 'guest'));
   const [directoryEmployees, setDirectoryEmployees] = useState(() => readDirectoryCache());
@@ -729,23 +732,52 @@ const EmployeeChat = () => {
     <div className="employee-chat-layout">
       <aside className="employee-chat-sidebar">
         <div className="employee-chat-header">
-          <div className="employee-avatar-wrap">
-            <button type="button" className="employee-avatar-upload" title="Открыть аватар" onClick={() => avatarUrl && setIsAvatarModalOpen(true)}>
-              {avatarUrl ? <img src={avatarUrl} alt="avatar" className="employee-avatar-image" /> : <span>+</span>}
-            </button>
-            <input id="avatar-upload-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={handleAvatarUpload} hidden />
+          
+          
+          <div className={`employee-avatar-wrap ${isProfileOpen ? 'open' : ''}`}>
 
-            <div className="employee-header-meta">
-              <h2>Чаты сотрудников</h2>
-              <p className={headerName.startsWith('Здравствуйте') ? 'greeting' : ''}>{headerName}</p>
-              <div className="avatar-actions-row">
-                <label htmlFor="avatar-upload-input" className="avatar-edit-btn">Изменить фото</label>
-                {avatarUrl && (
-                  <button type="button" className="avatar-remove-btn" onClick={removeAvatar}>Удалить</button>
-                )}
-              </div>
-            </div>
-          </div>
+  {isProfileOpen && (
+    <button className="profile-back" onClick={() => setIsProfileOpen(false)}>
+      ← Профиль
+    </button>
+  )}
+
+  <button
+    type="button"
+    className="employee-avatar-upload"
+    onClick={() => setIsProfileOpen(true)}
+  >
+    {avatarUrl
+      ? <img src={avatarUrl} alt="avatar" className="employee-avatar-image" />
+      : <span>+</span>
+    }
+  </button>
+
+  {!isProfileOpen && (
+    <div className="employee-header-meta">
+      <p className={headerName.startsWith('Здравствуйте') ? 'greeting' : ''}>
+        {headerName}
+      </p>
+    </div>
+  )}
+
+  {isProfileOpen && (
+    <div className="avatar-profile-actions">
+      <label htmlFor="avatar-upload-input" className="avatar-edit-btn">
+        Изменить
+      </label>
+
+      {avatarUrl && (
+        <button onClick={removeAvatar} className="avatar-remove-btn">
+          Удалить фото
+        </button>
+      )}
+    </div>
+  )}
+
+</div>
+          
+          
           <small className="avatar-tip">Фото автоматически приводится к квадрату 256×256 для чёткого вида.</small>
           <button
             type="button"

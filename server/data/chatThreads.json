@@ -1,1 +1,63 @@
-{}
+{
+  "j@j.ru::manager_nioh": [
+    {
+      "id": "msg_1777541008293_fjepschsv",
+      "sender": "j@j.ru",
+      "text": "6г76  76 76",
+      "createdAt": "2026-04-30T09:23:28.293Z",
+      "editedAt": null,
+      "reactions": {},
+      "pinned": false,
+      "replyTo": null,
+      "attachment": null
+    },
+    {
+      "id": "msg_1777541013612_wadkbi0ei",
+      "sender": "j@j.ru",
+      "text": "67г67 67г 67 г76 67г67",
+      "createdAt": "2026-04-30T09:23:33.612Z",
+      "editedAt": null,
+      "reactions": {},
+      "pinned": false,
+      "replyTo": null,
+      "attachment": null
+    },
+    {
+      "id": "msg_1777541017429_rpg7l53z0",
+      "sender": "j@j.ru",
+      "text": "76г67 гг76",
+      "createdAt": "2026-04-30T09:23:37.429Z",
+      "editedAt": null,
+      "reactions": {},
+      "pinned": false,
+      "replyTo": null,
+      "attachment": null
+    }
+  ],
+  "asxsa@ghtr.ret::j@j.ru": [
+    {
+      "id": "msg_1777541021516_ww5clbmcz",
+      "sender": "j@j.ru",
+      "text": "76г 76г 76 76 г76",
+      "createdAt": "2026-04-30T09:23:41.516Z",
+      "editedAt": null,
+      "reactions": {},
+      "pinned": false,
+      "replyTo": null,
+      "attachment": null
+    }
+  ],
+  "b@b.ru::j@j.ru": [
+    {
+      "id": "msg_1777541025009_vwmntzaej",
+      "sender": "j@j.ru",
+      "text": "67 г76 г76 76",
+      "createdAt": "2026-04-30T09:23:45.009Z",
+      "editedAt": null,
+      "reactions": {},
+      "pinned": false,
+      "replyTo": null,
+      "attachment": null
+    }
+  ]
+}

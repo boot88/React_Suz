@@ -682,3 +682,56 @@
   color: #e8f6ff;
   cursor: pointer;
 }
+
+
+
+
+
+
+
+
+.employee-avatar-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Аватар */
+.employee-avatar-upload {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  transition: all 0.25s ease;
+}
+
+/* УВЕЛИЧЕНИЕ */
+.employee-avatar-wrap.open .employee-avatar-upload {
+  width: 140px;
+  height: 140px;
+}
+
+/* Имя */
+.employee-header-meta {
+  text-align: center;
+}
+
+/* Кнопки профиля */
+.avatar-profile-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Кнопка назад */
+.profile-back {
+  position: absolute;
+  top: -10px;
+  left: 0;
+  background: none;
+  border: none;
+  color: #9ef7e8;
+  font-size: 14px;
+  cursor: pointer;
+}
