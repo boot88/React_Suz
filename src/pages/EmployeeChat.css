@@ -703,13 +703,21 @@
   width: 72px;
   height: 72px;
   border-radius: 50%;
-  transition: all 0.25s ease;
+  transition: width 0.4s cubic-bezier(0.25, 0.8, 0.25, 1),
+            height 0.4s cubic-bezier(0.25, 0.8, 0.25, 1),
+            transform 0.35s ease;
 }
 
-/* УВЕЛИЧЕНИЕ */
+/* УВЕЛИЧЕНИЕ 
 .employee-avatar-wrap.open .employee-avatar-upload {
   width: 140px;
   height: 140px;
+}*/
+
+.employee-avatar-wrap.open .employee-avatar-upload {
+  width: 140px;
+  height: 140px;
+  transform: scale(1.05);
 }
 
 /* Имя */
