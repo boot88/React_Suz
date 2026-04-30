@@ -110,6 +110,7 @@ const EmployeeChat = () => {
   const [search, setSearch] = useState('');
   
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isAvatarFull, setIsAvatarFull] = useState(false);
   
   const [replyTo, setReplyTo] = useState(null);
   const [readState, setReadState] = useState(() => readReadState(user?.username || 'guest'));
@@ -745,7 +746,13 @@ const EmployeeChat = () => {
   <button
     type="button"
     className="employee-avatar-upload"
-    onClick={() => setIsProfileOpen(true)}
+    onClick={() => {
+  if (isProfileOpen) {
+    setIsAvatarFull(true);
+  } else {
+    setIsProfileOpen(true);
+  }
+}}
   >
     {avatarUrl
       ? <img src={avatarUrl} alt="avatar" className="employee-avatar-image" />
@@ -1029,6 +1036,37 @@ const EmployeeChat = () => {
           )
         )}
 
+        
+        
+        {isAvatarFull && (
+  <div className="avatar-fullscreen">
+
+    <div className="avatar-full-header">
+      <button onClick={() => setIsAvatarFull(false)}>
+        ← Фото профиля
+      </button>
+
+      <button
+        className="avatar-edit-icon"
+        onClick={() => document.getElementById('avatar-upload-input').click()}
+      >
+        ✏️
+      </button>
+    </div>
+
+    <img src={avatarUrl} className="avatar-full-image" />
+
+    {avatarUrl && (
+      <button
+        className="avatar-delete-btn"
+        onClick={removeAvatar}
+      >
+        Удалить фото
+      </button>
+    )}
+  </div>
+)}
+       
 
         {isAvatarModalOpen && (
           <div className="avatar-modal" onClick={() => setIsAvatarModalOpen(false)}>
