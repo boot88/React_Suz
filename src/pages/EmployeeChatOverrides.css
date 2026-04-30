@@ -2,89 +2,53 @@
   background: #94a3b8;
 }
 
-/* Employee sidebar action area polish:
-   - destructive chat clearing is hidden from the primary footer;
-   - support request remains the main CTA;
-   - logout becomes a quiet secondary action at the very bottom. */
-.employee-chat-sidebar {
-  scrollbar-gutter: stable;
-}
-
+/* Telegram-style redesign */
 .employee-chat-actions {
   margin-top: auto;
-  padding: 14px 12px 16px;
+  padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  border-top: 1px solid rgba(154, 200, 234, 0.18);
-  background: linear-gradient(180deg, rgba(8, 25, 41, 0.78), rgba(5, 18, 31, 0.94));
-  box-shadow: 0 -12px 28px rgba(3, 12, 22, 0.2);
+  gap: 8px;
+  border-top: 1px solid rgba(154,200,234,.15);
+  background: rgba(5,18,31,0.9);
 }
 
-.employee-chat-actions .clear-btn {
-  display: none;
-}
-
-.employee-chat-actions .employee-request-wrapper {
-  order: 1;
-  position: static;
-  margin-top: 0;
-  gap: 10px;
-}
-
+/* Main CTA */
 .employee-chat-actions .request-panel-toggle {
   width: 100%;
-  min-height: 48px;
-  border-radius: 14px;
-  letter-spacing: 0.01em;
-  cursor: pointer;
-}
-
-.employee-chat-actions .employee-request-box {
-  margin-top: 0;
-  border-radius: 14px;
-  background: rgba(6, 31, 55, 0.88);
-}
-
-.employee-chat-actions .employee-request-box textarea {
-  min-height: 84px;
-}
-
-.employee-chat-actions .logout-btn {
-  order: 2;
-  width: 100%;
-  min-height: 42px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 2px;
+  padding: 12px;
   border-radius: 12px;
-  border: 1px solid rgba(154, 200, 234, 0.18);
-  background: rgba(255, 255, 255, 0.035);
-  color: #a9c6db;
-  font-size: 13px;
   font-weight: 600;
-  cursor: pointer;
-  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+  background: linear-gradient(135deg,#1fb6a1,#3d7cf4);
+  color:#fff;
+}
+
+/* Secondary action */
+.employee-chat-actions .logout-btn {
+  width:100%;
+  padding:10px;
+  border-radius:10px;
+  background:transparent;
+  border:1px solid rgba(154,200,234,.2);
+  color:#bcd7ea;
+  font-size:13px;
+  opacity:.85;
 }
 
 .employee-chat-actions .logout-btn:hover {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(154, 200, 234, 0.32);
-  color: #e8f6ff;
-  transform: translateY(-1px);
+  background: rgba(255,255,255,.06);
+  opacity:1;
 }
 
-.employee-chat-actions .logout-btn:focus-visible,
-.employee-chat-actions .request-panel-toggle:focus-visible {
-  outline: 3px solid rgba(61, 124, 244, 0.42);
-  outline-offset: 2px;
+/* Remove dangerous button */
+.employee-chat-actions .clear-btn {
+  display:none;
 }
 
-@media (max-width: 900px) {
-  .employee-chat-actions {
-    position: static;
-    border-radius: 18px 18px 0 0;
+/* Mobile like Telegram */
+@media (max-width:768px){
+  .employee-chat-actions{
+    position:sticky;
+    bottom:0;
   }
 }
