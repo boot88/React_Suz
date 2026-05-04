@@ -170,6 +170,7 @@ const EmployeeChat = () => {
   const [feedDraft, setFeedDraft] = useState('');
   const [feedAttachment, setFeedAttachment] = useState(null);
   const [commentDrafts, setCommentDrafts] = useState({});
+  const [isFeedOpen, setIsFeedOpen] = useState(false);
   const messagesWrapRef = useRef(null);
   const forceScrollRef = useRef(false);
 
@@ -969,6 +970,13 @@ const EmployeeChat = () => {
 )}
 
         <div className="employee-chat-actions">
+          <button
+            type="button"
+            className="request-panel-toggle"
+            onClick={() => setIsFeedOpen((prev) => !prev)}
+          >
+            {isFeedOpen ? 'Закрыть ленту' : 'Открыть ленту'}
+          </button>
           <button className="clear-btn" onClick={clearConversation} disabled={!selectedEmail}>Удалить переписку</button>
           {!isAdmin && <button className="logout-btn" onClick={handleLogout}>Выход</button>}
         </div>
@@ -1024,7 +1032,7 @@ const EmployeeChat = () => {
           </div>
         )}
 
-        {!profileViewLogin && (
+        {!isFeedOpen && !profileViewLogin && (
           !selectedEmail ? (
             <div className="empty-chat">Выберите сотрудника слева, чтобы начать переписку.</div>
           ) : (
@@ -1181,6 +1189,7 @@ const EmployeeChat = () => {
           </div>
         )}
 
+        {isFeedOpen && (
         <section className="employee-feed-section">
           <h3>Лента сотрудников</h3>
           <form className="employee-feed-composer" onSubmit={addFeedPost}>
@@ -1242,6 +1251,7 @@ const EmployeeChat = () => {
             ))}
           </div>
         </section>
+        )}
 
         {isManager && (
           <div className="manager-panels">
