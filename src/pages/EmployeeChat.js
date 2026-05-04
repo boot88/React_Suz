@@ -15,6 +15,7 @@ const getConversationId = (a, b) => [a.toLowerCase(), b.toLowerCase()].sort().jo
 const getParticipantsFromThreadId = (threadId = '') => threadId.split('::').filter(Boolean);
 const getAvatarKey = (username = 'unknown') => `employeeAvatar:${username.toLowerCase()}`;
 const getGreetingKey = (username = 'unknown') => `employeeGreetingSeen:${username.toLowerCase()}`;
+const getProfileDraftKey = (username = 'unknown') => `employeeProfileDraft:${username.toLowerCase()}`;
 
 const createMessageId = () => {
   if (window.crypto && typeof window.crypto.randomUUID === 'function') {
@@ -54,6 +55,23 @@ const readDirectoryCache = () => {
 const saveDirectoryCache = (items) => {
   try {
     localStorage.setItem(EMPLOYEE_DIRECTORY_CACHE_KEY, JSON.stringify(items));
+  } catch {
+    // noop
+  }
+};
+
+const readProfileDraft = (username) => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(getProfileDraftKey(username)) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const saveProfileDraft = (username, profile) => {
+  try {
+    localStorage.setItem(getProfileDraftKey(username), JSON.stringify(profile));
   } catch {
     // noop
   }
@@ -201,21 +219,34 @@ const EmployeeChat = () => {
     }
 
     const profile = data?.profile || {};
+    const cachedProfile = readProfileDraft(login);
+    const mergedProfile = {
+      full_name: profile.full_name || cachedProfile.full_name || '',
+      department: profile.department || cachedProfile.department || '',
+      phone: profile.phone || cachedProfile.phone || '',
+      room: profile.room || cachedProfile.room || '',
+      position: profile.position || cachedProfile.position || '',
+      bio: profile.bio || cachedProfile.bio || '',
+      website: profile.website || cachedProfile.website || '',
+      statusText: profile.statusText || cachedProfile.statusText || '',
+      avatar: profile.avatar || cachedProfile.avatar || ''
+    };
     if (mode === 'form') {
       setProfileForm({
-        full_name: profile.full_name || '',
-        department: profile.department || '',
-        phone: profile.phone || '',
-        room: profile.room || '',
-        position: profile.position || '',
-        bio: profile.bio || '',
-        website: profile.website || '',
-        statusText: profile.statusText || ''
+        full_name: mergedProfile.full_name,
+        department: mergedProfile.department,
+        phone: mergedProfile.phone,
+        room: mergedProfile.room,
+        position: mergedProfile.position,
+        bio: mergedProfile.bio,
+        website: mergedProfile.website,
+        statusText: mergedProfile.statusText
       });
-      const nextAvatar = profile.avatar || '';
+      const nextAvatar = mergedProfile.avatar || '';
       setAvatarUrl(nextAvatar);
       if (nextAvatar) localStorage.setItem(getAvatarKey(user.username), nextAvatar);
       else localStorage.removeItem(getAvatarKey(user.username));
+      saveProfileDraft(login, mergedProfile);
       return;
     }
 
@@ -539,6 +570,7 @@ const EmployeeChat = () => {
     }
 
     window.alert('Анкета сохранена');
+    saveProfileDraft(user.username, { ...profileForm, avatar: avatarUrl });
     await fetchEmployees();
     setHeaderName(profileForm.full_name || baseDisplayName);
   };
