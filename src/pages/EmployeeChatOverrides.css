@@ -17,3 +17,7 @@
   transform:translateY(-1px);
   border-color:rgba(158,247,232,.45);
 }
+
+.profile-panel{
+  top: 124px;
+}

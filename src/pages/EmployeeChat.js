@@ -296,15 +296,9 @@ const EmployeeChat = () => {
 
   useEffect(() => {
     if (!user?.username) return;
-    const syncProfile = () => {
-      loadProfile(user.username, 'form').catch((error) => {
-        console.error('Profile bootstrap error:', error);
-      });
-    };
-
-    syncProfile();
-    const interval = setInterval(syncProfile, 3000);
-    return () => clearInterval(interval);
+    loadProfile(user.username, 'form').catch((error) => {
+      console.error('Profile bootstrap error:', error);
+    });
   }, [loadProfile, user?.username]);
 
   const chatCandidates = useMemo(() => {
