@@ -6,6 +6,7 @@ import './EmployeeChat.css';
 
 const CHAT_READ_STATE_KEY = 'chatReadState';
 const EMPLOYEE_DIRECTORY_CACHE_KEY = 'employeeDirectoryCache';
+const EMPLOYEE_FEED_KEY = 'employeeSocialFeed';
 const MANAGER_TEMPLATE_MESSAGES = ['✅ Принято в работу', '🔧 Проверяю сейчас', '👍 Спасибо, получил', '📌 Уточните, пожалуйста, детали', '⏱️ Вернусь с ответом в течение 15 минут', '🧩 Проблема воспроизведена, исправляю'];
 const EMPLOYEE_TEMPLATE_MESSAGES = ['Привет! 👋', 'Как дела? 🙂', 'Спасибо большое! 🙏', 'Отлично, договорились ✅', 'Я на месте, можем созвониться? 📞', 'Хорошего дня! ☀️'];
 const REACTION_EMOJIS = ['👍', '✅', '🔧'];
@@ -74,6 +75,15 @@ const saveProfileDraft = (username, profile) => {
     localStorage.setItem(getProfileDraftKey(username), JSON.stringify(profile));
   } catch {
     // noop
+  }
+};
+
+const readFeedPosts = () => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(EMPLOYEE_FEED_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
   }
 };
 
@@ -156,6 +166,10 @@ const EmployeeChat = () => {
   const [requestText, setRequestText] = useState('');
   const [requestStatus, setRequestStatus] = useState('');
   const [isRequestPanelOpen, setIsRequestPanelOpen] = useState(false);
+  const [feedPosts, setFeedPosts] = useState(() => readFeedPosts());
+  const [feedDraft, setFeedDraft] = useState('');
+  const [feedAttachment, setFeedAttachment] = useState(null);
+  const [commentDrafts, setCommentDrafts] = useState({});
   const messagesWrapRef = useRef(null);
   const forceScrollRef = useRef(false);
 
@@ -754,8 +768,58 @@ const EmployeeChat = () => {
   };
 
   const allConversationIds = useMemo(() => Object.keys(threads).sort(), [threads]);
+  const persistFeed = useCallback((updater) => {
+    setFeedPosts((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      localStorage.setItem(EMPLOYEE_FEED_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
   const typingHint = draft.trim().length > 0 ? 'Вы печатаете…' : '';
+
+  const addFeedPost = (event) => {
+    event.preventDefault();
+    if (!feedDraft.trim() && !feedAttachment) return;
+    const post = {
+      id: createMessageId(),
+      author: user?.username || 'employee',
+      authorName: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
+      text: feedDraft.trim(),
+      attachment: feedAttachment,
+      createdAt: new Date().toISOString(),
+      comments: []
+    };
+    persistFeed((prev) => [post, ...prev]);
+    setFeedDraft('');
+    setFeedAttachment(null);
+  };
+
+  const onFeedFileChange = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (file.size > MAX_ATTACHMENT_SIZE) {
+      window.alert('Файл слишком большой. Максимум 10 МБ.');
+      return;
+    }
+    const dataUrl = await readFileAsDataUrl(file);
+    setFeedAttachment({ name: file.name, type: file.type || 'application/octet-stream', size: file.size, dataUrl });
+  };
+
+  const addCommentToPost = (postId) => {
+    const text = (commentDrafts[postId] || '').trim();
+    if (!text) return;
+    const comment = {
+      id: createMessageId(),
+      author: user?.username || 'employee',
+      authorName: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
+      text,
+      createdAt: new Date().toISOString()
+    };
+    persistFeed((prev) => prev.map((post) => (post.id === postId ? { ...post, comments: [...(post.comments || []), comment] } : post)));
+    setCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
+  };
 
   return (
     <div className="employee-chat-layout">
@@ -1116,6 +1180,68 @@ const EmployeeChat = () => {
             <img src={avatarUrl} alt="avatar-full" className="avatar-modal-image" />
           </div>
         )}
+
+        <section className="employee-feed-section">
+          <h3>Лента сотрудников</h3>
+          <form className="employee-feed-composer" onSubmit={addFeedPost}>
+            <textarea
+              rows={3}
+              placeholder="Поделитесь новостью, как в твиттере…"
+              value={feedDraft}
+              onChange={(e) => setFeedDraft(e.target.value)}
+            />
+            {feedAttachment && (
+              <div className="employee-feed-attachment-preview">
+                📎 {feedAttachment.name} ({Math.max(1, Math.round(feedAttachment.size / 1024))} КБ)
+                <button type="button" onClick={() => setFeedAttachment(null)}>Убрать</button>
+              </div>
+            )}
+            <div className="employee-feed-composer-actions">
+              <label>
+                📎 Файл/Фото/Видео
+                <input type="file" hidden onChange={onFeedFileChange} />
+              </label>
+              <button type="submit">Опубликовать</button>
+            </div>
+          </form>
+
+          <div className="employee-feed-list">
+            {feedPosts.length === 0 && <div className="empty-chat">Пока нет публикаций.</div>}
+            {feedPosts.map((post) => (
+              <article key={post.id} className="employee-feed-post">
+                <header>
+                  <strong>{post.authorName}</strong>
+                  <small>@{post.author} · {new Date(post.createdAt).toLocaleString('ru-RU')}</small>
+                </header>
+                {post.text && <p>{post.text}</p>}
+                {post.attachment?.dataUrl && (
+                  <div className="employee-feed-attachment">
+                    {String(post.attachment.type || '').startsWith('image/') && <img src={post.attachment.dataUrl} alt={post.attachment.name || 'post-image'} />}
+                    {String(post.attachment.type || '').startsWith('video/') && <video controls src={post.attachment.dataUrl} />}
+                    {!String(post.attachment.type || '').startsWith('image/') && !String(post.attachment.type || '').startsWith('video/') && (
+                      <a href={post.attachment.dataUrl} download={post.attachment.name || 'file'}>📎 {post.attachment.name || 'Файл'}</a>
+                    )}
+                  </div>
+                )}
+                <div className="employee-feed-comments">
+                  {(post.comments || []).map((comment) => (
+                    <div key={comment.id} className="employee-feed-comment">
+                      <strong>{comment.authorName}</strong>: {comment.text}
+                    </div>
+                  ))}
+                  <div className="employee-feed-comment-form">
+                    <input
+                      placeholder="Оставить комментарий…"
+                      value={commentDrafts[post.id] || ''}
+                      onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))}
+                    />
+                    <button type="button" onClick={() => addCommentToPost(post.id)}>Отправить</button>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
 
         {isManager && (
           <div className="manager-panels">
