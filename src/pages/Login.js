@@ -4,10 +4,6 @@ import { useNavigate, useLocation, Link } from 'react-router-dom';
 import './Login.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 
-const SUPPORT_CONTACTS = {
-  internalPhone: '1-380'
-};
-
 const Login = () => {
   const { login, isAuthenticated, isLoading, user } = useAuth();
   const navigate = useNavigate();
@@ -146,12 +142,6 @@ const Login = () => {
 
           <div className="card-footer">
             <p>Нет аккаунта сотрудника? <Link to="/register">Зарегистрироваться</Link></p>
-          </div>
-        </section>
-        <section className="support-card support-card-inline">
-          <h3>Техническая поддержка</h3>
-          <div className="support-grid">
-            <div><label>Телефон</label><strong>{SUPPORT_CONTACTS.internalPhone}</strong></div>
           </div>
         </section>
       </div>
