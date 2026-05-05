@@ -5,10 +5,7 @@ import './Login.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 
 const SUPPORT_CONTACTS = {
-  internalPhone: '1-380',
-  mobilePhone: '8 913 0080146',
-  room: '309 НТК',
-  email: 'povisok@nioch.nsc.ru'
+  internalPhone: '1-380'
 };
 
 const Login = () => {
@@ -93,20 +90,10 @@ const Login = () => {
       <div className="login-shell">
         <section className="login-hero">
           <p className="hero-location">Новосибирск · 2026</p>
-          <h1>Цифровая платформа для заявок, сервиса и коммуникации сотрудников</h1>
-          <p className="hero-description">
-            Единое пространство для внутренних обращений:
-            система создана для прозрачной и быстрой рабочей координации между подразделениями
-            — и для ежедневного взаимодействия сотрудников в защищённой сети.
-          </p>
-
           <div className="support-card">
             <h3>Техническая поддержка</h3>
             <div className="support-grid">
-              <div><label>Внутренний</label><strong>{SUPPORT_CONTACTS.internalPhone}</strong></div>
-              <div><label>Сотовый</label><strong>{SUPPORT_CONTACTS.mobilePhone}</strong></div>
-              <div><label>Кабинет</label><strong>{SUPPORT_CONTACTS.room}</strong></div>
-              <div><label>Email</label><a href={`mailto:${SUPPORT_CONTACTS.email}`}>{SUPPORT_CONTACTS.email}</a></div>
+              <div><label>Телефон</label><strong>{SUPPORT_CONTACTS.internalPhone}</strong></div>
             </div>
           </div>
         </section>

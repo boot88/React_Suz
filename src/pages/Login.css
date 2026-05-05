@@ -37,7 +37,7 @@
   padding: 30px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 12px;
   position: relative;
 }
 
@@ -89,23 +89,25 @@
 
 .support-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  grid-template-columns: 1fr;
+  gap: 6px;
 }
 
 .support-grid label {
   display: block;
   margin-bottom: 3px;
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: #7f95ab;
 }
 
-.support-grid strong,
-.support-grid a {
-  color: #32475e;
+.support-grid strong {
+  color: var(--jp3-primary-dark);
   text-decoration: none;
+  font-size: 30px;
+  line-height: 1.1;
+  letter-spacing: 0.03em;
 }
 
 .login-card {
