@@ -1022,3 +1022,49 @@
   background: linear-gradient(90deg, #fd1d1d, #fcb045 45%, #833ab4);
   border-color: #b75695;
 }
+
+
+/* WhatsApp-first redesign */
+.employee-chat-layout { background: #efeae2; }
+.employee-chat-sidebar { background: #f7f5f1; border-right: 1px solid #d7d5d1; }
+.employee-chat-header, .employee-chat-actions, .conversation-header, .composer-wrap { background: #f0f2f5; }
+.employee-chat-search { background: #fff; border-color: #d0d7de; }
+.employee-chat-user:hover, .employee-chat-user.active { background: #e9edef; border-color: #d5dadd; }
+
+.message-bubble { background: #fff; border: 1px solid #d6d9dd; color: #222e35; }
+.message-row.mine .message-bubble { background: #d9fdd3; border-color: #b7e8b1; }
+.messages-wrap { background: #e5ddd5; }
+
+.request-panel-toggle,
+.clear-btn,
+.logout-btn,
+.employee-request-box button,
+.employee-feed-composer-actions button,
+.employee-feed-composer-actions label,
+.employee-feed-comment-form button,
+.employee-feed-attachment-preview button,
+.theme-tabs button.active {
+  background: #25d366;
+  border: 1px solid #1da851;
+  color: #fff;
+}
+
+.request-panel-toggle:hover,
+.clear-btn:hover,
+.logout-btn:hover,
+.employee-request-box button:hover,
+.employee-feed-composer-actions button:hover,
+.employee-feed-composer-actions label:hover,
+.employee-feed-comment-form button:hover,
+.employee-feed-attachment-preview button:hover,
+.theme-tabs button.active:hover { background: #1da851; }
+
+.employee-feed-section,
+.employee-feed-post,
+.employee-request-box,
+.profile-panel,
+.profile-preview-card {
+  background: #fff;
+  border: 1px solid #d6d9dd;
+  color: #222e35;
+}

@@ -173,8 +173,8 @@ const EmployeeChat = () => {
   const [commentDrafts, setCommentDrafts] = useState({});
   const [isFeedOpen, setIsFeedOpen] = useState(false);
   const [chatTheme, setChatTheme] = useState(() => {
-    const saved = localStorage.getItem(CHAT_THEME_KEY) || 'telegram';
-    if (saved === 'light') return 'telegram';
+    const saved = localStorage.getItem(CHAT_THEME_KEY) || 'whatsapp';
+    if (saved === 'light') return 'whatsapp';
     if (saved === 'dark') return 'whatsapp';
     if (saved === 'ocean') return 'instagram';
     return saved;
