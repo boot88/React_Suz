@@ -1,15 +1,16 @@
 .employee-chat-layout {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 340px 1fr;
-  background: linear-gradient(145deg, #081729, #123251);
-  color: #eaf6ff;
+  grid-template-columns: 320px 1fr;
+  background: #f5f5f5;
+  color: #333;
+  font-family: Arial, Helvetica, sans-serif;
 }
 
 .employee-chat-sidebar {
-  border-right: 1px solid rgba(154, 200, 234, 0.26);
-  background: rgba(8, 25, 41, 0.78);
-  backdrop-filter: blur(12px);
+  border-right: 1px solid #ddd;
+  background: #ffffff;
+  
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -19,7 +20,7 @@
 
 .employee-chat-header {
   padding: 16px;
-  border-bottom: 1px solid rgba(154, 200, 234, 0.2);
+  border-bottom: 1px solid #e2e2e2;
 }
 
 .employee-avatar-wrap {
@@ -34,8 +35,8 @@
   height: 64px;
   border-radius: 16px;
   border: 1px dashed rgba(159, 208, 255, 0.7);
-  background: rgba(255, 255, 255, 0.08);
-  color: #d8edff;
+  background: #f7f7f7;
+  color: #555;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -51,9 +52,9 @@
 }
 
 .employee-header-meta h2 { margin: 0 0 6px; }
-.employee-header-meta p { margin: 0; color: #b6d3e9; }
-.employee-header-meta .greeting { color: #9ef7e8; font-weight: 700; }
-.avatar-tip { color: #89acc6; font-size: 11px; display: block; margin-top: 10px; }
+.employee-header-meta p { margin: 0; color: #777; }
+.employee-header-meta .greeting { color: #3a87ad; font-weight: 700; }
+.avatar-tip { color: #8a8a8a; font-size: 11px; display: block; margin-top: 10px; }
 
 .avatar-edit-btn {
   margin-top: 6px;
@@ -70,7 +71,7 @@
 
 .employee-chat-user-extra {
   font-size: 11px;
-  color: #8fb2cc;
+  color: #777;
 }
 
 .employee-chat-user.manager-priority {
@@ -81,10 +82,10 @@
 .employee-chat-search {
   margin: 12px;
   padding: 10px;
-  border: 1px solid rgba(154, 200, 234, 0.35);
+  border: 1px solid #ccc;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
-  color: #fff;
+  background: #fff;
+  color: #333;
 }
 
 .employee-chat-list {
@@ -113,13 +114,13 @@
   background: transparent;
   cursor: pointer;
   text-align: left;
-  color: #dff0ff;
+  color: #333;
 }
 
 .employee-chat-user:hover,
 .employee-chat-user.active {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(154, 200, 234, 0.22);
+  background: #f7f7f7;
+  border-color: #ddd;
 }
 
 .status-dot { width: 9px; height: 9px; border-radius: 50%; }
@@ -127,14 +128,14 @@
 .status-dot.offline { background: #94a3b8; }
 
 .employee-chat-user-email { font-weight: 600; }
-.employee-chat-user-status { font-size: 12px; color: #8fb2cc; }
+.employee-chat-user-status { font-size: 12px; color: #777; }
 
 .employee-chat-user-unread {
   min-width: 20px;
   height: 20px;
   border-radius: 10px;
-  background: #ef4444;
-  color: #fff;
+  background: #d9534f;
+  color: #333;
   font-size: 11px;
   font-weight: 700;
   display: inline-flex;
@@ -155,15 +156,15 @@
   border: 0;
   border-radius: 8px;
   padding: 10px;
-  color: #fff;
+  color: #333;
 }
 .clear-btn { background: #f97316; }
-.logout-btn { background: rgba(255,255,255,0.08); border: 1px solid rgba(154,200,234,.25); }
+.logout-btn { background: #fff; border: 1px solid rgba(154,200,234,.25); }
 
 .employee-chat-main {
   display: flex;
   flex-direction: column;
-  background: rgba(8, 25, 41, 0.42);
+  background: #f5f5f5;
   height: 100vh;
   min-height: 0;
   overflow-y: auto;
@@ -171,17 +172,17 @@
 
 .conversation-header {
   padding: 16px;
-  border-bottom: 1px solid rgba(154, 200, 234, 0.2);
+  border-bottom: 1px solid #e2e2e2;
   font-weight: 600;
 }
 
 .pinned-box {
   margin: 10px 14px 0;
-  border: 1px solid rgba(159, 208, 255, 0.35);
+  border: 1px solid #ddd;
   border-radius: 10px;
-  background: rgba(255,255,255,0.05);
+  background: #fff;
   padding: 8px 10px;
-  color: #d8edff;
+  color: #555;
 }
 
 .messages-wrap {
@@ -196,20 +197,20 @@
 
 .message-bubble {
   max-width: 72%;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(154, 200, 234, 0.25);
+  background: #fff;
+  border: 1px solid #ddd;
   border-radius: 12px;
   padding: 10px;
 }
 
 .message-row.mine .message-bubble {
-  background: rgba(31, 182, 161, 0.15);
-  border-color: rgba(31, 182, 161, 0.35);
+  background: #eaf4fb;
+  border-color: #bdd7e7;
 }
 
 .message-meta {
   font-size: 12px;
-  color: #9ec3dc;
+  color: #777;
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -218,8 +219,8 @@
 
 .reply-preview {
   font-size: 12px;
-  color: #9dd0ef;
-  border-left: 3px solid #3d7cf4;
+  color: #3a87ad;
+  border-left: 3px solid #3a87ad;
   padding-left: 8px;
   margin-bottom: 6px;
 }
@@ -234,7 +235,7 @@
 .read-state {
   display: block;
   margin-top: 4px;
-  color: #8fc6a7;
+  color: #5f8a6f;
 }
 
 .reaction-row {
@@ -248,7 +249,7 @@
 .template-row button {
   border: 1px solid rgba(154,200,234,.25);
   background: rgba(255,255,255,.08);
-  color: #dff0ff;
+  color: #333;
   border-radius: 7px;
   padding: 4px 8px;
   cursor: pointer;
@@ -269,8 +270,8 @@
 .composer-wrap {
   position: sticky;
   bottom: 0;
-  background: linear-gradient(to top, rgba(8,25,41,0.96), rgba(8,25,41,0.88));
-  border-top: 1px solid rgba(154,200,234,.2);
+  background: #fff;
+  border-top: 1px solid #ddd;
 }
 
 .template-row {
@@ -303,7 +304,7 @@
   border-radius: 6px;
   padding: 4px 8px;
   background: rgba(255,255,255,.08);
-  color: #dff0ff;
+  color: #333;
   cursor: pointer;
 }
 
@@ -315,11 +316,11 @@
 }
 
 .message-form input {
-  border: 1px solid rgba(154, 200, 234, 0.35);
+  border: 1px solid #ccc;
   border-radius: 8px;
   padding: 10px;
   background: rgba(255,255,255,.06);
-  color: #fff;
+  color: #333;
 }
 
 .message-form button {
@@ -327,7 +328,7 @@
   border-radius: 8px;
   padding: 0 16px;
   background: linear-gradient(135deg, #1fb6a1, #3d7cf4);
-  color: #fff;
+  color: #333;
 }
 
 .attach-file-btn {
@@ -335,7 +336,7 @@
   border-radius: 8px;
   padding: 0 12px;
   background: rgba(255,255,255,.08);
-  color: #dff0ff;
+  color: #333;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -353,13 +354,13 @@
 .message-attachment img {
   max-width: min(320px, 100%);
   border-radius: 10px;
-  border: 1px solid rgba(154, 200, 234, 0.25);
+  border: 1px solid #ddd;
 }
 
 .empty-chat { margin: auto; color: #9cbfd9; }
 
 .manager-panels {
-  border-top: 1px solid rgba(154,200,234,.2);
+  border-top: 1px solid #ddd;
   background: rgba(255,255,255,.03);
   padding: 12px;
   display: grid;
@@ -391,7 +392,7 @@
   border-radius: 8px;
   padding: 8px;
   background: rgba(255,255,255,.06);
-  color: #fff;
+  color: #333;
 }
 
 .manager-form-actions {
@@ -541,7 +542,7 @@
   border-radius: 8px;
   padding: 8px;
   background: rgba(255,255,255,.08);
-  color: #fff;
+  color: #333;
 }
 
 .profile-form button,
@@ -671,7 +672,7 @@
   border-radius: 8px;
   padding: 8px;
   background: rgba(255,255,255,.08);
-  color: #fff;
+  color: #333;
 }
 
 .employee-request-box button {
@@ -739,7 +740,7 @@
   left: 0;
   background: none;
   border: none;
-  color: #9ef7e8;
+  color: #3a87ad;
   font-size: 14px;
   cursor: pointer;
 }
@@ -778,7 +779,7 @@
 .avatar-full-header button {
   background: none;
   border: none;
-  color: #9ef7e8;
+  color: #3a87ad;
   font-size: 16px;
   cursor: pointer;
 }
@@ -791,7 +792,7 @@
   margin-top: 16px;
   border: 1px solid rgba(255, 126, 126, 0.5);
   background: rgba(255, 84, 84, 0.2);
-  color: #fff;
+  color: #333;
   border-radius: 10px;
   padding: 8px 14px;
   cursor: pointer;
