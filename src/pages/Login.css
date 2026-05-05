@@ -16,42 +16,34 @@
 }
 
 .login-shell {
-  max-width: 1120px;
+  max-width: 560px;
   margin: 0 auto;
   min-height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 14px;
   padding: 42px 24px;
 }
 
 .login-hero {
-  display: none;
+  width: 100%;
+  text-align: center;
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  padding: 0;
 }
 
-.login-hero,
-.login-card {
+ .login-card,
+.support-card {
   background: var(--jp3-surface);
   border: 1px solid var(--jp3-border);
   border-radius: 6px;
   box-shadow: 0 8px 28px rgba(23, 42, 66, 0.08);
 }
 
-.login-hero {
-  padding: 30px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  position: relative;
-}
-
-.login-hero::before {
-  content: '';
-  height: 42px;
-  margin: -30px -30px 8px;
-  background: linear-gradient(90deg, var(--jp3-topbar), #3c536d);
-  border-radius: 6px 6px 0 0;
-}
 
 .hero-location {
   margin: 0;
@@ -62,19 +54,6 @@
   font-weight: 700;
 }
 
-.login-hero h1 {
-  margin: 0;
-  font-size: clamp(28px, 3.7vw, 44px);
-  line-height: 1.12;
-  color: #233246;
-}
-
-.hero-description {
-  margin: 0;
-  line-height: 1.68;
-  color: var(--jp3-muted);
-  max-width: 760px;
-}
 
 .support-card {
   margin-top: auto;
@@ -116,22 +95,12 @@
 
 .login-card {
   width: 100%;
-  max-width: 480px;
+  max-width: 560px;
   padding: 30px;
   display: flex;
   flex-direction: column;
 }
 
-.card-topline {
-  width: fit-content;
-  padding: 5px 9px;
-  border-radius: 2px;
-  background: #eaf4fd;
-  color: var(--jp3-primary-dark);
-  border: 1px solid #c4dcf3;
-  font-size: 12px;
-  font-weight: 700;
-}
 
 .login-card h2 {
   margin: 14px 0 4px;
@@ -230,10 +199,21 @@
     padding: 22px 14px;
   }
 
-  .login-card {
+  .login-card,
+  .support-card-inline {
     max-width: 100%;
+  }
+
+  .login-card {
     padding: 20px;
   }
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+
+
+.support-card-inline {
+  width: 100%;
+  max-width: 560px;
+  margin-top: 0;
+}

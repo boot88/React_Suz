@@ -90,16 +90,9 @@ const Login = () => {
       <div className="login-shell">
         <section className="login-hero">
           <p className="hero-location">Новосибирск · 2026</p>
-          <div className="support-card">
-            <h3>Техническая поддержка</h3>
-            <div className="support-grid">
-              <div><label>Телефон</label><strong>{SUPPORT_CONTACTS.internalPhone}</strong></div>
-            </div>
-          </div>
         </section>
 
         <section className="login-card">
-          <div className="card-topline">JA Purity III · Intranet Edition</div>
           <h2>Вход в систему</h2>
           <p className="card-subtitle">Только для сотрудников локальной сети</p>
 
@@ -153,6 +146,12 @@ const Login = () => {
 
           <div className="card-footer">
             <p>Нет аккаунта сотрудника? <Link to="/register">Зарегистрироваться</Link></p>
+          </div>
+        </section>
+        <section className="support-card support-card-inline">
+          <h3>Техническая поддержка</h3>
+          <div className="support-grid">
+            <div><label>Телефон</label><strong>{SUPPORT_CONTACTS.internalPhone}</strong></div>
           </div>
         </section>
       </div>
