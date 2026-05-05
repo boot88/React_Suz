@@ -957,3 +957,57 @@
 
 .request-panel textarea::placeholder,
 .composer-textarea::placeholder { color: #7e90a5; }
+
+
+.employee-chat-actions {
+  background: #f9fcff;
+}
+
+.theme-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+
+.theme-tabs button {
+  border: 1px solid #c2d2df;
+  background: #fff;
+  color: #2a3f52;
+  border-radius: 7px;
+  padding: 7px 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.theme-tabs button.active {
+  background: #3a87ad;
+  border-color: #2f6f8a;
+  color: #fff;
+}
+
+.employee-chat-layout.theme-dark {
+  background: #0f1722;
+  color: #e4edf7;
+}
+.employee-chat-layout.theme-dark .employee-chat-sidebar,
+.employee-chat-layout.theme-dark .employee-chat-main,
+.employee-chat-layout.theme-dark .conversation-header,
+.employee-chat-layout.theme-dark .composer-wrap,
+.employee-chat-layout.theme-dark .employee-chat-actions,
+.employee-chat-layout.theme-dark .employee-feed-section,
+.employee-chat-layout.theme-dark .message-bubble {
+  background: #152131;
+  color: #e4edf7;
+  border-color: #2f4359;
+}
+.employee-chat-layout.theme-dark .employee-chat-user:hover,
+.employee-chat-layout.theme-dark .employee-chat-user.active { background: #223448; }
+
+.employee-chat-layout.theme-ocean {
+  background: #eaf4fb;
+}
+.employee-chat-layout.theme-ocean .employee-chat-sidebar { background: #f3f9ff; }
+.employee-chat-layout.theme-ocean .conversation-header,
+.employee-chat-layout.theme-ocean .composer-wrap,
+.employee-chat-layout.theme-ocean .employee-chat-actions { background: #eef7ff; }
+.employee-chat-layout.theme-ocean .message-row.mine .message-bubble { background: #dceeff; }
