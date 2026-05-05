@@ -172,7 +172,13 @@ const EmployeeChat = () => {
   const [feedAttachment, setFeedAttachment] = useState(null);
   const [commentDrafts, setCommentDrafts] = useState({});
   const [isFeedOpen, setIsFeedOpen] = useState(false);
-  const [chatTheme, setChatTheme] = useState(() => localStorage.getItem(CHAT_THEME_KEY) || 'light');
+  const [chatTheme, setChatTheme] = useState(() => {
+    const saved = localStorage.getItem(CHAT_THEME_KEY) || 'telegram';
+    if (saved === 'light') return 'telegram';
+    if (saved === 'dark') return 'whatsapp';
+    if (saved === 'ocean') return 'instagram';
+    return saved;
+  });
   const messagesWrapRef = useRef(null);
   const forceScrollRef = useRef(false);
 
@@ -986,9 +992,9 @@ const EmployeeChat = () => {
           <button className="clear-btn" onClick={clearConversation} disabled={!selectedEmail}>Удалить переписку</button>
           {!isAdmin && <button className="logout-btn" onClick={handleLogout}>Выход</button>}
           <div className="theme-tabs">
-            <button type="button" className={chatTheme === 'light' ? 'active' : ''} onClick={() => setChatTheme('light')}>Светлая</button>
-            <button type="button" className={chatTheme === 'dark' ? 'active' : ''} onClick={() => setChatTheme('dark')}>Тёмная</button>
-            <button type="button" className={chatTheme === 'ocean' ? 'active' : ''} onClick={() => setChatTheme('ocean')}>Ocean</button>
+            <button type="button" className={chatTheme === 'telegram' ? 'active' : ''} onClick={() => setChatTheme('telegram')}>Telegram</button>
+            <button type="button" className={chatTheme === 'whatsapp' ? 'active' : ''} onClick={() => setChatTheme('whatsapp')}>WhatsApp</button>
+            <button type="button" className={chatTheme === 'instagram' ? 'active' : ''} onClick={() => setChatTheme('instagram')}>Instagram</button>
           </div>
         </div>
         {isEmployee && !isProfilePanelOpen && (

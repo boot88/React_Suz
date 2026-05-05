@@ -985,29 +985,40 @@
   color: #fff;
 }
 
-.employee-chat-layout.theme-dark {
-  background: #0f1722;
-  color: #e4edf7;
-}
-.employee-chat-layout.theme-dark .employee-chat-sidebar,
-.employee-chat-layout.theme-dark .employee-chat-main,
-.employee-chat-layout.theme-dark .conversation-header,
-.employee-chat-layout.theme-dark .composer-wrap,
-.employee-chat-layout.theme-dark .employee-chat-actions,
-.employee-chat-layout.theme-dark .employee-feed-section,
-.employee-chat-layout.theme-dark .message-bubble {
-  background: #152131;
-  color: #e4edf7;
-  border-color: #2f4359;
-}
-.employee-chat-layout.theme-dark .employee-chat-user:hover,
-.employee-chat-layout.theme-dark .employee-chat-user.active { background: #223448; }
-
-.employee-chat-layout.theme-ocean {
+.employee-chat-layout.theme-instagram {
   background: #eaf4fb;
 }
-.employee-chat-layout.theme-ocean .employee-chat-sidebar { background: #f3f9ff; }
-.employee-chat-layout.theme-ocean .conversation-header,
-.employee-chat-layout.theme-ocean .composer-wrap,
-.employee-chat-layout.theme-ocean .employee-chat-actions { background: #eef7ff; }
-.employee-chat-layout.theme-ocean .message-row.mine .message-bubble { background: #dceeff; }
+.employee-chat-layout.theme-instagram .employee-chat-sidebar { background: #f3f9ff; }
+.employee-chat-layout.theme-instagram .conversation-header,
+.employee-chat-layout.theme-instagram .composer-wrap,
+.employee-chat-layout.theme-instagram .employee-chat-actions { background: #eef7ff; }
+.employee-chat-layout.theme-instagram .message-row.mine .message-bubble { background: #dceeff; }
+
+
+/* Messenger presets */
+.employee-chat-layout.theme-telegram .employee-chat-sidebar { background: #f4f8fb; }
+.employee-chat-layout.theme-telegram .message-row.mine .message-bubble { background: #dff1ff; border-color: #9ec9e8; }
+.employee-chat-layout.theme-telegram .theme-tabs button.active { background: #2aabee; border-color: #1f8dc8; }
+
+.employee-chat-layout.theme-whatsapp { background: #efeae2; }
+.employee-chat-layout.theme-whatsapp .employee-chat-sidebar { background: #f7f5f1; }
+.employee-chat-layout.theme-whatsapp .conversation-header,
+.employee-chat-layout.theme-whatsapp .composer-wrap,
+.employee-chat-layout.theme-whatsapp .employee-chat-actions { background: #f0f2f5; }
+.employee-chat-layout.theme-whatsapp .message-bubble { background: #ffffff; border-color: #d6d9dd; }
+.employee-chat-layout.theme-whatsapp .message-row.mine .message-bubble { background: #d9fdd3; border-color: #b5e5ad; }
+.employee-chat-layout.theme-whatsapp .theme-tabs button.active { background: #25d366; border-color: #1da851; }
+
+.employee-chat-layout.theme-instagram { background: linear-gradient(160deg, #fff6fb, #f5f6ff); }
+.employee-chat-layout.theme-instagram .employee-chat-sidebar { background: #fff; }
+.employee-chat-layout.theme-instagram .conversation-header,
+.employee-chat-layout.theme-instagram .composer-wrap,
+.employee-chat-layout.theme-instagram .employee-chat-actions { background: #fff; }
+.employee-chat-layout.theme-instagram .message-row.mine .message-bubble {
+  background: linear-gradient(135deg, rgba(255,220,230,.9), rgba(220,230,255,.9));
+  border-color: #e0c4f2;
+}
+.employee-chat-layout.theme-instagram .theme-tabs button.active {
+  background: linear-gradient(90deg, #fd1d1d, #fcb045 45%, #833ab4);
+  border-color: #b75695;
+}
