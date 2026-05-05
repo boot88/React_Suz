@@ -89,7 +89,7 @@ const Login = () => {
   }
 
   return (
-    <div className="login-container login-container-v1">
+    <div className="login-container">
       <div className="login-shell">
         <section className="login-hero">
           <p className="hero-location">Новосибирск · 2026</p>
@@ -112,7 +112,7 @@ const Login = () => {
         </section>
 
         <section className="login-card">
-          <div className="card-topline">⚗️ Secure Intranet Access</div>
+          <div className="card-topline">JA Purity III · Intranet Edition</div>
           <h2>Вход в систему</h2>
           <p className="card-subtitle">Только для сотрудников локальной сети</p>
 
