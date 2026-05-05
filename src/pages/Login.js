@@ -41,7 +41,6 @@ const Login = () => {
     }
   };
 
-
   const handleForgotPassword = async () => {
     const prefilledValue = (formData.username || '').trim().toLowerCase();
     const enteredLogin = window.prompt('Введите логин для восстановления пароля:', prefilledValue);
@@ -61,10 +60,7 @@ const Login = () => {
         body: JSON.stringify({ login: loginValue })
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data.message || 'Не удалось отправить новый пароль');
-      }
-      setError('');
+      if (!response.ok) throw new Error(data.message || 'Не удалось отправить новый пароль');
       window.alert(data.message || 'Запрос отправлен менеджерам');
     } catch (err) {
       setError(err.message || 'Ошибка восстановления пароля');
@@ -75,75 +71,83 @@ const Login = () => {
 
   if (isLoading || isAuthenticated) {
     return (
-      <div className="login-container">
-        <div className="login-loading"><div className="spinner"></div><p>{isLoading ? 'Проверка авторизации...' : 'Перенаправление...'}</p></div>
+      <div className="jp-wrapper">
+        <div className="login-loading">
+          <div className="spinner"></div>
+          <p>{isLoading ? 'Проверка авторизации...' : 'Перенаправление...'}</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="login-container">
-      <div className="login-shell">
-        <section className="login-hero">
-          <p className="hero-location">Новосибирск · 2026</p>
-        </section>
+    <div className="jp-wrapper">
+      <div className="jp-container">
+        <header className="jp-header">
+          <h1>Новосибирск · 2026</h1>
+        </header>
 
-        <section className="login-card">
-          <h2>Вход в систему</h2>
-          <p className="card-subtitle">Только для сотрудников локальной сети</p>
+        <main className="jp-content">
+          <section className="jp-login-box">
+            <h2>Вход</h2>
+            <p className="jp-subtitle">Введите логин и пароль для доступа</p>
 
-          <form onSubmit={handleSubmit} className="login-form">
-            {error && <div className="error-message">{error}</div>}
+            <form className="jp-form" onSubmit={handleSubmit}>
+              {error && <div className="error-message">{error}</div>}
 
-            <label>
-              Логин
-              <input
-                name="username"
-                type="text"
-                placeholder="employee@email"
-                value={formData.username}
-                onChange={(e) => setFormData((prev) => ({ ...prev, username: e.target.value }))}
-                required
-                disabled={isSubmitting}
-              />
-            </label>
-
-            <label>
-              Пароль
-              <div className="password-input-container">
+              <div className="jp-field">
+                <label htmlFor="username">Логин</label>
                 <input
-                  name="password"
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="••••••••"
-                  value={formData.password}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, password: e.target.value }))}
+                  id="username"
+                  name="username"
+                  type="text"
+                  placeholder="Введите логин"
+                  value={formData.username}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, username: e.target.value }))}
                   required
                   disabled={isSubmitting}
                 />
-                <button type="button" className="password-toggle" onClick={() => setShowPassword((prev) => !prev)} aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}>
-                  {showPassword ? (
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M3 3l18 18-1.4 1.4-3.1-3.1A11.9 11.9 0 0 1 12 20C6.5 20 2.1 16.5.4 12c.8-2 2.2-3.8 4-5.3L1.6 4.4 3 3zm6.5 6.5a3.5 3.5 0 0 0 5 5l-5-5zM12 4c5.5 0 9.9 3.5 11.6 8a12.2 12.2 0 0 1-5.4 6.4l-2-2A3.5 3.5 0 0 0 9.6 9.8l-2-2A12.3 12.3 0 0 1 12 4z" fill="currentColor"/>
-                    </svg>
-                  ) : (
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M12 5c5.5 0 9.9 3.5 11.6 7-1.7 3.5-6.1 7-11.6 7S2.1 15.5.4 12C2.1 8.5 6.5 5 12 5zm0 2C7.8 7 4.4 9.5 2.7 12 4.4 14.5 7.8 17 12 17s7.6-2.5 9.3-5C19.6 9.5 16.2 7 12 7zm0 2.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z" fill="currentColor"/>
-                    </svg>
-                  )}
-                </button>
               </div>
-            </label>
 
-            <button type="submit" className="login-button" disabled={isSubmitting || isRecovering}>{isSubmitting ? 'Вход...' : 'Войти'}</button>
-            <button type="button" className="forgot-button" onClick={handleForgotPassword} disabled={isSubmitting || isRecovering}>
-              {isRecovering ? 'Отправка...' : 'Забыли пароль? Отправить новый на почту'}
-            </button>
-          </form>
+              <div className="jp-field">
+                <label htmlFor="password">Пароль</label>
+                <div className="jp-password-wrapper">
+                  <input
+                    id="password"
+                    name="password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Введите пароль"
+                    value={formData.password}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, password: e.target.value }))}
+                    required
+                    disabled={isSubmitting}
+                  />
+                  <button
+                    type="button"
+                    className="jp-password-toggle"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    disabled={isSubmitting}
+                  >
+                    {showPassword ? 'Скрыть' : 'Показать'}
+                  </button>
+                </div>
+              </div>
 
-          <div className="card-footer">
-            <p>Нет аккаунта сотрудника? <Link to="/register">Зарегистрироваться</Link></p>
-          </div>
-        </section>
+              <button type="submit" className="jp-button" disabled={isSubmitting || isRecovering}>
+                {isSubmitting ? 'Вход...' : 'Войти'}
+              </button>
+            </form>
+
+            <div className="jp-footer">
+              <button type="button" className="jp-link-button" onClick={handleForgotPassword} disabled={isSubmitting || isRecovering}>
+                {isRecovering ? 'Отправка...' : 'Забыли пароль?'}
+              </button>
+              <p>Нет аккаунта сотрудника? <Link to="/register">Зарегистрироваться</Link></p>
+            </div>
+          </section>
+        </main>
+
+        <footer className="jp-page-footer">© 2026 Внутренний портал</footer>
       </div>
     </div>
   );
