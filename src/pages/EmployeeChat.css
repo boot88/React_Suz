@@ -867,3 +867,93 @@
 .reaction-row button.active { background: #dff0fb; border-color: #8ab7da; }
 .clear-btn { background: #f0ad4e; color: #fff; }
 .logout-btn { background: #fff; border: 1px solid #c2d2df; color: #2a3f52; }
+
+
+/* Full light rebuild for remaining chat/feed surfaces */
+.employee-chat-layout,
+.employee-chat-main,
+.messages-wrap,
+.employee-feed-section,
+.employee-feed-post,
+.employee-feed-composer textarea,
+.employee-feed-comment-form input {
+  color: #23384d;
+}
+
+.employee-chat-layout { background: #f5f6f8; }
+.employee-chat-sidebar { background: #ffffff; }
+.employee-chat-actions,
+.employee-chat-header,
+.conversation-header,
+.composer-wrap,
+.employee-feed-section { background: #ffffff; }
+.employee-chat-actions { border-top: 1px solid #d7e0e8; }
+
+.employee-feed-section {
+  border: 1px solid #d7e0e8;
+  border-radius: 12px;
+  padding: 14px;
+}
+.employee-feed-composer textarea,
+.employee-feed-comment-form input {
+  border: 1px solid #c7d4e1;
+  background: #fff;
+  color: #23384d;
+}
+.employee-feed-composer textarea::placeholder,
+.employee-feed-comment-form input::placeholder { color: #7e90a5; }
+
+.employee-feed-composer-actions label,
+.employee-feed-composer-actions button,
+.employee-feed-comment-form button,
+.employee-feed-attachment-preview button,
+.request-panel button,
+.clear-btn,
+.logout-btn {
+  background: #3a87ad;
+  border: 1px solid #2f6f8a;
+  color: #fff;
+}
+.employee-feed-composer-actions label:hover,
+.employee-feed-composer-actions button:hover,
+.employee-feed-comment-form button:hover,
+.employee-feed-attachment-preview button:hover,
+.request-panel button:hover,
+.clear-btn:hover,
+.logout-btn:hover { background: #2f6f8a; }
+
+.employee-feed-post {
+  border: 1px solid #cfdae5;
+  background: #fff;
+}
+.employee-feed-post header small,
+.employee-feed-comment,
+.employee-feed-post p { color: #324b63; }
+
+.request-panel,
+.request-status,
+.profile-card,
+.profile-sheet,
+.template-row,
+.reply-preview.active-reply {
+  background: #ffffff;
+  color: #23384d;
+  border-color: #d7e0e8;
+}
+
+.request-panel textarea,
+.composer-textarea,
+.composer-file,
+.profile-card input,
+.profile-card textarea,
+.profile-card select,
+.profile-sheet input,
+.profile-sheet textarea,
+.profile-sheet select {
+  background: #fff;
+  color: #23384d;
+  border: 1px solid #c7d4e1;
+}
+
+.request-panel textarea::placeholder,
+.composer-textarea::placeholder { color: #7e90a5; }
