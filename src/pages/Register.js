@@ -109,13 +109,19 @@ const Register = () => {
 
   return (
     <div className="register-container">
-      <div className="register-card">
-        <div className="register-header">
+      <div className="register-shell">
+        <header className="register-header-bar">
           <p>Новосибирск · 2026</p>
-          <h2>Регистрация сотрудника</h2>
-        </div>
+        </header>
 
-        <form onSubmit={handleRegister} className="register-form">
+        <main className="register-content">
+          <div className="register-card">
+            <div className="register-header">
+              <h2>Регистрация сотрудника</h2>
+              <p className="register-subtitle">Заполните данные сотрудника для создания аккаунта</p>
+            </div>
+
+            <form onSubmit={handleRegister} className="register-form">
           <label>
             ФИО сотрудника *
             <input
@@ -201,12 +207,14 @@ const Register = () => {
           </button>
         </form>
 
-        {error && <div className="register-error">{error}</div>}
-        {successMessage && <div className="register-success">{successMessage}</div>}
+            {error && <div className="register-error">{error}</div>}
+            {successMessage && <div className="register-success">{successMessage}</div>}
 
-        <div className="register-footer">
-          <p>Уже есть аккаунт? <Link to="/login">Войти</Link></p>
-        </div>
+            <div className="register-footer">
+              <p>Уже есть аккаунт? <Link to="/login">Войти</Link></p>
+            </div>
+          </div>
+        </main>
       </div>
     </div>
   );
