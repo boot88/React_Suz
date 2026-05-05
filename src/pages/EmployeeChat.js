@@ -11,6 +11,7 @@ const MANAGER_TEMPLATE_MESSAGES = ['✅ Принято в работу', '🔧 �
 const EMPLOYEE_TEMPLATE_MESSAGES = ['Привет! 👋', 'Как дела? 🙂', 'Спасибо большое! 🙏', 'Отлично, договорились ✅', 'Я на месте, можем созвониться? 📞', 'Хорошего дня! ☀️'];
 const REACTION_EMOJIS = ['👍', '✅', '🔧'];
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
+const CHAT_THEME_KEY = 'employeeChatTheme';
 
 const getConversationId = (a, b) => [a.toLowerCase(), b.toLowerCase()].sort().join('::');
 const getParticipantsFromThreadId = (threadId = '') => threadId.split('::').filter(Boolean);
@@ -171,6 +172,13 @@ const EmployeeChat = () => {
   const [feedAttachment, setFeedAttachment] = useState(null);
   const [commentDrafts, setCommentDrafts] = useState({});
   const [isFeedOpen, setIsFeedOpen] = useState(false);
+  const [chatTheme, setChatTheme] = useState(() => {
+    const saved = localStorage.getItem(CHAT_THEME_KEY) || 'whatsapp';
+    if (saved === 'light') return 'whatsapp';
+    if (saved === 'dark') return 'whatsapp';
+    if (saved === 'ocean') return 'instagram';
+    return saved;
+  });
   const messagesWrapRef = useRef(null);
   const forceScrollRef = useRef(false);
 
@@ -184,6 +192,10 @@ const EmployeeChat = () => {
     room: ''
   });
 
+
+  useEffect(() => {
+    localStorage.setItem(CHAT_THEME_KEY, chatTheme);
+  }, [chatTheme]);
   const currentConversationId = selectedEmail ? getConversationId(user.username, selectedEmail) : null;
   const templateMessages = isManager ? MANAGER_TEMPLATE_MESSAGES : EMPLOYEE_TEMPLATE_MESSAGES;
   const currentMessages = useMemo(() => (
@@ -823,7 +835,7 @@ const EmployeeChat = () => {
   };
 
   return (
-    <div className="employee-chat-layout">
+    <div className={`employee-chat-layout theme-${chatTheme}`}>
       <aside className="employee-chat-sidebar">
         <div className="employee-chat-header">
           
@@ -979,6 +991,11 @@ const EmployeeChat = () => {
           </button>
           <button className="clear-btn" onClick={clearConversation} disabled={!selectedEmail}>Удалить переписку</button>
           {!isAdmin && <button className="logout-btn" onClick={handleLogout}>Выход</button>}
+          <div className="theme-tabs">
+            <button type="button" className={chatTheme === 'telegram' ? 'active' : ''} onClick={() => setChatTheme('telegram')}>Telegram</button>
+            <button type="button" className={chatTheme === 'whatsapp' ? 'active' : ''} onClick={() => setChatTheme('whatsapp')}>WhatsApp</button>
+            <button type="button" className={chatTheme === 'instagram' ? 'active' : ''} onClick={() => setChatTheme('instagram')}>Instagram</button>
+          </div>
         </div>
         {isEmployee && !isProfilePanelOpen && (
   <div className="employee-request-wrapper">
