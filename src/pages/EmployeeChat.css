@@ -830,3 +830,57 @@
 button, input, textarea {
   font-family: inherit;
 }
+
+
+/* Extra JA Purity cleanup for all remaining chat widgets */
+.employee-avatar-upload,
+.profile-panel-toggle,
+.profile-back,
+.avatar-edit-btn,
+.avatar-delete-btn,
+.back-to-chat-btn,
+.message-controls button,
+.reaction-row button,
+.template-row button {
+  background: #fff !important;
+  color: #3a87ad !important;
+  border: 1px solid #ccc !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.profile-panel-toggle:hover,
+.profile-back:hover,
+.avatar-edit-btn:hover,
+.avatar-delete-btn:hover,
+.back-to-chat-btn:hover,
+.message-controls button:hover,
+.reaction-row button:hover,
+.template-row button:hover {
+  background: #f7f7f7 !important;
+  color: #2f6f8a !important;
+}
+
+.employee-chat-list,
+.profile-preview-body,
+.employee-feed-list,
+.profile-form,
+.profile-password-form {
+  background: #fff !important;
+  border: 1px solid #ddd !important;
+  border-radius: 0 !important;
+}
+
+.employee-chat-user-unread {
+  background: #b94a48 !important;
+  color: #fff !important;
+}
+
+.status-dot.online { background: #468847 !important; }
+.status-dot.offline { background: #999 !important; }
+
+.employee-feed-composer-actions,
+.employee-feed-comment-form,
+.employee-request-wrapper {
+  background: transparent !important;
+}
