@@ -1,8 +1,26 @@
 [
   {
     "login": "j@j.ru",
-    "isOnline": true,
-    "lastSeen": "2026-04-30T10:52:02.193Z",
+    "isOnline": false,
+    "lastSeen": "2026-05-06T03:38:25.418Z",
     "role": "employee"
+  },
+  {
+    "login": "b@b.ru",
+    "isOnline": false,
+    "lastSeen": "2026-05-06T05:08:29.664Z",
+    "role": "employee"
+  },
+  {
+    "login": "admin_nioh_3",
+    "isOnline": false,
+    "lastSeen": "2026-05-05T08:55:53.319Z",
+    "role": "admin"
+  },
+  {
+    "login": "manager_nioh",
+    "isOnline": false,
+    "lastSeen": "2026-05-05T09:08:12.867Z",
+    "role": "manager"
   }
 ]
