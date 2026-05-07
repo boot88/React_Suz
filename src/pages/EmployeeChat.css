@@ -1447,3 +1447,28 @@
   0%, 100% { transform: translateY(0); box-shadow: 0 8px 20px rgba(242, 140, 40, .22); }
   50% { transform: translateY(-1px); box-shadow: 0 12px 28px rgba(242, 140, 40, .38); }
 }
+
+/* Profile form/header visibility refinements */
+.employee-avatar-wrap.open {
+  padding-top: 46px !important;
+  margin-bottom: 14px !important;
+}
+
+.profile-panel {
+  margin-top: 46px !important;
+  background: rgba(248, 252, 255, .82) !important;
+  backdrop-filter: blur(3px) !important;
+}
+
+.conversation-header {
+  margin: 12px 14px 0 !important;
+  padding: 13px 16px !important;
+  background: #d9edf7 !important;
+  border: 1px solid #bce8f1 !important;
+  border-left: 4px solid #3a87ad !important;
+  border-radius: 0 !important;
+  color: #23566c !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  box-shadow: none !important;
+}
