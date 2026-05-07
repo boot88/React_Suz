@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import './Login.css';
-import loginSpectrumLines from '../assets/login-spectrum-lines.svg';
+import loginSpectrumLines from '../assets/login-spectrum-lines.png';
 import { API_BASE_URL } from '../utils/apiConfig';
 
 const Login = () => {
