@@ -970,22 +970,11 @@ const EmployeeChat = () => {
           </>
 )}
 
-        <div className="employee-chat-actions">
-          <button
-            type="button"
-            className="request-panel-toggle"
-            onClick={() => setIsFeedOpen((prev) => !prev)}
-          >
-            {isFeedOpen ? 'Закрыть ленту' : 'Открыть ленту'}
-          </button>
-          <button className="clear-btn" onClick={clearConversation} disabled={!selectedEmail}>Удалить переписку</button>
-          {!isAdmin && <button className="logout-btn" onClick={handleLogout}>Выход</button>}
-        </div>
         {isEmployee && !isProfilePanelOpen && (
-  <div className="employee-request-wrapper">
+          <div className="employee-request-wrapper">
             <button
               type="button"
-              className="request-panel-toggle"
+              className="request-panel-toggle request-primary-toggle"
               onClick={() => setIsRequestPanelOpen((prev) => !prev)}
             >
               {isRequestPanelOpen ? 'Скрыть заявку' : 'Сообщить о проблеме'}
@@ -1005,6 +994,18 @@ const EmployeeChat = () => {
             )}
           </div>
         )}
+
+        <div className="employee-chat-actions">
+          <button
+            type="button"
+            className="request-panel-toggle feed-toggle"
+            onClick={() => setIsFeedOpen((prev) => !prev)}
+          >
+            {isFeedOpen ? 'Закрыть ленту' : 'Открыть ленту'}
+          </button>
+          <button className="clear-btn" onClick={clearConversation} disabled={!selectedEmail}>Удалить переписку</button>
+          {!isAdmin && <button className="logout-btn" onClick={handleLogout}>Выход</button>}
+        </div>
       </aside>
 
       <section className="employee-chat-main">
