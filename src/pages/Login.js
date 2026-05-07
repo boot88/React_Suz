@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import './Login.css';
+import loginSpectrumLines from '../assets/login-spectrum-lines.svg';
 import { API_BASE_URL } from '../utils/apiConfig';
 
 const Login = () => {
@@ -137,6 +138,10 @@ const Login = () => {
                 {isSubmitting ? 'Вход...' : 'Войти'}
               </button>
             </form>
+
+            <div className="jp-login-pattern-wrap" aria-hidden="true">
+              <img className="jp-login-pattern" src={loginSpectrumLines} alt="" />
+            </div>
 
             <div className="jp-footer">
               <button type="button" className="jp-link-button" onClick={handleForgotPassword} disabled={isSubmitting || isRecovering}>
