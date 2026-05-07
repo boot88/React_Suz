@@ -70,6 +70,19 @@ const readProfileDraft = (username) => {
   }
 };
 
+
+const getProfileValue = (profile, fallback, ...keys) => {
+  for (const key of keys) {
+    const value = profile?.[key];
+    if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+  }
+  for (const key of keys) {
+    const value = fallback?.[key];
+    if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+  }
+  return '';
+};
+
 const saveProfileDraft = (username, profile) => {
   try {
     localStorage.setItem(getProfileDraftKey(username), JSON.stringify(profile));
@@ -236,17 +249,23 @@ const EmployeeChat = () => {
 
     const profile = data?.profile || {};
     const cachedProfile = readProfileDraft(login);
+    const directoryProfile = directoryEmployees.find((employee) => employee.login === login) || {};
     const mergedProfile = {
-      full_name: profile.full_name || cachedProfile.full_name || '',
-      department: profile.department || cachedProfile.department || '',
-      phone: profile.phone || cachedProfile.phone || '',
-      room: profile.room || cachedProfile.room || '',
-      position: profile.position || cachedProfile.position || '',
-      bio: profile.bio || cachedProfile.bio || '',
-      website: profile.website || cachedProfile.website || '',
-      statusText: profile.statusText || cachedProfile.statusText || '',
-      avatar: profile.avatar || cachedProfile.avatar || ''
+      full_name: getProfileValue(profile, cachedProfile, 'full_name', 'fullName', 'name'),
+      department: getProfileValue(profile, cachedProfile, 'department'),
+      phone: getProfileValue(profile, cachedProfile, 'phone', 'internalPhone', 'internal_phone', 'N_tel'),
+      room: getProfileValue(profile, cachedProfile, 'room', 'cabinet'),
+      position: getProfileValue(profile, cachedProfile, 'position'),
+      bio: getProfileValue(profile, cachedProfile, 'bio'),
+      website: getProfileValue(profile, cachedProfile, 'website'),
+      statusText: getProfileValue(profile, cachedProfile, 'statusText', 'status_text'),
+      avatar: getProfileValue(profile, cachedProfile, 'avatar')
     };
+
+    if (!mergedProfile.full_name) mergedProfile.full_name = directoryProfile.full_name || '';
+    if (!mergedProfile.department) mergedProfile.department = directoryProfile.department || '';
+    if (!mergedProfile.phone) mergedProfile.phone = directoryProfile.phone || directoryProfile.internal_phone || directoryProfile.N_tel || '';
+    if (!mergedProfile.room) mergedProfile.room = directoryProfile.room || directoryProfile.cabinet || '';
     if (mode === 'form') {
       setProfileForm({
         full_name: mergedProfile.full_name,
@@ -267,7 +286,7 @@ const EmployeeChat = () => {
     }
 
     setProfilePreview(profile);
-  }, [user.username]);
+  }, [directoryEmployees, user.username]);
 
   const fetchThreads = useCallback(async () => {
     try {
@@ -347,6 +366,13 @@ const EmployeeChat = () => {
       console.error('Profile bootstrap error:', error);
     });
   }, [loadProfile, user?.username]);
+
+  useEffect(() => {
+    if (!user?.username || (!isProfileOpen && !isProfilePanelOpen)) return;
+    loadProfile(user.username, 'form').catch((error) => {
+      console.error('Profile panel refresh error:', error);
+    });
+  }, [isProfileOpen, isProfilePanelOpen, loadProfile, user?.username]);
 
   const chatCandidates = useMemo(() => {
     if (!isManager && !isDirectoryLoaded) {
