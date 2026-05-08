@@ -1262,3 +1262,122 @@ button, input, textarea {
   width: 138px !important;
   height: 138px !important;
 }
+
+/* CAS-inspired profile panel and avatar fullscreen */
+.profile-panel-toggle {
+  background: #003b5c !important;
+  border: 1px solid #00324f !important;
+  border-left: 5px solid #f6b221 !important;
+  color: #ffffff !important;
+  border-radius: 0 !important;
+  font-weight: 700 !important;
+}
+
+.profile-panel-toggle:hover {
+  background: #0f5f8f !important;
+  color: #ffffff !important;
+}
+
+.profile-panel {
+  position: relative !important;
+  overflow: hidden !important;
+  margin-top: 54px !important;
+  padding: 14px !important;
+  background: rgba(255, 255, 255, .78) !important;
+  border: 2px solid #0f5f8f !important;
+  border-left: 8px solid #f6b221 !important;
+  border-radius: 0 !important;
+  box-shadow: 0 12px 30px rgba(0, 59, 92, .14) !important;
+  backdrop-filter: blur(8px) !important;
+}
+
+.profile-panel::before {
+  content: '';
+  position: absolute;
+  right: -34px;
+  top: -34px;
+  width: 118px;
+  height: 118px;
+  border: 2px solid rgba(246, 178, 33, .26);
+  transform: rotate(30deg);
+  pointer-events: none;
+}
+
+.profile-panel h4 {
+  position: relative !important;
+  margin-bottom: 4px !important;
+  color: #003b5c !important;
+  font-size: 16px !important;
+  font-weight: 800 !important;
+  letter-spacing: .01em !important;
+}
+
+.profile-form,
+.profile-password-form {
+  position: relative !important;
+  background: rgba(255, 255, 255, .68) !important;
+  border: 1px solid rgba(15, 95, 143, .22) !important;
+  padding: 10px !important;
+}
+
+.avatar-fullscreen {
+  background:
+    radial-gradient(circle at 18% 18%, rgba(246, 178, 33, .2), transparent 28%),
+    linear-gradient(135deg, rgba(0, 59, 92, .96), rgba(3, 35, 55, .96)) !important;
+}
+
+.avatar-fullscreen::before {
+  content: '';
+  position: absolute;
+  inset: 28px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  pointer-events: none;
+}
+
+.avatar-full-header {
+  background: rgba(255, 255, 255, .94) !important;
+  border-left: 8px solid #f6b221 !important;
+  padding: 10px !important;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .18) !important;
+}
+
+.avatar-full-header button,
+.avatar-edit-icon {
+  background: #ffffff !important;
+  border: 1px solid #0f5f8f !important;
+  border-radius: 0 !important;
+  color: #003b5c !important;
+  font-weight: 700 !important;
+}
+
+.avatar-full-header button:hover,
+.avatar-edit-icon:hover {
+  background: #d9edf7 !important;
+  color: #003b5c !important;
+}
+
+.avatar-full-image {
+  background: #ffffff !important;
+  border: 10px solid rgba(255, 255, 255, .94) !important;
+  border-bottom: 18px solid rgba(255, 255, 255, .94) !important;
+  border-radius: 0 !important;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .42) !important;
+}
+
+.avatar-full-placeholder {
+  background: linear-gradient(135deg, #003b5c 0%, #0f5f8f 62%, #f6b221 100%) !important;
+  border-radius: 0 !important;
+}
+
+.avatar-delete-btn {
+  background: #ffffff !important;
+  border: 1px solid #b94a48 !important;
+  border-left: 6px solid #b94a48 !important;
+  border-radius: 0 !important;
+  color: #b94a48 !important;
+  font-weight: 700 !important;
+}
+
+.avatar-delete-btn:hover {
+  background: #f2dede !important;
+}
