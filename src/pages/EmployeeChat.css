@@ -1202,3 +1202,63 @@ button, input, textarea {
   background: rgba(248, 252, 255, .64) !important;
   backdrop-filter: blur(5px) !important;
 }
+
+/* CAS-inspired avatar header refresh */
+.employee-chat-header {
+  background: #ffffff !important;
+  border-bottom: 1px solid #d7e2ea !important;
+}
+
+.employee-avatar-wrap {
+  position: relative !important;
+  overflow: hidden !important;
+  padding: 18px 16px !important;
+  background:
+    linear-gradient(120deg, rgba(0, 70, 105, .06) 0%, rgba(255,255,255,.96) 42%, rgba(246, 178, 33, .1) 100%) !important;
+  border: 2px solid #0f5f8f !important;
+  border-left: 8px solid #f6b221 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.employee-avatar-wrap::before {
+  content: '';
+  position: absolute;
+  right: -22px;
+  top: -18px;
+  width: 96px;
+  height: 96px;
+  border: 2px solid rgba(15, 95, 143, .18);
+  transform: rotate(30deg);
+  background: rgba(255,255,255,.22);
+  pointer-events: none;
+}
+
+.employee-header-meta::after {
+  content: none !important;
+  display: none !important;
+}
+
+.employee-header-meta p {
+  color: #003b5c !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+}
+
+.employee-avatar-upload {
+  width: 82px !important;
+  height: 82px !important;
+  border: 3px solid #ffffff !important;
+  outline: 2px solid #0f5f8f !important;
+  background: linear-gradient(135deg, #003b5c 0%, #0f5f8f 58%, #f6b221 100%) !important;
+}
+
+.employee-avatar-wrap.open {
+  padding-top: 52px !important;
+  border-left-width: 8px !important;
+}
+
+.employee-avatar-wrap.open .employee-avatar-upload {
+  width: 138px !important;
+  height: 138px !important;
+}
