@@ -70,6 +70,19 @@ const readProfileDraft = (username) => {
   }
 };
 
+
+const getProfileValue = (profile, fallback, ...keys) => {
+  for (const key of keys) {
+    const value = profile?.[key];
+    if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+  }
+  for (const key of keys) {
+    const value = fallback?.[key];
+    if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+  }
+  return '';
+};
+
 const saveProfileDraft = (username, profile) => {
   try {
     localStorage.setItem(getProfileDraftKey(username), JSON.stringify(profile));
@@ -131,6 +144,8 @@ const EmployeeChat = () => {
   const isEmployee = user?.role === 'employee';
    
   const avatarInputRef = useRef(null); 
+  const profileDirtyRef = useRef(false);
+  const profileLoadedForRef = useRef('');
    
   const [threads, setThreads] = useState({});
   const [selectedEmail, setSelectedEmail] = useState('');
@@ -174,6 +189,17 @@ const EmployeeChat = () => {
   const messagesWrapRef = useRef(null);
   const forceScrollRef = useRef(false);
 
+  const updateProfileField = useCallback((field, value) => {
+    profileDirtyRef.current = true;
+    setProfileForm((prev) => {
+      const next = { ...prev, [field]: value };
+      if (user?.username) {
+        saveProfileDraft(user.username, { ...next, avatar: avatarUrl });
+      }
+      return next;
+    });
+  }, [avatarUrl, user?.username]);
+
   const [employeeForm, setEmployeeForm] = useState({
     id: null,
     login: '',
@@ -183,6 +209,7 @@ const EmployeeChat = () => {
     phone: '',
     room: ''
   });
+
 
   const currentConversationId = selectedEmail ? getConversationId(user.username, selectedEmail) : null;
   const templateMessages = isManager ? MANAGER_TEMPLATE_MESSAGES : EMPLOYEE_TEMPLATE_MESSAGES;
@@ -235,38 +262,50 @@ const EmployeeChat = () => {
 
     const profile = data?.profile || {};
     const cachedProfile = readProfileDraft(login);
+    const directoryProfile = directoryEmployees.find((employee) => employee.login === login) || {};
     const mergedProfile = {
-      full_name: profile.full_name || cachedProfile.full_name || '',
-      department: profile.department || cachedProfile.department || '',
-      phone: profile.phone || cachedProfile.phone || '',
-      room: profile.room || cachedProfile.room || '',
-      position: profile.position || cachedProfile.position || '',
-      bio: profile.bio || cachedProfile.bio || '',
-      website: profile.website || cachedProfile.website || '',
-      statusText: profile.statusText || cachedProfile.statusText || '',
-      avatar: profile.avatar || cachedProfile.avatar || ''
+      full_name: getProfileValue(profile, cachedProfile, 'full_name', 'fullName', 'name'),
+      department: getProfileValue(profile, cachedProfile, 'department'),
+      phone: getProfileValue(profile, cachedProfile, 'phone', 'internalPhone', 'internal_phone', 'N_tel'),
+      room: getProfileValue(profile, cachedProfile, 'room', 'cabinet'),
+      position: getProfileValue(profile, cachedProfile, 'position'),
+      bio: getProfileValue(profile, cachedProfile, 'bio'),
+      website: getProfileValue(profile, cachedProfile, 'website'),
+      statusText: getProfileValue(profile, cachedProfile, 'statusText', 'status_text'),
+      avatar: getProfileValue(profile, cachedProfile, 'avatar')
     };
+
+    if (!mergedProfile.full_name) mergedProfile.full_name = directoryProfile.full_name || '';
+    if (!mergedProfile.department) mergedProfile.department = directoryProfile.department || '';
+    if (!mergedProfile.phone) mergedProfile.phone = directoryProfile.phone || directoryProfile.internal_phone || directoryProfile.N_tel || '';
+    if (!mergedProfile.room) mergedProfile.room = directoryProfile.room || directoryProfile.cabinet || '';
     if (mode === 'form') {
-      setProfileForm({
-        full_name: mergedProfile.full_name,
-        department: mergedProfile.department,
-        phone: mergedProfile.phone,
-        room: mergedProfile.room,
-        position: mergedProfile.position,
-        bio: mergedProfile.bio,
-        website: mergedProfile.website,
-        statusText: mergedProfile.statusText
-      });
+      const shouldHydrateForm = !profileDirtyRef.current || profileLoadedForRef.current !== login;
+
+      if (shouldHydrateForm) {
+        setProfileForm({
+          full_name: mergedProfile.full_name,
+          department: mergedProfile.department,
+          phone: mergedProfile.phone,
+          room: mergedProfile.room,
+          position: mergedProfile.position,
+          bio: mergedProfile.bio,
+          website: mergedProfile.website,
+          statusText: mergedProfile.statusText
+        });
+        profileLoadedForRef.current = login;
+        saveProfileDraft(login, mergedProfile);
+      }
+
       const nextAvatar = mergedProfile.avatar || '';
       setAvatarUrl(nextAvatar);
       if (nextAvatar) localStorage.setItem(getAvatarKey(user.username), nextAvatar);
       else localStorage.removeItem(getAvatarKey(user.username));
-      saveProfileDraft(login, mergedProfile);
       return;
     }
 
     setProfilePreview(profile);
-  }, [user.username]);
+  }, [directoryEmployees, user.username]);
 
   const fetchThreads = useCallback(async () => {
     try {
@@ -346,6 +385,13 @@ const EmployeeChat = () => {
       console.error('Profile bootstrap error:', error);
     });
   }, [loadProfile, user?.username]);
+
+  useEffect(() => {
+    if (!user?.username || (!isProfileOpen && !isProfilePanelOpen)) return;
+    loadProfile(user.username, 'form').catch((error) => {
+      console.error('Profile panel refresh error:', error);
+    });
+  }, [isProfileOpen, isProfilePanelOpen, loadProfile, user?.username]);
 
   const chatCandidates = useMemo(() => {
     if (!isManager && !isDirectoryLoaded) {
@@ -585,6 +631,8 @@ const EmployeeChat = () => {
     }
 
     window.alert('Анкета сохранена');
+    profileDirtyRef.current = false;
+    profileLoadedForRef.current = user.username;
     saveProfileDraft(user.username, { ...profileForm, avatar: avatarUrl });
     await fetchEmployees();
     setHeaderName(profileForm.full_name || baseDisplayName);
@@ -822,12 +870,13 @@ const EmployeeChat = () => {
     setCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
   };
 
+  const isProfileMode = isProfileOpen || isProfilePanelOpen;
+
   return (
     <div className="employee-chat-layout">
-      <aside className="employee-chat-sidebar">
+      <aside className={`employee-chat-sidebar ${isProfileMode ? 'profile-mode' : ''}`}>
         <div className="employee-chat-header">
-          
-          
+          <div className={`employee-profile-stack ${isProfileMode ? 'open' : ''}`}>
           <div className={`employee-avatar-wrap ${isProfileOpen ? 'open' : ''}`}>
 
   {isProfileOpen && (
@@ -899,20 +948,19 @@ const EmployeeChat = () => {
             className="profile-panel-toggle"
             onClick={() => setIsProfilePanelOpen((prev) => !prev)}
           >
-            {isProfilePanelOpen ? 'Скрыть анкету' : 'Анкета / настройки'}
+            Настройки профиля
           </button>
           {(isProfileOpen || isProfilePanelOpen) && (
             <div className="profile-panel">
-              <h4>Моя страница</h4>
               <form onSubmit={saveMyProfile} className="profile-form">
-                <input placeholder="ФИО" value={profileForm.full_name} onChange={(e) => setProfileForm((prev) => ({ ...prev, full_name: e.target.value }))} />
-                <input placeholder="Должность" value={profileForm.position} onChange={(e) => setProfileForm((prev) => ({ ...prev, position: e.target.value }))} />
-                <input placeholder="Отдел" value={profileForm.department} onChange={(e) => setProfileForm((prev) => ({ ...prev, department: e.target.value }))} />
-                <input placeholder="Кабинет" value={profileForm.room} onChange={(e) => setProfileForm((prev) => ({ ...prev, room: e.target.value }))} />
-                <input placeholder="Внутренний телефон" value={profileForm.phone} onChange={(e) => setProfileForm((prev) => ({ ...prev, phone: e.target.value }))} />
-                <input placeholder="Сайт / соцссылка" value={profileForm.website} onChange={(e) => setProfileForm((prev) => ({ ...prev, website: e.target.value }))} />
-                <input placeholder="Статус (как в соцсети)" value={profileForm.statusText} onChange={(e) => setProfileForm((prev) => ({ ...prev, statusText: e.target.value }))} />
-                <textarea placeholder="О себе" rows={3} value={profileForm.bio} onChange={(e) => setProfileForm((prev) => ({ ...prev, bio: e.target.value }))} />
+                <input placeholder="ФИО" value={profileForm.full_name} onChange={(e) => updateProfileField('full_name', e.target.value)} />
+                <input placeholder="Должность" value={profileForm.position} onChange={(e) => updateProfileField('position', e.target.value)} />
+                <input placeholder="Отдел" value={profileForm.department} onChange={(e) => updateProfileField('department', e.target.value)} />
+                <input placeholder="Кабинет" value={profileForm.room} onChange={(e) => updateProfileField('room', e.target.value)} />
+                <input placeholder="Внутренний телефон" value={profileForm.phone} onChange={(e) => updateProfileField('phone', e.target.value)} />
+                <input placeholder="Сайт / соцссылка" value={profileForm.website} onChange={(e) => updateProfileField('website', e.target.value)} />
+                <input placeholder="Статус (как в соцсети)" value={profileForm.statusText} onChange={(e) => updateProfileField('statusText', e.target.value)} />
+                <textarea placeholder="О себе" rows={3} value={profileForm.bio} onChange={(e) => updateProfileField('bio', e.target.value)} />
                 <button type="submit">Сохранить анкету</button>
               </form>
               <form onSubmit={changeMyPassword} className="profile-password-form">
@@ -922,12 +970,13 @@ const EmployeeChat = () => {
               </form>
             </div>
           )}
+          </div>
         </div>
 
 
 
         {/* 🔥 СКРЫВАЕМ ПОИСК И СПИСОК ПРИ ОТКРЫТОЙ АНКЕТЕ */}
-{!isProfileOpen && !isProfilePanelOpen && (
+{!isProfileMode && (
   <>
     <input
       className="employee-chat-search"
@@ -969,22 +1018,11 @@ const EmployeeChat = () => {
           </>
 )}
 
-        <div className="employee-chat-actions">
-          <button
-            type="button"
-            className="request-panel-toggle"
-            onClick={() => setIsFeedOpen((prev) => !prev)}
-          >
-            {isFeedOpen ? 'Закрыть ленту' : 'Открыть ленту'}
-          </button>
-          <button className="clear-btn" onClick={clearConversation} disabled={!selectedEmail}>Удалить переписку</button>
-          {!isAdmin && <button className="logout-btn" onClick={handleLogout}>Выход</button>}
-        </div>
-        {isEmployee && !isProfilePanelOpen && (
-  <div className="employee-request-wrapper">
+        {isEmployee && !isProfileMode && (
+          <div className="employee-request-wrapper">
             <button
               type="button"
-              className="request-panel-toggle"
+              className="request-panel-toggle request-primary-toggle"
               onClick={() => setIsRequestPanelOpen((prev) => !prev)}
             >
               {isRequestPanelOpen ? 'Скрыть заявку' : 'Сообщить о проблеме'}
@@ -1002,6 +1040,20 @@ const EmployeeChat = () => {
                 {requestStatus && <small>{requestStatus}</small>}
               </form>
             )}
+          </div>
+        )}
+
+        {!isProfileMode && (
+          <div className="employee-chat-actions">
+            <button
+              type="button"
+              className="request-panel-toggle feed-toggle"
+              onClick={() => setIsFeedOpen((prev) => !prev)}
+            >
+              {isFeedOpen ? 'Закрыть ленту' : 'Открыть ленту'}
+            </button>
+            <button className="clear-btn" onClick={clearConversation} disabled={!selectedEmail}>Удалить переписку</button>
+            {!isAdmin && <button className="logout-btn" onClick={handleLogout}>Выход</button>}
           </div>
         )}
       </aside>
@@ -1169,7 +1221,13 @@ const EmployeeChat = () => {
       </button>
     </div>
 
-    <img src={avatarUrl} className="avatar-full-image" />
+    {avatarUrl ? (
+      <img src={avatarUrl} alt="Фото профиля" className="avatar-full-image" />
+    ) : (
+      <div className="avatar-full-placeholder" aria-label="Фото профиля отсутствует">
+        {String(baseDisplayName || user?.username || '?').slice(0, 1).toUpperCase()}
+      </div>
+    )}
 
     {avatarUrl && (
       <button
