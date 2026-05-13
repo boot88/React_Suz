@@ -236,15 +236,31 @@
 /* ----- Поиск (как форма поиска на сайте) ----- */
 .employee-chat-search {
   margin: 15px 12px 10px 12px;
-  padding: 8px 10px;
+  /*padding: 8px 10px;*/
   border: 1px solid var(--institute-border);
   background: white;
   color: var(--institute-text);
-  font-size: 12px;
+  font-size: 15px !important;
+  line-height: 1.35 !important;
+  padding: 11px 14px !important;
 }
+
+/*
+.employee-chat-search {
+  min-height: 46px !important;
+  border-left: 4px solid #0f5f8f !important;
+  background: #ffffff !important;
+  font-weight: 600 !important;
+}*/
+
+
 .employee-chat-search:focus {
   outline: none;
   border-color: var(--institute-blue);
+}
+.employee-chat-search::placeholder {
+  font-size: 14px;
+  color: #5c7180;
 }
 
 /* ----- Список сотрудников (как список новостей/публикаций) ----- */

@@ -361,18 +361,20 @@ const EmployeeChat = () => {
   }, [fetchThreads, fetchEmployees]);
 
   useEffect(() => {
-    if (!user?.username) return;
-    loadProfile(user.username, 'form').catch((error) => {
-      console.error('Profile bootstrap error:', error);
-    });
-  }, [loadProfile, user?.username]);
+  if (!user?.username) return;
+  if (!isProfileOpen && !isProfilePanelOpen) return;
 
-  useEffect(() => {
+  loadProfile(user.username, 'form').catch((error) => {
+    console.error('Profile panel refresh error:', error);
+  });
+}, [isProfileOpen, isProfilePanelOpen]);
+
+  /*useEffect(() => {
     if (!user?.username || (!isProfileOpen && !isProfilePanelOpen)) return;
     loadProfile(user.username, 'form').catch((error) => {
       console.error('Profile panel refresh error:', error);
     });
-  }, [isProfileOpen, isProfilePanelOpen, loadProfile, user?.username]);
+  }, []);*/
 
   const chatCandidates = useMemo(() => {
     if (!isManager && !isDirectoryLoaded) {
@@ -805,6 +807,8 @@ const EmployeeChat = () => {
   }, []);
 
   const typingHint = draft.trim().length > 0 ? 'Вы печатаете…' : '';
+  const isProfileVisible = isProfileOpen || isProfilePanelOpen;
+  
 
   const addFeedPost = (event) => {
     event.preventDefault();
@@ -851,7 +855,7 @@ const EmployeeChat = () => {
 
   return (
     <div className="employee-chat-layout">
-      <aside className="employee-chat-sidebar">
+      <aside className={`employee-chat-sidebar ${isProfileVisible ? 'profile-open' : ''}`}>
         <div className="employee-chat-header">
           
           
@@ -954,7 +958,7 @@ const EmployeeChat = () => {
 
 
         {/* 🔥 СКРЫВАЕМ ПОИСК И СПИСОК ПРИ ОТКРЫТОЙ АНКЕТЕ */}
-{!isProfileOpen && !isProfilePanelOpen && (
+{!isProfileVisible && (
   <>
     <input
       className="employee-chat-search"
@@ -996,7 +1000,7 @@ const EmployeeChat = () => {
           </>
 )}
 
-        {isEmployee && !isProfilePanelOpen && (
+        {isEmployee && !isProfileVisible && (
           <div className="employee-request-wrapper">
             <button
               type="button"
