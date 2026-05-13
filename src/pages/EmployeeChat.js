@@ -930,7 +930,7 @@ const EmployeeChat = () => {
           </button>
           {(isProfileOpen || isProfilePanelOpen) && (
             <div className="profile-panel">
-              <h4>Моя страница</h4>
+              <h4></h4>
               <form onSubmit={saveMyProfile} className="profile-form">
                 <input placeholder="ФИО" value={profileForm.full_name} onChange={(e) => setProfileForm((prev) => ({ ...prev, full_name: e.target.value }))} />
                 <input placeholder="Должность" value={profileForm.position} onChange={(e) => setProfileForm((prev) => ({ ...prev, position: e.target.value }))} />
