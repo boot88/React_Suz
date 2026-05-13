@@ -1,14 +1,8 @@
 [
   {
-    "login": "admin_nioh_3",
-    "isOnline": false,
-    "lastSeen": "2026-05-13T07:47:05.481Z",
-    "role": "admin"
-  },
-  {
     "login": "b@b.ru",
     "isOnline": true,
-    "lastSeen": "2026-05-13T09:27:22.799Z",
+    "lastSeen": "2026-05-13T10:00:22.881Z",
     "role": "employee"
   }
 ]
