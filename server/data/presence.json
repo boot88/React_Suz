@@ -1,8 +1,14 @@
 [
   {
     "login": "b@b.ru",
+    "isOnline": true,
+    "lastSeen": "2026-05-14T05:02:38.487Z",
+    "role": "employee"
+  },
+  {
+    "login": "j@j.ru",
     "isOnline": false,
-    "lastSeen": "2026-05-13T10:58:52.268Z",
+    "lastSeen": "2026-05-14T04:59:15.654Z",
     "role": "employee"
   }
 ]

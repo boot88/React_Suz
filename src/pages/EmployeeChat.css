@@ -314,9 +314,25 @@
   color: var(--institute-text-light);
 }
 .employee-chat-user-status {
-  font-size: 10px;
-  color: #8595a3;
-  text-transform: lowercase;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  min-width: 74px;
+
+  padding: 4px 8px;
+
+  border: 1px solid #d7e2ea;
+
+  background: #f4f8fb;
+
+  color: #46606f;
+
+  font-size: 11px;
+  font-weight: 700;
+
+  text-transform: uppercase;
+  letter-spacing: .04em;
 }
 .employee-chat-user-unread {
   min-width: 18px;
@@ -814,8 +830,18 @@
   text-align: center;
 }
 .employee-chat-user.manager-priority {
-  border-left: 2px solid var(--institute-blue);
-  background: #f9fbfd;
+  position: relative;
+
+  border-left: 6px solid #f6b221 !important;
+
+  background:
+    linear-gradient(
+      90deg,
+      rgba(246,178,33,.14),
+      rgba(255,255,255,1) 24%
+    ) !important;
+
+  border-color: #d9c27b !important;
 }
 
 /* ----- Адаптивность ----- */
@@ -1165,13 +1191,23 @@ button, input, textarea {
 }
 
 .employee-chat-user {
-  min-height: 70px !important;
-  grid-template-columns: 12px minmax(0, 1fr) auto auto !important;
-  gap: 12px !important;
-  padding: 14px 12px !important;
-  margin-bottom: 8px !important;
-  border: 1px solid #dce8ef !important;
-  background: #fff !important;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) 74px auto !important;
+  gap: 14px !important;
+  align-items: center;
+  padding: 14px 14px !important;
+  margin-bottom: 10px !important;
+
+  border: 1px solid #d7e2ea !important;
+  border-left: 5px solid transparent !important;
+
+  background: #ffffff !important;
+
+  transition:
+    background .18s ease,
+    border-color .18s ease,
+    transform .14s ease;
 }
 
 .employee-chat-user:hover,
@@ -1447,4 +1483,49 @@ button, input, textarea {
 .avatar-edit-btn,
 .profile-back {
   font-size: 14px !important;
+}
+
+
+.employee-login {
+  color: #003b5c;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.employee-fullname {
+  color: #526a78;
+  font-weight: 500;
+
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+
+
+.employee-chat-user-main {
+  min-width: 0;
+  overflow: hidden;
+}
+
+
+
+
+.employee-chat-user.manager-priority::before {
+  content: 'ADMIN';
+
+  position: absolute;
+  top: 8px;
+  right: 8px;
+
+  padding: 2px 7px;
+
+  background: #003b5c;
+
+  color: #ffffff;
+
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .08em;
 }
