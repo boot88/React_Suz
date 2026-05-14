@@ -144,6 +144,8 @@ const EmployeeChat = () => {
   const isEmployee = user?.role === 'employee';
    
   const avatarInputRef = useRef(null); 
+  const profileDirtyRef = useRef(false);
+  const profileLoadedForRef = useRef('');
    
   const [threads, setThreads] = useState({});
   const [selectedEmail, setSelectedEmail] = useState('');
@@ -186,6 +188,17 @@ const EmployeeChat = () => {
   const [isFeedOpen, setIsFeedOpen] = useState(false);
   const messagesWrapRef = useRef(null);
   const forceScrollRef = useRef(false);
+
+  const updateProfileField = useCallback((field, value) => {
+    profileDirtyRef.current = true;
+    setProfileForm((prev) => {
+      const next = { ...prev, [field]: value };
+      if (user?.username) {
+        saveProfileDraft(user.username, { ...next, avatar: avatarUrl });
+      }
+      return next;
+    });
+  }, [avatarUrl, user?.username]);
 
   const [employeeForm, setEmployeeForm] = useState({
     id: null,
@@ -267,21 +280,27 @@ const EmployeeChat = () => {
     if (!mergedProfile.phone) mergedProfile.phone = directoryProfile.phone || directoryProfile.internal_phone || directoryProfile.N_tel || '';
     if (!mergedProfile.room) mergedProfile.room = directoryProfile.room || directoryProfile.cabinet || '';
     if (mode === 'form') {
-      setProfileForm({
-        full_name: mergedProfile.full_name,
-        department: mergedProfile.department,
-        phone: mergedProfile.phone,
-        room: mergedProfile.room,
-        position: mergedProfile.position,
-        bio: mergedProfile.bio,
-        website: mergedProfile.website,
-        statusText: mergedProfile.statusText
-      });
+      const shouldHydrateForm = !profileDirtyRef.current || profileLoadedForRef.current !== login;
+
+      if (shouldHydrateForm) {
+        setProfileForm({
+          full_name: mergedProfile.full_name,
+          department: mergedProfile.department,
+          phone: mergedProfile.phone,
+          room: mergedProfile.room,
+          position: mergedProfile.position,
+          bio: mergedProfile.bio,
+          website: mergedProfile.website,
+          statusText: mergedProfile.statusText
+        });
+        profileLoadedForRef.current = login;
+        saveProfileDraft(login, mergedProfile);
+      }
+
       const nextAvatar = mergedProfile.avatar || '';
       setAvatarUrl(nextAvatar);
       if (nextAvatar) localStorage.setItem(getAvatarKey(user.username), nextAvatar);
       else localStorage.removeItem(getAvatarKey(user.username));
-      saveProfileDraft(login, mergedProfile);
       return;
     }
 
@@ -361,20 +380,18 @@ const EmployeeChat = () => {
   }, [fetchThreads, fetchEmployees]);
 
   useEffect(() => {
-  if (!user?.username) return;
-  if (!isProfileOpen && !isProfilePanelOpen) return;
+    if (!user?.username) return;
+    loadProfile(user.username, 'form').catch((error) => {
+      console.error('Profile bootstrap error:', error);
+    });
+  }, [user?.username]);
 
-  loadProfile(user.username, 'form').catch((error) => {
-    console.error('Profile panel refresh error:', error);
-  });
-}, [isProfileOpen, isProfilePanelOpen]);
-
-  /*useEffect(() => {
+  useEffect(() => {
     if (!user?.username || (!isProfileOpen && !isProfilePanelOpen)) return;
     loadProfile(user.username, 'form').catch((error) => {
       console.error('Profile panel refresh error:', error);
     });
-  }, []);*/
+  }, [isProfileOpen, isProfilePanelOpen, user?.username]);
 
   const chatCandidates = useMemo(() => {
     if (!isManager && !isDirectoryLoaded) {
@@ -614,6 +631,8 @@ const EmployeeChat = () => {
     }
 
     window.alert('Анкета сохранена');
+    profileDirtyRef.current = false;
+    profileLoadedForRef.current = user.username;
     saveProfileDraft(user.username, { ...profileForm, avatar: avatarUrl });
     await fetchEmployees();
     setHeaderName(profileForm.full_name || baseDisplayName);
@@ -808,7 +827,6 @@ const EmployeeChat = () => {
 
   const typingHint = draft.trim().length > 0 ? 'Вы печатаете…' : '';
   const isProfileVisible = isProfileOpen || isProfilePanelOpen;
-  
 
   const addFeedPost = (event) => {
     event.preventDefault();
@@ -853,12 +871,37 @@ const EmployeeChat = () => {
     setCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
   };
 
+  const deleteFeedPost = (postId) => {
+    const post = feedPosts.find((item) => item.id === postId);
+    if (!post) return;
+
+    const canDeletePost = isManager || isAdmin || post.author === user?.username;
+    if (!canDeletePost) return;
+    if (!window.confirm('Удалить публикацию из ленты?')) return;
+
+    persistFeed((prev) => prev.filter((item) => item.id !== postId));
+  };
+
+  const deleteFeedComment = (postId, commentId) => {
+    const post = feedPosts.find((item) => item.id === postId);
+    const comment = post?.comments?.find((item) => item.id === commentId);
+    if (!post || !comment) return;
+
+    const canDeleteComment = isManager || isAdmin || comment.author === user?.username;
+    if (!canDeleteComment) return;
+
+    persistFeed((prev) => prev.map((item) => (
+      item.id === postId
+        ? { ...item, comments: (item.comments || []).filter((commentItem) => commentItem.id !== commentId) }
+        : item
+    )));
+  };
+
   return (
     <div className="employee-chat-layout">
       <aside className={`employee-chat-sidebar ${isProfileVisible ? 'profile-open' : ''}`}>
         <div className="employee-chat-header">
-          
-          
+          <div className={`employee-profile-stack ${isProfileVisible ? 'open' : ''}`}>
           <div className={`employee-avatar-wrap ${isProfileOpen ? 'open' : ''}`}>
 
   {isProfileOpen && (
@@ -930,20 +973,19 @@ const EmployeeChat = () => {
             className="profile-panel-toggle"
             onClick={() => setIsProfilePanelOpen((prev) => !prev)}
           >
-            {isProfilePanelOpen ? 'Скрыть анкету' : 'Анкета / настройки'}
+            Настройки профиля
           </button>
-          {(isProfileOpen || isProfilePanelOpen) && (
+          {(isProfileVisible) && (
             <div className="profile-panel">
-              <h4></h4>
               <form onSubmit={saveMyProfile} className="profile-form">
-                <input placeholder="ФИО" value={profileForm.full_name} onChange={(e) => setProfileForm((prev) => ({ ...prev, full_name: e.target.value }))} />
-                <input placeholder="Должность" value={profileForm.position} onChange={(e) => setProfileForm((prev) => ({ ...prev, position: e.target.value }))} />
-                <input placeholder="Отдел" value={profileForm.department} onChange={(e) => setProfileForm((prev) => ({ ...prev, department: e.target.value }))} />
-                <input placeholder="Кабинет" value={profileForm.room} onChange={(e) => setProfileForm((prev) => ({ ...prev, room: e.target.value }))} />
-                <input placeholder="Внутренний телефон" value={profileForm.phone} onChange={(e) => setProfileForm((prev) => ({ ...prev, phone: e.target.value }))} />
-                <input placeholder="Сайт / соцссылка" value={profileForm.website} onChange={(e) => setProfileForm((prev) => ({ ...prev, website: e.target.value }))} />
-                <input placeholder="Статус (как в соцсети)" value={profileForm.statusText} onChange={(e) => setProfileForm((prev) => ({ ...prev, statusText: e.target.value }))} />
-                <textarea placeholder="О себе" rows={3} value={profileForm.bio} onChange={(e) => setProfileForm((prev) => ({ ...prev, bio: e.target.value }))} />
+                <input placeholder="ФИО" value={profileForm.full_name} onChange={(e) => updateProfileField('full_name', e.target.value)} />
+                <input placeholder="Должность" value={profileForm.position} onChange={(e) => updateProfileField('position', e.target.value)} />
+                <input placeholder="Отдел" value={profileForm.department} onChange={(e) => updateProfileField('department', e.target.value)} />
+                <input placeholder="Кабинет" value={profileForm.room} onChange={(e) => updateProfileField('room', e.target.value)} />
+                <input placeholder="Внутренний телефон" value={profileForm.phone} onChange={(e) => updateProfileField('phone', e.target.value)} />
+                <input placeholder="Сайт / соцссылка" value={profileForm.website} onChange={(e) => updateProfileField('website', e.target.value)} />
+                <input placeholder="Статус (как в соцсети)" value={profileForm.statusText} onChange={(e) => updateProfileField('statusText', e.target.value)} />
+                <textarea placeholder="О себе" rows={3} value={profileForm.bio} onChange={(e) => updateProfileField('bio', e.target.value)} />
                 <button type="submit">Сохранить анкету</button>
               </form>
               <form onSubmit={changeMyPassword} className="profile-password-form">
@@ -953,6 +995,7 @@ const EmployeeChat = () => {
               </form>
             </div>
           )}
+          </div>
         </div>
 
 
@@ -1001,41 +1044,49 @@ const EmployeeChat = () => {
 )}
 
         {isEmployee && !isProfileVisible && (
-          <div className="employee-request-wrapper">
+          <section className={`employee-request-wrapper ${isRequestPanelOpen ? 'open' : ''}`}>
             <button
               type="button"
               className="request-panel-toggle request-primary-toggle"
               onClick={() => setIsRequestPanelOpen((prev) => !prev)}
             >
-              {isRequestPanelOpen ? 'Скрыть заявку' : 'Сообщить о проблеме'}
+              <span className="request-primary-title">
+                {isRequestPanelOpen ? 'Скрыть заявку' : 'Сообщить о проблеме'}
+              </span>
+              <span className="request-primary-subtitle">
+                Заявка менеджеру на ремонт или обслуживание
+              </span>
             </button>
             {isRequestPanelOpen && (
               <form className="employee-request-box" onSubmit={submitRequest}>
-                <h4>🛠Подать заявку</h4>
+                <h4>Служебная заявка</h4>
+                <p className="employee-request-note">Опишите неисправность, кабинет и что требуется проверить.</p>
                 <textarea
-                  rows={3}
-                  placeholder="Описание неисправности..."
+                  rows={4}
+                  placeholder="Например: кабинет 204, не работает принтер, требуется проверка подключения..."
                   value={requestText}
                   onChange={(e) => setRequestText(e.target.value)}
                 />
-                <button type="submit" disabled={!requestText.trim()}>Отправить</button>
+                <button type="submit" disabled={!requestText.trim()}>Отправить заявку</button>
                 {requestStatus && <small>{requestStatus}</small>}
               </form>
             )}
-          </div>
+          </section>
         )}
 
-        <div className="employee-chat-actions">
-          <button
-            type="button"
-            className="request-panel-toggle feed-toggle"
-            onClick={() => setIsFeedOpen((prev) => !prev)}
-          >
-            {isFeedOpen ? 'Закрыть ленту' : 'Открыть ленту'}
-          </button>
-          <button className="clear-btn" onClick={clearConversation} disabled={!selectedEmail}>Удалить переписку</button>
-          {!isAdmin && <button className="logout-btn" onClick={handleLogout}>Выход</button>}
-        </div>
+        {!isProfileVisible && (
+          <div className="employee-chat-actions">
+            <button
+              type="button"
+              className="request-panel-toggle feed-toggle"
+              onClick={() => setIsFeedOpen((prev) => !prev)}
+            >
+              {isFeedOpen ? 'Закрыть ленту' : 'Открыть ленту'}
+            </button>
+            <button className="clear-btn" onClick={clearConversation} disabled={!selectedEmail}>Удалить переписку</button>
+            {!isAdmin && <button className="logout-btn" onClick={handleLogout}>Выход</button>}
+          </div>
+        )}
       </aside>
 
       <section className="employee-chat-main">
@@ -1131,10 +1182,10 @@ const EmployeeChat = () => {
                       </div>
 
                       <div className="message-controls">
-                        <button onClick={() => setReplyTo(message)}>Ответить</button>
-                        <button onClick={() => togglePinned(message.id)}>{message.pinned ? 'Открепить' : 'Закрепить'}</button>
-                        {canEdit && <button onClick={() => editMessage(message.id)}></button>}
-                        {canEdit && <button onClick={() => deleteMessage(message.id)}>Удалить</button>}
+                        <button type="button" onClick={() => setReplyTo(message)}>Ответить</button>
+                        <button type="button" onClick={() => togglePinned(message.id)}>{message.pinned ? 'Открепить' : 'Закрепить'}</button>
+                        {canEdit && <button type="button" onClick={() => editMessage(message.id)}>Изменить</button>}
+                        {canEdit && <button type="button" onClick={() => deleteMessage(message.id)}>Удалить</button>}
                       </div>
                     </div>
                   </div>
@@ -1228,67 +1279,103 @@ const EmployeeChat = () => {
         )}
 
         {isFeedOpen && (
-        <section className="employee-feed-section">
-          <h3>Лента сотрудников</h3>
-          <form className="employee-feed-composer" onSubmit={addFeedPost}>
-            <textarea
-              rows={3}
-              placeholder="Поделитесь новостью, как в твиттере…"
-              value={feedDraft}
-              onChange={(e) => setFeedDraft(e.target.value)}
-            />
-            {feedAttachment && (
-              <div className="employee-feed-attachment-preview">
-                📎 {feedAttachment.name} ({Math.max(1, Math.round(feedAttachment.size / 1024))} КБ)
-                <button type="button" onClick={() => setFeedAttachment(null)}>Убрать</button>
+          <section className="employee-feed-section">
+            <header className="employee-feed-header">
+              <div>
+                <h3>Лента сотрудников</h3>
+                <p>Новости, короткие объявления и рабочие комментарии команды.</p>
               </div>
-            )}
-            <div className="employee-feed-composer-actions">
-              <label>
-                📎 Файл/Фото/Видео
-                <input type="file" hidden onChange={onFeedFileChange} />
-              </label>
-              <button type="submit">Опубликовать</button>
-            </div>
-          </form>
+              <button type="button" className="employee-feed-close" onClick={() => setIsFeedOpen(false)}>Закрыть</button>
+            </header>
 
-          <div className="employee-feed-list">
-            {feedPosts.length === 0 && <div className="empty-chat">Пока нет публикаций.</div>}
-            {feedPosts.map((post) => (
-              <article key={post.id} className="employee-feed-post">
-                <header>
-                  <strong>{post.authorName}</strong>
-                  <small>@{post.author} · {new Date(post.createdAt).toLocaleString('ru-RU')}</small>
-                </header>
-                {post.text && <p>{post.text}</p>}
-                {post.attachment?.dataUrl && (
-                  <div className="employee-feed-attachment">
-                    {String(post.attachment.type || '').startsWith('image/') && <img src={post.attachment.dataUrl} alt={post.attachment.name || 'post-image'} />}
-                    {String(post.attachment.type || '').startsWith('video/') && <video controls src={post.attachment.dataUrl} />}
-                    {!String(post.attachment.type || '').startsWith('image/') && !String(post.attachment.type || '').startsWith('video/') && (
-                      <a href={post.attachment.dataUrl} download={post.attachment.name || 'file'}>📎 {post.attachment.name || 'Файл'}</a>
-                    )}
-                  </div>
-                )}
-                <div className="employee-feed-comments">
-                  {(post.comments || []).map((comment) => (
-                    <div key={comment.id} className="employee-feed-comment">
-                      <strong>{comment.authorName}</strong>: {comment.text}
-                    </div>
-                  ))}
-                  <div className="employee-feed-comment-form">
-                    <input
-                      placeholder="Оставить комментарий…"
-                      value={commentDrafts[post.id] || ''}
-                      onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))}
-                    />
-                    <button type="button" onClick={() => addCommentToPost(post.id)}>Отправить</button>
-                  </div>
+            <form className="employee-feed-composer" onSubmit={addFeedPost}>
+              <textarea
+                rows={4}
+                placeholder="Напишите новость, объявление или короткое сообщение для сотрудников…"
+                value={feedDraft}
+                onChange={(e) => setFeedDraft(e.target.value)}
+              />
+              {feedAttachment && (
+                <div className="employee-feed-attachment-preview">
+                  <span>📎 {feedAttachment.name} ({Math.max(1, Math.round(feedAttachment.size / 1024))} КБ)</span>
+                  <button type="button" onClick={() => setFeedAttachment(null)}>Убрать</button>
                 </div>
-              </article>
-            ))}
-          </div>
-        </section>
+              )}
+              <div className="employee-feed-composer-actions">
+                <label>
+                  📎 Добавить файл / фото / видео
+                  <input type="file" hidden onChange={onFeedFileChange} />
+                </label>
+                <button type="submit" disabled={!feedDraft.trim() && !feedAttachment}>Опубликовать</button>
+              </div>
+            </form>
+
+            <div className="employee-feed-list">
+              {feedPosts.length === 0 && <div className="empty-chat">Пока нет публикаций.</div>}
+              {feedPosts.map((post) => {
+                const canDeletePost = isManager || isAdmin || post.author === user?.username;
+
+                return (
+                  <article key={post.id} className="employee-feed-post">
+                    <header className="employee-feed-post-header">
+                      <div>
+                        <strong>{post.authorName}</strong>
+                        <small>@{post.author} · {new Date(post.createdAt).toLocaleString('ru-RU')}</small>
+                      </div>
+                      {canDeletePost && (
+                        <button type="button" className="employee-feed-delete" onClick={() => deleteFeedPost(post.id)}>
+                          Удалить
+                        </button>
+                      )}
+                    </header>
+
+                    {post.text && <p className="employee-feed-post-text">{post.text}</p>}
+                    {post.attachment?.dataUrl && (
+                      <div className="employee-feed-attachment">
+                        {String(post.attachment.type || '').startsWith('image/') && <img src={post.attachment.dataUrl} alt={post.attachment.name || 'post-image'} />}
+                        {String(post.attachment.type || '').startsWith('video/') && <video controls src={post.attachment.dataUrl} />}
+                        {!String(post.attachment.type || '').startsWith('image/') && !String(post.attachment.type || '').startsWith('video/') && (
+                          <a href={post.attachment.dataUrl} download={post.attachment.name || 'file'}>📎 {post.attachment.name || 'Файл'}</a>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="employee-feed-comments">
+                      <div className="employee-feed-comments-title">Комментарии</div>
+                      {(post.comments || []).length === 0 && <small className="employee-feed-no-comments">Комментариев пока нет.</small>}
+                      {(post.comments || []).map((comment) => {
+                        const canDeleteComment = isManager || isAdmin || comment.author === user?.username;
+
+                        return (
+                          <div key={comment.id} className="employee-feed-comment">
+                            <div className="employee-feed-comment-body">
+                              <strong>{comment.authorName}</strong>
+                              <span>{comment.text}</span>
+                              <small>@{comment.author} · {new Date(comment.createdAt).toLocaleString('ru-RU')}</small>
+                            </div>
+                            {canDeleteComment && (
+                              <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>Удалить</button>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      <div className="employee-feed-comment-form">
+                        <input
+                          placeholder="Оставить комментарий…"
+                          value={commentDrafts[post.id] || ''}
+                          onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))}
+                        />
+                        <button type="button" onClick={() => addCommentToPost(post.id)} disabled={!(commentDrafts[post.id] || '').trim()}>
+                          Отправить
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
         )}
 
         {isManager && (
