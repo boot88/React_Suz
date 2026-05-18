@@ -58,6 +58,169 @@
       "pinned": false,
       "replyTo": null,
       "attachment": null
+    },
+    {
+      "id": "msg_1777972017306_lwjs6qn1a",
+      "sender": "b@b.ru",
+      "text": "акуакуакуакуаку",
+      "createdAt": "2026-05-05T09:06:57.306Z",
+      "editedAt": null,
+      "reactions": {},
+      "pinned": false,
+      "replyTo": null,
+      "attachment": null
+    },
+    {
+      "id": "msg_1777972021025_v8mg045c1",
+      "sender": "b@b.ru",
+      "text": "ук ку куку куку ук",
+      "createdAt": "2026-05-05T09:07:01.025Z",
+      "editedAt": null,
+      "reactions": {},
+      "pinned": false,
+      "replyTo": null,
+      "attachment": null
+    },
+    {
+      "id": "msg_1778143455110_giflxenem",
+      "sender": "b@b.ru",
+      "text": "ыамвыпавыавыававыа",
+      "createdAt": "2026-05-07T08:44:15.110Z",
+      "editedAt": null,
+      "reactions": {},
+      "pinned": false,
+      "replyTo": {
+        "id": "msg_1777972017306_lwjs6qn1a",
+        "sender": "b@b.ru",
+        "text": "акуакуакуакуаку"
+      },
+      "attachment": null
+    }
+  ],
+  "asxsa@ghtr.ret::b@b.ru": [
+    {
+      "id": "msg_1777972032833_8agr2k662",
+      "sender": "b@b.ru",
+      "text": "цуа цуау уац",
+      "createdAt": "2026-05-05T09:07:12.833Z",
+      "editedAt": null,
+      "reactions": {},
+      "pinned": false,
+      "replyTo": null,
+      "attachment": null
+    }
+  ],
+  "b@b.ru::manager_nioh": [
+    {
+      "id": "msg_1778143420743_wqrub40un",
+      "sender": "b@b.ru",
+      "text": "раернекарек",
+      "createdAt": "2026-05-07T08:43:40.743Z",
+      "editedAt": "2026-05-07T08:44:00.310Z",
+      "reactions": {
+        "👍": []
+      },
+      "pinned": false,
+      "replyTo": null,
+      "attachment": null
+    }
+  ],
+  "b@b.ru::f@f.ru": [
+    {
+      "id": "msg_1778143781116_p2ag13ch2",
+      "sender": "f@f.ru",
+      "text": "фывфывфыв",
+      "createdAt": "2026-05-07T08:49:41.116Z",
+      "editedAt": null,
+      "reactions": {},
+      "pinned": false,
+      "replyTo": null,
+      "attachment": null
+    }
+  ],
+  "f@f.ru::j@j.ru": [
+    {
+      "id": "msg_1778143786858_05dvbdrx2",
+      "sender": "f@f.ru",
+      "text": "фывфывыфвф",
+      "createdAt": "2026-05-07T08:49:46.858Z",
+      "editedAt": null,
+      "reactions": {},
+      "pinned": false,
+      "replyTo": null,
+      "attachment": null
+    }
+  ],
+  "b@b.ru::q@q.ru": [
+    {
+      "id": "msg_1778143944267_eac16uwzs",
+      "sender": "q@q.ru",
+      "text": "zxczxczx",
+      "createdAt": "2026-05-07T08:52:24.267Z",
+      "editedAt": null,
+      "reactions": {},
+      "pinned": false,
+      "replyTo": null,
+      "attachment": null
+    },
+    {
+      "id": "msg_1778144031791_dg3za41up",
+      "sender": "b@b.ru",
+      "text": "ваиваиваи",
+      "createdAt": "2026-05-07T08:53:51.791Z",
+      "editedAt": null,
+      "reactions": {},
+      "pinned": false,
+      "replyTo": null,
+      "attachment": null
+    },
+    {
+      "id": "msg_1778144034486_8h1yojhbb",
+      "sender": "b@b.ru",
+      "text": "Хорошего дня! ☀️",
+      "createdAt": "2026-05-07T08:53:54.486Z",
+      "editedAt": null,
+      "reactions": {},
+      "pinned": false,
+      "replyTo": null,
+      "attachment": null
+    }
+  ],
+  "f@f.ru::q@q.ru": [
+    {
+      "id": "msg_1778143950994_5axzdtdgz",
+      "sender": "q@q.ru",
+      "text": "zxczxczxcz",
+      "createdAt": "2026-05-07T08:52:30.994Z",
+      "editedAt": null,
+      "reactions": {},
+      "pinned": false,
+      "replyTo": null,
+      "attachment": null
+    }
+  ],
+  "j@j.ru::q@q.ru": [
+    {
+      "id": "msg_1778143958634_jy8yfl0w2",
+      "sender": "q@q.ru",
+      "text": "zxczxczxc",
+      "createdAt": "2026-05-07T08:52:38.634Z",
+      "editedAt": null,
+      "reactions": {},
+      "pinned": false,
+      "replyTo": null,
+      "attachment": null
+    },
+    {
+      "id": "msg_1778143960716_sw4yq9hmr",
+      "sender": "q@q.ru",
+      "text": "Отлично, договорились ✅",
+      "createdAt": "2026-05-07T08:52:40.716Z",
+      "editedAt": null,
+      "reactions": {},
+      "pinned": false,
+      "replyTo": null,
+      "attachment": null
     }
   ]
 }
