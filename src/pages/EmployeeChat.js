@@ -209,6 +209,7 @@ const EmployeeChat = () => {
   const [requestPriority, setRequestPriority] = useState(REQUEST_PRIORITIES[0]);
   const [requestStatus, setRequestStatus] = useState({ state: 'idle', text: 'Черновик', ticketId: '' });
   const [feedPosts, setFeedPosts] = useState([]);
+  const [feedError, setFeedError] = useState('');
   const [feedDraft, setFeedDraft] = useState('');
   const [feedAttachment, setFeedAttachment] = useState(null);
   const [commentDrafts, setCommentDrafts] = useState({});
@@ -371,15 +372,18 @@ const EmployeeChat = () => {
     }
   }, []);
 
-  const fetchFeed = useCallback(async () => {
+  const fetchFeed = useCallback(async ({ silent = true } = {}) => {
     try {
       const response = await fetch(`${API_BASE_URL}/chat/feed`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось загрузить ленту');
       setFeedPosts(Array.isArray(data?.posts) ? data.posts : []);
+      setFeedError('');
     } catch (error) {
+      const message = error.message || 'Не удалось загрузить ленту';
       console.error('Ошибка загрузки ленты:', error);
-      notify(error.message || 'Не удалось загрузить ленту', 'Лента');
+      setFeedError(message);
+      if (!silent) notify(message, 'Лента');
     }
   }, [notify]);
 
@@ -446,15 +450,20 @@ const EmployeeChat = () => {
   useEffect(() => {
     fetchThreads();
     fetchEmployees();
-    fetchFeed();
+    fetchFeed({ silent: true });
 
     const poller = setInterval(() => {
       fetchThreads();
       fetchEmployees();
-      fetchFeed();
     }, 3000);
+    const feedPoller = setInterval(() => {
+      fetchFeed({ silent: true });
+    }, 30000);
 
-    return () => clearInterval(poller);
+    return () => {
+      clearInterval(poller);
+      clearInterval(feedPoller);
+    };
   }, [fetchThreads, fetchEmployees, fetchFeed]);
 
   useEffect(() => {
@@ -496,11 +505,14 @@ const EmployeeChat = () => {
       .filter((item) => item.login !== user?.username)
       .map((item) => {
         const presence = presenceMap.get(item.login.toLowerCase());
+        const lastSeen = presence?.lastSeen || null;
+        const lastSeenMs = lastSeen ? new Date(lastSeen).getTime() : 0;
+        const isRecentlySeen = Boolean(lastSeenMs) && Date.now() - lastSeenMs < 45000;
         const computedRole = presence?.role || item.role || (item.login.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase() ? 'manager' : 'employee');
         return {
           email: item.login,
-          isOnline: Boolean(presence?.isOnline),
-          lastSeen: presence?.lastSeen || null,
+          isOnline: Boolean(presence?.isOnline) || isRecentlySeen,
+          lastSeen,
           role: computedRole,
           profile: item
         };
@@ -1260,8 +1272,9 @@ const EmployeeChat = () => {
           <section className="employee-feed-section">
             <header className="employee-feed-header">
               <div><span className="eyebrow">Общая серверная лента</span><h2>Лента сотрудников</h2><p>Публикации сохраняются на сервере и доступны всем пользователям.</p></div>
-              <button type="button" onClick={fetchFeed}>Обновить</button>
+              <button type="button" onClick={() => fetchFeed({ silent: false })}>Обновить</button>
             </header>
+            {feedError && <div className="feed-status-warning">Лента временно недоступна: {feedError}</div>}
             <form className="employee-feed-composer" onSubmit={addFeedPost}>
               <textarea rows={4} placeholder="Новость, объявление или рабочая заметка..." value={feedDraft} onChange={(e) => setFeedDraft(e.target.value)} />
               {feedAttachment && <div className="employee-feed-attachment-preview"><span>{getFileIcon(feedAttachment.type)} {feedAttachment.name}</span><button type="button" onClick={() => setFeedAttachment(null)}>Убрать</button></div>}

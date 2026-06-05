@@ -686,6 +686,15 @@ button:disabled {
   overflow: hidden;
 }
 
+.feed-status-warning {
+  border: 1px solid rgba(168, 95, 61, .35);
+  border-radius: var(--chat-radius-md);
+  background: rgba(168, 95, 61, .10);
+  color: var(--chat-accent-2);
+  padding: 10px 12px;
+  font-weight: 800;
+}
+
 .employee-feed-list,
 .manager-list,
 .threads-list {

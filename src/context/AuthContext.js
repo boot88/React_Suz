@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext } from 'react';
+import { useState, useEffect, useCallback, createContext, useContext } from 'react';
 import { useInactivityTimer } from '../hooks/useInactivityTimer';
 import { ADMIN_CREDENTIALS, MANAGER_CREDENTIALS, AUTH_STATE_KEY, LOCAL_EMPLOYEES_KEY } from '../config/authConfig';
 import { API_BASE_URL } from '../utils/apiConfig';
@@ -65,6 +65,26 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [employeeDirectory, setEmployeeDirectory] = useState([]);
+
+  const mergeEmployeeDirectory = useCallback((items) => {
+    const nextItems = Array.isArray(items) ? items : [];
+    setEmployeeDirectory((prev) => {
+      const merged = new Map((prev || []).map((item) => [String(item.email || '').toLowerCase(), item]));
+      nextItems.forEach((item) => {
+        const email = String(item.email || item.login || '').toLowerCase();
+        if (!email) return;
+        merged.set(email, {
+          ...(merged.get(email) || {}),
+          ...item,
+          email,
+          isOnline: Boolean(item.isOnline),
+          lastSeen: item.lastSeen || merged.get(email)?.lastSeen || null,
+          role: item.role || merged.get(email)?.role || 'employee'
+        });
+      });
+      return [...merged.values()];
+    });
+  }, []);
 
   const persistAuthState = (nextUser) => {
     if (!nextUser) {
@@ -139,7 +159,7 @@ export const AuthProvider = ({ children }) => {
     };
 
     const nextEmployees = upsertEmployeeOnlineStatus(employeeUser.username, true);
-    setEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
+    mergeEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
 
     setIsAuthenticated(true);
     setUser(employeeUser);
@@ -189,7 +209,7 @@ export const AuthProvider = ({ children }) => {
     if (user?.username) {
       if (user?.role === 'employee') {
         const nextEmployees = upsertEmployeeOnlineStatus(user.username, false);
-        setEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
+        mergeEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
       }
       pushPresenceToServer({ login: user.username, isOnline: false, role: user.role || 'employee' });
     }
@@ -248,13 +268,14 @@ export const AuthProvider = ({ children }) => {
         saveEmployees(normalizedEmployees);
       }
 
-      setEmployeeDirectory(
+      mergeEmployeeDirectory(
         normalizedEmployees
           .filter((item) => item.isVerified)
           .map((item) => ({
             email: item.email,
             isOnline: Boolean(item.isOnline),
-            lastSeen: item.lastSeen || null
+            lastSeen: item.lastSeen || null,
+            role: item.role || 'employee'
           }))
       );
     };
@@ -269,7 +290,7 @@ export const AuthProvider = ({ children }) => {
 
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
-  }, []);
+  }, [mergeEmployeeDirectory]);
 
   useEffect(() => {
     try {
@@ -288,24 +309,34 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     if (!user?.username) return undefined;
 
+    const markOnline = () => {
+      const nextEmployees = upsertEmployeeOnlineStatus(user.username, true);
+      const currentEmployee = nextEmployees.find((item) => item.email.toLowerCase() === user.username.toLowerCase());
+      if (currentEmployee) {
+        mergeEmployeeDirectory([{ ...currentEmployee, role: user.role || 'employee' }]);
+      }
+      pushPresenceToServer({ login: user.username, isOnline: true, role: user.role || 'employee' });
+    };
+
     const markOffline = () => {
-      upsertEmployeeOnlineStatus(user.username, false);
+      const nextEmployees = upsertEmployeeOnlineStatus(user.username, false);
+      const currentEmployee = nextEmployees.find((item) => item.email.toLowerCase() === user.username.toLowerCase());
+      if (currentEmployee) {
+        mergeEmployeeDirectory([{ ...currentEmployee, role: user.role || 'employee' }]);
+      }
       pushPresenceToServer({ login: user.username, isOnline: false, role: user.role || 'employee' });
     };
 
+    markOnline();
     window.addEventListener('beforeunload', markOffline);
 
-    const heartbeat = setInterval(() => {
-      const nextEmployees = upsertEmployeeOnlineStatus(user.username, true);
-      setEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
-      pushPresenceToServer({ login: user.username, isOnline: true, role: user.role || 'employee' });
-    }, 20000);
+    const heartbeat = setInterval(markOnline, 15000);
 
     return () => {
       clearInterval(heartbeat);
       window.removeEventListener('beforeunload', markOffline);
     };
-  }, [user]);
+  }, [mergeEmployeeDirectory, user]);
 
   return (
     <AuthContext.Provider
