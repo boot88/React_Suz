@@ -6,17 +6,23 @@ import './EmployeeChat.css';
 
 const CHAT_READ_STATE_KEY = 'chatReadState';
 const EMPLOYEE_DIRECTORY_CACHE_KEY = 'employeeDirectoryCache';
-const EMPLOYEE_FEED_KEY = 'employeeSocialFeed';
-const EMPLOYEE_CHAT_THEME_KEY = 'employeeChatDesignVariant';
 const MANAGER_TEMPLATE_MESSAGES = ['✅ Принято в работу', '🔧 Проверяю сейчас', '👍 Спасибо, получил', '📌 Уточните, пожалуйста, детали', '⏱️ Вернусь с ответом в течение 15 минут', '🧩 Проблема воспроизведена, исправляю'];
 const EMPLOYEE_TEMPLATE_MESSAGES = ['Привет! 👋', 'Как дела? 🙂', 'Спасибо большое! 🙏', 'Отлично, договорились ✅', 'Я на месте, можем созвониться? 📞', 'Хорошего дня! ☀️'];
 const REACTION_EMOJIS = ['👍', '✅', '🔧'];
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
-const EMPLOYEE_CHAT_THEMES = [
-  { id: 'aurora', label: 'Aurora', caption: 'мягкий свет' },
-  { id: 'graphite', label: 'Graphite', caption: 'тёмный фокус' },
-  { id: 'paper', label: 'Paper', caption: 'редакционный стиль' }
+const EMPLOYEE_TABS = [
+  { id: 'chat', label: 'Чат' },
+  { id: 'request', label: 'Заявка' },
+  { id: 'feed', label: 'Лента' },
+  { id: 'profile', label: 'Профиль' }
 ];
+const MANAGER_TABS = [
+  ...EMPLOYEE_TABS,
+  { id: 'employees', label: 'Сотрудники' },
+  { id: 'audit', label: 'Аудит' }
+];
+const REQUEST_CATEGORIES = ['Техника', 'Сеть', 'ПО', 'Доступы', 'Другое'];
+const REQUEST_PRIORITIES = ['Обычный', 'Важный', 'Срочный'];
 
 const getConversationId = (a, b) => [a.toLowerCase(), b.toLowerCase()].sort().join('::');
 const getParticipantsFromThreadId = (threadId = '') => threadId.split('::').filter(Boolean);
@@ -97,33 +103,6 @@ const saveProfileDraft = (username, profile) => {
   }
 };
 
-const readFeedPosts = () => {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(EMPLOYEE_FEED_KEY) || '[]');
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
-
-
-const readSavedChatTheme = () => {
-  try {
-    const savedTheme = localStorage.getItem(EMPLOYEE_CHAT_THEME_KEY);
-    return EMPLOYEE_CHAT_THEMES.some((theme) => theme.id === savedTheme) ? savedTheme : EMPLOYEE_CHAT_THEMES[0].id;
-  } catch {
-    return EMPLOYEE_CHAT_THEMES[0].id;
-  }
-};
-
-const saveChatTheme = (themeId) => {
-  try {
-    localStorage.setItem(EMPLOYEE_CHAT_THEME_KEY, themeId);
-  } catch {
-    // noop
-  }
-};
-
 const processAvatar = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => {
@@ -160,12 +139,37 @@ const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
   reader.readAsDataURL(file);
 });
 
+
+const normalizeText = (value = '') => String(value || '').toLowerCase().trim();
+
+const formatDateLabel = (dateValue) => {
+  const date = new Date(dateValue);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  const key = date.toDateString();
+  if (key === today.toDateString()) return 'Сегодня';
+  if (key === yesterday.toDateString()) return 'Вчера';
+  return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+};
+
+const getDateKey = (dateValue) => new Date(dateValue).toDateString();
+
+const getFileIcon = (type = '') => {
+  if (type.startsWith('image/')) return '🖼️';
+  if (type.startsWith('video/')) return '🎬';
+  if (type.includes('pdf')) return '📕';
+  if (type.includes('word')) return '📘';
+  if (type.includes('excel') || type.includes('sheet')) return '📗';
+  return '📎';
+};
+
 const EmployeeChat = () => {
   const { user, logout, employeeDirectory } = useAuth();
   const isManager = user?.role === 'manager' || user?.role === 'admin';
   const baseDisplayName = user?.name || user?.username || 'Сотрудник';
   const isAdmin = user?.role === 'admin';
-  const isEmployee = user?.role === 'employee';
    
   const avatarInputRef = useRef(null); 
   const profileDirtyRef = useRef(false);
@@ -175,11 +179,10 @@ const EmployeeChat = () => {
   const [selectedEmail, setSelectedEmail] = useState('');
   const [selectedThreadId, setSelectedThreadId] = useState('');
   const [draft, setDraft] = useState('');
-  const [attachmentDraft, setAttachmentDraft] = useState(null);
+  const [attachmentDrafts, setAttachmentDrafts] = useState([]);
   const [search, setSearch] = useState('');
-  
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isAvatarFull, setIsAvatarFull] = useState(false);
+  const [dialogSearch, setDialogSearch] = useState('');
+  const [activeTab, setActiveTab] = useState('chat');
   
   const [replyTo, setReplyTo] = useState(null);
   const [readState, setReadState] = useState(() => readReadState(user?.username || 'guest'));
@@ -187,8 +190,7 @@ const EmployeeChat = () => {
   const [isDirectoryLoaded, setIsDirectoryLoaded] = useState(() => readDirectoryCache().length > 0);
   const [avatarUrl, setAvatarUrl] = useState('');
   const [headerName, setHeaderName] = useState(baseDisplayName);
-  const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
-  const [isProfilePanelOpen, setIsProfilePanelOpen] = useState(false);
+  const [avatarViewerOpen, setAvatarViewerOpen] = useState(false);
   const [profileViewLogin, setProfileViewLogin] = useState('');
   const [profilePreview, setProfilePreview] = useState(null);
   const [profileForm, setProfileForm] = useState({
@@ -203,21 +205,42 @@ const EmployeeChat = () => {
   });
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
   const [requestText, setRequestText] = useState('');
-  const [requestStatus, setRequestStatus] = useState('');
-  const [isRequestPanelOpen, setIsRequestPanelOpen] = useState(false);
-  const [feedPosts, setFeedPosts] = useState(() => readFeedPosts());
+  const [requestCategory, setRequestCategory] = useState(REQUEST_CATEGORIES[0]);
+  const [requestPriority, setRequestPriority] = useState(REQUEST_PRIORITIES[0]);
+  const [requestStatus, setRequestStatus] = useState({ state: 'idle', text: 'Черновик', ticketId: '' });
+  const [feedPosts, setFeedPosts] = useState([]);
   const [feedDraft, setFeedDraft] = useState('');
   const [feedAttachment, setFeedAttachment] = useState(null);
   const [commentDrafts, setCommentDrafts] = useState({});
-  const [isFeedOpen, setIsFeedOpen] = useState(false);
-  const [chatTheme, setChatTheme] = useState(() => readSavedChatTheme());
+  const [modal, setModal] = useState(null);
+  const modalResolverRef = useRef(null);
   const messagesWrapRef = useRef(null);
   const forceScrollRef = useRef(false);
 
-  const selectChatTheme = useCallback((themeId) => {
-    setChatTheme(themeId);
-    saveChatTheme(themeId);
+  const openModal = useCallback((config) => new Promise((resolve) => {
+    modalResolverRef.current = resolve;
+    setModal({ value: config.defaultValue || '', ...config });
+  }), []);
+
+  const closeModal = useCallback((result) => {
+    const resolver = modalResolverRef.current;
+    modalResolverRef.current = null;
+    setModal(null);
+    if (resolver) resolver(result);
   }, []);
+
+  const notify = useCallback((message, title = 'Готово') => {
+    setModal({ type: 'info', title, message });
+  }, []);
+
+  const confirmAction = useCallback((message, title = 'Подтверждение') => openModal({ type: 'confirm', title, message }), [openModal]);
+
+  const promptAction = useCallback((message, defaultValue = '', title = 'Редактирование') => openModal({
+    type: 'prompt',
+    title,
+    message,
+    defaultValue
+  }), [openModal]);
 
   const updateProfileField = useCallback((field, value) => {
     profileDirtyRef.current = true;
@@ -348,6 +371,29 @@ const EmployeeChat = () => {
     }
   }, []);
 
+  const fetchFeed = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/chat/feed`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Не удалось загрузить ленту');
+      setFeedPosts(Array.isArray(data?.posts) ? data.posts : []);
+    } catch (error) {
+      console.error('Ошибка загрузки ленты:', error);
+      notify(error.message || 'Не удалось загрузить ленту', 'Лента');
+    }
+  }, [notify]);
+
+  const persistFeedPosts = useCallback(async (nextPosts) => {
+    const response = await fetch(`${API_BASE_URL}/chat/feed`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ posts: nextPosts })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || 'Не удалось сохранить ленту');
+    setFeedPosts(Array.isArray(data?.posts) ? data.posts : nextPosts);
+  }, []);
+
   const fetchEmployees = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/auth/employees`);
@@ -400,28 +446,30 @@ const EmployeeChat = () => {
   useEffect(() => {
     fetchThreads();
     fetchEmployees();
+    fetchFeed();
 
     const poller = setInterval(() => {
       fetchThreads();
       fetchEmployees();
+      fetchFeed();
     }, 3000);
 
     return () => clearInterval(poller);
-  }, [fetchThreads, fetchEmployees]);
+  }, [fetchThreads, fetchEmployees, fetchFeed]);
 
   useEffect(() => {
     if (!user?.username) return;
     loadProfile(user.username, 'form').catch((error) => {
       console.error('Profile bootstrap error:', error);
     });
-  }, [user?.username]);
+  }, [loadProfile, user?.username]);
 
   useEffect(() => {
-    if (!user?.username || (!isProfileOpen && !isProfilePanelOpen)) return;
+    if (!user?.username || activeTab !== 'profile') return;
     loadProfile(user.username, 'form').catch((error) => {
       console.error('Profile panel refresh error:', error);
     });
-  }, [isProfileOpen, isProfilePanelOpen, user?.username]);
+  }, [activeTab, loadProfile, user?.username]);
 
   const chatCandidates = useMemo(() => {
     if (!isManager && !isDirectoryLoaded) {
@@ -468,11 +516,25 @@ const EmployeeChat = () => {
         if (aOnline !== bOnline) return bOnline - aOnline;
         return a.email.localeCompare(b.email);
       });
-  }, [directoryEmployees, employeeDirectory, isDirectoryLoaded, user?.username]);
+  }, [directoryEmployees, employeeDirectory, isDirectoryLoaded, isManager, user?.username]);
 
   const availableEmployees = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
-    return chatCandidates.filter((item) => !normalizedSearch || item.email.toLowerCase().includes(normalizedSearch));
+    const normalizedSearch = normalizeText(search);
+    return chatCandidates.filter((item) => {
+      if (!normalizedSearch) return true;
+      const profile = item.profile || {};
+      return [
+        item.email,
+        item.role,
+        profile.full_name,
+        profile.department,
+        profile.position,
+        profile.phone,
+        profile.room,
+        profile.cabinet,
+        profile.N_tel
+      ].some((value) => normalizeText(value).includes(normalizedSearch));
+    });
   }, [chatCandidates, search]);
 
   const unreadByEmail = useMemo(() => {
@@ -488,13 +550,13 @@ const EmployeeChat = () => {
   }, [chatCandidates, readState, threads, user.username]);
 
   useEffect(() => {
-    if (!selectedEmail && chatCandidates.length > 0) setSelectedEmail(chatCandidates[0].email);
-  }, [chatCandidates, selectedEmail]);
-
-  useEffect(() => {
     if (!selectedEmail) return;
     if (!chatCandidates.some((item) => item.email === selectedEmail)) setSelectedEmail('');
   }, [chatCandidates, selectedEmail]);
+
+  useEffect(() => {
+    if (selectedEmail) setActiveTab('chat');
+  }, [selectedEmail]);
 
   useEffect(() => {
     if (!currentConversationId) return;
@@ -543,11 +605,11 @@ const EmployeeChat = () => {
     if (!file) return;
 
     if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
-      window.alert('Разрешены только PNG, JPG, WEBP.');
+      notify('Разрешены только PNG, JPG, WEBP.', 'Фото профиля');
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
-      window.alert('Фото слишком большое. Рекомендуется до 5MB.');
+      notify('Фото слишком большое. Рекомендуется до 5MB.', 'Фото профиля');
       return;
     }
 
@@ -569,7 +631,7 @@ const EmployeeChat = () => {
       }
       localStorage.setItem(getAvatarKey(user.username), optimizedAvatar);
     } catch {
-      window.alert('Не удалось обработать изображение. Попробуйте другое фото.');
+      notify('Не удалось обработать изображение. Попробуйте другое фото.', 'Фото профиля');
     }
   };
 
@@ -585,7 +647,7 @@ const EmployeeChat = () => {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      window.alert(data.message || 'Не удалось удалить аватар');
+      notify(data.message || 'Не удалось удалить аватар', 'Фото профиля');
       return;
     }
     setAvatarUrl('');
@@ -594,52 +656,68 @@ const EmployeeChat = () => {
 
   const handleSend = async (e) => {
     e.preventDefault();
-    if ((!draft.trim() && !attachmentDraft) || !currentConversationId) return;
+    if ((!draft.trim() && attachmentDrafts.length === 0) || !currentConversationId) return;
 
     const newMessage = {
       id: createMessageId(),
       sender: user.username,
-      text: draft.trim() || (attachmentDraft ? '📎 Файл' : ''),
+      text: draft.trim() || (attachmentDrafts.length ? '📎 Вложения' : ''),
       createdAt: new Date().toISOString(),
       editedAt: null,
       reactions: {},
       pinned: false,
       replyTo: replyTo ? { id: replyTo.id, sender: replyTo.sender, text: replyTo.text } : null,
-      attachment: attachmentDraft
+      attachment: attachmentDrafts[0] || null,
+      attachments: attachmentDrafts
     };
 
     try {
       forceScrollRef.current = true;
       await persistThreadMessages(currentConversationId, [...currentMessages, newMessage]);
       setDraft('');
-      setAttachmentDraft(null);
+      setAttachmentDrafts([]);
       setReplyTo(null);
     } catch (error) {
-      window.alert(error.message || 'Не удалось отправить сообщение');
+      notify(error.message || 'Не удалось отправить сообщение', 'Сообщение');
     }
   };
 
   const handleAttachmentChange = async (event) => {
-    const file = event.target.files?.[0];
+    const files = Array.from(event.target.files || []);
     event.target.value = '';
-    if (!file) return;
+    if (!files.length) return;
 
-    if (file.size > MAX_ATTACHMENT_SIZE) {
-      window.alert('Файл слишком большой. Максимум 10 МБ.');
+    const tooLarge = files.find((file) => file.size > MAX_ATTACHMENT_SIZE);
+    if (tooLarge) {
+      notify(`Файл ${tooLarge.name} слишком большой. Максимум 10 МБ.`, 'Вложения');
       return;
     }
 
     try {
-      const dataUrl = await readFileAsDataUrl(file);
-      setAttachmentDraft({
+      const preparedFiles = await Promise.all(files.map(async (file) => ({
         name: file.name,
         type: file.type || 'application/octet-stream',
         size: file.size,
-        dataUrl
-      });
+        dataUrl: await readFileAsDataUrl(file)
+      })));
+      setAttachmentDrafts((prev) => [...prev, ...preparedFiles]);
     } catch {
-      window.alert('Не удалось прикрепить файл.');
+      notify('Не удалось прикрепить файл.', 'Вложения');
     }
+  };
+
+  const handleAttachmentDrop = (event) => {
+    event.preventDefault();
+    handleAttachmentChange({
+      target: {
+        files: event.dataTransfer.files,
+        value: ''
+      }
+    });
+  };
+
+  const removeAttachmentDraft = (indexToRemove) => {
+    setAttachmentDrafts((prev) => prev.filter((_, index) => index !== indexToRemove));
   };
 
   const saveMyProfile = async (event) => {
@@ -656,11 +734,11 @@ const EmployeeChat = () => {
 
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      window.alert(data.message || 'Не удалось сохранить анкету');
+      notify(data.message || 'Не удалось сохранить анкету', 'Профиль');
       return;
     }
 
-    window.alert('Анкета сохранена');
+    notify('Анкета сохранена', 'Профиль');
     profileDirtyRef.current = false;
     profileLoadedForRef.current = user.username;
     saveProfileDraft(user.username, { ...profileForm, avatar: avatarUrl });
@@ -681,10 +759,10 @@ const EmployeeChat = () => {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      window.alert(data.message || 'Не удалось сменить пароль');
+      notify(data.message || 'Не удалось сменить пароль', 'Пароль');
       return;
     }
-    window.alert('Пароль обновлён');
+    notify('Пароль обновлён', 'Пароль');
     setPasswordForm({ currentPassword: '', newPassword: '' });
   };
 
@@ -693,14 +771,14 @@ const EmployeeChat = () => {
       await loadProfile(login, 'preview');
       setProfileViewLogin(login);
     } catch (error) {
-      window.alert(error.message || 'Не удалось открыть профиль сотрудника');
+      notify(error.message || 'Не удалось открыть профиль сотрудника', 'Профиль');
     }
   };
 
   const submitRequest = async (event) => {
     event.preventDefault();
     if (!requestText.trim()) return;
-    setRequestStatus('Отправка...');
+    setRequestStatus({ state: 'sending', text: 'Отправка заявки...', ticketId: '' });
     let lastError = null;
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -712,7 +790,9 @@ const EmployeeChat = () => {
             name: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
             cabinet: profileForm.room || '',
             N_tel: profileForm.phone || '',
-            application: requestText.trim(),
+            application: `[${requestCategory} / ${requestPriority}] ${requestText.trim()}`,
+            category: requestCategory,
+            priority: requestPriority,
             process: '',
             executor: '',
             fl: false
@@ -722,7 +802,7 @@ const EmployeeChat = () => {
         if (!response.ok) {
           throw new Error(data.error || data.message || 'Не удалось отправить заявку');
         }
-        setRequestStatus('Заявка отправлена. Статус: в работе.');
+        setRequestStatus({ state: 'sent', text: 'Заявка отправлена. Статус: в работе.', ticketId: data?.id || data?.insertId || createMessageId().slice(0, 8) });
         setRequestText('');
         return;
       } catch (error) {
@@ -733,7 +813,7 @@ const EmployeeChat = () => {
       }
     }
 
-    setRequestStatus(lastError?.message || 'Ошибка сети при отправке заявки. Попробуйте ещё раз.');
+    setRequestStatus({ state: 'error', text: lastError?.message || 'Ошибка сети при отправке заявки. Попробуйте ещё раз.', ticketId: '' });
   };
 
   const updateMessage = async (messageId, updater, targetConversationId = currentConversationId) => {
@@ -753,7 +833,7 @@ const EmployeeChat = () => {
         return { ...item, reactions };
       }, targetConversationId);
     } catch (error) {
-      window.alert(error.message || 'Не удалось поставить реакцию');
+      notify(error.message || 'Не удалось поставить реакцию', 'Реакция');
     }
   };
 
@@ -761,7 +841,7 @@ const EmployeeChat = () => {
     try {
       await updateMessage(messageId, (item) => ({ ...item, pinned: !item.pinned }), targetConversationId);
     } catch (error) {
-      window.alert(error.message || 'Не удалось закрепить сообщение');
+      notify(error.message || 'Не удалось закрепить сообщение', 'Закрепление');
     }
   };
 
@@ -771,23 +851,26 @@ const EmployeeChat = () => {
     try {
       await persistThreadMessages(targetConversationId, nextMessages);
     } catch (error) {
-      window.alert(error.message || 'Не удалось удалить сообщение');
+      notify(error.message || 'Не удалось удалить сообщение', 'Сообщение');
     }
   };
 
   const editMessage = async (messageId, targetConversationId = currentConversationId) => {
-    const nextText = window.prompt('Изменить сообщение:');
+    const sourceMessage = (threads[targetConversationId] || []).find((item) => item.id === messageId);
+    const nextText = await promptAction('Изменить текст сообщения:', sourceMessage?.text || '');
     if (!nextText || !targetConversationId) return;
 
     try {
-      await updateMessage(messageId, (item) => ({ ...item, text: nextText.trim(), editedAt: new Date().toISOString() }), targetConversationId);
+      await updateMessage(messageId, (item) => ({ ...item, text: String(nextText).trim(), editedAt: new Date().toISOString() }), targetConversationId);
     } catch (error) {
-      window.alert(error.message || 'Не удалось изменить сообщение');
+      notify(error.message || 'Не удалось изменить сообщение', 'Сообщение');
     }
   };
 
   const clearConversation = async () => {
-    if (!currentConversationId || !window.confirm('Удалить всю переписку с этим сотрудником?')) return;
+    if (!currentConversationId) return;
+    const confirmed = await confirmAction('Удалить всю переписку с этим сотрудником? Это действие нельзя отменить.', 'Удаление переписки');
+    if (!confirmed) return;
 
     try {
       const response = await fetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(currentConversationId)}`, { method: 'DELETE' });
@@ -795,14 +878,14 @@ const EmployeeChat = () => {
       if (!response.ok) throw new Error(data.message || 'Не удалось удалить переписку');
       if (data?.threads) setThreads(data.threads);
     } catch (error) {
-      window.alert(error.message || 'Не удалось удалить переписку');
+      notify(error.message || 'Не удалось удалить переписку', 'Переписка');
     }
   };
 
   const saveEmployee = async (e) => {
     e.preventDefault();
     if (!employeeForm.login.trim() || (!employeeForm.id && !employeeForm.password.trim())) {
-      window.alert('Укажите логин и пароль (для нового сотрудника).');
+      notify('Укажите логин и пароль (для нового сотрудника).', 'Сотрудники');
       return;
     }
 
@@ -827,7 +910,7 @@ const EmployeeChat = () => {
 
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      window.alert(data.message || 'Не удалось сохранить сотрудника');
+      notify(data.message || 'Не удалось сохранить сотрудника', 'Сотрудники');
       return;
     }
 
@@ -836,29 +919,51 @@ const EmployeeChat = () => {
   };
 
   const deleteEmployee = async (employeeId) => {
-    if (!window.confirm('Удалить сотрудника?')) return;
+    const confirmed = await confirmAction('Удалить сотрудника? Его учётная запись будет удалена.', 'Удаление сотрудника');
+    if (!confirmed) return;
     const response = await fetch(`${API_BASE_URL}/auth/employees/${employeeId}`, { method: 'DELETE' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      window.alert(data.message || 'Не удалось удалить сотрудника');
+      notify(data.message || 'Не удалось удалить сотрудника', 'Сотрудники');
       return;
     }
     await fetchEmployees();
   };
 
   const allConversationIds = useMemo(() => Object.keys(threads).sort(), [threads]);
-  const persistFeed = useCallback((updater) => {
-    setFeedPosts((prev) => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      localStorage.setItem(EMPLOYEE_FEED_KEY, JSON.stringify(next));
-      return next;
-    });
-  }, []);
 
   const typingHint = draft.trim().length > 0 ? 'Вы печатаете…' : '';
-  const isProfileVisible = isProfileOpen || isProfilePanelOpen;
+  const tabs = isManager ? MANAGER_TABS : EMPLOYEE_TABS;
+  const unreadTotal = Object.values(unreadByEmail).reduce((sum, count) => sum + count, 0);
+  const feedBadge = feedPosts.filter((post) => post.author !== user?.username).length;
+  const requestBadge = requestStatus.state === 'sent' ? 1 : 0;
+  const activeContact = chatCandidates.find((item) => item.email === selectedEmail);
+  const normalizedDialogSearch = normalizeText(dialogSearch);
+  const visibleMessages = useMemo(() => (
+    normalizedDialogSearch
+      ? currentMessages.filter((message) => [
+        message.text,
+        message.sender,
+        message.attachment?.name,
+        ...(message.attachments || []).map((item) => item.name)
+      ].some((value) => normalizeText(value).includes(normalizedDialogSearch)))
+      : currentMessages
+  ), [currentMessages, normalizedDialogSearch]);
+  const messagesWithDateSeparators = useMemo(() => {
+    let lastDateKey = '';
+    return visibleMessages.flatMap((message) => {
+      const currentDateKey = getDateKey(message.createdAt);
+      const items = [];
+      if (currentDateKey !== lastDateKey) {
+        items.push({ type: 'date', id: `date-${currentDateKey}`, label: formatDateLabel(message.createdAt) });
+        lastDateKey = currentDateKey;
+      }
+      items.push({ type: 'message', id: message.id, message });
+      return items;
+    });
+  }, [visibleMessages]);
 
-  const addFeedPost = (event) => {
+  const addFeedPost = async (event) => {
     event.preventDefault();
     if (!feedDraft.trim() && !feedAttachment) return;
     const post = {
@@ -870,9 +975,13 @@ const EmployeeChat = () => {
       createdAt: new Date().toISOString(),
       comments: []
     };
-    persistFeed((prev) => [post, ...prev]);
-    setFeedDraft('');
-    setFeedAttachment(null);
+    try {
+      await persistFeedPosts([post, ...feedPosts]);
+      setFeedDraft('');
+      setFeedAttachment(null);
+    } catch (error) {
+      notify(error.message || 'Не удалось опубликовать запись', 'Лента');
+    }
   };
 
   const onFeedFileChange = async (event) => {
@@ -880,14 +989,14 @@ const EmployeeChat = () => {
     event.target.value = '';
     if (!file) return;
     if (file.size > MAX_ATTACHMENT_SIZE) {
-      window.alert('Файл слишком большой. Максимум 10 МБ.');
+      notify('Файл слишком большой. Максимум 10 МБ.', 'Вложения');
       return;
     }
     const dataUrl = await readFileAsDataUrl(file);
     setFeedAttachment({ name: file.name, type: file.type || 'application/octet-stream', size: file.size, dataUrl });
   };
 
-  const addCommentToPost = (postId) => {
+  const addCommentToPost = async (postId) => {
     const text = (commentDrafts[postId] || '').trim();
     if (!text) return;
     const comment = {
@@ -897,22 +1006,32 @@ const EmployeeChat = () => {
       text,
       createdAt: new Date().toISOString()
     };
-    persistFeed((prev) => prev.map((post) => (post.id === postId ? { ...post, comments: [...(post.comments || []), comment] } : post)));
-    setCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
+    const nextPosts = feedPosts.map((post) => (post.id === postId ? { ...post, comments: [...(post.comments || []), comment] } : post));
+    try {
+      await persistFeedPosts(nextPosts);
+      setCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
+    } catch (error) {
+      notify(error.message || 'Не удалось добавить комментарий', 'Лента');
+    }
   };
 
-  const deleteFeedPost = (postId) => {
+  const deleteFeedPost = async (postId) => {
     const post = feedPosts.find((item) => item.id === postId);
     if (!post) return;
 
     const canDeletePost = isManager || isAdmin || post.author === user?.username;
     if (!canDeletePost) return;
-    if (!window.confirm('Удалить публикацию из ленты?')) return;
+    const confirmed = await confirmAction('Удалить публикацию из общей ленты?', 'Лента');
+    if (!confirmed) return;
 
-    persistFeed((prev) => prev.filter((item) => item.id !== postId));
+    try {
+      await persistFeedPosts(feedPosts.filter((item) => item.id !== postId));
+    } catch (error) {
+      notify(error.message || 'Не удалось удалить публикацию', 'Лента');
+    }
   };
 
-  const deleteFeedComment = (postId, commentId) => {
+  const deleteFeedComment = async (postId, commentId) => {
     const post = feedPosts.find((item) => item.id === postId);
     const comment = post?.comments?.find((item) => item.id === commentId);
     if (!post || !comment) return;
@@ -920,505 +1039,244 @@ const EmployeeChat = () => {
     const canDeleteComment = isManager || isAdmin || comment.author === user?.username;
     if (!canDeleteComment) return;
 
-    persistFeed((prev) => prev.map((item) => (
+    const nextPosts = feedPosts.map((item) => (
       item.id === postId
         ? { ...item, comments: (item.comments || []).filter((commentItem) => commentItem.id !== commentId) }
         : item
-    )));
+    ));
+    try {
+      await persistFeedPosts(nextPosts);
+    } catch (error) {
+      notify(error.message || 'Не удалось удалить комментарий', 'Лента');
+    }
   };
 
   return (
-    <div className={`employee-chat-layout employee-theme-${chatTheme}`}>
-      <aside className={`employee-chat-sidebar ${isProfileVisible ? 'profile-open' : ''}`}>
-        <div className="employee-chat-header">
-          <div className={`employee-profile-stack ${isProfileVisible ? 'open' : ''}`}>
-          <div className={`employee-avatar-wrap ${isProfileOpen ? 'open' : ''}`}>
-
-  {isProfileOpen && (
-    <button
-      className="profile-back"
-      onClick={() => {
-        setIsProfileOpen(false);
-        setIsProfilePanelOpen(false);
-        setIsAvatarFull(false);
-      }}
-    >
-      ← Профиль
-    </button>
-  )}
-
-  <button
-    type="button"
-    className="employee-avatar-upload"
-    onClick={() => {
-      if (isProfileOpen) {
-        setIsAvatarFull(true);
-      } else {
-        setIsProfileOpen(true);
-        setIsProfilePanelOpen(true);
-      }
-    }}
-  >
-    {avatarUrl
-      ? <img src={avatarUrl} alt="avatar" className="employee-avatar-image" />
-      : <span>+</span>
-    }
-  </button>
-
- <input
-  ref={avatarInputRef}
-  type="file"
-  accept="image/png,image/jpeg,image/webp"
-  onChange={handleAvatarUpload}
-  style={{ display: 'none' }}
-/>
-
-  {!isProfileOpen && (
-    <div className="employee-header-meta">
-      <p className={headerName.startsWith('Здравствуйте') ? 'greeting' : ''}>
-        {headerName}
-      </p>
-    </div>
-  )}
-
-  {isProfileOpen && (
-    <div className="avatar-profile-actions">
-      <button
-  className="avatar-edit-btn"
-  onClick={() => avatarInputRef.current?.click()}
->
-  Изменить
-</button>
-
-    </div>
-  )}
-
-</div>
-
-
-          
-          
-          <button
-            type="button"
-            className="profile-panel-toggle"
-            onClick={() => setIsProfilePanelOpen((prev) => !prev)}
-          >
-            Настройки профиля
+    <div className="employee-chat-layout">
+      <input ref={avatarInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={handleAvatarUpload} hidden />
+      
+      <aside className="employee-chat-sidebar">
+        <div className="employee-chat-brand">
+          <button type="button" className="employee-avatar-upload" onClick={() => setAvatarViewerOpen(true)}>
+            {avatarUrl ? <img src={avatarUrl} alt="avatar" className="employee-avatar-image" /> : <span>{String(baseDisplayName || '?').slice(0, 1).toUpperCase()}</span>}
           </button>
-          {(isProfileVisible) && (
-            <div className="profile-panel">
-              <form onSubmit={saveMyProfile} className="profile-form">
-                <input placeholder="ФИО" value={profileForm.full_name} onChange={(e) => updateProfileField('full_name', e.target.value)} />
-                <input placeholder="Должность" value={profileForm.position} onChange={(e) => updateProfileField('position', e.target.value)} />
-                <input placeholder="Отдел" value={profileForm.department} onChange={(e) => updateProfileField('department', e.target.value)} />
-                <input placeholder="Кабинет" value={profileForm.room} onChange={(e) => updateProfileField('room', e.target.value)} />
-                <input placeholder="Внутренний телефон" value={profileForm.phone} onChange={(e) => updateProfileField('phone', e.target.value)} />
-                <input placeholder="Сайт / соцссылка" value={profileForm.website} onChange={(e) => updateProfileField('website', e.target.value)} />
-                <input placeholder="Статус (как в соцсети)" value={profileForm.statusText} onChange={(e) => updateProfileField('statusText', e.target.value)} />
-                <textarea placeholder="О себе" rows={3} value={profileForm.bio} onChange={(e) => updateProfileField('bio', e.target.value)} />
-                <button type="submit">Сохранить анкету</button>
-              </form>
-              <form onSubmit={changeMyPassword} className="profile-password-form">
-                <input type="password" placeholder="Текущий пароль" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))} />
-                <input type="password" placeholder="Новый пароль" value={passwordForm.newPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))} />
-                <button type="submit">Обновить пароль</button>
-              </form>
-            </div>
-          )}
+          <div className="employee-brand-meta">
+            <strong>{headerName}</strong>
+            <span>{profileForm.position || profileForm.department || user?.role || 'Рабочий чат'}</span>
           </div>
+          <button type="button" className="icon-btn" onClick={() => { setActiveTab('profile'); setProfileViewLogin(''); }}>Профиль</button>
         </div>
 
-
-
-        {/* 🔥 СКРЫВАЕМ ПОИСК И СПИСОК ПРИ ОТКРЫТОЙ АНКЕТЕ */}
-{!isProfileVisible && (
-  <>
-    <input
-      className="employee-chat-search"
-      placeholder="Поиск сотрудника..."
-      value={search}
-      onChange={(e) => setSearch(e.target.value)}
-    />
-
-    <div className={`employee-chat-list ${isManager ? 'manager-mode' : ''}`}>
-        
-        
-        
-        
-          {availableEmployees.map((employee) => {
-            const isOnline = Boolean(employee.isOnline);
-            const isManagerContact = (employee.role || '').toLowerCase() === 'manager' || employee.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
-            const profile = employee.profile || {};
+        <nav className="employee-chat-tabs" aria-label="Разделы чата">
+          {tabs.map((tab) => {
+            const badge = tab.id === 'chat' ? unreadTotal : tab.id === 'feed' ? feedBadge : tab.id === 'request' ? requestBadge : 0;
             return (
-              <button
-                key={employee.email}
-                className={`employee-chat-user ${selectedEmail === employee.email ? 'active' : ''} ${isManagerContact ? 'manager-priority' : ''}`}
-                onClick={() => setSelectedEmail(employee.email)}
-                onDoubleClick={() => openProfileCard(employee.email)}
-              >
-                <span className={`status-dot ${isOnline ? 'online' : 'offline'}`} />
-                <span className="employee-chat-user-main">
-                  <span className="employee-chat-user-email">{employee.email}</span>
-                  <span className="employee-chat-user-extra">{profile.full_name || 'Сотрудник'} · каб. {profile.room || '—'}</span>
-                </span>
-                <span className="employee-chat-user-status">{isManagerContact ? 'manager' : (isOnline ? 'online' : 'offline')}</span>
-                {unreadByEmail[employee.email] > 0 && (
-                  <span className="employee-chat-user-unread">{unreadByEmail[employee.email]}</span>
-                )}
+              <button key={tab.id} type="button" className={activeTab === tab.id ? 'active' : ''} onClick={() => setActiveTab(tab.id)}>
+                <span>{tab.label}</span>
+                {badge > 0 && <em>{badge}</em>}
               </button>
             );
           })}
+        </nav>
+
+        <div className="employee-contact-panel">
+          <label className="field-label">Контакты</label>
+          <input
+            className="employee-chat-search"
+            placeholder="ФИО, email, отдел, кабинет, телефон..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+
+          <div className={`employee-chat-list ${isManager ? 'manager-mode' : ''}`}>
+            {availableEmployees.length === 0 && <div className="empty-mini">Ничего не найдено</div>}
+            {availableEmployees.map((employee) => {
+              const isOnline = Boolean(employee.isOnline);
+              const isManagerContact = (employee.role || '').toLowerCase() === 'manager' || employee.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
+              const profile = employee.profile || {};
+              return (
+                <div key={employee.email} className={`employee-chat-user ${selectedEmail === employee.email ? 'active' : ''} ${isManagerContact ? 'manager-priority' : ''}`}>
+                  <button type="button" className="employee-contact-open" onClick={() => setSelectedEmail(employee.email)}>
+                    <span className={`status-dot ${isOnline ? 'online' : 'offline'}`} />
+                    <span className="employee-chat-user-main">
+                      <span className="employee-chat-user-email">{profile.full_name || employee.email}</span>
+                      <span className="employee-chat-user-extra">{employee.email} · {profile.department || 'отдел —'} · каб. {profile.room || '—'}</span>
+                    </span>
+                    <span className="employee-chat-user-status">{isManagerContact ? 'manager' : (isOnline ? 'online' : 'offline')}</span>
+                    {unreadByEmail[employee.email] > 0 && <span className="employee-chat-user-unread">{unreadByEmail[employee.email]}</span>}
+                  </button>
+                  <button type="button" className="profile-open-btn" onClick={() => { openProfileCard(employee.email); setActiveTab('profile'); }}>Профиль</button>
+                </div>
+              );
+            })}
+          </div>
         </div>
-        
-          </>
-)}
 
-        {isEmployee && !isProfileVisible && (
-          <section className={`employee-request-wrapper ${isRequestPanelOpen ? 'open' : ''}`}>
-            <button
-              type="button"
-              className="request-panel-toggle request-primary-toggle"
-              onClick={() => setIsRequestPanelOpen((prev) => !prev)}
-            >
-              <span className="request-primary-title">
-                {isRequestPanelOpen ? 'Скрыть заявку' : 'Сообщить о проблеме'}
-              </span>
-              <span className="request-primary-subtitle">
-                Заявка менеджеру на ремонт или обслуживание
-              </span>
-            </button>
-            {isRequestPanelOpen && (
-              <form className="employee-request-box" onSubmit={submitRequest}>
-                <h4>Служебная заявка</h4>
-                <p className="employee-request-note">Опишите неисправность, кабинет и что требуется проверить.</p>
-                <textarea
-                  rows={4}
-                  placeholder="Например: кабинет 204, не работает принтер, требуется проверка подключения..."
-                  value={requestText}
-                  onChange={(e) => setRequestText(e.target.value)}
-                />
-                <button type="submit" disabled={!requestText.trim()}>Отправить заявку</button>
-                {requestStatus && <small>{requestStatus}</small>}
-              </form>
-            )}
-          </section>
-        )}
-
-        {!isProfileVisible && (
-          <div className="employee-chat-actions">
-            <button
-              type="button"
-              className="request-panel-toggle feed-toggle"
-              onClick={() => setIsFeedOpen((prev) => !prev)}
-            >
-              {isFeedOpen ? 'Закрыть ленту' : 'Открыть ленту'}
-            </button>
-            <button className="clear-btn" onClick={clearConversation} disabled={!selectedEmail}>Удалить переписку</button>
-            {!isAdmin && <button className="logout-btn" onClick={handleLogout}>Выход</button>}
-          </div>
-        )}
-
-        <div className="employee-theme-switcher" aria-label="Варианты дизайна чата">
-          <div className="employee-theme-switcher-title">Дизайн чата</div>
-          <div className="employee-theme-options">
-            {EMPLOYEE_CHAT_THEMES.map((theme) => (
-              <button
-                key={theme.id}
-                type="button"
-                className={chatTheme === theme.id ? 'active' : ''}
-                onClick={() => selectChatTheme(theme.id)}
-                aria-pressed={chatTheme === theme.id}
-              >
-                <span>{theme.label}</span>
-                <small>{theme.caption}</small>
-              </button>
-            ))}
-          </div>
+        <div className="employee-chat-actions">
+          <button className="clear-btn" onClick={clearConversation} disabled={!selectedEmail}>Удалить переписку</button>
+          {!isAdmin && <button className="logout-btn" onClick={handleLogout}>Выход</button>}
         </div>
       </aside>
 
       <section className="employee-chat-main">
-        {profileViewLogin && profilePreview && (
-          <div className="profile-preview-card">
-            <button type="button" className="back-to-chat-btn" onClick={() => setProfileViewLogin('')}>← Вернуться в чат</button>
-            <div className="profile-preview-head">
-              <div className="profile-preview-avatar">
-                {profilePreview.avatar ? <img src={profilePreview.avatar} alt="profile-avatar" /> : <span>{String(profilePreview.full_name || profilePreview.login || '?').slice(0, 1).toUpperCase()}</span>}
+        {activeTab === 'chat' && (
+          <div className="chat-workspace">
+            {!selectedEmail ? (
+              <div className="empty-chat">
+                <strong>Выберите диалог</strong>
+                <span>Автовыбор убран: откройте нужного сотрудника слева или найдите контакт поиском.</span>
               </div>
-              <div>
-                <h3>{profilePreview.full_name || profilePreview.login}</h3>
-                <p>@{profilePreview.login}</p>
-                <small>{profilePreview.statusText || 'Внутренняя страница сотрудника'}</small>
-              </div>
-            </div>
-            <div className="profile-preview-grid">
-              <div><strong>Должность:</strong> {profilePreview.position || '—'}</div>
-              <div><strong>Отдел:</strong> {profilePreview.department || '—'}</div>
-              <div><strong>Кабинет:</strong> {profilePreview.room || '—'}</div>
-              <div><strong>Телефон:</strong> {profilePreview.phone || '—'}</div>
-              <div><strong>Сайт:</strong> {profilePreview.website || '—'}</div>
-              <div><strong>О себе:</strong> {profilePreview.bio || '—'}</div>
-            </div>
-            <button type="button" onClick={() => { setSelectedEmail(profilePreview.login); setProfileViewLogin(''); }}>Открыть диалог</button>
-          </div>
-        )}
-
-        {!isFeedOpen && !profileViewLogin && (
-          !selectedEmail ? (
-            <div className="empty-chat">Выберите сотрудника слева, чтобы начать переписку.</div>
-          ) : (
-            <>
-            <div className="conversation-header">Диалог с {selectedEmail}</div>
-
-            {pinnedMessages.length > 0 && (
-              <div className="pinned-box">
-                <strong>📌 Закреплённые:</strong>
-                {pinnedMessages.map((message) => (
-                  <div key={`pin-${message.id}`}>• {message.text}</div>
-                ))}
-              </div>
-            )}
-
-            <div className="messages-wrap" ref={messagesWrapRef}>
-              {currentMessages.length === 0 && <div className="empty-chat">Сообщений пока нет.</div>}
-              {currentMessages.map((message) => {
-                const canEdit = isManager || message.sender === user.username;
-                const isMine = message.sender === user.username;
-                const isRead = isMine && currentMessages.some((item) => item.sender !== user.username && new Date(item.createdAt) > new Date(message.createdAt));
-
-                return (
-                  <div key={message.id} className={`message-row ${isMine ? 'mine' : ''}`}>
-                    <div className="message-bubble">
-                      <div className="message-meta">
-                        <span>{isMine ? 'Вы' : message.sender}</span>
-                        <span>{new Date(message.createdAt).toLocaleString('ru-RU')}</span>
-                      </div>
-
-                      {message.replyTo && (
-                        <div className="reply-preview">
-                          ↪ {message.replyTo.sender}: {message.replyTo.text}
-                        </div>
-                      )}
-
-                      <div>{message.text}</div>
-                      {message.attachment?.dataUrl && (
-                        <div className="message-attachment">
-                          {String(message.attachment.type || '').startsWith('image/') ? (
-                            <a href={message.attachment.dataUrl} target="_blank" rel="noreferrer">
-                              <img src={message.attachment.dataUrl} alt={message.attachment.name || 'attachment'} />
-                            </a>
-                          ) : (
-                            <a href={message.attachment.dataUrl} download={message.attachment.name || 'file'} target="_blank" rel="noreferrer">
-                              📎 {message.attachment.name || 'Файл'} ({Math.max(1, Math.round((message.attachment.size || 0) / 1024))} КБ)
-                            </a>
-                          )}
-                        </div>
-                      )}
-                      {message.editedAt && <small>изменено</small>}
-                      {isMine && <small className="read-state">{isRead ? 'прочитано' : 'доставлено'}</small>}
-
-                      <div className="reaction-row">
-                        {REACTION_EMOJIS.map((emoji) => {
-                          const count = message.reactions?.[emoji]?.length || 0;
-                          const active = (message.reactions?.[emoji] || []).includes(user.username);
-                          return (
-                            <button key={emoji} className={active ? 'active' : ''} onClick={() => toggleReaction(message.id, emoji)}>
-                              {emoji} {count > 0 ? count : ''}
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      <div className="message-controls">
-                        <button type="button" onClick={() => setReplyTo(message)}>Ответить</button>
-                        <button type="button" onClick={() => togglePinned(message.id)}>{message.pinned ? 'Открепить' : 'Закрепить'}</button>
-                        {canEdit && <button type="button" onClick={() => editMessage(message.id)}>Изменить</button>}
-                        {canEdit && <button type="button" onClick={() => deleteMessage(message.id)}>Удалить</button>}
-                      </div>
-                    </div>
+            ) : (
+              <>
+                <header className="conversation-header">
+                  <div>
+                    <span className="eyebrow">Диалог</span>
+                    <h2>{activeContact?.profile?.full_name || selectedEmail}</h2>
+                    <p>{selectedEmail}</p>
                   </div>
-                );
-              })}
-            </div>
+                  <div className="conversation-tools">
+                    <input value={dialogSearch} onChange={(e) => setDialogSearch(e.target.value)} placeholder="Поиск в диалоге..." />
+                    <button type="button" onClick={() => { openProfileCard(selectedEmail); setActiveTab('profile'); }}>Профиль</button>
+                  </div>
+                </header>
 
-            <div className="composer-wrap">
-              <div className="template-row">
-                {templateMessages.map((template) => (
-                  <button key={template} type="button" onClick={() => setDraft(template)}>{template}</button>
-                ))}
-              </div>
+                {pinnedMessages.length > 0 && (
+                  <div className="pinned-box">
+                    <strong>📌 Закреплённые</strong>
+                    {pinnedMessages.map((message) => <div key={`pin-${message.id}`}>• {message.text}</div>)}
+                  </div>
+                )}
 
-              {replyTo && (
-                <div className="reply-preview active-reply">
-                  Ответ на: {replyTo.sender}: {replyTo.text}
-                  <button type="button" onClick={() => setReplyTo(null)}>×</button>
+                <div className="messages-wrap" ref={messagesWrapRef}>
+                  {messagesWithDateSeparators.length === 0 && <div className="empty-chat">{dialogSearch ? 'По запросу ничего не найдено.' : 'Сообщений пока нет.'}</div>}
+                  {messagesWithDateSeparators.map((item) => {
+                    if (item.type === 'date') return <div key={item.id} className="date-separator"><span>{item.label}</span></div>;
+
+                    const message = item.message;
+                    const canEdit = isManager || message.sender === user.username;
+                    const isMine = message.sender === user.username;
+                    const isRead = isMine && currentMessages.some((row) => row.sender !== user.username && new Date(row.createdAt) > new Date(message.createdAt));
+                    const attachments = message.attachments?.length ? message.attachments : message.attachment ? [message.attachment] : [];
+
+                    return (
+                      <div key={message.id} className={`message-row ${isMine ? 'mine' : ''}`}>
+                        <div className="message-bubble">
+                          <div className="message-meta">
+                            <span>{isMine ? 'Вы' : message.sender}</span>
+                            <span>{new Date(message.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+
+                          {message.replyTo && <div className="reply-preview">↪ {message.replyTo.sender}: {message.replyTo.text}</div>}
+                          <div className="message-text">{message.text}</div>
+
+                          {attachments.length > 0 && (
+                            <div className="message-attachments-grid">
+                              {attachments.map((file, index) => (
+                                <a key={`${message.id}-file-${index}`} className="message-attachment-card" href={file.dataUrl} download={file.name || 'file'} target="_blank" rel="noreferrer">
+                                  {String(file.type || '').startsWith('image/') ? <img src={file.dataUrl} alt={file.name || 'attachment'} /> : <span className="file-icon">{getFileIcon(file.type)}</span>}
+                                  <small>{file.name || 'Файл'} · {Math.max(1, Math.round((file.size || 0) / 1024))} КБ</small>
+                                </a>
+                              ))}
+                            </div>
+                          )}
+
+                          {message.editedAt && <small className="read-state">изменено</small>}
+                          {isMine && <small className="read-state">{isRead ? 'прочитано' : 'доставлено'}</small>}
+
+                          <div className="reaction-row">
+                            {REACTION_EMOJIS.map((emoji) => {
+                              const count = message.reactions?.[emoji]?.length || 0;
+                              const active = (message.reactions?.[emoji] || []).includes(user.username);
+                              return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => toggleReaction(message.id, emoji)}>{emoji} {count > 0 ? count : ''}</button>;
+                            })}
+                          </div>
+
+                          <div className="message-controls">
+                            <button type="button" onClick={() => setReplyTo(message)}>Ответить</button>
+                            <button type="button" onClick={() => togglePinned(message.id)}>{message.pinned ? 'Открепить' : 'Закрепить'}</button>
+                            {canEdit && <button type="button" onClick={() => editMessage(message.id)}>Изменить</button>}
+                            {canEdit && <button type="button" onClick={() => deleteMessage(message.id)}>Удалить</button>}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              )}
 
-              {attachmentDraft && (
-                <div className="attachment-preview">
-                  <span>📎 {attachmentDraft.name} ({Math.max(1, Math.round(attachmentDraft.size / 1024))} КБ)</span>
-                  <button type="button" onClick={() => setAttachmentDraft(null)}>Убрать</button>
+                <div className="composer-wrap" onDrop={handleAttachmentDrop} onDragOver={(event) => event.preventDefault()}>
+                  <div className="template-row">
+                    {templateMessages.map((template) => <button key={template} type="button" onClick={() => setDraft(template)}>{template}</button>)}
+                  </div>
+
+                  {replyTo && <div className="reply-preview active-reply">Ответ на: {replyTo.sender}: {replyTo.text}<button type="button" onClick={() => setReplyTo(null)}>×</button></div>}
+
+                  {attachmentDrafts.length > 0 && (
+                    <div className="attachment-preview-grid">
+                      {attachmentDrafts.map((file, index) => (
+                        <div key={`${file.name}-${index}`} className="attachment-preview">
+                          <span>{getFileIcon(file.type)} {file.name} ({Math.max(1, Math.round(file.size / 1024))} КБ)</span>
+                          <button type="button" onClick={() => removeAttachmentDraft(index)}>Убрать</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {typingHint && <div className="typing-hint">{typingHint}</div>}
+
+                  <form className="message-form" onSubmit={handleSend}>
+                    <input placeholder="Введите сообщение или перетащите файлы сюда..." value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={2000} />
+                    <label className="attach-file-btn">📎 Файлы<input type="file" hidden multiple onChange={handleAttachmentChange} /></label>
+                    <button type="submit">Отправить</button>
+                  </form>
                 </div>
-              )}
-
-              {typingHint && <div className="typing-hint">{typingHint}</div>}
-
-              <form className="message-form" onSubmit={handleSend}>
-                <input
-                  placeholder="Введите сообщение..."
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  maxLength={2000}
-                />
-                <label className="attach-file-btn">
-                  📎 Файл
-                  <input type="file" hidden onChange={handleAttachmentChange} />
-                </label>
-                <button type="submit">Отправить</button>
-              </form>
-            </div>
-            </>
-          )
-        )}
-
-        
-        
-        {isAvatarFull && (
-  <div className="avatar-fullscreen">
-
-    <div className="avatar-full-header">
-      <button onClick={() => setIsAvatarFull(false)}>
-        ← Фото профиля
-      </button>
-
-      <button
-        className="avatar-edit-icon"
-        onClick={() => avatarInputRef.current?.click()}
-      >
-        ✏️
-      </button>
-    </div>
-
-    {avatarUrl ? (
-      <img src={avatarUrl} alt="Фото профиля" className="avatar-full-image" />
-    ) : (
-      <div className="avatar-full-placeholder" aria-label="Фото профиля отсутствует">
-        {String(baseDisplayName || user?.username || '?').slice(0, 1).toUpperCase()}
-      </div>
-    )}
-
-    {avatarUrl && (
-      <button
-        className="avatar-delete-btn"
-        onClick={removeAvatar}
-      >
-        Удалить фото
-      </button>
-    )}
-  </div>
-)}
-       
-
-        {isAvatarModalOpen && (
-          <div className="avatar-modal" onClick={() => setIsAvatarModalOpen(false)}>
-            <img src={avatarUrl} alt="avatar-full" className="avatar-modal-image" />
+              </>
+            )}
           </div>
         )}
 
-        {isFeedOpen && (
+        {activeTab === 'request' && (
+          <div className="request-workspace">
+            <header className="section-hero">
+              <span className="eyebrow">Служебная заявка</span>
+              <h2>Сообщить о проблеме</h2>
+              <p>Заполните категорию, приоритет и описание — статус заявки появится сразу после отправки.</p>
+            </header>
+            <div className={`request-status-card ${requestStatus.state}`}>
+              <strong>{requestStatus.text}</strong>
+              {requestStatus.ticketId && <span>Номер: #{requestStatus.ticketId}</span>}
+            </div>
+            <form className="employee-request-box" onSubmit={submitRequest}>
+              <div className="form-grid two">
+                <label>Категория<select value={requestCategory} onChange={(e) => setRequestCategory(e.target.value)}>{REQUEST_CATEGORIES.map((item) => <option key={item}>{item}</option>)}</select></label>
+                <label>Приоритет<select value={requestPriority} onChange={(e) => setRequestPriority(e.target.value)}>{REQUEST_PRIORITIES.map((item) => <option key={item}>{item}</option>)}</select></label>
+              </div>
+              <textarea rows={7} placeholder="Например: кабинет 204, не работает принтер, требуется проверка подключения..." value={requestText} onChange={(e) => setRequestText(e.target.value)} />
+              <button type="submit" disabled={!requestText.trim() || requestStatus.state === 'sending'}>{requestStatus.state === 'sending' ? 'Отправляем...' : 'Отправить заявку'}</button>
+            </form>
+          </div>
+        )}
+
+        {activeTab === 'feed' && (
           <section className="employee-feed-section">
             <header className="employee-feed-header">
-              <div>
-                <h3>Лента сотрудников</h3>
-                <p>Новости, короткие объявления и рабочие комментарии команды.</p>
-              </div>
-              <button type="button" className="employee-feed-close" onClick={() => setIsFeedOpen(false)}>Закрыть</button>
+              <div><span className="eyebrow">Общая серверная лента</span><h2>Лента сотрудников</h2><p>Публикации сохраняются на сервере и доступны всем пользователям.</p></div>
+              <button type="button" onClick={fetchFeed}>Обновить</button>
             </header>
-
             <form className="employee-feed-composer" onSubmit={addFeedPost}>
-              <textarea
-                rows={4}
-                placeholder="Напишите новость, объявление или короткое сообщение для сотрудников…"
-                value={feedDraft}
-                onChange={(e) => setFeedDraft(e.target.value)}
-              />
-              {feedAttachment && (
-                <div className="employee-feed-attachment-preview">
-                  <span>📎 {feedAttachment.name} ({Math.max(1, Math.round(feedAttachment.size / 1024))} КБ)</span>
-                  <button type="button" onClick={() => setFeedAttachment(null)}>Убрать</button>
-                </div>
-              )}
-              <div className="employee-feed-composer-actions">
-                <label>
-                  📎 Добавить файл / фото / видео
-                  <input type="file" hidden onChange={onFeedFileChange} />
-                </label>
-                <button type="submit" disabled={!feedDraft.trim() && !feedAttachment}>Опубликовать</button>
-              </div>
+              <textarea rows={4} placeholder="Новость, объявление или рабочая заметка..." value={feedDraft} onChange={(e) => setFeedDraft(e.target.value)} />
+              {feedAttachment && <div className="employee-feed-attachment-preview"><span>{getFileIcon(feedAttachment.type)} {feedAttachment.name}</span><button type="button" onClick={() => setFeedAttachment(null)}>Убрать</button></div>}
+              <div className="employee-feed-composer-actions"><label>📎 Файл<input type="file" hidden onChange={onFeedFileChange} /></label><button type="submit" disabled={!feedDraft.trim() && !feedAttachment}>Опубликовать</button></div>
             </form>
-
             <div className="employee-feed-list">
               {feedPosts.length === 0 && <div className="empty-chat">Пока нет публикаций.</div>}
               {feedPosts.map((post) => {
                 const canDeletePost = isManager || isAdmin || post.author === user?.username;
-
                 return (
                   <article key={post.id} className="employee-feed-post">
-                    <header className="employee-feed-post-header">
-                      <div>
-                        <strong>{post.authorName}</strong>
-                        <small>@{post.author} · {new Date(post.createdAt).toLocaleString('ru-RU')}</small>
-                      </div>
-                      {canDeletePost && (
-                        <button type="button" className="employee-feed-delete" onClick={() => deleteFeedPost(post.id)}>
-                          Удалить
-                        </button>
-                      )}
-                    </header>
-
+                    <header className="employee-feed-post-header"><div><strong>{post.authorName}</strong><span>@{post.author} · {new Date(post.createdAt).toLocaleString('ru-RU')}</span></div>{canDeletePost && <button type="button" className="employee-feed-delete" onClick={() => deleteFeedPost(post.id)}>Удалить</button>}</header>
                     {post.text && <p className="employee-feed-post-text">{post.text}</p>}
-                    {post.attachment?.dataUrl && (
-                      <div className="employee-feed-attachment">
-                        {String(post.attachment.type || '').startsWith('image/') && <img src={post.attachment.dataUrl} alt={post.attachment.name || 'post-image'} />}
-                        {String(post.attachment.type || '').startsWith('video/') && <video controls src={post.attachment.dataUrl} />}
-                        {!String(post.attachment.type || '').startsWith('image/') && !String(post.attachment.type || '').startsWith('video/') && (
-                          <a href={post.attachment.dataUrl} download={post.attachment.name || 'file'}>📎 {post.attachment.name || 'Файл'}</a>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="employee-feed-comments">
-                      <div className="employee-feed-comments-title">Комментарии</div>
-                      {(post.comments || []).length === 0 && <small className="employee-feed-no-comments">Комментариев пока нет.</small>}
-                      {(post.comments || []).map((comment) => {
-                        const canDeleteComment = isManager || isAdmin || comment.author === user?.username;
-
-                        return (
-                          <div key={comment.id} className="employee-feed-comment">
-                            <div className="employee-feed-comment-body">
-                              <strong>{comment.authorName}</strong>
-                              <span>{comment.text}</span>
-                              <small>@{comment.author} · {new Date(comment.createdAt).toLocaleString('ru-RU')}</small>
-                            </div>
-                            {canDeleteComment && (
-                              <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>Удалить</button>
-                            )}
-                          </div>
-                        );
-                      })}
-
-                      <div className="employee-feed-comment-form">
-                        <input
-                          placeholder="Оставить комментарий…"
-                          value={commentDrafts[post.id] || ''}
-                          onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))}
-                        />
-                        <button type="button" onClick={() => addCommentToPost(post.id)} disabled={!(commentDrafts[post.id] || '').trim()}>
-                          Отправить
-                        </button>
-                      </div>
-                    </div>
+                    {post.attachment?.dataUrl && <div className="employee-feed-attachment">{String(post.attachment.type || '').startsWith('image/') ? <img src={post.attachment.dataUrl} alt={post.attachment.name || 'post-image'} /> : <a href={post.attachment.dataUrl} download={post.attachment.name || 'file'}>{getFileIcon(post.attachment.type)} {post.attachment.name || 'Файл'}</a>}</div>}
+                    <div className="employee-feed-comments"><div className="employee-feed-comments-title">Комментарии</div>{(post.comments || []).length === 0 && <small className="employee-feed-no-comments">Комментариев пока нет.</small>}{(post.comments || []).map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; return <div key={comment.id} className="employee-feed-comment"><div className="employee-feed-comment-body"><strong>{comment.authorName}</strong><span>{comment.text}</span><small>@{comment.author} · {new Date(comment.createdAt).toLocaleString('ru-RU')}</small></div>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>Удалить</button>}</div>; })}<div className="employee-feed-comment-form"><input placeholder="Оставить комментарий…" value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} /><button type="button" onClick={() => addCommentToPost(post.id)} disabled={!(commentDrafts[post.id] || '').trim()}>Отправить</button></div></div>
                   </article>
                 );
               })}
@@ -1426,94 +1284,52 @@ const EmployeeChat = () => {
           </section>
         )}
 
-        {isManager && (
-          <div className="manager-panels">
-            <section className="manager-panel">
-              <h3>Управление сотрудниками</h3>
-              <form className="manager-form" onSubmit={saveEmployee}>
-                <input placeholder="Логин (email)" value={employeeForm.login} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, login: e.target.value }))} required />
-                <input placeholder={employeeForm.id ? 'Новый пароль (опционально)' : 'Пароль'} value={employeeForm.password} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, password: e.target.value }))} />
-                <input placeholder="ФИО" value={employeeForm.full_name} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, full_name: e.target.value }))} />
-                <input placeholder="Отдел" value={employeeForm.department} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, department: e.target.value }))} />
-                <div className="manager-form-actions">
-                  <button type="submit">{employeeForm.id ? 'Сохранить' : 'Добавить'}</button>
-                  {employeeForm.id && <button type="button" onClick={() => setEmployeeForm({ id: null, login: '', password: '', full_name: '', department: '', phone: '', room: '' })}>Отмена</button>}
-                </div>
-              </form>
-
-              <div className="manager-list">
-                {directoryEmployees.map((employee) => (
-                  <div className="manager-list-item" key={employee.id}>
-                    <div>
-                      <strong>{employee.login}</strong>
-                      <div>{employee.full_name || '—'}</div>
-                    </div>
-                    <div className="manager-list-actions">
-                      <button onClick={() => setEmployeeForm({
-                        id: employee.id,
-                        login: employee.login || '',
-                        password: '',
-                        full_name: employee.full_name || '',
-                        department: employee.department || '',
-                        phone: employee.phone || '',
-                        room: employee.room || ''
-                      })}
-                      >Редактировать</button>
-                      <button onClick={() => deleteEmployee(employee.id)}>Удалить</button>
-                    </div>
-                  </div>
-                ))}
+        {activeTab === 'profile' && (
+          <div className="profile-workspace">
+            {profileViewLogin && profilePreview ? (
+              <div className="profile-preview-card"><button type="button" className="back-to-chat-btn" onClick={() => setProfileViewLogin('')}>← Мой профиль</button><div className="profile-preview-head"><div className="profile-preview-avatar">{profilePreview.avatar ? <img src={profilePreview.avatar} alt="profile-avatar" /> : <span>{String(profilePreview.full_name || profilePreview.login || '?').slice(0, 1).toUpperCase()}</span>}</div><div><h3>{profilePreview.full_name || profilePreview.login}</h3><p>@{profilePreview.login}</p><small>{profilePreview.statusText || 'Внутренняя страница сотрудника'}</small></div></div><div className="profile-preview-grid"><div><strong>Должность:</strong> {profilePreview.position || '—'}</div><div><strong>Отдел:</strong> {profilePreview.department || '—'}</div><div><strong>Кабинет:</strong> {profilePreview.room || '—'}</div><div><strong>Телефон:</strong> {profilePreview.phone || '—'}</div><div><strong>Сайт:</strong> {profilePreview.website || '—'}</div><div><strong>О себе:</strong> {profilePreview.bio || '—'}</div></div><button type="button" onClick={() => { setSelectedEmail(profilePreview.login); setProfileViewLogin(''); setActiveTab('chat'); }}>Открыть диалог</button></div>
+            ) : (
+              <div className="profile-settings-grid">
+                <section className="profile-panel"><h3>Мой профиль</h3><form onSubmit={saveMyProfile} className="profile-form"><input placeholder="ФИО" value={profileForm.full_name} onChange={(e) => updateProfileField('full_name', e.target.value)} /><input placeholder="Должность" value={profileForm.position} onChange={(e) => updateProfileField('position', e.target.value)} /><input placeholder="Отдел" value={profileForm.department} onChange={(e) => updateProfileField('department', e.target.value)} /><input placeholder="Кабинет" value={profileForm.room} onChange={(e) => updateProfileField('room', e.target.value)} /><input placeholder="Внутренний телефон" value={profileForm.phone} onChange={(e) => updateProfileField('phone', e.target.value)} /><input placeholder="Сайт / соцссылка" value={profileForm.website} onChange={(e) => updateProfileField('website', e.target.value)} /><input placeholder="Статус" value={profileForm.statusText} onChange={(e) => updateProfileField('statusText', e.target.value)} /><textarea placeholder="О себе" rows={4} value={profileForm.bio} onChange={(e) => updateProfileField('bio', e.target.value)} /><button type="submit">Сохранить анкету</button></form></section>
+                <section className="profile-panel"><h3>Безопасность и фото</h3><div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>Изменить фото</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>Удалить фото</button></div><form onSubmit={changeMyPassword} className="profile-password-form"><input type="password" placeholder="Текущий пароль" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))} /><input type="password" placeholder="Новый пароль" value={passwordForm.newPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))} /><button type="submit">Обновить пароль</button></form></section>
               </div>
-            </section>
-
-            <section className="manager-panel">
-              <h3>Переписка сотрудников</h3>
-              <div className="threads-grid">
-                <div className="threads-list">
-                  {allConversationIds.map((threadId) => {
-                    const participants = getParticipantsFromThreadId(threadId);
-                    return (
-                      <button key={threadId} className={`thread-item ${selectedThreadId === threadId ? 'active' : ''}`} onClick={() => setSelectedThreadId(threadId)}>
-                        {participants.join(' ↔ ')}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="threads-messages">
-                  {!selectedThreadId && <div className="empty-chat">Выберите переписку.</div>}
-                  {selectedThreadId && selectedThreadMessages.map((message) => (
-                    <div key={message.id} className="audit-message">
-                      <div className="message-meta">
-                        <span>{message.sender}</span>
-                        <span>{new Date(message.createdAt).toLocaleString('ru-RU')}</span>
-                      </div>
-                      <div>{message.text}</div>
-                      {message.attachment?.dataUrl && (
-                        <div className="message-attachment">
-                          {String(message.attachment.type || '').startsWith('image/') ? (
-                            <a href={message.attachment.dataUrl} target="_blank" rel="noreferrer">
-                              <img src={message.attachment.dataUrl} alt={message.attachment.name || 'attachment'} />
-                            </a>
-                          ) : (
-                            <a href={message.attachment.dataUrl} download={message.attachment.name || 'file'} target="_blank" rel="noreferrer">
-                              📎 {message.attachment.name || 'Файл'} ({Math.max(1, Math.round((message.attachment.size || 0) / 1024))} КБ)
-                            </a>
-                          )}
-                        </div>
-                      )}
-                      <div className="message-controls">
-                        <button onClick={() => editMessage(message.id, selectedThreadId)}>Изменить</button>
-                        <button onClick={() => deleteMessage(message.id, selectedThreadId)}>Удалить</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </section>
+            )}
           </div>
         )}
+
+        {activeTab === 'employees' && isManager && (
+          <section className="manager-panel"><h2>Управление сотрудниками</h2><form className="manager-form" onSubmit={saveEmployee}><input placeholder="Логин (email)" value={employeeForm.login} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, login: e.target.value }))} required /><input placeholder={employeeForm.id ? 'Новый пароль (опционально)' : 'Пароль'} value={employeeForm.password} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, password: e.target.value }))} /><input placeholder="ФИО" value={employeeForm.full_name} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, full_name: e.target.value }))} /><input placeholder="Отдел" value={employeeForm.department} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, department: e.target.value }))} /><div className="manager-form-actions"><button type="submit">{employeeForm.id ? 'Сохранить' : 'Добавить'}</button>{employeeForm.id && <button type="button" onClick={() => setEmployeeForm({ id: null, login: '', password: '', full_name: '', department: '', phone: '', room: '' })}>Отмена</button>}</div></form><div className="manager-list">{directoryEmployees.map((employee) => <div className="manager-list-item" key={employee.id}><div><strong>{employee.login}</strong><div>{employee.full_name || '—'}</div></div><div className="manager-list-actions"><button type="button" onClick={() => setEmployeeForm({ id: employee.id, login: employee.login || '', password: '', full_name: employee.full_name || '', department: employee.department || '', phone: employee.phone || '', room: employee.room || '' })}>Редактировать</button><button type="button" onClick={() => deleteEmployee(employee.id)}>Удалить</button></div></div>)}</div></section>
+        )}
+
+        {activeTab === 'audit' && isManager && (
+          <section className="manager-panel"><h2>Переписка сотрудников</h2><div className="threads-grid"><div className="threads-list">{allConversationIds.map((threadId) => { const participants = getParticipantsFromThreadId(threadId); return <button key={threadId} type="button" className={`thread-item ${selectedThreadId === threadId ? 'active' : ''}`} onClick={() => setSelectedThreadId(threadId)}>{participants.join(' ↔ ')}</button>; })}</div><div className="threads-messages">{!selectedThreadId && <div className="empty-chat">Выберите переписку.</div>}{selectedThreadId && selectedThreadMessages.map((message) => { const attachments = message.attachments?.length ? message.attachments : message.attachment ? [message.attachment] : []; return <div key={message.id} className="audit-message"><div className="message-meta"><span>{message.sender}</span><span>{new Date(message.createdAt).toLocaleString('ru-RU')}</span></div><div>{message.text}</div>{attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <a key={`${message.id}-audit-${index}`} className="message-attachment-card" href={file.dataUrl} download={file.name || 'file'} target="_blank" rel="noreferrer">{String(file.type || '').startsWith('image/') ? <img src={file.dataUrl} alt={file.name || 'attachment'} /> : <span className="file-icon">{getFileIcon(file.type)}</span>}<small>{file.name || 'Файл'}</small></a>)}</div>}<div className="message-controls"><button type="button" onClick={() => editMessage(message.id, selectedThreadId)}>Изменить</button><button type="button" onClick={() => deleteMessage(message.id, selectedThreadId)}>Удалить</button></div></div>; })}</div></div></section>
+        )}
       </section>
+
+      {avatarViewerOpen && (
+        <div className="app-modal-backdrop" onMouseDown={() => setAvatarViewerOpen(false)}>
+          <div className="avatar-viewer" onMouseDown={(event) => event.stopPropagation()}>
+            <header><strong>Фото профиля</strong><button type="button" onClick={() => setAvatarViewerOpen(false)}>×</button></header>
+            {avatarUrl ? <img src={avatarUrl} alt="Фото профиля" /> : <div className="avatar-full-placeholder">{String(baseDisplayName || user?.username || '?').slice(0, 1).toUpperCase()}</div>}
+            <div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>Изменить</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>Удалить</button></div>
+          </div>
+        </div>
+      )}
+
+      {modal && (
+        <div className="app-modal-backdrop">
+          <div className="app-modal-card">
+            <h3>{modal.title}</h3>
+            <p>{modal.message}</p>
+            {modal.type === 'prompt' && <textarea rows={4} value={modal.value} onChange={(e) => setModal((prev) => ({ ...prev, value: e.target.value }))} />}
+            <div className="app-modal-actions">
+              {modal.type === 'info' && <button type="button" onClick={() => setModal(null)}>Понятно</button>}
+              {modal.type === 'confirm' && <><button type="button" onClick={() => closeModal(false)}>Отмена</button><button type="button" className="danger" onClick={() => closeModal(true)}>Подтвердить</button></>}
+              {modal.type === 'prompt' && <><button type="button" onClick={() => closeModal('')}>Отмена</button><button type="button" onClick={() => closeModal(modal.value)}>Сохранить</button></>}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -6,13 +6,48 @@ const router = express.Router();
 
 const dataDir = path.join(__dirname, '..', 'data');
 const chatFilePath = path.join(dataDir, 'chatThreads.json');
+const feedFilePath = path.join(dataDir, 'employeeFeed.json');
 
 let cachedThreads = null;
 let storageReadyPromise = null;
 let writeQueue = Promise.resolve();
+let feedWriteQueue = Promise.resolve();
 const streamClients = new Set();
 
 const cloneThreads = (threads) => JSON.parse(JSON.stringify(threads || {}));
+
+const ensureJsonFile = async (filePath, fallback) => {
+  await fs.mkdir(dataDir, { recursive: true });
+  try {
+    await fs.access(filePath);
+  } catch {
+    await fs.writeFile(filePath, JSON.stringify(fallback, null, 2), 'utf-8');
+  }
+};
+
+const readFeed = async () => {
+  await ensureJsonFile(feedFilePath, []);
+  try {
+    const raw = await fs.readFile(feedFilePath, 'utf-8');
+    const parsed = JSON.parse(raw || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.error('Chat feed read error:', error);
+    return [];
+  }
+};
+
+const writeFeed = async (posts) => {
+  const safePosts = Array.isArray(posts) ? posts : [];
+  feedWriteQueue = feedWriteQueue
+    .catch(() => {})
+    .then(async () => {
+      await ensureJsonFile(feedFilePath, []);
+      await fs.writeFile(feedFilePath, JSON.stringify(safePosts, null, 2), 'utf-8');
+    });
+
+  await feedWriteQueue;
+};
 
 const ensureStorage = async () => {
   if (!storageReadyPromise) {
@@ -72,6 +107,33 @@ const writeThreads = async (threads) => {
 
   await writeQueue;
 };
+
+
+router.get('/feed', async (req, res) => {
+  try {
+    const posts = await readFeed();
+    res.set('Cache-Control', 'no-store');
+    res.json({ posts });
+  } catch (error) {
+    console.error('Chat GET /feed error:', error);
+    res.status(500).json({ message: 'Не удалось загрузить ленту' });
+  }
+});
+
+router.put('/feed', async (req, res) => {
+  try {
+    const { posts } = req.body;
+    if (!Array.isArray(posts)) {
+      return res.status(400).json({ message: 'posts должен быть массивом' });
+    }
+
+    await writeFeed(posts);
+    res.json({ message: 'Лента сохранена', posts });
+  } catch (error) {
+    console.error('Chat PUT /feed error:', error);
+    res.status(500).json({ message: 'Не удалось сохранить ленту' });
+  }
+});
 
 router.get('/threads', async (req, res) => {
   try {
