@@ -7,10 +7,16 @@ import './EmployeeChat.css';
 const CHAT_READ_STATE_KEY = 'chatReadState';
 const EMPLOYEE_DIRECTORY_CACHE_KEY = 'employeeDirectoryCache';
 const EMPLOYEE_FEED_KEY = 'employeeSocialFeed';
+const EMPLOYEE_CHAT_THEME_KEY = 'employeeChatDesignVariant';
 const MANAGER_TEMPLATE_MESSAGES = ['✅ Принято в работу', '🔧 Проверяю сейчас', '👍 Спасибо, получил', '📌 Уточните, пожалуйста, детали', '⏱️ Вернусь с ответом в течение 15 минут', '🧩 Проблема воспроизведена, исправляю'];
 const EMPLOYEE_TEMPLATE_MESSAGES = ['Привет! 👋', 'Как дела? 🙂', 'Спасибо большое! 🙏', 'Отлично, договорились ✅', 'Я на месте, можем созвониться? 📞', 'Хорошего дня! ☀️'];
 const REACTION_EMOJIS = ['👍', '✅', '🔧'];
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
+const EMPLOYEE_CHAT_THEMES = [
+  { id: 'aurora', label: 'Aurora', caption: 'мягкий свет' },
+  { id: 'graphite', label: 'Graphite', caption: 'тёмный фокус' },
+  { id: 'paper', label: 'Paper', caption: 'редакционный стиль' }
+];
 
 const getConversationId = (a, b) => [a.toLowerCase(), b.toLowerCase()].sort().join('::');
 const getParticipantsFromThreadId = (threadId = '') => threadId.split('::').filter(Boolean);
@@ -100,6 +106,24 @@ const readFeedPosts = () => {
   }
 };
 
+
+const readSavedChatTheme = () => {
+  try {
+    const savedTheme = localStorage.getItem(EMPLOYEE_CHAT_THEME_KEY);
+    return EMPLOYEE_CHAT_THEMES.some((theme) => theme.id === savedTheme) ? savedTheme : EMPLOYEE_CHAT_THEMES[0].id;
+  } catch {
+    return EMPLOYEE_CHAT_THEMES[0].id;
+  }
+};
+
+const saveChatTheme = (themeId) => {
+  try {
+    localStorage.setItem(EMPLOYEE_CHAT_THEME_KEY, themeId);
+  } catch {
+    // noop
+  }
+};
+
 const processAvatar = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => {
@@ -186,8 +210,14 @@ const EmployeeChat = () => {
   const [feedAttachment, setFeedAttachment] = useState(null);
   const [commentDrafts, setCommentDrafts] = useState({});
   const [isFeedOpen, setIsFeedOpen] = useState(false);
+  const [chatTheme, setChatTheme] = useState(() => readSavedChatTheme());
   const messagesWrapRef = useRef(null);
   const forceScrollRef = useRef(false);
+
+  const selectChatTheme = useCallback((themeId) => {
+    setChatTheme(themeId);
+    saveChatTheme(themeId);
+  }, []);
 
   const updateProfileField = useCallback((field, value) => {
     profileDirtyRef.current = true;
@@ -898,7 +928,7 @@ const EmployeeChat = () => {
   };
 
   return (
-    <div className="employee-chat-layout">
+    <div className={`employee-chat-layout employee-theme-${chatTheme}`}>
       <aside className={`employee-chat-sidebar ${isProfileVisible ? 'profile-open' : ''}`}>
         <div className="employee-chat-header">
           <div className={`employee-profile-stack ${isProfileVisible ? 'open' : ''}`}>
@@ -1087,6 +1117,24 @@ const EmployeeChat = () => {
             {!isAdmin && <button className="logout-btn" onClick={handleLogout}>Выход</button>}
           </div>
         )}
+
+        <div className="employee-theme-switcher" aria-label="Варианты дизайна чата">
+          <div className="employee-theme-switcher-title">Дизайн чата</div>
+          <div className="employee-theme-options">
+            {EMPLOYEE_CHAT_THEMES.map((theme) => (
+              <button
+                key={theme.id}
+                type="button"
+                className={chatTheme === theme.id ? 'active' : ''}
+                onClick={() => selectChatTheme(theme.id)}
+                aria-pressed={chatTheme === theme.id}
+              >
+                <span>{theme.label}</span>
+                <small>{theme.caption}</small>
+              </button>
+            ))}
+          </div>
+        </div>
       </aside>
 
       <section className="employee-chat-main">
