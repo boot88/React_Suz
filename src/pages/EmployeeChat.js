@@ -5,6 +5,7 @@ import { MANAGER_CREDENTIALS } from '../config/authConfig';
 import './EmployeeChat.css';
 
 const CHAT_READ_STATE_KEY = 'chatReadState';
+const FEED_READ_STATE_KEY = 'employeeFeedReadState';
 const EMPLOYEE_DIRECTORY_CACHE_KEY = 'employeeDirectoryCache';
 const MANAGER_TEMPLATE_MESSAGES = ['✅ Принято в работу', '🔧 Проверяю сейчас', '👍 Спасибо, получил', '📌 Уточните, пожалуйста, детали', '⏱️ Вернусь с ответом в течение 15 минут', '🧩 Проблема воспроизведена, исправляю'];
 const EMPLOYEE_TEMPLATE_MESSAGES = ['Привет! 👋', 'Как дела? 🙂', 'Спасибо большое! 🙏', 'Отлично, договорились ✅', 'Я на месте, можем созвониться? 📞', 'Хорошего дня! ☀️'];
@@ -55,6 +56,40 @@ const saveReadState = (username, nextState) => {
     // noop
   }
 };
+
+
+const readFeedReadAt = (username) => {
+  try {
+    const all = JSON.parse(localStorage.getItem(FEED_READ_STATE_KEY) || '{}');
+    return typeof all?.[username] === 'string' ? all[username] : '';
+  } catch {
+    return '';
+  }
+};
+
+const saveFeedReadAt = (username, readAt) => {
+  try {
+    const all = JSON.parse(localStorage.getItem(FEED_READ_STATE_KEY) || '{}');
+    all[username] = readAt;
+    localStorage.setItem(FEED_READ_STATE_KEY, JSON.stringify(all));
+  } catch {
+    // noop
+  }
+};
+
+const getFeedItemTimestamp = (item) => {
+  if (!item) return 0;
+  return new Date(item.createdAt || item.updatedAt || 0).getTime() || 0;
+};
+
+const getFeedLatestTimestamp = (posts = []) => posts.reduce((latest, post) => {
+  const postTimestamp = getFeedItemTimestamp(post);
+  const latestCommentTimestamp = (post.comments || []).reduce(
+    (commentLatest, comment) => Math.max(commentLatest, getFeedItemTimestamp(comment)),
+    0
+  );
+  return Math.max(latest, postTimestamp, latestCommentTimestamp);
+}, 0);
 
 const readDirectoryCache = () => {
   try {
@@ -186,6 +221,7 @@ const EmployeeChat = () => {
   
   const [replyTo, setReplyTo] = useState(null);
   const [readState, setReadState] = useState(() => readReadState(user?.username || 'guest'));
+  const [feedReadAt, setFeedReadAt] = useState(() => readFeedReadAt(user?.username || 'guest'));
   const [directoryEmployees, setDirectoryEmployees] = useState(() => readDirectoryCache());
   const [isDirectoryLoaded, setIsDirectoryLoaded] = useState(() => readDirectoryCache().length > 0);
   const [avatarUrl, setAvatarUrl] = useState('');
@@ -278,7 +314,9 @@ const EmployeeChat = () => {
   );
 
   useEffect(() => {
-    setReadState(readReadState(user?.username || 'guest'));
+    const username = user?.username || 'guest';
+    setReadState(readReadState(username));
+    setFeedReadAt(readFeedReadAt(username));
   }, [user?.username]);
 
   useEffect(() => {
@@ -947,7 +985,14 @@ const EmployeeChat = () => {
   const typingHint = draft.trim().length > 0 ? 'Вы печатаете…' : '';
   const tabs = isManager ? MANAGER_TABS : EMPLOYEE_TABS;
   const unreadTotal = Object.values(unreadByEmail).reduce((sum, count) => sum + count, 0);
-  const feedBadge = feedPosts.filter((post) => post.author !== user?.username).length;
+  const feedReadTimestamp = feedReadAt ? new Date(feedReadAt).getTime() : 0;
+  const feedBadge = feedPosts.reduce((count, post) => {
+    const postUnread = post.author !== user?.username && getFeedItemTimestamp(post) > feedReadTimestamp ? 1 : 0;
+    const commentsUnread = (post.comments || []).filter((comment) => (
+      comment.author !== user?.username && getFeedItemTimestamp(comment) > feedReadTimestamp
+    )).length;
+    return count + postUnread + commentsUnread;
+  }, 0);
   const requestBadge = requestStatus.state === 'sent' ? 1 : 0;
   const activeContact = chatCandidates.find((item) => item.email === selectedEmail);
   const normalizedDialogSearch = normalizeText(dialogSearch);
@@ -974,6 +1019,19 @@ const EmployeeChat = () => {
       return items;
     });
   }, [visibleMessages]);
+
+  useEffect(() => {
+    if (activeTab !== 'feed' || !user?.username) return;
+    const latestTimestamp = getFeedLatestTimestamp(feedPosts);
+    if (!latestTimestamp) return;
+
+    const latestReadTimestamp = feedReadAt ? new Date(feedReadAt).getTime() : 0;
+    if (latestReadTimestamp >= latestTimestamp) return;
+
+    const nextReadAt = new Date(latestTimestamp).toISOString();
+    setFeedReadAt(nextReadAt);
+    saveFeedReadAt(user.username, nextReadAt);
+  }, [activeTab, feedPosts, feedReadAt, user?.username]);
 
   const addFeedPost = async (event) => {
     event.preventDefault();
