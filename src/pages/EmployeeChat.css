@@ -1044,3 +1044,108 @@ button:disabled {
   background: var(--chat-accent-2);
   color: #fff;
 }
+
+.request-form-actions,
+.ticket-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.employee-ticket-board {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.ticket-board-head,
+.employee-ticket-card header,
+.ticket-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ticket-board-head span {
+  min-width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--chat-accent);
+  color: #fff;
+  font-weight: 900;
+}
+
+.employee-ticket-card {
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-lg);
+  background: rgba(255,255,255,.72);
+  box-shadow: var(--chat-shadow-sm);
+  padding: 16px;
+}
+
+.employee-ticket-card header strong {
+  display: block;
+  color: var(--chat-ink);
+}
+
+.employee-ticket-card header span,
+.employee-ticket-card header em {
+  color: var(--chat-muted);
+  font-size: 13px;
+}
+
+.employee-ticket-card.confirm {
+  border-color: rgba(202, 138, 4, .35);
+  background: #fffbeb;
+}
+
+.employee-ticket-card.reopened,
+.employee-ticket-card.new {
+  border-color: rgba(234, 88, 12, .28);
+}
+
+.employee-ticket-card.done {
+  border-color: rgba(22, 163, 74, .25);
+}
+
+.ticket-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.ticket-metrics span,
+.ticket-admin-note {
+  border-radius: 14px;
+  background: rgba(31, 111, 104, .08);
+  color: var(--chat-ink);
+  font-weight: 800;
+  padding: 9px 10px;
+}
+
+.ticket-admin-note {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.ticket-admin-note span {
+  color: var(--chat-muted);
+  font-weight: 700;
+}
+
+.ticket-history {
+  border: 1px dashed var(--chat-border);
+  border-radius: var(--chat-radius-md);
+  padding: 12px;
+}
+
+.ticket-history-row {
+  padding: 8px 0;
+  border-top: 1px solid var(--chat-border);
+}

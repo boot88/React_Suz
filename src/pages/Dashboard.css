@@ -812,3 +812,79 @@
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
+.workflow-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.workflow-tabs button,
+.workflow-actions button,
+.workflow-actions a {
+  border: 1px solid rgba(37, 99, 235, .18);
+  border-radius: 999px;
+  background: #fff;
+  color: #1e3a8a;
+  cursor: pointer;
+  font-weight: 800;
+  padding: 8px 13px;
+  text-decoration: none;
+}
+
+.workflow-tabs button.active,
+.workflow-actions button:hover,
+.workflow-actions a:hover {
+  background: linear-gradient(135deg, #2563eb, #0f766e);
+  color: #fff;
+}
+
+.workflow-message {
+  margin: 12px 0;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: #ecfdf5;
+  color: #047857;
+  font-weight: 800;
+}
+
+.workflow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 150px;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.status-new,
+.status-reopened {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.status-accepted,
+.status-in_progress {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.status-waiting_employee_confirmation {
+  background: #fef9c3;
+  color: #a16207;
+}
+
+.status-done {
+  background: #dcfce7;
+  color: #15803d;
+}

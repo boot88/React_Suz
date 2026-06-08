@@ -90,7 +90,7 @@ function Sidebar() {
         const applications = Array.isArray(data?.applications) ? data.applications : [];
         const seenRaw = JSON.parse(localStorage.getItem('adminViewedApplications') || '[]');
         const seenSet = new Set((Array.isArray(seenRaw) ? seenRaw : []).map((id) => String(id)));
-        const fresh = applications.filter((item) => !item.fl && !seenSet.has(String(item.id))).length;
+        const fresh = applications.filter((item) => ['new', 'reopened'].includes(item.status || (item.fl ? 'done' : 'new')) && !seenSet.has(String(item.id))).length;
         setNewRequestsCount(fresh);
         localStorage.setItem('cachedNewRequests', String(fresh));
       } catch (error) {
@@ -111,7 +111,7 @@ function Sidebar() {
         const data = await response.json().catch(() => ({}));
         if (!response.ok) return;
         const applications = Array.isArray(data?.applications) ? data.applications : [];
-        const ids = applications.filter((item) => !item.fl).map((item) => String(item.id));
+        const ids = applications.filter((item) => ['new', 'reopened'].includes(item.status || (item.fl ? 'done' : 'new'))).map((item) => String(item.id));
         localStorage.setItem('adminViewedApplications', JSON.stringify(ids));
         setNewRequestsCount(0);
         localStorage.setItem('cachedNewRequests', '0');

@@ -26,6 +26,14 @@ const MANAGER_TABS = [
 ];
 const REQUEST_CATEGORIES = ['Техника', 'Сеть', 'ПО', 'Доступы', 'Другое'];
 const REQUEST_PRIORITIES = ['Обычный', 'Важный', 'Срочный'];
+const APPLICATION_STATUS_META = {
+  new: { label: 'Новая', hint: 'Ожидает администратора', tone: 'new' },
+  accepted: { label: 'Принята', hint: 'Администратор назначил исполнителя', tone: 'accepted' },
+  in_progress: { label: 'В работе', hint: 'Исполнитель устраняет проблему', tone: 'active' },
+  waiting_employee_confirmation: { label: 'Проверьте выполнение', hint: 'Подтвердите, если проблема решена', tone: 'confirm' },
+  done: { label: 'Выполнена', hint: 'Заявка закрыта', tone: 'done' },
+  reopened: { label: 'Переоткрыта', hint: 'Администратор снова увидит заявку', tone: 'reopened' }
+};
 
 const getConversationId = (a, b) => [a.toLowerCase(), b.toLowerCase()].sort().join('::');
 const getParticipantsFromThreadId = (threadId = '') => threadId.split('::').filter(Boolean);
@@ -221,6 +229,23 @@ const getFileIcon = (type = '') => {
   return '📎';
 };
 
+const formatDuration = (seconds) => {
+  const safeSeconds = Math.max(0, Math.floor(Number(seconds) || 0));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const rest = safeSeconds % 60;
+  return [hours, minutes, rest].map((item) => String(item).padStart(2, '0')).join(':');
+};
+
+const secondsSince = (dateValue) => {
+  if (!dateValue) return 0;
+  const startedAt = new Date(dateValue).getTime();
+  if (Number.isNaN(startedAt)) return 0;
+  return Math.max(0, Math.round((Date.now() - startedAt) / 1000));
+};
+
+const getApplicationStatusMeta = (status) => APPLICATION_STATUS_META[status] || APPLICATION_STATUS_META.new;
+
 const EmployeeChat = () => {
   const { user, logout, employeeDirectory } = useAuth();
   const isManager = user?.role === 'manager' || user?.role === 'admin';
@@ -268,6 +293,10 @@ const EmployeeChat = () => {
   const [requestCategory, setRequestCategory] = useState(REQUEST_CATEGORIES[0]);
   const [requestPriority, setRequestPriority] = useState(REQUEST_PRIORITIES[0]);
   const [requestStatus, setRequestStatus] = useState({ state: 'idle', text: 'Черновик', ticketId: '' });
+  const [myApplications, setMyApplications] = useState([]);
+  const [applicationsLoading, setApplicationsLoading] = useState(false);
+  const [applicationsError, setApplicationsError] = useState('');
+  const [clockTick, setClockTick] = useState(0);
   const [feedPosts, setFeedPosts] = useState([]);
   const [feedError, setFeedError] = useState('');
   const [feedDraft, setFeedDraft] = useState('');
@@ -481,6 +510,24 @@ const EmployeeChat = () => {
     }
   }, [notify]);
 
+  const fetchMyApplications = useCallback(async ({ silent = true } = {}) => {
+    if (!user?.username) return;
+    if (!silent) setApplicationsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/applications/my?employee_login=${encodeURIComponent(user.username)}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || data.message || 'Не удалось загрузить заявки');
+      setMyApplications(Array.isArray(data?.applications) ? data.applications : []);
+      setApplicationsError('');
+    } catch (error) {
+      const message = error.message || 'Не удалось загрузить заявки';
+      setApplicationsError(message);
+      if (!silent) notify(message, 'Заявки');
+    } finally {
+      if (!silent) setApplicationsLoading(false);
+    }
+  }, [notify, user?.username]);
+
   const fetchEmployees = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/auth/employees`);
@@ -534,11 +581,13 @@ const EmployeeChat = () => {
     fetchThreads();
     fetchEmployees();
     fetchFeed({ silent: true });
+    fetchMyApplications({ silent: true });
 
     const poller = setInterval(() => {
       fetchThreads();
       fetchEmployees();
-    }, 3000);
+      fetchMyApplications({ silent: true });
+    }, 5000);
     const feedPoller = setInterval(() => {
       fetchFeed({ silent: true });
     }, 30000);
@@ -547,7 +596,21 @@ const EmployeeChat = () => {
       clearInterval(poller);
       clearInterval(feedPoller);
     };
-  }, [fetchThreads, fetchEmployees, fetchFeed]);
+  }, [fetchThreads, fetchEmployees, fetchFeed, fetchMyApplications]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setClockTick((tick) => tick + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const dialog = params.get('dialog');
+    if (dialog) {
+      setSelectedEmail(dialog);
+      setActiveTab('chat');
+    }
+  }, []);
 
   useEffect(() => {
     if (!user?.username) return;
@@ -894,27 +957,30 @@ const EmployeeChat = () => {
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        const response = await fetch(`${API_BASE_URL}/applications`, {
+        const response = await fetch(`${API_BASE_URL}/applications/from-chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            employee_login: user?.username || '',
             name: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
             cabinet: profileForm.room || '',
             N_tel: profileForm.phone || '',
-            application: `[${requestCategory} / ${requestPriority}] ${requestText.trim()}`,
+            application: requestText.trim(),
             category: requestCategory,
             priority: requestPriority,
-            process: '',
-            executor: '',
-            fl: false
+            chat_thread_id: currentConversationId || '',
+            source_message_id: replyTo?.id || ''
           })
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
           throw new Error(data.error || data.message || 'Не удалось отправить заявку');
         }
-        setRequestStatus({ state: 'sent', text: 'Заявка отправлена. Статус: в работе.', ticketId: data?.id || data?.insertId || createMessageId().slice(0, 8) });
+        const createdTicket = data?.application || null;
+        if (createdTicket) setMyApplications((prev) => [createdTicket, ...prev.filter((item) => item.id !== createdTicket.id)]);
+        setRequestStatus({ state: 'sent', text: 'Заявка подана. Статус: ожидает администратора.', ticketId: data?.id || data?.insertId || createMessageId().slice(0, 8) });
         setRequestText('');
+        fetchMyApplications({ silent: true });
         return;
       } catch (error) {
         lastError = error;
@@ -925,6 +991,45 @@ const EmployeeChat = () => {
     }
 
     setRequestStatus({ state: 'error', text: lastError?.message || 'Ошибка сети при отправке заявки. Попробуйте ещё раз.', ticketId: '' });
+  };
+
+  const refreshApplicationInList = (application) => {
+    if (!application) return;
+    setMyApplications((prev) => [application, ...prev.filter((item) => item.id !== application.id)]);
+  };
+
+  const confirmApplicationDone = async (applicationId) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actor: user?.username || 'employee' })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || data.message || 'Не удалось подтвердить заявку');
+      refreshApplicationInList(data.application);
+      notify('Спасибо! Заявка закрыта и время выполнения сохранено.', 'Заявка выполнена');
+    } catch (error) {
+      notify(error.message || 'Не удалось подтвердить заявку', 'Заявка');
+    }
+  };
+
+  const reopenApplication = async (applicationId) => {
+    const comment = await promptAction('Что осталось неисправным? Администратор увидит комментарий.', '', 'Проблема осталась');
+    if (!comment) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/reopen`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actor: user?.username || 'employee', employee_comment: comment })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || data.message || 'Не удалось переоткрыть заявку');
+      refreshApplicationInList(data.application);
+      notify('Заявка возвращена администратору.', 'Заявка переоткрыта');
+    } catch (error) {
+      notify(error.message || 'Не удалось переоткрыть заявку', 'Заявка');
+    }
   };
 
   const updateMessage = async (messageId, updater, targetConversationId = currentConversationId) => {
@@ -1088,6 +1193,8 @@ const EmployeeChat = () => {
     await fetchEmployees();
   };
 
+  const activeApplications = useMemo(() => myApplications.filter((item) => item.status !== 'done'), [myApplications]);
+  const completedApplications = useMemo(() => myApplications.filter((item) => item.status === 'done'), [myApplications]);
   const allConversationIds = useMemo(() => Object.keys(threads).sort(), [threads]);
 
   const typingHint = draft.trim().length > 0 ? 'Вы печатаете…' : '';
@@ -1101,8 +1208,9 @@ const EmployeeChat = () => {
     )).length;
     return count + postUnread + commentsUnread;
   }, 0);
-  const requestBadge = requestStatus.state === 'sent' ? 1 : 0;
+  const requestBadge = activeApplications.filter((item) => item.status === 'waiting_employee_confirmation' || item.status === 'reopened').length || (requestStatus.state === 'sent' ? 1 : 0);
   const activeContact = chatCandidates.find((item) => item.email === selectedEmail);
+  void clockTick;
   const normalizedDialogSearch = normalizeText(dialogSearch);
   const visibleMessages = useMemo(() => (
     normalizedDialogSearch
@@ -1486,6 +1594,7 @@ const EmployeeChat = () => {
             <div className={`request-status-card ${requestStatus.state}`}>
               <strong>{requestStatus.text}</strong>
               {requestStatus.ticketId && <span>Номер: #{requestStatus.ticketId}</span>}
+              {applicationsError && <small>Заявки временно недоступны: {applicationsError}</small>}
             </div>
             <form className="employee-request-box" onSubmit={submitRequest}>
               <div className="form-grid two">
@@ -1493,8 +1602,29 @@ const EmployeeChat = () => {
                 <label>Приоритет<select value={requestPriority} onChange={(e) => setRequestPriority(e.target.value)}>{REQUEST_PRIORITIES.map((item) => <option key={item}>{item}</option>)}</select></label>
               </div>
               <textarea rows={7} placeholder="Например: кабинет 204, не работает принтер, требуется проверка подключения..." value={requestText} onChange={(e) => setRequestText(e.target.value)} />
-              <button type="submit" disabled={!requestText.trim() || requestStatus.state === 'sending'}>{requestStatus.state === 'sending' ? 'Отправляем...' : 'Отправить заявку'}</button>
+              <div className="request-form-actions"><button type="submit" disabled={!requestText.trim() || requestStatus.state === 'sending'}>{requestStatus.state === 'sending' ? 'Отправляем...' : 'Отправить заявку'}</button><button type="button" onClick={() => fetchMyApplications({ silent: false })}>{applicationsLoading ? 'Обновляем...' : 'Обновить статусы'}</button></div>
             </form>
+
+            <section className="employee-ticket-board">
+              <div className="ticket-board-head"><h3>Мои активные заявки</h3><span>{activeApplications.length}</span></div>
+              {activeApplications.length === 0 && <div className="empty-mini">Активных заявок нет — новые появятся здесь сразу после отправки.</div>}
+              {activeApplications.map((ticket) => {
+                const meta = getApplicationStatusMeta(ticket.status);
+                const waitingSeconds = ticket.waiting_seconds ?? (ticket.status === 'new' || ticket.status === 'reopened' ? secondsSince(ticket.data) : 0);
+                const workSeconds = ticket.work_seconds ?? (['accepted', 'in_progress'].includes(ticket.status) ? secondsSince(ticket.work_started_at || ticket.accepted_at) : 0);
+                return (
+                  <article key={ticket.id} className={`employee-ticket-card ${meta.tone}`}>
+                    <header><div><strong>#{ticket.id} · {meta.label}</strong><span>{ticket.category || 'Другое'} · {ticket.priority || 'Обычный'}</span></div><em>{meta.hint}</em></header>
+                    <p>{ticket.application}</p>
+                    <div className="ticket-metrics"><span>Ожидание: {formatDuration(waitingSeconds)}</span><span>В работе: {formatDuration(workSeconds)}</span>{ticket.eta_minutes && <span>Подойдут через: {ticket.eta_minutes} мин.</span>}</div>
+                    {(ticket.executor || ticket.accepted_by || ticket.admin_comment) && <div className="ticket-admin-note"><strong>{ticket.executor || ticket.accepted_by || 'Администратор'}</strong><span>{ticket.admin_comment || 'Заявка принята, ожидайте исполнителя.'}</span></div>}
+                    {ticket.process && <div className="ticket-admin-note"><strong>Что сделано</strong><span>{ticket.process}</span></div>}
+                    {ticket.status === 'waiting_employee_confirmation' && <div className="ticket-actions"><button type="button" onClick={() => confirmApplicationDone(ticket.id)}>✅ Заявка выполнена</button><button type="button" onClick={() => reopenApplication(ticket.id)}>Проблема осталась</button></div>}
+                  </article>
+                );
+              })}
+              {completedApplications.length > 0 && <details className="ticket-history"><summary>История выполненных заявок ({completedApplications.length})</summary>{completedApplications.slice(0, 10).map((ticket) => <div key={ticket.id} className="ticket-history-row"><span>#{ticket.id}</span><span>{ticket.application}</span><strong>{formatDuration(ticket.waiting_seconds || 0)} / {formatDuration(ticket.work_seconds || 0)}</strong></div>)}</details>}
+            </section>
           </div>
         )}
 

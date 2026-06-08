@@ -2,8 +2,33 @@ import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import './Dashboard.css';
 import { API_BASE_URL } from '../utils/apiConfig';
+import { useAuth } from '../context/AuthContext';
+
+const STATUS_META = {
+  new: { label: 'Новая', icon: '📥' },
+  accepted: { label: 'Принята', icon: '🤝' },
+  in_progress: { label: 'В работе', icon: '🛠️' },
+  waiting_employee_confirmation: { label: 'Ждёт сотрудника', icon: '👤' },
+  done: { label: 'Выполнено', icon: '✅' },
+  reopened: { label: 'Переоткрыта', icon: '↩️' }
+};
+const WORKFLOW_FILTERS = [
+  { id: 'all', label: 'Все' },
+  { id: 'queue', label: 'Новые' },
+  { id: 'active', label: 'В работе' },
+  { id: 'confirmation', label: 'На подтверждении' },
+  { id: 'done', label: 'Выполненные' }
+];
+const formatDuration = (seconds) => {
+  const safe = Math.max(0, Math.floor(Number(seconds) || 0));
+  const h = Math.floor(safe / 3600);
+  const m = Math.floor((safe % 3600) / 60);
+  const s = safe % 60;
+  return [h, m, s].map((part) => String(part).padStart(2, '0')).join(':');
+};
 
 const Dashboard = () => {
+  const { user } = useAuth();
   const [applications, setApplications] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -12,7 +37,8 @@ const Dashboard = () => {
   const [filter, setFilter] = useState('all');
   const [exportLoading, setExportLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [searchLoading, setSearchLoading] = useState(false);
+  const [workflowMessage, setWorkflowMessage] = useState('');
+  const [actionBusyId, setActionBusyId] = useState(null);
   const didInitialLoadRef = useRef(false);
 
   const [stats, setStats] = useState({
@@ -61,7 +87,7 @@ const Dashboard = () => {
         'Дата подачи': app.data ? new Date(app.data).toLocaleString('ru-RU') : '',
         'Дата начала': app.start_data ? new Date(app.start_data).toLocaleString('ru-RU') : '',
         'Дата окончания': app.end_data ? new Date(app.end_data).toLocaleString('ru-RU') : '',
-        'Статус': app.fl ? 'Выполнено' : 'В работе'
+        'Статус': STATUS_META[app.status]?.label || (app.fl ? 'Выполнено' : 'Новая')
       }));
 
       const workbook = XLSX.utils.book_new();
@@ -111,14 +137,10 @@ const Dashboard = () => {
         url += `&search=${encodeURIComponent(searchTerm.trim())}`;
       }
       
+      if (filter !== 'all') url += `&status=${encodeURIComponent(filter)}`;
       if (dateFilterActive) {
-        if (filter === 'done') url += '&status=done';
-        if (filter === 'pending') url += '&status=pending';
         if (fromDate) url += `&from=${fromDate}`;
         if (toDate) url += `&to=${toDate}`;
-      } else {
-        if (filter === 'done') url += '&status=done';
-        if (filter === 'pending') url += '&status=pending';
       }
 
       const response = await fetch(`${API_BASE_URL}${url}`);
@@ -242,18 +264,49 @@ const Dashboard = () => {
     });
   };
 
-  const getStatusLabel = (fl) => {
-    return fl ? (
-      <span className="status-completed">
-        <span className="status-icon">✅</span>
-        Выполнено
-      </span>
-    ) : (
-      <span className="status-pending">
-        <span className="status-icon">🔄</span>
-        В работе
-      </span>
-    );
+  const getStatusLabel = (app) => {
+    const status = app.status || (app.fl ? 'done' : 'new');
+    const meta = STATUS_META[status] || STATUS_META.new;
+    return <span className={`status-badge status-${status}`}><span className="status-icon">{meta.icon}</span>{meta.label}</span>;
+  };
+
+  const runWorkflowAction = async (app, action) => {
+    const payload = { actor: user?.username || user?.name || 'admin' };
+    if (action === 'accept') {
+      const executor = window.prompt('Кто подойдёт к сотруднику?', app.executor || user?.name || user?.username || 'Администратор');
+      if (!executor) return;
+      const eta = window.prompt('Через сколько минут подойдут?', app.eta_minutes || '10');
+      const comment = window.prompt('Комментарий сотруднику', app.admin_comment || `К вам подойдут через ${eta || 10} минут`);
+      payload.accepted_by = user?.username || 'admin';
+      payload.executor = executor;
+      payload.eta_minutes = Number(eta) || 10;
+      payload.admin_comment = comment || `К вам подойдут через ${Number(eta) || 10} минут`;
+    }
+    if (action === 'resolve') {
+      const process = window.prompt('Что сделано? Это увидит сотрудник.', app.process || 'Проблема устранена');
+      if (!process) return;
+      payload.process = process;
+    }
+
+    setActionBusyId(app.id);
+    setWorkflowMessage('');
+    try {
+      const response = await fetch(`${API_BASE_URL}/applications/${app.id}/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || data.message || 'Не удалось изменить статус');
+      setApplications((prev) => prev.map((item) => (item.id === app.id ? data.application : item)));
+      setWorkflowMessage(data.message || 'Статус заявки обновлён');
+      fetchGeneralStats();
+      fetchApplications();
+    } catch (error) {
+      setWorkflowMessage(error.message || 'Ошибка изменения статуса');
+    } finally {
+      setActionBusyId(null);
+    }
   };
 
   const renderPagination = () => {
@@ -378,6 +431,15 @@ const Dashboard = () => {
           <small>Требуют внимания</small>
         </div>
       </div>
+
+      <div className="workflow-tabs">
+        {WORKFLOW_FILTERS.map((item) => (
+          <button key={item.id} type="button" className={filter === item.id ? 'active' : ''} onClick={() => setFilterAndResetPage(item.id)}>
+            {item.label}
+          </button>
+        ))}
+      </div>
+      {workflowMessage && <div className="workflow-message">{workflowMessage}</div>}
 
       {/* Фильтры */}
       <div className="filters-section">
@@ -539,13 +601,15 @@ const Dashboard = () => {
                     <th>Дата подачи</th>
                     <th>Начало</th>
                     <th>Окончание</th>
+                    <th>Таймеры</th>
                     <th>Статус</th>
+                    <th>Действия</th>
                   </tr>
                 </thead>
                 <tbody>
                   {applications.length > 0 ? (
                     applications.map((app) => (
-                      <tr key={app.id} className={app.fl ? 'row-completed' : ''}>
+                      <tr key={app.id} className={app.fl ? 'row-completed' : `row-${app.status || 'new'}`}>
                         <td className="cell-name">{app.name}</td>
                         <td>{app.cabinet || '—'}</td>
                         <td>{app.N_tel || '—'}</td>
@@ -608,12 +672,19 @@ const Dashboard = () => {
                         <td className="cell-date">{formatDate(app.data)}</td>
                         <td className="cell-date">{formatTime(app.start_data)}</td>
                         <td className="cell-date">{formatTime(app.end_data)}</td>
-                        <td>{getStatusLabel(app.fl)}</td>
+                        <td className="cell-date"><div>Ожидание: {formatDuration(app.waiting_seconds)}</div><div>Приход: {formatDuration(app.arrival_seconds)}</div><div>Работа: {formatDuration(app.work_seconds)}</div>{app.admin_comment && <small>{app.admin_comment}</small>}</td>
+                        <td>{getStatusLabel(app)}</td>
+                        <td><div className="workflow-actions">
+                          {['new', 'reopened'].includes(app.status || 'new') && <button type="button" disabled={actionBusyId === app.id} onClick={() => runWorkflowAction(app, 'accept')}>Взять</button>}
+                          {app.status === 'accepted' && <button type="button" disabled={actionBusyId === app.id} onClick={() => runWorkflowAction(app, 'start-work')}>Начать</button>}
+                          {app.status === 'in_progress' && <button type="button" disabled={actionBusyId === app.id} onClick={() => runWorkflowAction(app, 'resolve')}>На подтверждение</button>}
+                          {app.employee_login && <a href={`/employee?dialog=${encodeURIComponent(app.employee_login)}&application=${app.id}`}>Чат</a>}
+                        </div></td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan="10" className="no-data">
+                      <td colSpan="12" className="no-data">
                         <span className="science-icon">🔍</span>
                         {searchTerm 
                           ? `Не найдено заявок по запросу "${searchTerm}"`
