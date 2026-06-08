@@ -1,6 +1,7 @@
 const express = require('express');
 const fs = require('fs/promises');
 const path = require('path');
+const crypto = require('crypto');
 
 const router = express.Router();
 
@@ -15,6 +16,7 @@ let feedWriteQueue = Promise.resolve();
 const streamClients = new Set();
 
 const cloneThreads = (threads) => JSON.parse(JSON.stringify(threads || {}));
+const createId = (prefix = 'item') => `${prefix}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
 const ensureJsonFile = async (filePath, fallback) => {
   await fs.mkdir(dataDir, { recursive: true });
@@ -132,6 +134,168 @@ router.put('/feed', async (req, res) => {
   } catch (error) {
     console.error('Chat PUT /feed error:', error);
     res.status(500).json({ message: 'Не удалось сохранить ленту' });
+  }
+});
+
+
+const mutateFeed = async (mutator) => {
+  const posts = await readFeed();
+  const nextPosts = await mutator(posts);
+  await writeFeed(nextPosts);
+  return nextPosts;
+};
+
+router.post('/feed/posts', async (req, res) => {
+  try {
+    const now = new Date().toISOString();
+    const post = {
+      id: req.body?.id || createId('post'),
+      author: req.body?.author || 'employee',
+      authorName: req.body?.authorName || req.body?.author || 'Сотрудник',
+      text: String(req.body?.text || '').trim(),
+      category: req.body?.category || 'Объявление',
+      pinned: Boolean(req.body?.pinned),
+      attachment: req.body?.attachment || null,
+      reactions: req.body?.reactions || {},
+      createdAt: req.body?.createdAt || now,
+      updatedAt: now,
+      comments: []
+    };
+
+    if (!post.text && !post.attachment) {
+      return res.status(400).json({ message: 'text или attachment обязателен' });
+    }
+
+    const posts = await mutateFeed((items) => [post, ...items]);
+    res.status(201).json({ message: 'Публикация создана', post, posts });
+  } catch (error) {
+    console.error('Chat POST /feed/posts error:', error);
+    res.status(500).json({ message: 'Не удалось создать публикацию' });
+  }
+});
+
+router.delete('/feed/posts/:postId', async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const deletedBy = req.query?.deletedBy || req.body?.deletedBy || 'system';
+    const now = new Date().toISOString();
+    let found = false;
+    const posts = await mutateFeed((items) => items.map((post) => {
+      if (post.id !== postId) return post;
+      found = true;
+      return { ...post, deletedAt: now, deletedBy, updatedAt: now };
+    }));
+
+    if (!found) return res.status(404).json({ message: 'Публикация не найдена' });
+    res.json({ message: 'Публикация удалена', posts });
+  } catch (error) {
+    console.error('Chat DELETE /feed/posts error:', error);
+    res.status(500).json({ message: 'Не удалось удалить публикацию' });
+  }
+});
+
+router.post('/feed/posts/:postId/comments', async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const now = new Date().toISOString();
+    const comment = {
+      id: req.body?.id || createId('comment'),
+      author: req.body?.author || 'employee',
+      authorName: req.body?.authorName || req.body?.author || 'Сотрудник',
+      text: String(req.body?.text || '').trim(),
+      createdAt: req.body?.createdAt || now,
+      updatedAt: now
+    };
+
+    if (!comment.text) return res.status(400).json({ message: 'text обязателен' });
+
+    let found = false;
+    const posts = await mutateFeed((items) => items.map((post) => {
+      if (post.id !== postId) return post;
+      found = true;
+      return { ...post, comments: [...(post.comments || []), comment], updatedAt: now };
+    }));
+
+    if (!found) return res.status(404).json({ message: 'Публикация не найдена' });
+    res.status(201).json({ message: 'Комментарий добавлен', comment, posts });
+  } catch (error) {
+    console.error('Chat POST /feed/posts/:postId/comments error:', error);
+    res.status(500).json({ message: 'Не удалось добавить комментарий' });
+  }
+});
+
+router.delete('/feed/posts/:postId/comments/:commentId', async (req, res) => {
+  try {
+    const { postId, commentId } = req.params;
+    const deletedBy = req.query?.deletedBy || req.body?.deletedBy || 'system';
+    const now = new Date().toISOString();
+    let found = false;
+    const posts = await mutateFeed((items) => items.map((post) => {
+      if (post.id !== postId) return post;
+      return {
+        ...post,
+        comments: (post.comments || []).map((comment) => {
+          if (comment.id !== commentId) return comment;
+          found = true;
+          return { ...comment, deletedAt: now, deletedBy, updatedAt: now };
+        }),
+        updatedAt: now
+      };
+    }));
+
+    if (!found) return res.status(404).json({ message: 'Комментарий не найден' });
+    res.json({ message: 'Комментарий удалён', posts });
+  } catch (error) {
+    console.error('Chat DELETE /feed/comments error:', error);
+    res.status(500).json({ message: 'Не удалось удалить комментарий' });
+  }
+});
+
+router.post('/feed/posts/:postId/reactions', async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const emoji = String(req.body?.emoji || '').trim();
+    const login = String(req.body?.login || '').trim();
+    if (!emoji || !login) return res.status(400).json({ message: 'emoji и login обязательны' });
+
+    const now = new Date().toISOString();
+    let found = false;
+    const posts = await mutateFeed((items) => items.map((post) => {
+      if (post.id !== postId) return post;
+      found = true;
+      const reactions = { ...(post.reactions || {}) };
+      const users = new Set(reactions[emoji] || []);
+      if (users.has(login)) users.delete(login);
+      else users.add(login);
+      reactions[emoji] = [...users];
+      return { ...post, reactions, updatedAt: now };
+    }));
+
+    if (!found) return res.status(404).json({ message: 'Публикация не найдена' });
+    res.json({ message: 'Реакция обновлена', posts });
+  } catch (error) {
+    console.error('Chat POST /feed/reactions error:', error);
+    res.status(500).json({ message: 'Не удалось обновить реакцию' });
+  }
+});
+
+router.post('/feed/posts/:postId/pin', async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const pinned = Boolean(req.body?.pinned);
+    const now = new Date().toISOString();
+    let found = false;
+    const posts = await mutateFeed((items) => items.map((post) => {
+      if (post.id !== postId) return post;
+      found = true;
+      return { ...post, pinned, updatedAt: now };
+    }));
+
+    if (!found) return res.status(404).json({ message: 'Публикация не найдена' });
+    res.json({ message: 'Закрепление обновлено', posts });
+  } catch (error) {
+    console.error('Chat POST /feed/pin error:', error);
+    res.status(500).json({ message: 'Не удалось закрепить публикацию' });
   }
 });
 

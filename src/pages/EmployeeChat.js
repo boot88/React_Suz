@@ -7,9 +7,11 @@ import './EmployeeChat.css';
 const CHAT_READ_STATE_KEY = 'chatReadState';
 const FEED_READ_STATE_KEY = 'employeeFeedReadState';
 const EMPLOYEE_DIRECTORY_CACHE_KEY = 'employeeDirectoryCache';
-const MANAGER_TEMPLATE_MESSAGES = ['✅ Принято в работу', '🔧 Проверяю сейчас', '👍 Спасибо, получил', '📌 Уточните, пожалуйста, детали', '⏱️ Вернусь с ответом в течение 15 минут', '🧩 Проблема воспроизведена, исправляю'];
-const EMPLOYEE_TEMPLATE_MESSAGES = ['Привет! 👋', 'Как дела? 🙂', 'Спасибо большое! 🙏', 'Отлично, договорились ✅', 'Я на месте, можем созвониться? 📞', 'Хорошего дня! ☀️'];
-const REACTION_EMOJIS = ['👍', '✅', '🔧'];
+const MANAGER_TEMPLATE_MESSAGES = ['✅ Принято в работу', '👀 Смотрю сейчас', '🔧 Исправляю', '📌 Уточните кабинет и устройство', '📷 Пришлите фото ошибки', '⏱️ Вернусь с ответом в течение 15 минут', '🧪 Проверяю решение', '✅ Готово, проверьте пожалуйста', '🙏 Спасибо, закрываю обращение'];
+const EMPLOYEE_TEMPLATE_MESSAGES = ['👋 Добрый день!', '🆘 Нужна помощь', '📍 Я в кабинете ...', '📷 Сейчас пришлю фото', '✅ Получилось, спасибо!', '❌ Ошибка осталась', '🔁 Повторил действие, результат тот же', '📞 Можем созвониться?', '🙏 Спасибо!'];
+const REACTION_EMOJIS = ['👍', '✅', '👀', '🙏', '❤️', '😂', '😮', '🔧', '⏳', '❗'];
+const QUICK_EMOJIS = ['😀', '🙂', '😅', '🙏', '👍', '✅', '👀', '📌', '🔧', '⏳', '❗', '❤️'];
+const EMPLOYEE_CUSTOM_TEMPLATES_KEY = 'employeeChatCustomTemplates';
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
 const EMPLOYEE_TABS = [
   { id: 'chat', label: 'Чат' },
@@ -72,6 +74,25 @@ const saveFeedReadAt = (username, readAt) => {
     const all = JSON.parse(localStorage.getItem(FEED_READ_STATE_KEY) || '{}');
     all[username] = readAt;
     localStorage.setItem(FEED_READ_STATE_KEY, JSON.stringify(all));
+  } catch {
+    // noop
+  }
+};
+
+const getCustomTemplatesKey = (username = 'guest') => `${EMPLOYEE_CUSTOM_TEMPLATES_KEY}:${username.toLowerCase()}`;
+
+const readCustomTemplates = (username) => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(getCustomTemplatesKey(username)) || '[]');
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveCustomTemplates = (username, templates) => {
+  try {
+    localStorage.setItem(getCustomTemplatesKey(username), JSON.stringify(templates));
   } catch {
     // noop
   }
@@ -218,6 +239,9 @@ const EmployeeChat = () => {
   const [search, setSearch] = useState('');
   const [dialogSearch, setDialogSearch] = useState('');
   const [activeTab, setActiveTab] = useState('chat');
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const [isEmojiOpen, setIsEmojiOpen] = useState(false);
+  const [customTemplates, setCustomTemplates] = useState(() => readCustomTemplates(user?.username || 'guest'));
   
   const [replyTo, setReplyTo] = useState(null);
   const [readState, setReadState] = useState(() => readReadState(user?.username || 'guest'));
@@ -279,6 +303,34 @@ const EmployeeChat = () => {
     defaultValue
   }), [openModal]);
 
+  const appendToDraft = useCallback((text) => {
+    setDraft((prev) => {
+      const separator = prev && !prev.endsWith(' ') ? ' ' : '';
+      return `${prev}${separator}${text}`;
+    });
+  }, []);
+
+  const addCustomTemplate = useCallback(async () => {
+    const nextTemplate = await promptAction('Введите быстрый шаблон:', '', 'Мой шаблон');
+    const normalized = String(nextTemplate || '').trim();
+    if (!normalized || !user?.username) return;
+
+    setCustomTemplates((prev) => {
+      const next = [...prev.filter((item) => item !== normalized), normalized].slice(-12);
+      saveCustomTemplates(user.username, next);
+      return next;
+    });
+  }, [promptAction, user?.username]);
+
+  const removeCustomTemplate = useCallback((template) => {
+    if (!user?.username) return;
+    setCustomTemplates((prev) => {
+      const next = prev.filter((item) => item !== template);
+      saveCustomTemplates(user.username, next);
+      return next;
+    });
+  }, [user?.username]);
+
   const updateProfileField = useCallback((field, value) => {
     profileDirtyRef.current = true;
     setProfileForm((prev) => {
@@ -302,7 +354,10 @@ const EmployeeChat = () => {
 
 
   const currentConversationId = selectedEmail ? getConversationId(user.username, selectedEmail) : null;
-  const templateMessages = isManager ? MANAGER_TEMPLATE_MESSAGES : EMPLOYEE_TEMPLATE_MESSAGES;
+  const templateMessages = useMemo(() => [
+    ...(isManager ? MANAGER_TEMPLATE_MESSAGES : EMPLOYEE_TEMPLATE_MESSAGES),
+    ...customTemplates
+  ], [customTemplates, isManager]);
   const currentMessages = useMemo(() => (
     currentConversationId ? (threads[currentConversationId] || []) : []
   ), [currentConversationId, threads]);
@@ -317,6 +372,7 @@ const EmployeeChat = () => {
     const username = user?.username || 'guest';
     setReadState(readReadState(username));
     setFeedReadAt(readFeedReadAt(username));
+    setCustomTemplates(readCustomTemplates(username));
   }, [user?.username]);
 
   useEffect(() => {
@@ -424,17 +480,6 @@ const EmployeeChat = () => {
       if (!silent) notify(message, 'Лента');
     }
   }, [notify]);
-
-  const persistFeedPosts = useCallback(async (nextPosts) => {
-    const response = await fetch(`${API_BASE_URL}/chat/feed`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ posts: nextPosts })
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.message || 'Не удалось сохранить ленту');
-    setFeedPosts(Array.isArray(data?.posts) ? data.posts : nextPosts);
-  }, []);
 
   const fetchEmployees = useCallback(async () => {
     try {
@@ -732,9 +777,8 @@ const EmployeeChat = () => {
     }
   };
 
-  const handleAttachmentChange = async (event) => {
-    const files = Array.from(event.target.files || []);
-    event.target.value = '';
+  const addAttachmentFiles = async (fileList) => {
+    const files = Array.from(fileList || []);
     if (!files.length) return;
 
     const tooLarge = files.find((file) => file.size > MAX_ATTACHMENT_SIZE);
@@ -745,25 +789,42 @@ const EmployeeChat = () => {
 
     try {
       const preparedFiles = await Promise.all(files.map(async (file) => ({
+        id: createMessageId(),
         name: file.name,
         type: file.type || 'application/octet-stream',
         size: file.size,
         dataUrl: await readFileAsDataUrl(file)
       })));
       setAttachmentDrafts((prev) => [...prev, ...preparedFiles]);
+      setActiveTab('chat');
     } catch {
       notify('Не удалось прикрепить файл.', 'Вложения');
     }
   };
 
-  const handleAttachmentDrop = (event) => {
+  const handleAttachmentChange = async (event) => {
+    await addAttachmentFiles(event.target.files);
+    event.target.value = '';
+  };
+
+  const handleAttachmentDrop = async (event) => {
     event.preventDefault();
-    handleAttachmentChange({
-      target: {
-        files: event.dataTransfer.files,
-        value: ''
-      }
-    });
+    event.stopPropagation();
+    setIsDraggingFiles(false);
+    await addAttachmentFiles(event.dataTransfer?.files);
+  };
+
+  const handleDragOver = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    setIsDraggingFiles(true);
+  };
+
+  const handleDragLeave = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!event.currentTarget.contains(event.relatedTarget)) setIsDraggingFiles(false);
   };
 
   const removeAttachmentDraft = (indexToRemove) => {
@@ -897,9 +958,18 @@ const EmployeeChat = () => {
 
   const deleteMessage = async (messageId, targetConversationId = currentConversationId) => {
     if (!targetConversationId) return;
-    const nextMessages = (threads[targetConversationId] || []).filter((item) => item.id !== messageId);
+    const confirmed = await confirmAction('Удалить сообщение? Вместо полного удаления оно будет скрыто и останется в аудите.', 'Удаление сообщения');
+    if (!confirmed) return;
     try {
-      await persistThreadMessages(targetConversationId, nextMessages);
+      await updateMessage(messageId, (item) => ({
+        ...item,
+        text: '',
+        attachment: null,
+        attachments: [],
+        deletedAt: new Date().toISOString(),
+        deletedBy: user.username,
+        audit: [...(item.audit || []), { action: 'delete', by: user.username, at: new Date().toISOString(), previousText: item.text }]
+      }), targetConversationId);
     } catch (error) {
       notify(error.message || 'Не удалось удалить сообщение', 'Сообщение');
     }
@@ -911,24 +981,62 @@ const EmployeeChat = () => {
     if (!nextText || !targetConversationId) return;
 
     try {
-      await updateMessage(messageId, (item) => ({ ...item, text: String(nextText).trim(), editedAt: new Date().toISOString() }), targetConversationId);
+      await updateMessage(messageId, (item) => ({
+        ...item,
+        text: String(nextText).trim(),
+        editedAt: new Date().toISOString(),
+        editedBy: user.username,
+        audit: [...(item.audit || []), { action: 'edit', by: user.username, at: new Date().toISOString(), previousText: item.text }]
+      }), targetConversationId);
     } catch (error) {
       notify(error.message || 'Не удалось изменить сообщение', 'Сообщение');
     }
   };
 
+  const copyMessageText = async (message) => {
+    try {
+      await navigator.clipboard.writeText(message.text || '');
+      notify('Текст сообщения скопирован', 'Копирование');
+    } catch {
+      notify('Не удалось скопировать текст', 'Копирование');
+    }
+  };
+
+  const createRequestFromMessage = (message) => {
+    setRequestText(message.text || '');
+    setRequestCategory('Другое');
+    setRequestPriority('Важный');
+    setRequestStatus({ state: 'idle', text: 'Черновик из сообщения', ticketId: '' });
+    setActiveTab('request');
+  };
+
   const clearConversation = async () => {
     if (!currentConversationId) return;
-    const confirmed = await confirmAction('Удалить всю переписку с этим сотрудником? Это действие нельзя отменить.', 'Удаление переписки');
+    const messageCount = currentMessages.length;
+    const attachmentCount = currentMessages.reduce((sum, message) => sum + (message.attachments?.length || (message.attachment ? 1 : 0)), 0);
+    const confirmed = await confirmAction(
+      `Очистить диалог с ${selectedEmail}? Будет скрыто сообщений: ${messageCount}, вложений: ${attachmentCount}. Действие останется в аудите.`,
+      'Очистка диалога'
+    );
     if (!confirmed) return;
 
+    const typed = await promptAction('Для подтверждения введите УДАЛИТЬ:', '', 'Финальное подтверждение');
+    if (String(typed || '').trim().toUpperCase() !== 'УДАЛИТЬ') return;
+
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(currentConversationId)}`, { method: 'DELETE' });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || 'Не удалось удалить переписку');
-      if (data?.threads) setThreads(data.threads);
+      const now = new Date().toISOString();
+      const nextMessages = currentMessages.map((message) => ({
+        ...message,
+        text: '',
+        attachment: null,
+        attachments: [],
+        deletedAt: message.deletedAt || now,
+        deletedBy: message.deletedBy || user.username,
+        audit: [...(message.audit || []), { action: 'conversation_clear', by: user.username, at: now, previousText: message.text }]
+      }));
+      await persistThreadMessages(currentConversationId, nextMessages);
     } catch (error) {
-      notify(error.message || 'Не удалось удалить переписку', 'Переписка');
+      notify(error.message || 'Не удалось очистить переписку', 'Переписка');
     }
   };
 
@@ -1036,17 +1144,22 @@ const EmployeeChat = () => {
   const addFeedPost = async (event) => {
     event.preventDefault();
     if (!feedDraft.trim() && !feedAttachment) return;
-    const post = {
-      id: createMessageId(),
-      author: user?.username || 'employee',
-      authorName: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
-      text: feedDraft.trim(),
-      attachment: feedAttachment,
-      createdAt: new Date().toISOString(),
-      comments: []
-    };
+
     try {
-      await persistFeedPosts([post, ...feedPosts]);
+      const response = await fetch(`${API_BASE_URL}/chat/feed/posts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          author: user?.username || 'employee',
+          authorName: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
+          text: feedDraft.trim(),
+          attachment: feedAttachment,
+          category: 'Объявление'
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Не удалось опубликовать запись');
+      setFeedPosts(Array.isArray(data?.posts) ? data.posts : [data.post, ...feedPosts].filter(Boolean));
       setFeedDraft('');
       setFeedAttachment(null);
     } catch (error) {
@@ -1063,22 +1176,25 @@ const EmployeeChat = () => {
       return;
     }
     const dataUrl = await readFileAsDataUrl(file);
-    setFeedAttachment({ name: file.name, type: file.type || 'application/octet-stream', size: file.size, dataUrl });
+    setFeedAttachment({ id: createMessageId(), name: file.name, type: file.type || 'application/octet-stream', size: file.size, dataUrl });
   };
 
   const addCommentToPost = async (postId) => {
     const text = (commentDrafts[postId] || '').trim();
     if (!text) return;
-    const comment = {
-      id: createMessageId(),
-      author: user?.username || 'employee',
-      authorName: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
-      text,
-      createdAt: new Date().toISOString()
-    };
-    const nextPosts = feedPosts.map((post) => (post.id === postId ? { ...post, comments: [...(post.comments || []), comment] } : post));
     try {
-      await persistFeedPosts(nextPosts);
+      const response = await fetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          author: user?.username || 'employee',
+          authorName: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
+          text
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Не удалось добавить комментарий');
+      setFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts);
       setCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
     } catch (error) {
       notify(error.message || 'Не удалось добавить комментарий', 'Лента');
@@ -1091,11 +1207,14 @@ const EmployeeChat = () => {
 
     const canDeletePost = isManager || isAdmin || post.author === user?.username;
     if (!canDeletePost) return;
-    const confirmed = await confirmAction('Удалить публикацию из общей ленты?', 'Лента');
+    const confirmed = await confirmAction('Скрыть публикацию из общей ленты? Запись останется в журнале как удалённая.', 'Лента');
     if (!confirmed) return;
 
     try {
-      await persistFeedPosts(feedPosts.filter((item) => item.id !== postId));
+      const response = await fetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}?deletedBy=${encodeURIComponent(user?.username || 'employee')}`, { method: 'DELETE' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Не удалось удалить публикацию');
+      setFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts.map((item) => (item.id === postId ? { ...item, deletedAt: new Date().toISOString(), deletedBy: user?.username } : item)));
     } catch (error) {
       notify(error.message || 'Не удалось удалить публикацию', 'Лента');
     }
@@ -1109,20 +1228,49 @@ const EmployeeChat = () => {
     const canDeleteComment = isManager || isAdmin || comment.author === user?.username;
     if (!canDeleteComment) return;
 
-    const nextPosts = feedPosts.map((item) => (
-      item.id === postId
-        ? { ...item, comments: (item.comments || []).filter((commentItem) => commentItem.id !== commentId) }
-        : item
-    ));
     try {
-      await persistFeedPosts(nextPosts);
+      const response = await fetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}?deletedBy=${encodeURIComponent(user?.username || 'employee')}`, { method: 'DELETE' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Не удалось удалить комментарий');
+      setFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts);
     } catch (error) {
       notify(error.message || 'Не удалось удалить комментарий', 'Лента');
     }
   };
 
+  const toggleFeedReaction = async (postId, emoji) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/reactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emoji, login: user?.username || 'employee' })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Не удалось обновить реакцию');
+      setFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts);
+    } catch (error) {
+      notify(error.message || 'Не удалось обновить реакцию', 'Лента');
+    }
+  };
+
+  const toggleFeedPinned = async (postId, pinned) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/pin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Не удалось закрепить публикацию');
+      setFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts);
+    } catch (error) {
+      notify(error.message || 'Не удалось закрепить публикацию', 'Лента');
+    }
+  };
+
   return (
-    <div className="employee-chat-layout">
+    <div className={`employee-chat-layout ${isDraggingFiles ? 'dragging-files' : ''}`} onDrop={handleAttachmentDrop} onDragOver={handleDragOver} onDragEnter={handleDragOver} onDragLeave={handleDragLeave}>
+      {isDraggingFiles && <div className="drop-zone-overlay"><strong>📎 Отпустите файлы</strong><span>Добавим их в текущее сообщение</span></div>}
       <input ref={avatarInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={handleAvatarUpload} hidden />
       
       <aside className="employee-chat-sidebar">
@@ -1226,7 +1374,8 @@ const EmployeeChat = () => {
                     const canEdit = isManager || message.sender === user.username;
                     const isMine = message.sender === user.username;
                     const isRead = isMine && currentMessages.some((row) => row.sender !== user.username && new Date(row.createdAt) > new Date(message.createdAt));
-                    const attachments = message.attachments?.length ? message.attachments : message.attachment ? [message.attachment] : [];
+                    const isDeleted = Boolean(message.deletedAt);
+                    const attachments = !isDeleted && message.attachments?.length ? message.attachments : !isDeleted && message.attachment ? [message.attachment] : [];
 
                     return (
                       <div key={message.id} className={`message-row ${isMine ? 'mine' : ''}`}>
@@ -1237,7 +1386,11 @@ const EmployeeChat = () => {
                           </div>
 
                           {message.replyTo && <div className="reply-preview">↪ {message.replyTo.sender}: {message.replyTo.text}</div>}
-                          <div className="message-text">{message.text}</div>
+                          {isDeleted ? (
+                            <div className="message-deleted">Сообщение удалено {message.deletedBy ? `· ${message.deletedBy}` : ''}</div>
+                          ) : (
+                            <div className="message-text">{message.text}</div>
+                          )}
 
                           {attachments.length > 0 && (
                             <div className="message-attachments-grid">
@@ -1250,7 +1403,8 @@ const EmployeeChat = () => {
                             </div>
                           )}
 
-                          {message.editedAt && <small className="read-state">изменено</small>}
+                          {message.editedAt && !isDeleted && <small className="read-state">изменено</small>}
+                          {message.audit?.length > 0 && <small className="read-state">журнал: {message.audit.length}</small>}
                           {isMine && <small className="read-state">{isRead ? 'прочитано' : 'доставлено'}</small>}
 
                           <div className="reaction-row">
@@ -1262,10 +1416,12 @@ const EmployeeChat = () => {
                           </div>
 
                           <div className="message-controls">
-                            <button type="button" onClick={() => setReplyTo(message)}>Ответить</button>
-                            <button type="button" onClick={() => togglePinned(message.id)}>{message.pinned ? 'Открепить' : 'Закрепить'}</button>
-                            {canEdit && <button type="button" onClick={() => editMessage(message.id)}>Изменить</button>}
-                            {canEdit && <button type="button" onClick={() => deleteMessage(message.id)}>Удалить</button>}
+                            {!isDeleted && <button type="button" onClick={() => setReplyTo(message)}>↩️ Ответить</button>}
+                            {!isDeleted && <button type="button" onClick={() => copyMessageText(message)}>📋 Копировать</button>}
+                            {!isDeleted && <button type="button" onClick={() => createRequestFromMessage(message)}>🧾 В заявку</button>}
+                            <button type="button" onClick={() => togglePinned(message.id)}>{message.pinned ? '📌 Открепить' : '📌 Закрепить'}</button>
+                            {canEdit && !isDeleted && <button type="button" onClick={() => editMessage(message.id)}>✏️ Изменить</button>}
+                            {canEdit && !isDeleted && <button type="button" onClick={() => deleteMessage(message.id)}>🗑️ Удалить</button>}
                           </div>
                         </div>
                       </div>
@@ -1273,9 +1429,25 @@ const EmployeeChat = () => {
                   })}
                 </div>
 
-                <div className="composer-wrap" onDrop={handleAttachmentDrop} onDragOver={(event) => event.preventDefault()}>
-                  <div className="template-row">
-                    {templateMessages.map((template) => <button key={template} type="button" onClick={() => setDraft(template)}>{template}</button>)}
+                <div className="composer-wrap" onDrop={handleAttachmentDrop} onDragOver={handleDragOver} onDragEnter={handleDragOver}>
+                  <div className="template-toolbar">
+                    <div className="template-row">
+                      {templateMessages.map((template) => (
+                        <span key={template} className="template-chip-wrap">
+                          <button type="button" onClick={() => appendToDraft(template)}>{template}</button>
+                          {customTemplates.includes(template) && <button type="button" className="template-remove" onClick={() => removeCustomTemplate(template)}>×</button>}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="composer-extra-actions">
+                      <button type="button" onClick={addCustomTemplate}>+ Мой шаблон</button>
+                      <button type="button" onClick={() => setIsEmojiOpen((prev) => !prev)}>😊 Смайлы</button>
+                    </div>
+                    {isEmojiOpen && (
+                      <div className="emoji-picker">
+                        {QUICK_EMOJIS.map((emoji) => <button key={emoji} type="button" onClick={() => appendToDraft(emoji)}>{emoji}</button>)}
+                      </div>
+                    )}
                   </div>
 
                   {replyTo && <div className="reply-preview active-reply">Ответ на: {replyTo.sender}: {replyTo.text}<button type="button" onClick={() => setReplyTo(null)}>×</button></div>}
@@ -1340,14 +1512,15 @@ const EmployeeChat = () => {
             </form>
             <div className="employee-feed-list">
               {feedPosts.length === 0 && <div className="empty-chat">Пока нет публикаций.</div>}
-              {feedPosts.map((post) => {
+              {feedPosts.filter((post) => !post.deletedAt).sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))).map((post) => {
                 const canDeletePost = isManager || isAdmin || post.author === user?.username;
                 return (
                   <article key={post.id} className="employee-feed-post">
-                    <header className="employee-feed-post-header"><div><strong>{post.authorName}</strong><span>@{post.author} · {new Date(post.createdAt).toLocaleString('ru-RU')}</span></div>{canDeletePost && <button type="button" className="employee-feed-delete" onClick={() => deleteFeedPost(post.id)}>Удалить</button>}</header>
+                    <header className="employee-feed-post-header"><div><strong>{post.pinned ? '📌 ' : ''}{post.authorName}</strong><span>@{post.author} · {new Date(post.createdAt).toLocaleString('ru-RU')}</span></div><div className="feed-post-actions">{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? 'Открепить' : 'Закрепить'}</button>}{canDeletePost && <button type="button" className="employee-feed-delete" onClick={() => deleteFeedPost(post.id)}>Удалить</button>}</div></header>
                     {post.text && <p className="employee-feed-post-text">{post.text}</p>}
                     {post.attachment?.dataUrl && <div className="employee-feed-attachment">{String(post.attachment.type || '').startsWith('image/') ? <img src={post.attachment.dataUrl} alt={post.attachment.name || 'post-image'} /> : <a href={post.attachment.dataUrl} download={post.attachment.name || 'file'}>{getFileIcon(post.attachment.type)} {post.attachment.name || 'Файл'}</a>}</div>}
-                    <div className="employee-feed-comments"><div className="employee-feed-comments-title">Комментарии</div>{(post.comments || []).length === 0 && <small className="employee-feed-no-comments">Комментариев пока нет.</small>}{(post.comments || []).map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; return <div key={comment.id} className="employee-feed-comment"><div className="employee-feed-comment-body"><strong>{comment.authorName}</strong><span>{comment.text}</span><small>@{comment.author} · {new Date(comment.createdAt).toLocaleString('ru-RU')}</small></div>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>Удалить</button>}</div>; })}<div className="employee-feed-comment-form"><input placeholder="Оставить комментарий…" value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} /><button type="button" onClick={() => addCommentToPost(post.id)} disabled={!(commentDrafts[post.id] || '').trim()}>Отправить</button></div></div>
+                    <div className="feed-reaction-row">{REACTION_EMOJIS.slice(0, 6).map((emoji) => { const count = post.reactions?.[emoji]?.length || 0; const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => toggleFeedReaction(post.id, emoji)}>{emoji} {count > 0 ? count : ''}</button>; })}</div>
+                    <div className="employee-feed-comments"><div className="employee-feed-comments-title">Комментарии</div>{(post.comments || []).filter((comment) => !comment.deletedAt).length === 0 && <small className="employee-feed-no-comments">Комментариев пока нет.</small>}{(post.comments || []).filter((comment) => !comment.deletedAt).map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; return <div key={comment.id} className="employee-feed-comment"><div className="employee-feed-comment-body"><strong>{comment.authorName}</strong><span>{comment.text}</span><small>@{comment.author} · {new Date(comment.createdAt).toLocaleString('ru-RU')}</small></div>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>Удалить</button>}</div>; })}<div className="employee-feed-comment-form"><input placeholder="Оставить комментарий…" value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} /><button type="button" onClick={() => addCommentToPost(post.id)} disabled={!(commentDrafts[post.id] || '').trim()}>Отправить</button></div></div>
                   </article>
                 );
               })}
@@ -1373,7 +1546,8 @@ const EmployeeChat = () => {
         )}
 
         {activeTab === 'audit' && isManager && (
-          <section className="manager-panel"><h2>Переписка сотрудников</h2><div className="threads-grid"><div className="threads-list">{allConversationIds.map((threadId) => { const participants = getParticipantsFromThreadId(threadId); return <button key={threadId} type="button" className={`thread-item ${selectedThreadId === threadId ? 'active' : ''}`} onClick={() => setSelectedThreadId(threadId)}>{participants.join(' ↔ ')}</button>; })}</div><div className="threads-messages">{!selectedThreadId && <div className="empty-chat">Выберите переписку.</div>}{selectedThreadId && selectedThreadMessages.map((message) => { const attachments = message.attachments?.length ? message.attachments : message.attachment ? [message.attachment] : []; return <div key={message.id} className="audit-message"><div className="message-meta"><span>{message.sender}</span><span>{new Date(message.createdAt).toLocaleString('ru-RU')}</span></div><div>{message.text}</div>{attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <a key={`${message.id}-audit-${index}`} className="message-attachment-card" href={file.dataUrl} download={file.name || 'file'} target="_blank" rel="noreferrer">{String(file.type || '').startsWith('image/') ? <img src={file.dataUrl} alt={file.name || 'attachment'} /> : <span className="file-icon">{getFileIcon(file.type)}</span>}<small>{file.name || 'Файл'}</small></a>)}</div>}<div className="message-controls"><button type="button" onClick={() => editMessage(message.id, selectedThreadId)}>Изменить</button><button type="button" onClick={() => deleteMessage(message.id, selectedThreadId)}>Удалить</button></div></div>; })}</div></div></section>
+          <section className="manager-panel"><h2>Переписка сотрудников</h2><div className="threads-grid"><div className="threads-list">{allConversationIds.map((threadId) => { const participants = getParticipantsFromThreadId(threadId); return <button key={threadId} type="button" className={`thread-item ${selectedThreadId === threadId ? 'active' : ''}`} onClick={() => setSelectedThreadId(threadId)}>{participants.join(' ↔ ')}</button>; })}</div><div className="threads-messages">{!selectedThreadId && <div className="empty-chat">Выберите переписку.</div>}{selectedThreadId && selectedThreadMessages.map((message) => { const isDeleted = Boolean(message.deletedAt);
+                    const attachments = !isDeleted && message.attachments?.length ? message.attachments : !isDeleted && message.attachment ? [message.attachment] : []; return <div key={message.id} className="audit-message"><div className="message-meta"><span>{message.sender}</span><span>{new Date(message.createdAt).toLocaleString('ru-RU')}</span></div><div>{message.text}</div>{attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <a key={`${message.id}-audit-${index}`} className="message-attachment-card" href={file.dataUrl} download={file.name || 'file'} target="_blank" rel="noreferrer">{String(file.type || '').startsWith('image/') ? <img src={file.dataUrl} alt={file.name || 'attachment'} /> : <span className="file-icon">{getFileIcon(file.type)}</span>}<small>{file.name || 'Файл'}</small></a>)}</div>}<div className="message-controls"><button type="button" onClick={() => editMessage(message.id, selectedThreadId)}>Изменить</button><button type="button" onClick={() => deleteMessage(message.id, selectedThreadId)}>Удалить</button></div></div>; })}</div></div></section>
         )}
       </section>
 
