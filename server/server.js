@@ -52,14 +52,16 @@ const formatDateForMySQL = (dateString) => {
 };
 
 
-const APPLICATION_WORKFLOW_COLUMNS = `
-  id, name, cabinet, application, process, N_tel, executor,
-  data, start_data, end_data, fl,
-  status, employee_login, category, priority, accepted_by, accepted_at,
-  work_started_at, resolved_at, employee_confirmed_at, admin_comment,
-  eta_minutes, waiting_seconds, arrival_seconds, work_seconds, source,
-  chat_thread_id, source_message_id, employee_comment
-`;
+const quoteColumn = (name) => `\`${name}\``;
+const APPLICATION_WORKFLOW_COLUMN_NAMES = [
+  'id', 'name', 'cabinet', 'application', 'process', 'N_tel', 'executor',
+  'data', 'start_data', 'end_data', 'fl', 'status', 'employee_login',
+  'category', 'priority', 'accepted_by', 'accepted_at', 'work_started_at',
+  'resolved_at', 'employee_confirmed_at', 'admin_comment', 'eta_minutes',
+  'waiting_seconds', 'arrival_seconds', 'work_seconds', 'source',
+  'chat_thread_id', 'source_message_id', 'employee_comment'
+];
+const APPLICATION_WORKFLOW_COLUMNS = APPLICATION_WORKFLOW_COLUMN_NAMES.map(quoteColumn).join(', ');
 
 const APPLICATION_STATUS_LABELS = {
   new: 'Новая',
@@ -91,24 +93,24 @@ const normalizeApplication = (app = {}) => ({
 });
 
 const APPLICATION_WORKFLOW_ALTERS = [
-  ['status', "ALTER TABLE application ADD COLUMN status VARCHAR(40) NOT NULL DEFAULT 'new'"],
-  ['employee_login', 'ALTER TABLE application ADD COLUMN employee_login VARCHAR(255) NULL'],
-  ['category', 'ALTER TABLE application ADD COLUMN category VARCHAR(80) NULL'],
-  ['priority', 'ALTER TABLE application ADD COLUMN priority VARCHAR(40) NULL'],
-  ['accepted_by', 'ALTER TABLE application ADD COLUMN accepted_by VARCHAR(255) NULL'],
-  ['accepted_at', 'ALTER TABLE application ADD COLUMN accepted_at DATETIME NULL'],
-  ['work_started_at', 'ALTER TABLE application ADD COLUMN work_started_at DATETIME NULL'],
-  ['resolved_at', 'ALTER TABLE application ADD COLUMN resolved_at DATETIME NULL'],
-  ['employee_confirmed_at', 'ALTER TABLE application ADD COLUMN employee_confirmed_at DATETIME NULL'],
-  ['admin_comment', 'ALTER TABLE application ADD COLUMN admin_comment TEXT NULL'],
-  ['eta_minutes', 'ALTER TABLE application ADD COLUMN eta_minutes INT NULL'],
-  ['waiting_seconds', 'ALTER TABLE application ADD COLUMN waiting_seconds INT NULL'],
-  ['arrival_seconds', 'ALTER TABLE application ADD COLUMN arrival_seconds INT NULL'],
-  ['work_seconds', 'ALTER TABLE application ADD COLUMN work_seconds INT NULL'],
-  ['source', "ALTER TABLE application ADD COLUMN source VARCHAR(40) NOT NULL DEFAULT 'admin'"],
-  ['chat_thread_id', 'ALTER TABLE application ADD COLUMN chat_thread_id VARCHAR(255) NULL'],
-  ['source_message_id', 'ALTER TABLE application ADD COLUMN source_message_id VARCHAR(255) NULL'],
-  ['employee_comment', 'ALTER TABLE application ADD COLUMN employee_comment TEXT NULL']
+  ['status', "ALTER TABLE application ADD COLUMN `status` VARCHAR(40) NOT NULL DEFAULT 'new'"],
+  ['employee_login', 'ALTER TABLE application ADD COLUMN `employee_login` VARCHAR(255) NULL'],
+  ['category', 'ALTER TABLE application ADD COLUMN `category` VARCHAR(80) NULL'],
+  ['priority', 'ALTER TABLE application ADD COLUMN `priority` VARCHAR(40) NULL'],
+  ['accepted_by', 'ALTER TABLE application ADD COLUMN `accepted_by` VARCHAR(255) NULL'],
+  ['accepted_at', 'ALTER TABLE application ADD COLUMN `accepted_at` DATETIME NULL'],
+  ['work_started_at', 'ALTER TABLE application ADD COLUMN `work_started_at` DATETIME NULL'],
+  ['resolved_at', 'ALTER TABLE application ADD COLUMN `resolved_at` DATETIME NULL'],
+  ['employee_confirmed_at', 'ALTER TABLE application ADD COLUMN `employee_confirmed_at` DATETIME NULL'],
+  ['admin_comment', 'ALTER TABLE application ADD COLUMN `admin_comment` TEXT NULL'],
+  ['eta_minutes', 'ALTER TABLE application ADD COLUMN `eta_minutes` INT NULL'],
+  ['waiting_seconds', 'ALTER TABLE application ADD COLUMN `waiting_seconds` INT NULL'],
+  ['arrival_seconds', 'ALTER TABLE application ADD COLUMN `arrival_seconds` INT NULL'],
+  ['work_seconds', 'ALTER TABLE application ADD COLUMN `work_seconds` INT NULL'],
+  ['source', "ALTER TABLE application ADD COLUMN `source` VARCHAR(40) NOT NULL DEFAULT 'admin'"],
+  ['chat_thread_id', 'ALTER TABLE application ADD COLUMN `chat_thread_id` VARCHAR(255) NULL'],
+  ['source_message_id', 'ALTER TABLE application ADD COLUMN `source_message_id` VARCHAR(255) NULL'],
+  ['employee_comment', 'ALTER TABLE application ADD COLUMN `employee_comment` TEXT NULL']
 ];
 
 let applicationSchemaReadyPromise = null;
@@ -120,23 +122,32 @@ const ensureApplicationWorkflowSchema = async () => {
       const existing = new Set((columns || []).map((column) => column.Field));
       for (const [columnName, alterSql] of APPLICATION_WORKFLOW_ALTERS) {
         if (!existing.has(columnName)) {
-          await pool.execute(alterSql);
+          try {
+            await pool.execute(alterSql);
+          } catch (alterError) {
+            if (alterError.code !== 'ER_DUP_FIELDNAME') throw alterError;
+          }
         }
       }
-      await pool.execute(`
-        CREATE TABLE IF NOT EXISTS application_events (
-          id INT AUTO_INCREMENT PRIMARY KEY,
-          application_id INT NOT NULL,
-          actor_login VARCHAR(255) NULL,
-          actor_role VARCHAR(40) NULL,
-          event_type VARCHAR(80) NOT NULL,
-          comment TEXT NULL,
-          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          INDEX idx_application_events_application_id (application_id)
-        )
-      `);
-      await pool.execute("UPDATE application SET status = CASE WHEN fl = 1 THEN 'done' ELSE 'new' END WHERE status IS NULL OR status = ''");
+      try {
+        await pool.execute(`
+          CREATE TABLE IF NOT EXISTS application_events (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            application_id INT NOT NULL,
+            actor_login VARCHAR(255) NULL,
+            actor_role VARCHAR(40) NULL,
+            event_type VARCHAR(80) NOT NULL,
+            comment TEXT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_application_events_application_id (application_id)
+          )
+        `);
+      } catch (eventTableError) {
+        console.error('Не удалось подготовить журнал событий заявок:', eventTableError.message);
+      }
+      await pool.execute("UPDATE application SET `status` = CASE WHEN `fl` = 1 THEN 'done' ELSE 'new' END WHERE `status` IS NULL OR `status` = ''");
     } catch (error) {
+      applicationSchemaReadyPromise = null;
       console.error('Не удалось автоматически подготовить workflow заявок:', error.message);
       throw error;
     }
@@ -145,15 +156,19 @@ const ensureApplicationWorkflowSchema = async () => {
 };
 
 const addApplicationEvent = async (applicationId, actorLogin, actorRole, eventType, comment = '') => {
-  await pool.execute(
-    'INSERT INTO application_events (application_id, actor_login, actor_role, event_type, comment) VALUES (?, ?, ?, ?, ?)',
-    [applicationId, actorLogin || null, actorRole || null, eventType, comment || null]
-  );
+  try {
+    await pool.execute(
+      'INSERT INTO application_events (`application_id`, `actor_login`, `actor_role`, `event_type`, `comment`) VALUES (?, ?, ?, ?, ?)',
+      [applicationId, actorLogin || null, actorRole || null, eventType, comment || null]
+    );
+  } catch (error) {
+    console.error('Не удалось записать событие заявки:', error.message);
+  }
 };
 
 const getApplicationById = async (id) => {
   await ensureApplicationWorkflowSchema();
-  const [rows] = await pool.execute(`SELECT ${APPLICATION_WORKFLOW_COLUMNS} FROM application WHERE id = ?`, [id]);
+  const [rows] = await pool.execute(`SELECT ${APPLICATION_WORKFLOW_COLUMNS} FROM application WHERE \`id\` = ?`, [id]);
   return rows?.[0] ? normalizeApplication(rows[0]) : null;
 };
 
@@ -315,7 +330,7 @@ app.put('/api/knowledge-base/:id', async (req, res) => {
     const categoryValue = category || 'Общее';
 
     const [result] = await pool.execute(
-      'UPDATE knowledge_base SET title = ?, solution = ?, category = ?, images = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      'UPDATE knowledge_base SET title = ?, solution = ?, `category` = ?, images = ?, updated_at = CURRENT_TIMESTAMP WHERE `id` = ?',
       [title, solution, categoryValue, imagesJson, id]
     );
     
@@ -325,7 +340,7 @@ app.put('/api/knowledge-base/:id', async (req, res) => {
     
     // Получаем обновленную запись
     const [rows] = await pool.execute(
-      'SELECT * FROM knowledge_base WHERE id = ?',
+      'SELECT * FROM knowledge_base WHERE `id` = ?',
       [id]
     );
     
@@ -351,7 +366,7 @@ app.delete('/api/knowledge-base/:id', async (req, res) => {
     const { id } = req.params;
     
     const [result] = await pool.execute(
-      'DELETE FROM knowledge_base WHERE id = ?',
+      'DELETE FROM knowledge_base WHERE `id` = ?',
       [id]
     );
     
@@ -391,7 +406,7 @@ app.get('/api/applications/export', async (req, res) => {
 
   if (status && status !== 'all') {
     const statuses = statusGroups[status] || [status];
-    whereClause.push(`status IN (${statuses.map(() => '?').join(',')})`);
+    whereClause.push('`status` IN (' + statuses.map(() => '?').join(',') + ')');
     queryParams.push(...statuses);
   }
 
@@ -415,13 +430,13 @@ app.get('/api/applications/export', async (req, res) => {
 
   // Добавлен поиск по тексту заявки
   if (search && search.trim()) {
-    whereClause.push('(application LIKE ? OR name LIKE ? OR cabinet LIKE ? OR N_tel LIKE ? OR executor LIKE ? OR category LIKE ? OR priority LIKE ?)');
+    whereClause.push('(`application` LIKE ? OR `name` LIKE ? OR `cabinet` LIKE ? OR `N_tel` LIKE ? OR `executor` LIKE ? OR `category` LIKE ? OR `priority` LIKE ?)');
     const like = `%${search.trim()}%`;
     queryParams.push(like, like, like, like, like, like, like);
   }
 
   if (employee_login && employee_login.trim()) {
-    whereClause.push('LOWER(employee_login) = ?');
+    whereClause.push('LOWER(`employee_login`) = ?');
     queryParams.push(employee_login.trim().toLowerCase());
   }
 
@@ -433,7 +448,7 @@ app.get('/api/applications/export', async (req, res) => {
       SELECT ${APPLICATION_WORKFLOW_COLUMNS}
       FROM application
       ${whereSql}
-      ORDER BY data DESC
+      ORDER BY \`data\` DESC
     `;
 
     const [applications] = await pool.execute(applicationsQuery, queryParams);
@@ -469,7 +484,7 @@ app.get('/api/applications', async (req, res) => {
 
   if (status && status !== 'all') {
     const statuses = statusGroups[status] || [status];
-    whereClause.push(`status IN (${statuses.map(() => '?').join(',')})`);
+    whereClause.push('`status` IN (' + statuses.map(() => '?').join(',') + ')');
     queryParams.push(...statuses);
   }
 
@@ -493,13 +508,13 @@ app.get('/api/applications', async (req, res) => {
 
   // Добавлен поиск по тексту заявки
   if (search && search.trim()) {
-    whereClause.push('(application LIKE ? OR name LIKE ? OR cabinet LIKE ? OR N_tel LIKE ? OR executor LIKE ? OR category LIKE ? OR priority LIKE ?)');
+    whereClause.push('(`application` LIKE ? OR `name` LIKE ? OR `cabinet` LIKE ? OR `N_tel` LIKE ? OR `executor` LIKE ? OR `category` LIKE ? OR `priority` LIKE ?)');
     const like = `%${search.trim()}%`;
     queryParams.push(like, like, like, like, like, like, like);
   }
 
   if (employee_login && employee_login.trim()) {
-    whereClause.push('LOWER(employee_login) = ?');
+    whereClause.push('LOWER(`employee_login`) = ?');
     queryParams.push(employee_login.trim().toLowerCase());
   }
 
@@ -512,21 +527,21 @@ app.get('/api/applications', async (req, res) => {
     const [totalResult] = await pool.execute(totalQuery, whereSql ? queryParams : []);
 
     // Запрос количества выполненных заявок с учетом фильтров
-    const completedQuery = `SELECT COUNT(*) AS count FROM application ${whereSql ? whereSql + ' AND fl = ?' : 'WHERE fl = ?'}`;
+    const completedQuery = 'SELECT COUNT(*) AS count FROM application ' + (whereSql ? whereSql + ' AND `fl` = ?' : 'WHERE `fl` = ?');
     const [completedResult] = await pool.execute(
       completedQuery,
       whereSql ? [...queryParams, 1] : [1]
     );
 
     // Запрос количества заявок в работе с учетом фильтров
-    const pendingQuery = `SELECT COUNT(*) AS count FROM application ${whereSql ? whereSql + ' AND status IN (?, ?, ?, ?, ?)' : 'WHERE status IN (?, ?, ?, ?, ?)'}`;
+    const pendingQuery = 'SELECT COUNT(*) AS count FROM application ' + (whereSql ? whereSql + ' AND `status` IN (?, ?, ?, ?, ?)' : 'WHERE `status` IN (?, ?, ?, ?, ?)');
     const [pendingResult] = await pool.execute(
       pendingQuery,
       whereSql ? [...queryParams, 'new', 'accepted', 'in_progress', 'waiting_employee_confirmation', 'reopened'] : ['new', 'accepted', 'in_progress', 'waiting_employee_confirmation', 'reopened']
     );
-    const [queueResult] = await pool.execute(`SELECT COUNT(*) AS count FROM application WHERE status IN (?, ?)`, ['new', 'reopened']);
-    const [activeResult] = await pool.execute(`SELECT COUNT(*) AS count FROM application WHERE status IN (?, ?)`, ['accepted', 'in_progress']);
-    const [confirmationResult] = await pool.execute(`SELECT COUNT(*) AS count FROM application WHERE status = ?`, ['waiting_employee_confirmation']);
+    const [queueResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `status` IN (?, ?)', ['new', 'reopened']);
+    const [activeResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `status` IN (?, ?)', ['accepted', 'in_progress']);
+    const [confirmationResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `status` = ?', ['waiting_employee_confirmation']);
 
     const total = totalResult[0].total;
     const completed = completedResult[0].count;
@@ -538,7 +553,7 @@ app.get('/api/applications', async (req, res) => {
       SELECT ${APPLICATION_WORKFLOW_COLUMNS}
       FROM application
       ${whereSql}
-      ORDER BY data DESC
+      ORDER BY \`data\` DESC
       LIMIT ? OFFSET ?
     `;
 
@@ -570,7 +585,7 @@ app.get('/api/applications/my', async (req, res) => {
   try {
     await ensureApplicationWorkflowSchema();
     const [applications] = await pool.execute(
-      `SELECT ${APPLICATION_WORKFLOW_COLUMNS} FROM application WHERE LOWER(employee_login) = ? ORDER BY data DESC LIMIT 100`,
+      `SELECT ${APPLICATION_WORKFLOW_COLUMNS} FROM application WHERE LOWER(\`employee_login\`) = ? ORDER BY \`data\` DESC LIMIT 100`,
       [login]
     );
     res.json({ applications: applications.map(normalizeApplication) });
@@ -611,9 +626,7 @@ app.post('/api/applications', async (req, res) => {
     };
 
     const [result] = await pool.execute(
-      `INSERT INTO application
-      (name, cabinet, N_tel, application, process, executor, data, start_data, end_data, fl, status, employee_login, category, priority, source, chat_thread_id, source_message_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      'INSERT INTO application (`name`, `cabinet`, `N_tel`, `application`, `process`, `executor`, `data`, `start_data`, `end_data`, `fl`, `status`, `employee_login`, `category`, `priority`, `source`, `chat_thread_id`, `source_message_id`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         processedData.name, processedData.cabinet, processedData.N_tel, processedData.application,
         processedData.process, processedData.executor, processedData.data, processedData.start_data,
@@ -648,9 +661,7 @@ app.post('/api/applications/from-chat', async (req, res) => {
   try {
     await ensureApplicationWorkflowSchema();
     const [result] = await pool.execute(
-      `INSERT INTO application
-      (name, cabinet, N_tel, application, process, executor, data, start_data, end_data, fl, status, employee_login, category, priority, source, chat_thread_id, source_message_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      'INSERT INTO application (`name`, `cabinet`, `N_tel`, `application`, `process`, `executor`, `data`, `start_data`, `end_data`, `fl`, `status`, `employee_login`, `category`, `priority`, `source`, `chat_thread_id`, `source_message_id`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         handleNullValues(name, 'Сотрудник'), handleNullValues(cabinet, ''), handleNullValues(N_tel, ''),
         handleNullValues(application, ''), '', '', now, null, null, 0, 'new',
@@ -706,13 +717,12 @@ app.put('/api/applications/:id', async (req, res) => {
     };
 
     await pool.execute(
-      `UPDATE application SET
-        name = ?, cabinet = ?, N_tel = ?, application = ?, process = ?, executor = ?, data = ?,
-        start_data = ?, end_data = ?, fl = ?, status = ?, employee_login = ?, category = ?, priority = ?,
-        accepted_by = ?, accepted_at = ?, work_started_at = ?, resolved_at = ?, employee_confirmed_at = ?,
-        admin_comment = ?, eta_minutes = ?, waiting_seconds = ?, arrival_seconds = ?, work_seconds = ?,
-        source = ?, chat_thread_id = ?, source_message_id = ?, employee_comment = ?
-       WHERE id = ?`,
+      'UPDATE application SET ' +
+        '`name` = ?, `cabinet` = ?, `N_tel` = ?, `application` = ?, `process` = ?, `executor` = ?, `data` = ?, ' +
+        '`start_data` = ?, `end_data` = ?, `fl` = ?, `status` = ?, `employee_login` = ?, `category` = ?, `priority` = ?, ' +
+        '`accepted_by` = ?, `accepted_at` = ?, `work_started_at` = ?, `resolved_at` = ?, `employee_confirmed_at` = ?, ' +
+        '`admin_comment` = ?, `eta_minutes` = ?, `waiting_seconds` = ?, `arrival_seconds` = ?, `work_seconds` = ?, ' +
+        '`source` = ?, `chat_thread_id` = ?, `source_message_id` = ?, `employee_comment` = ? WHERE `id` = ?',
       [
         processedData.name, processedData.cabinet, processedData.N_tel, processedData.application,
         processedData.process, processedData.executor, processedData.data, processedData.start_data,
@@ -754,7 +764,7 @@ app.post('/api/applications/:id/accept', async (req, res) => {
     const updated = await updateApplicationWorkflow(id, (app) => {
       const now = formatNowForMySQL();
       return {
-        sql: `UPDATE application SET status = ?, accepted_by = ?, executor = ?, eta_minutes = ?, admin_comment = ?, accepted_at = ?, waiting_seconds = ?, fl = 0 WHERE id = ?`,
+        sql: 'UPDATE application SET `status` = ?, `accepted_by` = ?, `executor` = ?, `eta_minutes` = ?, `admin_comment` = ?, `accepted_at` = ?, `waiting_seconds` = ?, `fl` = 0 WHERE `id` = ?',
         params: ['accepted', accepted_by || 'admin', executor || accepted_by || '', eta_minutes || null, admin_comment || '', now, secondsBetween(app.data, now), id]
       };
     }, { actorLogin: accepted_by || 'admin', actorRole: 'admin', eventType: 'accepted', comment: admin_comment || 'Заявка взята в работу' });
@@ -774,7 +784,7 @@ app.post('/api/applications/:id/start-work', async (req, res) => {
     const updated = await updateApplicationWorkflow(id, (app) => {
       const now = formatNowForMySQL();
       return {
-        sql: `UPDATE application SET status = ?, work_started_at = ?, start_data = ?, arrival_seconds = ?, fl = 0 WHERE id = ?`,
+        sql: 'UPDATE application SET `status` = ?, `work_started_at` = ?, `start_data` = ?, `arrival_seconds` = ?, `fl` = 0 WHERE `id` = ?',
         params: ['in_progress', now, now, secondsBetween(app.accepted_at || app.data, now), id]
       };
     }, { actorLogin: actor || 'admin', actorRole: 'admin', eventType: 'work_started', comment: 'Исполнитель начал работу' });
@@ -794,7 +804,7 @@ app.post('/api/applications/:id/resolve', async (req, res) => {
     const updated = await updateApplicationWorkflow(id, (app) => {
       const now = formatNowForMySQL();
       return {
-        sql: `UPDATE application SET status = ?, resolved_at = ?, process = ?, work_seconds = ?, fl = 0 WHERE id = ?`,
+        sql: 'UPDATE application SET `status` = ?, `resolved_at` = ?, `process` = ?, `work_seconds` = ?, `fl` = 0 WHERE `id` = ?',
         params: ['waiting_employee_confirmation', now, process || app.process || '', secondsBetween(app.work_started_at || app.accepted_at || app.data, now), id]
       };
     }, { actorLogin: actor || 'admin', actorRole: 'admin', eventType: 'resolved', comment: process || 'Работа выполнена, ожидается подтверждение' });
@@ -814,7 +824,7 @@ app.post('/api/applications/:id/confirm', async (req, res) => {
     const updated = await updateApplicationWorkflow(id, () => {
       const now = formatNowForMySQL();
       return {
-        sql: `UPDATE application SET status = ?, employee_confirmed_at = ?, end_data = ?, fl = 1 WHERE id = ?`,
+        sql: 'UPDATE application SET `status` = ?, `employee_confirmed_at` = ?, `end_data` = ?, `fl` = 1 WHERE `id` = ?',
         params: ['done', now, now, id]
       };
     }, { actorLogin: actor || 'employee', actorRole: 'employee', eventType: 'employee_confirmed', comment: 'Сотрудник подтвердил выполнение' });
@@ -832,7 +842,7 @@ app.post('/api/applications/:id/reopen', async (req, res) => {
   try {
     await ensureApplicationWorkflowSchema();
     const updated = await updateApplicationWorkflow(id, () => ({
-      sql: `UPDATE application SET status = ?, employee_comment = ?, fl = 0 WHERE id = ?`,
+      sql: 'UPDATE application SET `status` = ?, `employee_comment` = ?, `fl` = 0 WHERE `id` = ?',
       params: ['reopened', employee_comment || '', id]
     }), { actorLogin: actor || 'employee', actorRole: 'employee', eventType: 'reopened', comment: employee_comment || 'Проблема осталась' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
@@ -853,7 +863,7 @@ app.delete('/api/applications/:id', async (req, res) => {
     }
     
     const [existing] = await pool.execute(
-      'SELECT id FROM application WHERE id = ?',
+      'SELECT id FROM application WHERE `id` = ?',
       [applicationId]
     );
     
@@ -862,7 +872,7 @@ app.delete('/api/applications/:id', async (req, res) => {
     }
     
     const [result] = await pool.execute(
-      'DELETE FROM application WHERE id = ?',
+      'DELETE FROM application WHERE `id` = ?',
       [applicationId]
     );
     

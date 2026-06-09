@@ -146,9 +146,13 @@ const Dashboard = () => {
       const response = await fetch(`${API_BASE_URL}${url}`);
       const data = await response.json();
 
+      const nextStats = data.stats || { total: 0, completed: 0, pending: 0 };
       setApplications(data.applications || []);
       setTotalPages(data.totalPages || 1);
-      setFilteredStats(data.stats || { total: 0, completed: 0, pending: 0 });
+      setFilteredStats(nextStats);
+      if (!searchTerm.trim() && !dateFilterActive && filter === 'all') {
+        setStats(nextStats);
+      }
     } catch (error) {
       console.error('Ошибка загрузки:', error);
       // Убираем блокирующий alert при стартовой загрузке,
