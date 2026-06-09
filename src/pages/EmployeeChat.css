@@ -1149,3 +1149,45 @@ button:disabled {
   padding: 8px 0;
   border-top: 1px solid var(--chat-border);
 }
+
+/* Request tab must scroll independently inside the fixed chat shell. */
+.request-workspace {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 28px;
+  scrollbar-gutter: stable;
+}
+
+.employee-ticket-board {
+  flex: 0 0 auto;
+  padding-bottom: 18px;
+}
+
+.employee-ticket-card {
+  overflow: visible;
+}
+
+.employee-ticket-card p,
+.ticket-admin-note span {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.employee-ticket-card.confirm .ticket-actions {
+  position: sticky;
+  bottom: 8px;
+  z-index: 3;
+  margin-top: 14px;
+  padding: 10px;
+  border: 1px solid rgba(202, 138, 4, .28);
+  border-radius: var(--chat-radius-md);
+  background: rgba(255, 251, 235, .96);
+  box-shadow: 0 12px 26px rgba(120, 83, 18, .14);
+}
+
+.employee-ticket-card.confirm .ticket-actions button:first-child {
+  background: var(--chat-success);
+  border-color: transparent;
+  color: #fff;
+}
