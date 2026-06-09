@@ -93,7 +93,7 @@ const normalizeApplication = (app = {}) => ({
 });
 
 const APPLICATION_WORKFLOW_ALTERS = [
-  ['status', "ALTER TABLE application ADD COLUMN `status` VARCHAR(40) NOT NULL DEFAULT 'new'"],
+  ['status', "ALTER TABLE application ADD COLUMN `status` VARCHAR(40) NULL DEFAULT 'new'"],
   ['employee_login', 'ALTER TABLE application ADD COLUMN `employee_login` VARCHAR(255) NULL'],
   ['category', 'ALTER TABLE application ADD COLUMN `category` VARCHAR(80) NULL'],
   ['priority', 'ALTER TABLE application ADD COLUMN `priority` VARCHAR(40) NULL'],
@@ -119,7 +119,12 @@ const ensureApplicationWorkflowSchema = async () => {
   applicationSchemaReadyPromise = (async () => {
     try {
       const [columns] = await pool.execute('SHOW COLUMNS FROM application');
-      const existing = new Set((columns || []).map((column) => column.Field));
+      const existingColumns = columns || [];
+      const existing = new Set(existingColumns.map((column) => column.Field));
+      const statusColumn = existingColumns.find((column) => column.Field === 'status');
+      if (statusColumn && /^enum/i.test(String(statusColumn.Type || ''))) {
+        await pool.execute("ALTER TABLE application MODIFY COLUMN `status` VARCHAR(40) NULL DEFAULT 'new'");
+      }
       for (const [columnName, alterSql] of APPLICATION_WORKFLOW_ALTERS) {
         if (!existing.has(columnName)) {
           try {
@@ -145,7 +150,16 @@ const ensureApplicationWorkflowSchema = async () => {
       } catch (eventTableError) {
         console.error('Не удалось подготовить журнал событий заявок:', eventTableError.message);
       }
-      await pool.execute("UPDATE application SET `status` = CASE WHEN `fl` = 1 THEN 'done' ELSE 'new' END WHERE `status` IS NULL OR `status` = ''");
+      await pool.execute(`
+        UPDATE application
+        SET \`status\` = CASE
+          WHEN \`fl\` = 1 OR \`status\` = 'выполнено' THEN 'done'
+          WHEN \`status\` = 'отменено' THEN 'reopened'
+          WHEN \`status\` = 'в работе' THEN 'new'
+          ELSE \`status\`
+        END
+        WHERE \`status\` IS NULL OR \`status\` = '' OR \`status\` IN ('в работе', 'выполнено', 'отменено')
+      `);
     } catch (error) {
       applicationSchemaReadyPromise = null;
       console.error('Не удалось автоматически подготовить workflow заявок:', error.message);

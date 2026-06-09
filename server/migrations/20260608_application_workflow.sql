@@ -2,7 +2,8 @@
 -- MySQL / MariaDB. Запуск вручную в Ubuntu:
 --   mysql -u admin -p its < server/migrations/20260608_application_workflow.sql
 
-ALTER TABLE application ADD COLUMN IF NOT EXISTS status VARCHAR(40) NOT NULL DEFAULT 'new';
+ALTER TABLE application ADD COLUMN IF NOT EXISTS status VARCHAR(40) NULL DEFAULT 'new';
+ALTER TABLE application MODIFY COLUMN `status` VARCHAR(40) NULL DEFAULT 'new';
 ALTER TABLE application ADD COLUMN IF NOT EXISTS employee_login VARCHAR(255) NULL;
 ALTER TABLE application ADD COLUMN IF NOT EXISTS category VARCHAR(80) NULL;
 ALTER TABLE application ADD COLUMN IF NOT EXISTS priority VARCHAR(40) NULL;
@@ -22,8 +23,13 @@ ALTER TABLE application ADD COLUMN IF NOT EXISTS source_message_id VARCHAR(255) 
 ALTER TABLE application ADD COLUMN IF NOT EXISTS employee_comment TEXT NULL;
 
 UPDATE application
-SET status = CASE WHEN fl = 1 THEN 'done' ELSE 'new' END
-WHERE status IS NULL OR status = '';
+SET `status` = CASE
+  WHEN `fl` = 1 OR `status` = 'выполнено' THEN 'done'
+  WHEN `status` = 'отменено' THEN 'reopened'
+  WHEN `status` = 'в работе' THEN 'new'
+  ELSE `status`
+END
+WHERE `status` IS NULL OR `status` = '' OR `status` IN ('в работе', 'выполнено', 'отменено');
 
 CREATE TABLE IF NOT EXISTS application_events (
   id INT AUTO_INCREMENT PRIMARY KEY,
