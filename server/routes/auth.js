@@ -8,6 +8,61 @@ const db = require('../config/database');
 const normalizeLogin = (value = '') => value.trim().toLowerCase();
 const hashPassword = (value) => `sha256$${crypto.createHash('sha256').update(String(value)).digest('hex')}`;
 
+const LOGIN_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 7;
+const loginAttemptStore = new Map();
+
+const getClientIp = (req) => {
+  const forwardedFor = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return forwardedFor || req.ip || req.socket?.remoteAddress || 'unknown';
+};
+
+const getLoginAttemptKey = (req, login) => `${normalizeLogin(login) || 'unknown'}::${getClientIp(req)}`;
+
+const pruneLoginAttempts = () => {
+  const now = Date.now();
+  for (const [key, attempt] of loginAttemptStore.entries()) {
+    if (!attempt?.lockedUntil && now - attempt.firstAttemptAt > LOGIN_RATE_LIMIT_WINDOW_MS) {
+      loginAttemptStore.delete(key);
+    }
+    if (attempt?.lockedUntil && attempt.lockedUntil <= now) {
+      loginAttemptStore.delete(key);
+    }
+  }
+};
+
+const getLoginLock = (key) => {
+  pruneLoginAttempts();
+  const attempt = loginAttemptStore.get(key);
+  if (!attempt?.lockedUntil || attempt.lockedUntil <= Date.now()) return null;
+  return attempt.lockedUntil;
+};
+
+const recordFailedLogin = (key) => {
+  const now = Date.now();
+  const current = loginAttemptStore.get(key);
+  const base = current && now - current.firstAttemptAt <= LOGIN_RATE_LIMIT_WINDOW_MS
+    ? current
+    : { count: 0, firstAttemptAt: now, lockedUntil: null };
+  const nextCount = base.count + 1;
+
+  loginAttemptStore.set(key, {
+    count: nextCount,
+    firstAttemptAt: base.firstAttemptAt,
+    lockedUntil: nextCount >= LOGIN_RATE_LIMIT_MAX_ATTEMPTS ? now + LOGIN_RATE_LIMIT_WINDOW_MS : null
+  });
+};
+
+const clearLoginAttempts = (key) => {
+  loginAttemptStore.delete(key);
+};
+
+const getLockMessage = (lockedUntil) => {
+  const minutes = Math.max(1, Math.ceil((lockedUntil - Date.now()) / 60000));
+  return `Слишком много неверных попыток входа. Повторите через ${minutes} мин.`;
+};
+
+
 const isPasswordValid = (rawPassword, storedPassword = '') => {
   if (!storedPassword) return false;
 
@@ -578,11 +633,24 @@ router.put('/change-password', async (req, res) => {
 // Вход в систему
 router.post('/login', async (req, res) => {
   try {
+    res.set('Cache-Control', 'no-store');
     const { login, password } = req.body;
     const normalizedLogin = normalizeLogin(login);
+    const passwordValue = String(password || '');
+    const attemptKey = getLoginAttemptKey(req, normalizedLogin);
+    const lockedUntil = getLoginLock(attemptKey);
 
-    if (!normalizedLogin || !password) {
+    if (lockedUntil) {
+      return res.status(429).json({ message: getLockMessage(lockedUntil) });
+    }
+
+    if (!normalizedLogin || !passwordValue) {
       return res.status(400).json({ message: 'Логин и пароль обязательны' });
+    }
+
+    if (normalizedLogin.length > 255 || passwordValue.length > 256) {
+      recordFailedLogin(attemptKey);
+      return res.status(401).json({ message: 'Неверный логин или пароль' });
     }
 
     const [users] = await db.execute(
@@ -591,13 +659,21 @@ router.post('/login', async (req, res) => {
     );
 
     if (users.length === 0) {
+      recordFailedLogin(attemptKey);
       return res.status(401).json({ message: 'Неверный логин или пароль' });
     }
 
     const user = users[0];
 
-    if (!isPasswordValid(password, user.password)) {
+    if (!isPasswordValid(passwordValue, user.password)) {
+      recordFailedLogin(attemptKey);
       return res.status(401).json({ message: 'Неверный логин или пароль' });
+    }
+
+    clearLoginAttempts(attemptKey);
+
+    if (user.password && !String(user.password).startsWith('sha256$')) {
+      await db.execute('UPDATE users SET password = ? WHERE id = ?', [hashPassword(passwordValue), user.id]);
     }
 
     res.json({
