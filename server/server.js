@@ -55,7 +55,7 @@ const formatDateForMySQL = (dateString) => {
 const quoteColumn = (name) => `\`${name}\``;
 const APPLICATION_WORKFLOW_COLUMN_NAMES = [
   'id', 'name', 'cabinet', 'application', 'process', 'N_tel', 'executor',
-  'data', 'start_data', 'end_data', 'fl', 'status', 'employee_login',
+  'data', 'created_at', 'updated_at', 'start_data', 'end_data', 'fl', 'status', 'employee_login',
   'category', 'priority', 'accepted_by', 'accepted_at', 'work_started_at',
   'resolved_at', 'employee_confirmed_at', 'admin_comment', 'eta_minutes',
   'waiting_seconds', 'arrival_seconds', 'work_seconds', 'source',
@@ -94,6 +94,8 @@ const normalizeApplication = (app = {}) => ({
 
 const APPLICATION_WORKFLOW_ALTERS = [
   ['status', "ALTER TABLE application ADD COLUMN `status` VARCHAR(40) NULL DEFAULT 'new'"],
+  ['created_at', 'ALTER TABLE application ADD COLUMN `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP'],
+  ['updated_at', 'ALTER TABLE application ADD COLUMN `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'],
   ['employee_login', 'ALTER TABLE application ADD COLUMN `employee_login` VARCHAR(255) NULL'],
   ['category', 'ALTER TABLE application ADD COLUMN `category` VARCHAR(80) NULL'],
   ['priority', 'ALTER TABLE application ADD COLUMN `priority` VARCHAR(40) NULL'],
@@ -778,12 +780,12 @@ app.post('/api/applications/:id/accept', async (req, res) => {
     const updated = await updateApplicationWorkflow(id, (app) => {
       const now = formatNowForMySQL();
       return {
-        sql: 'UPDATE application SET `status` = ?, `accepted_by` = ?, `executor` = ?, `eta_minutes` = ?, `admin_comment` = ?, `accepted_at` = ?, `waiting_seconds` = ?, `fl` = 0 WHERE `id` = ?',
-        params: ['accepted', accepted_by || 'admin', executor || accepted_by || '', eta_minutes || null, admin_comment || '', now, secondsBetween(app.data, now), id]
+        sql: 'UPDATE application SET `status` = ?, `accepted_by` = ?, `executor` = ?, `eta_minutes` = ?, `admin_comment` = ?, `accepted_at` = ?, `work_started_at` = ?, `start_data` = ?, `waiting_seconds` = ?, `arrival_seconds` = ?, `fl` = 0 WHERE `id` = ?',
+        params: ['in_progress', accepted_by || 'admin', executor || accepted_by || '', eta_minutes || null, admin_comment || '', now, now, now, secondsBetween(app.created_at || app.data, now), 0, id]
       };
     }, { actorLogin: accepted_by || 'admin', actorRole: 'admin', eventType: 'accepted', comment: admin_comment || 'Заявка взята в работу' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
-    res.json({ message: 'Заявка взята в работу', application: updated });
+    res.json({ message: 'Заявка взята в работу, таймер выполнения запущен', application: updated });
   } catch (error) {
     console.error('Ошибка при взятии заявки:', error);
     res.status(500).json({ error: 'Не удалось взять заявку', details: error.sqlMessage || error.message });
@@ -799,7 +801,7 @@ app.post('/api/applications/:id/start-work', async (req, res) => {
       const now = formatNowForMySQL();
       return {
         sql: 'UPDATE application SET `status` = ?, `work_started_at` = ?, `start_data` = ?, `arrival_seconds` = ?, `fl` = 0 WHERE `id` = ?',
-        params: ['in_progress', now, now, secondsBetween(app.accepted_at || app.data, now), id]
+        params: ['in_progress', now, now, secondsBetween(app.accepted_at || app.created_at || app.data, now), id]
       };
     }, { actorLogin: actor || 'admin', actorRole: 'admin', eventType: 'work_started', comment: 'Исполнитель начал работу' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
@@ -819,7 +821,7 @@ app.post('/api/applications/:id/resolve', async (req, res) => {
       const now = formatNowForMySQL();
       return {
         sql: 'UPDATE application SET `status` = ?, `resolved_at` = ?, `process` = ?, `work_seconds` = ?, `fl` = 0 WHERE `id` = ?',
-        params: ['waiting_employee_confirmation', now, process || app.process || '', secondsBetween(app.work_started_at || app.accepted_at || app.data, now), id]
+        params: ['waiting_employee_confirmation', now, process || app.process || '', secondsBetween(app.work_started_at || app.accepted_at || app.created_at || app.data, now), id]
       };
     }, { actorLogin: actor || 'admin', actorRole: 'admin', eventType: 'resolved', comment: process || 'Работа выполнена, ожидается подтверждение' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
@@ -835,11 +837,13 @@ app.post('/api/applications/:id/confirm', async (req, res) => {
   const { actor } = req.body;
   try {
     await ensureApplicationWorkflowSchema();
-    const updated = await updateApplicationWorkflow(id, () => {
+    const updated = await updateApplicationWorkflow(id, (app) => {
       const now = formatNowForMySQL();
+      const resolvedAt = app.resolved_at || now;
+      const workSeconds = app.work_seconds ?? secondsBetween(app.work_started_at || app.accepted_at || app.created_at || app.data, resolvedAt);
       return {
-        sql: 'UPDATE application SET `status` = ?, `employee_confirmed_at` = ?, `end_data` = ?, `fl` = 1 WHERE `id` = ?',
-        params: ['done', now, now, id]
+        sql: 'UPDATE application SET `status` = ?, `resolved_at` = ?, `work_seconds` = ?, `employee_confirmed_at` = ?, `end_data` = ?, `fl` = 1 WHERE `id` = ?',
+        params: ['done', resolvedAt, workSeconds, now, now, id]
       };
     }, { actorLogin: actor || 'employee', actorRole: 'employee', eventType: 'employee_confirmed', comment: 'Сотрудник подтвердил выполнение' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });

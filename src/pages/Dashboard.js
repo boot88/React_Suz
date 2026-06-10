@@ -680,9 +680,8 @@ const Dashboard = () => {
                         <td>{getStatusLabel(app)}</td>
                         <td><div className="workflow-actions">
                           {['new', 'reopened'].includes(app.status || 'new') && <button type="button" disabled={actionBusyId === app.id} onClick={() => runWorkflowAction(app, 'accept')}>Взять</button>}
-                          {app.status === 'accepted' && <button type="button" disabled={actionBusyId === app.id} onClick={() => runWorkflowAction(app, 'start-work')}>Начать</button>}
-                          {app.status === 'in_progress' && <button type="button" disabled={actionBusyId === app.id} onClick={() => runWorkflowAction(app, 'resolve')}>На подтверждение</button>}
-                          {app.employee_login && <a href={`/employee?dialog=${encodeURIComponent(app.employee_login)}&application=${app.id}`}>Чат</a>}
+                          {app.status === 'accepted' && <button type="button" disabled={actionBusyId === app.id} onClick={() => runWorkflowAction(app, 'start-work')}>Запустить таймер</button>}
+                                                    {app.employee_login && <a href={`/employee?dialog=${encodeURIComponent(app.employee_login)}&application=${app.id}`}>Чат</a>}
                         </div></td>
                       </tr>
                     ))

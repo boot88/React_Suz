@@ -29,7 +29,7 @@ const REQUEST_PRIORITIES = ['Обычный', 'Важный', 'Срочный'];
 const APPLICATION_STATUS_META = {
   new: { label: 'Новая', hint: 'Ожидает администратора', tone: 'new' },
   accepted: { label: 'Принята', hint: 'Администратор назначил исполнителя', tone: 'accepted' },
-  in_progress: { label: 'В работе', hint: 'Исполнитель устраняет проблему', tone: 'active' },
+  in_progress: { label: 'В работе', hint: 'Если работа уже выполнена — подтвердите её закрытие', tone: 'confirm' },
   waiting_employee_confirmation: { label: 'Проверьте выполнение', hint: 'Подтвердите, если проблема решена', tone: 'confirm' },
   done: { label: 'Выполнена', hint: 'Заявка закрыта', tone: 'done' },
   reopened: { label: 'Переоткрыта', hint: 'Администратор снова увидит заявку', tone: 'reopened' }
@@ -1208,7 +1208,7 @@ const EmployeeChat = () => {
     )).length;
     return count + postUnread + commentsUnread;
   }, 0);
-  const requestBadge = activeApplications.filter((item) => item.status === 'waiting_employee_confirmation' || item.status === 'reopened').length || (requestStatus.state === 'sent' ? 1 : 0);
+  const requestBadge = activeApplications.filter((item) => ['in_progress', 'waiting_employee_confirmation', 'reopened'].includes(item.status)).length || (requestStatus.state === 'sent' ? 1 : 0);
   const activeContact = chatCandidates.find((item) => item.email === selectedEmail);
   void clockTick;
   const normalizedDialogSearch = normalizeText(dialogSearch);
@@ -1610,8 +1610,9 @@ const EmployeeChat = () => {
               {activeApplications.length === 0 && <div className="empty-mini">Активных заявок нет — новые появятся здесь сразу после отправки.</div>}
               {activeApplications.map((ticket) => {
                 const meta = getApplicationStatusMeta(ticket.status);
-                const waitingSeconds = ticket.waiting_seconds ?? (ticket.status === 'new' || ticket.status === 'reopened' ? secondsSince(ticket.data) : 0);
-                const workSeconds = ticket.work_seconds ?? (['accepted', 'in_progress'].includes(ticket.status) ? secondsSince(ticket.work_started_at || ticket.accepted_at) : 0);
+                const waitingStartedAt = ticket.created_at || ticket.data;
+                const waitingSeconds = ticket.waiting_seconds ?? (ticket.status === 'new' || ticket.status === 'reopened' ? secondsSince(waitingStartedAt) : 0);
+                const workSeconds = ticket.work_seconds ?? (['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(ticket.status) ? secondsSince(ticket.work_started_at || ticket.accepted_at) : 0);
                 return (
                   <article key={ticket.id} className={`employee-ticket-card ${meta.tone}`}>
                     <header><div><strong>#{ticket.id} · {meta.label}</strong><span>{ticket.category || 'Другое'} · {ticket.priority || 'Обычный'}</span></div><em>{meta.hint}</em></header>
@@ -1619,7 +1620,7 @@ const EmployeeChat = () => {
                     <div className="ticket-metrics"><span>Ожидание: {formatDuration(waitingSeconds)}</span><span>В работе: {formatDuration(workSeconds)}</span>{ticket.eta_minutes && <span>Подойдут через: {ticket.eta_minutes} мин.</span>}</div>
                     {(ticket.executor || ticket.accepted_by || ticket.admin_comment) && <div className="ticket-admin-note"><strong>{ticket.executor || ticket.accepted_by || 'Администратор'}</strong><span>{ticket.admin_comment || 'Заявка принята, ожидайте исполнителя.'}</span></div>}
                     {ticket.process && <div className="ticket-admin-note"><strong>Что сделано</strong><span>{ticket.process}</span></div>}
-                    {ticket.status === 'waiting_employee_confirmation' && <div className="ticket-actions"><button type="button" onClick={() => confirmApplicationDone(ticket.id)}>✅ Заявка выполнена</button><button type="button" onClick={() => reopenApplication(ticket.id)}>Проблема осталась</button></div>}
+                    {['in_progress', 'waiting_employee_confirmation'].includes(ticket.status) && <div className="ticket-actions"><button type="button" onClick={() => confirmApplicationDone(ticket.id)}>✅ Заявка выполнена</button><button type="button" onClick={() => reopenApplication(ticket.id)}>Проблема осталась</button></div>}
                   </article>
                 );
               })}
