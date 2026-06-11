@@ -170,6 +170,7 @@ export const AuthProvider = ({ children }) => {
 
   const registerEmployee = async (email, profile = {}) => {
     const normalizedEmail = email.trim().toLowerCase();
+    const password = String(profile.password || '');
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       throw new Error('Введите корректный email');
@@ -177,6 +178,10 @@ export const AuthProvider = ({ children }) => {
 
     if (ADMIN_CREDENTIALS.some((admin) => admin.username.toLowerCase() === normalizedEmail) || MANAGER_CREDENTIALS.username.toLowerCase() === normalizedEmail) {
       throw new Error('Этот логин зарезервирован для служебной учетной записи');
+    }
+
+    if (password.length < 8) {
+      throw new Error('Пароль должен содержать минимум 8 символов');
     }
 
     const response = await fetch(`${API_BASE_URL}/auth/register`, {
@@ -189,7 +194,8 @@ export const AuthProvider = ({ children }) => {
         full_name: profile.fullName?.trim() || normalizedEmail,
         department: profile.department || null,
         phone: profile.internalPhone || null,
-        room: profile.room || null
+        room: profile.room || null,
+        password
       })
     });
 

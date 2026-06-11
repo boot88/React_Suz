@@ -10,7 +10,9 @@ const Register = () => {
     room: '',
     department: '',
     internalPhone: '',
-    email: ''
+    email: '',
+    password: '',
+    confirmPassword: ''
   });
   const [departments, setDepartments] = useState([]);
   const [nameHints, setNameHints] = useState([]);
@@ -60,6 +62,16 @@ const Register = () => {
   }, [formData.fullName]);
 
   const hasHints = useMemo(() => nameHints.length > 0, [nameHints]);
+  const passwordScore = useMemo(() => {
+    const password = formData.password;
+    let score = 0;
+    if (password.length >= 8) score += 1;
+    if (/[A-ZА-Я]/.test(password) && /[a-zа-я]/.test(password)) score += 1;
+    if (/\d/.test(password)) score += 1;
+    if (/[^A-Za-zА-Яа-я0-9]/.test(password)) score += 1;
+    return score;
+  }, [formData.password]);
+  const passwordStrengthLabel = ['Слабый', 'Слабый', 'Нормальный', 'Хороший', 'Надёжный'][passwordScore];
 
   const applyHint = (hint) => {
     setFormData((prev) => ({
@@ -89,6 +101,16 @@ const Register = () => {
     setError('');
     setSuccessMessage('');
 
+    if (formData.password.length < 8) {
+      setError('Пароль должен содержать минимум 8 символов.');
+      return;
+    }
+
+    if (formData.password !== formData.confirmPassword) {
+      setError('Пароли не совпадают.');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -96,9 +118,10 @@ const Register = () => {
         fullName: formData.fullName,
         room: formData.room,
         department: formData.department,
-        internalPhone: formData.internalPhone
+        internalPhone: formData.internalPhone,
+        password: formData.password
       });
-      setSuccessMessage(`Сотрудник зарегистрирован. Пароль отправлен на ${formData.email.trim().toLowerCase()}.`);
+      setSuccessMessage('Сотрудник зарегистрирован. Теперь можно войти с указанным логином и паролем.');
       setTimeout(() => navigate('/login'), 1000);
     } catch (err) {
       setError(err.message || 'Ошибка регистрации');
@@ -198,8 +221,49 @@ const Register = () => {
             </label>
           </div>
 
+          <div className="grid-two password-grid">
+            <label>
+              Пароль *
+              <input
+                type="password"
+                name="password"
+                value={formData.password}
+                onChange={handleChange}
+                required
+                disabled={isLoading}
+                autoComplete="new-password"
+                minLength={8}
+                placeholder="Минимум 8 символов"
+              />
+            </label>
+
+            <label>
+              Повторите пароль *
+              <input
+                type="password"
+                name="confirmPassword"
+                value={formData.confirmPassword}
+                onChange={handleChange}
+                required
+                disabled={isLoading}
+                autoComplete="new-password"
+                minLength={8}
+                placeholder="Введите пароль ещё раз"
+              />
+            </label>
+          </div>
+
+          <div className="password-helper">
+            <div className="password-meter" aria-hidden="true">
+              {[1, 2, 3, 4].map((item) => (
+                <span key={item} className={item <= passwordScore ? 'active' : ''} />
+              ))}
+            </div>
+            <span>{formData.password ? `Надёжность: ${passwordStrengthLabel}` : 'Придумайте пароль и повторите его во втором поле.'}</span>
+          </div>
+
           <p className="register-note">
-            Пароль создавать не нужно — он будет автоматически сгенерирован и отправлен на указанную почту.
+            Пароль задаётся сразу при регистрации. Если сотрудник забудет его позже, восстановление через «Забыли пароль?» на странице входа продолжит работать.
           </p>
 
           <button type="submit" disabled={isLoading}>

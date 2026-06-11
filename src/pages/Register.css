@@ -135,3 +135,39 @@
   .register-card { width: 100%; }
   .grid-two { grid-template-columns: 1fr; }
 }
+
+.password-grid {
+  align-items: start;
+}
+
+.password-helper {
+  display: grid;
+  gap: 8px;
+  margin-top: -4px;
+  border: 1px solid #d9e6ee;
+  border-radius: 14px;
+  background: #f7fbfd;
+  color: #597084;
+  font-size: 13px;
+  padding: 12px;
+}
+
+.password-meter {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.password-meter span {
+  height: 6px;
+  border-radius: 999px;
+  background: #dbe5ec;
+}
+
+.password-meter span.active {
+  background: linear-gradient(90deg, #3a87ad, #37b5c8);
+}
+
+.register-note {
+  border-radius: 14px;
+}

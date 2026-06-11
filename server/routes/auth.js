@@ -307,10 +307,14 @@ router.post('/register', async (req, res) => {
   try {
     const { login, full_name, department, phone, room } = req.body;
     const normalizedLogin = normalizeLogin(login);
-    const generatedPassword = generateTemporaryPassword();
+    const password = String(req.body?.password || '');
 
     if (!normalizedLogin) {
       return res.status(400).json({ message: 'Email (логин) обязателен' });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({ message: 'Пароль должен содержать минимум 8 символов' });
     }
 
     const [existingUsers] = await db.execute(
@@ -324,12 +328,11 @@ router.post('/register', async (req, res) => {
 
     await db.execute(
       'INSERT INTO users (login, password, role, full_name, department, phone, room) VALUES (?, ?, "employee", ?, ?, ?, ?)',
-      [normalizedLogin, hashPassword(generatedPassword), full_name || normalizedLogin, department || null, phone || null, room || null]
+      [normalizedLogin, hashPassword(password), full_name || normalizedLogin, department || null, phone || null, room || null]
     );
 
     res.status(201).json({
-      message: `Пользователь успешно зарегистрирован. Временный пароль создан для логина ${normalizedLogin}.`,
-      temporaryPassword: generatedPassword
+      message: `Пользователь успешно зарегистрирован для логина ${normalizedLogin}.`
     });
   } catch (error) {
     console.error('Registration error:', error);
