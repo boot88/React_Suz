@@ -19,6 +19,7 @@ const Register = () => {
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const { registerEmployee } = useAuth();
   const navigate = useNavigate();
@@ -72,6 +73,8 @@ const Register = () => {
     return score;
   }, [formData.password]);
   const passwordStrengthLabel = ['Слабый', 'Слабый', 'Нормальный', 'Хороший', 'Надёжный'][passwordScore];
+  const hasPasswordPair = formData.password.length > 0 && formData.confirmPassword.length > 0;
+  const passwordsMatch = hasPasswordPair && formData.password === formData.confirmPassword;
 
   const applyHint = (hint) => {
     setFormData((prev) => ({
@@ -225,7 +228,7 @@ const Register = () => {
             <label>
               Пароль *
               <input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 name="password"
                 value={formData.password}
                 onChange={handleChange}
@@ -240,7 +243,7 @@ const Register = () => {
             <label>
               Повторите пароль *
               <input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 name="confirmPassword"
                 value={formData.confirmPassword}
                 onChange={handleChange}
@@ -251,6 +254,23 @@ const Register = () => {
                 placeholder="Введите пароль ещё раз"
               />
             </label>
+          </div>
+
+          <div className="password-actions">
+            <label className="password-show-toggle">
+              <input
+                type="checkbox"
+                checked={showPassword}
+                onChange={(e) => setShowPassword(e.target.checked)}
+                disabled={isLoading}
+              />
+              Показать пароль
+            </label>
+            {hasPasswordPair && (
+              <span className={`password-match ${passwordsMatch ? 'match' : 'mismatch'}`}>
+                {passwordsMatch ? 'Пароли совпадают' : 'Пароли не совпадают'}
+              </span>
+            )}
           </div>
 
           <div className="password-helper">

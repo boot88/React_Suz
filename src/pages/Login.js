@@ -16,6 +16,7 @@ const Login = ({ mode = 'employee' }) => {
   const [formData, setFormData] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
   const [recoveryMessage, setRecoveryMessage] = useState('');
+  const [recoveryError, setRecoveryError] = useState('');
   const [failedAttempts, setFailedAttempts] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRecovering, setIsRecovering] = useState(false);
@@ -44,6 +45,7 @@ const Login = ({ mode = 'employee' }) => {
     }
 
     setError('');
+    setRecoveryError('');
     setRecoveryMessage('');
     setIsSubmitting(true);
 
@@ -80,6 +82,7 @@ const Login = ({ mode = 'employee' }) => {
   const openRecoveryPanel = () => {
     setRecoveryLogin(normalizeLoginValue(formData.username));
     setRecoveryMessage('');
+    setRecoveryError('');
     setError('');
     setIsRecoveryOpen(true);
   };
@@ -94,12 +97,13 @@ const Login = ({ mode = 'employee' }) => {
     const loginValue = normalizeLoginValue(recoveryLogin || formData.username);
 
     if (!loginValue) {
-      setError('Укажите логин, чтобы отправить запрос на восстановление.');
+      setRecoveryError('Укажите логин, чтобы отправить запрос на восстановление.');
       return;
     }
 
     setIsRecovering(true);
     setError('');
+    setRecoveryError('');
     setRecoveryMessage('');
     try {
       const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
@@ -113,7 +117,7 @@ const Login = ({ mode = 'employee' }) => {
       setRecoveryLogin(loginValue);
       setIsRecoveryOpen(false);
     } catch (err) {
-      setError(err.message || 'Ошибка восстановления пароля');
+      setRecoveryError(err.message || 'Ошибка восстановления пароля');
     } finally {
       setIsRecovering(false);
     }
@@ -234,12 +238,13 @@ const Login = ({ mode = 'employee' }) => {
               <input
                 id="recovery-login"
                 value={recoveryLogin}
-                onChange={(e) => setRecoveryLogin(e.target.value)}
+                onChange={(e) => { setRecoveryLogin(e.target.value); if (recoveryError) setRecoveryError(''); }}
                 placeholder="Введите логин"
                 autoComplete="username"
                 autoFocus
                 disabled={isRecovering}
               />
+              {recoveryError && <div className="error-message recovery-error" role="alert">{recoveryError}</div>}
               <button type="submit" className="jp-button" disabled={isRecovering}>{isRecovering ? 'Отправляем...' : 'Отправить запрос'}</button>
             </form>
           </section>
