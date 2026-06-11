@@ -38,6 +38,7 @@ function App() {
           <div className={`app-content ${isAuthenticated && !isEmployee ? 'app-content--with-sidebar' : ''}`}>
             <Routes>
               <Route path="/login" element={<Login />} />
+              <Route path="/admin" element={<Login mode="admin" />} />
               <Route path="/register" element={<Register />} />
 
               <Route path="/employee" element={<ProtectedRoute><EmployeeChat /></ProtectedRoute>} />
@@ -179,21 +180,21 @@ function Sidebar() {
   );
 }
 
-function ProtectedRoute({ children }) {
+function ProtectedRoute({ children, loginPath = '/login' }) {
   const { isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {
     return <div className="app-loading"><div className="spinner"></div><p>Проверка авторизации...</p></div>;
   }
 
-  return !isAuthenticated ? <Navigate to="/login" replace /> : children;
+  return !isAuthenticated ? <Navigate to={loginPath} replace /> : children;
 }
 
 function AdminRoute({ children }) {
   const { user } = useAuth();
 
   return (
-    <ProtectedRoute>
+    <ProtectedRoute loginPath="/admin">
       {user?.role === 'admin' ? children : <Navigate to="/employee" replace />}
     </ProtectedRoute>
   );

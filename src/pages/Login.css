@@ -1,163 +1,101 @@
 :root {
-  --login-bg: #eef5f7;
-  --login-ink: #142334;
-  --login-muted: #5f7184;
-  --login-blue: #0d5d7e;
-  --login-blue-strong: #084966;
-  --login-cyan: #44c3d3;
-  --login-green: #19a974;
+  --login-bg: #edf3f7;
+  --login-ink: #172235;
+  --login-muted: #66758a;
+  --login-blue: #155f86;
+  --login-blue-strong: #0d4968;
+  --login-accent: #37b5c8;
   --login-red: #b4234a;
-  --login-card: rgba(255, 255, 255, 0.92);
-  --login-border: rgba(21, 63, 90, 0.14);
-  --login-shadow: 0 28px 80px rgba(10, 40, 64, 0.18);
+  --login-amber: #9a5b00;
+  --login-green: #147a55;
+  --login-card: rgba(255, 255, 255, 0.94);
+  --login-border: rgba(17, 48, 73, 0.13);
+  --login-shadow: 0 28px 80px rgba(12, 36, 58, 0.2);
 }
 
 .jp-wrapper {
-  position: relative;
   min-height: 100vh;
   overflow: hidden;
   background:
-    radial-gradient(circle at 8% 12%, rgba(68, 195, 211, 0.26), transparent 28rem),
-    radial-gradient(circle at 90% 18%, rgba(13, 93, 126, 0.2), transparent 30rem),
-    linear-gradient(135deg, #f7fbfd 0%, var(--login-bg) 48%, #e4f0f2 100%);
+    radial-gradient(circle at 18% 10%, rgba(55, 181, 200, 0.22), transparent 30rem),
+    radial-gradient(circle at 86% 84%, rgba(21, 95, 134, 0.18), transparent 28rem),
+    linear-gradient(135deg, #f8fbfd 0%, var(--login-bg) 54%, #e3edf3 100%);
   color: var(--login-ink);
   font-family: Inter, "Segoe UI", Arial, Helvetica, sans-serif;
 }
 
-.jp-orb {
-  position: absolute;
-  border-radius: 999px;
-  filter: blur(3px);
-  opacity: 0.38;
-  pointer-events: none;
+.jp-wrapper--admin {
+  background:
+    radial-gradient(circle at 14% 14%, rgba(31, 55, 94, 0.2), transparent 30rem),
+    radial-gradient(circle at 86% 82%, rgba(55, 181, 200, 0.14), transparent 28rem),
+    linear-gradient(135deg, #f6f8fb 0%, #e9eef4 50%, #dde7ef 100%);
 }
 
-.jp-orb-one {
-  width: 340px;
-  height: 340px;
-  left: -110px;
-  bottom: 5vh;
-  background: linear-gradient(135deg, rgba(68, 195, 211, 0.48), rgba(13, 93, 126, 0.08));
-}
-
-.jp-orb-two {
-  width: 280px;
-  height: 280px;
-  right: -90px;
-  top: 18vh;
-  background: linear-gradient(135deg, rgba(25, 169, 116, 0.24), rgba(13, 93, 126, 0.16));
-}
-
-.jp-container {
-  position: relative;
-  z-index: 1;
-  width: min(1180px, calc(100% - 40px));
+.jp-login-shell {
   min-height: 100vh;
+  width: min(100% - 32px, 520px);
   margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-}
-
-.jp-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 30px 0 18px;
-}
-
-.jp-eyebrow,
-.jp-chip {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  gap: 8px;
-  border: 1px solid rgba(13, 93, 126, 0.18);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.68);
-  color: var(--login-blue);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: 7px 12px;
-}
-
-.jp-header h1 {
-  margin: 12px 0 6px;
-  font-size: clamp(30px, 4vw, 48px);
-  line-height: 1;
-  letter-spacing: -0.05em;
-  color: #10293d;
-}
-
-.jp-header p {
-  margin: 0;
-  color: var(--login-muted);
-  font-size: 15px;
-}
-
-.jp-official-link {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 42px;
-  padding: 0 18px;
-  border: 1px solid rgba(13, 93, 126, 0.2);
-  border-radius: 999px;
-  color: var(--login-blue);
-  background: rgba(255, 255, 255, 0.7);
-  font-weight: 800;
-  text-decoration: none;
-  box-shadow: 0 10px 30px rgba(13, 93, 126, 0.1);
+  display: grid;
+  place-items: center;
+  padding: 32px 0;
+  box-sizing: border-box;
 }
 
 .jp-content {
-  flex: 1;
-  display: grid;
-  grid-template-columns: minmax(360px, 470px) minmax(360px, 1fr);
-  align-items: stretch;
-  gap: 28px;
-  padding: 34px 0 28px;
-}
-
-.jp-login-box,
-.jp-info-panel {
-  border: 1px solid var(--login-border);
-  border-radius: 34px;
-  background: var(--login-card);
-  box-shadow: var(--login-shadow);
-  backdrop-filter: blur(22px);
+  width: 100%;
 }
 
 .jp-login-box {
   position: relative;
   overflow: hidden;
+  width: 100%;
+  border: 1px solid var(--login-border);
+  border-radius: 34px;
+  background: var(--login-card);
+  box-shadow: var(--login-shadow);
+  backdrop-filter: blur(22px);
   padding: 34px;
+  box-sizing: border-box;
 }
 
 .jp-card-topline {
   position: absolute;
   inset: 0 0 auto;
   height: 7px;
-  background: linear-gradient(90deg, #0d5d7e, #44c3d3, #19a974);
+  background: linear-gradient(90deg, var(--login-blue), var(--login-accent));
 }
 
-.jp-login-box h2 {
-  margin: 18px 0 8px;
-  font-size: clamp(28px, 4vw, 38px);
-  line-height: 1.05;
-  letter-spacing: -0.04em;
+.jp-wrapper--admin .jp-card-topline {
+  background: linear-gradient(90deg, #263a5e, var(--login-blue));
+}
+
+.jp-chip {
+  display: inline-flex;
+  width: fit-content;
+  border: 1px solid rgba(21, 95, 134, 0.18);
+  border-radius: 999px;
+  background: rgba(236, 246, 249, 0.9);
+  color: var(--login-blue);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 7px 12px;
+  margin-bottom: 18px;
+}
+
+.jp-login-box h1 {
+  margin: 12px 0 8px;
+  font-size: clamp(32px, 7vw, 44px);
+  line-height: 1;
+  letter-spacing: -0.05em;
   color: var(--login-ink);
 }
 
 .jp-subtitle {
-  max-width: 360px;
   margin: 0 0 28px;
-  font-size: 15px;
-  line-height: 1.55;
   color: var(--login-muted);
+  font-size: 15px;
 }
 
 .jp-form {
@@ -187,7 +125,7 @@
   border: 1px solid rgba(20, 35, 52, 0.14);
   border-radius: 18px;
   outline: none;
-  background: rgba(248, 252, 253, 0.92);
+  background: rgba(248, 252, 253, 0.94);
   color: var(--login-ink);
   font-size: 15px;
   padding: 15px 16px;
@@ -196,9 +134,9 @@
 
 .jp-field input:focus,
 .jp-recovery-form input:focus {
-  border-color: rgba(13, 93, 126, 0.62);
+  border-color: rgba(21, 95, 134, 0.62);
   background: #fff;
-  box-shadow: 0 0 0 4px rgba(68, 195, 211, 0.18);
+  box-shadow: 0 0 0 4px rgba(55, 181, 200, 0.17);
 }
 
 .jp-password-wrapper {
@@ -215,41 +153,44 @@
 }
 
 .jp-password-toggle {
-  min-width: 106px;
+  min-width: 104px;
   padding: 0 14px;
   border: 1px solid rgba(20, 35, 52, 0.14);
   border-left: none;
   border-radius: 0 18px 18px 0;
-  background: #edf7f9;
+  background: #edf7fa;
   color: var(--login-blue);
   cursor: pointer;
   font-size: 13px;
   font-weight: 800;
-  transition: background 0.2s ease, color 0.2s ease;
 }
 
 .jp-password-toggle:hover {
-  background: #dff3f6;
+  background: #dff2f6;
   color: var(--login-blue-strong);
 }
 
 .jp-button {
   border: none;
   border-radius: 18px;
-  background: linear-gradient(135deg, var(--login-blue), #0b7891);
+  background: linear-gradient(135deg, var(--login-blue), #0c7892);
   color: #fff;
   padding: 15px 20px;
   font-size: 15px;
   font-weight: 900;
   cursor: pointer;
-  box-shadow: 0 16px 34px rgba(13, 93, 126, 0.27);
+  box-shadow: 0 16px 34px rgba(21, 95, 134, 0.27);
   transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.jp-wrapper--admin .jp-button {
+  background: linear-gradient(135deg, #263a5e, var(--login-blue));
 }
 
 .jp-button:hover:not(:disabled) {
   transform: translateY(-1px);
   filter: brightness(1.04);
-  box-shadow: 0 20px 40px rgba(13, 93, 126, 0.32);
+  box-shadow: 0 20px 40px rgba(21, 95, 134, 0.32);
 }
 
 .jp-button:disabled,
@@ -261,7 +202,8 @@
 }
 
 .error-message,
-.success-message {
+.success-message,
+.warning-message {
   border-radius: 16px;
   padding: 12px 14px;
   font-size: 13px;
@@ -275,36 +217,42 @@
 }
 
 .success-message {
-  border: 1px solid rgba(25, 169, 116, 0.26);
+  border: 1px solid rgba(20, 122, 85, 0.24);
   background: #effbf6;
-  color: #08734d;
+  color: var(--login-green);
+}
+
+.warning-message {
+  border: 1px solid rgba(154, 91, 0, 0.22);
+  background: #fff8eb;
+  color: var(--login-amber);
 }
 
 .jp-caps-warning {
   margin: 8px 0 0;
-  color: #9a5b00;
+  color: var(--login-amber);
   font-size: 12px;
   font-weight: 700;
 }
 
 .jp-login-pattern-wrap {
-  height: 84px;
+  height: 80px;
   margin: 24px -34px 0;
   overflow: hidden;
-  border-top: 1px solid rgba(13, 93, 126, 0.1);
-  border-bottom: 1px solid rgba(13, 93, 126, 0.1);
+  border-top: 1px solid rgba(21, 95, 134, 0.1);
+  border-bottom: 1px solid rgba(21, 95, 134, 0.1);
   background: #eef8fa;
 }
 
 .jp-login-pattern {
   display: block;
   width: 100%;
-  height: 170px;
+  height: 165px;
   object-fit: cover;
   object-position: center 46%;
-  opacity: 0.42;
-  filter: saturate(1.1) contrast(0.96);
-  transform: translateY(-43px);
+  opacity: 0.38;
+  filter: saturate(1.05) contrast(0.96);
+  transform: translateY(-42px);
 }
 
 .jp-footer {
@@ -318,8 +266,13 @@
   font-size: 13px;
 }
 
-.jp-footer p {
-  margin: 0;
+.jp-footer-links {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-left: auto;
 }
 
 .jp-footer a,
@@ -330,8 +283,7 @@
 }
 
 .jp-footer a:hover,
-.jp-link-button:hover:not(:disabled),
-.jp-official-link:hover {
+.jp-link-button:hover:not(:disabled) {
   color: var(--login-blue-strong);
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -343,114 +295,6 @@
   background: transparent;
   cursor: pointer;
   font-size: 13px;
-}
-
-.jp-info-panel {
-  padding: 28px;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(238, 248, 250, 0.88)),
-    radial-gradient(circle at 90% 10%, rgba(68, 195, 211, 0.2), transparent 20rem);
-}
-
-.jp-status-card,
-.jp-security-card,
-.jp-audience-card {
-  border: 1px solid rgba(13, 93, 126, 0.12);
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.72);
-}
-
-.jp-status-card {
-  display: flex;
-  gap: 14px;
-  align-items: flex-start;
-  padding: 18px;
-}
-
-.jp-status-dot {
-  width: 14px;
-  height: 14px;
-  margin-top: 3px;
-  border-radius: 999px;
-  background: var(--login-green);
-  box-shadow: 0 0 0 7px rgba(25, 169, 116, 0.13);
-}
-
-.jp-status-card strong,
-.jp-security-card h3,
-.jp-audience-card h3 {
-  color: var(--login-ink);
-}
-
-.jp-status-card p,
-.jp-audience-card p {
-  margin: 6px 0 0;
-  color: var(--login-muted);
-  line-height: 1.5;
-  font-size: 14px;
-}
-
-.jp-audience-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.jp-audience-card {
-  padding: 20px;
-}
-
-.jp-audience-card span {
-  display: inline-flex;
-  color: var(--login-cyan);
-  font-weight: 900;
-  letter-spacing: 0.12em;
-  margin-bottom: 14px;
-}
-
-.jp-audience-card h3,
-.jp-security-card h3 {
-  margin: 0;
-  font-size: 18px;
-}
-
-.jp-security-card {
-  padding: 22px;
-}
-
-.jp-security-card ul {
-  margin: 16px 0 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 12px;
-}
-
-.jp-security-card li {
-  position: relative;
-  padding-left: 26px;
-  color: #3d5064;
-  line-height: 1.45;
-  font-size: 14px;
-}
-
-.jp-security-card li::before {
-  content: '✓';
-  position: absolute;
-  left: 0;
-  top: 0;
-  color: var(--login-green);
-  font-weight: 900;
-}
-
-.jp-page-footer {
-  text-align: center;
-  color: var(--login-muted);
-  font-size: 12px;
-  padding: 22px 0 26px;
 }
 
 .login-loading {
@@ -524,39 +368,23 @@
   line-height: 1;
 }
 
-@media (max-width: 900px) {
-  .jp-header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .jp-content {
-    grid-template-columns: 1fr;
-  }
-}
-
 @media (max-width: 640px) {
-  .jp-container {
-    width: min(100% - 24px, 1180px);
+  .jp-login-shell {
+    width: min(100% - 24px, 520px);
+    padding: 20px 0;
   }
 
-  .jp-header {
-    padding-top: 20px;
-  }
-
-  .jp-login-box,
-  .jp-info-panel {
+  .jp-login-box {
     border-radius: 26px;
     padding: 24px;
   }
 
-  .jp-audience-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .jp-footer {
+  .jp-footer,
+  .jp-footer-links {
     align-items: flex-start;
     flex-direction: column;
+    justify-content: flex-start;
+    margin-left: 0;
   }
 
   .jp-password-wrapper {

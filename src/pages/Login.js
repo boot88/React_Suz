@@ -5,35 +5,18 @@ import './Login.css';
 import loginSpectrumLines from '../assets/login-spectrum-lines.png';
 import { API_BASE_URL } from '../utils/apiConfig';
 
-const LOGIN_AUDIENCES = [
-  {
-    title: 'Сотрудники',
-    text: 'чат, лента, профиль и подача заявок в техническую службу',
-    accent: '01'
-  },
-  {
-    title: 'Администраторы',
-    text: 'панель заявок, статусы работ, исполнители и отчётность',
-    accent: '02'
-  }
-];
-
-const SECURITY_NOTES = [
-  'Работает только во внутреннем контуре института',
-  'Не передавайте пароль коллегам и не сохраняйте его на общих ПК',
-  'После 7 неверных попыток вход временно блокируется'
-];
-
 const normalizeLoginValue = (value = '') => value.trim().toLowerCase();
 
-const Login = () => {
-  const { login, isAuthenticated, isLoading, user } = useAuth();
+const Login = ({ mode = 'employee' }) => {
+  const { login, logout, isAuthenticated, isLoading, user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const isAdminMode = mode === 'admin';
 
   const [formData, setFormData] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
   const [recoveryMessage, setRecoveryMessage] = useState('');
+  const [failedAttempts, setFailedAttempts] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRecovering, setIsRecovering] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -43,14 +26,13 @@ const Login = () => {
 
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
-      const from = location.state?.from?.pathname;
-      if (from) {
-        navigate(from, { replace: true });
+      if (user?.role === 'admin') {
+        navigate('/', { replace: true });
         return;
       }
-      navigate(user?.role === 'employee' || user?.role === 'manager' ? '/employee' : '/', { replace: true });
+      navigate('/employee', { replace: true });
     }
-  }, [isAuthenticated, isLoading, navigate, location, user]);
+  }, [isAuthenticated, isLoading, navigate, user]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -67,8 +49,28 @@ const Login = () => {
 
     try {
       const loggedInUser = await login(username, formData.password);
-      navigate(loggedInUser.role === 'employee' || loggedInUser.role === 'manager' ? '/employee' : '/', { replace: true });
+      const isAdminUser = loggedInUser.role === 'admin';
+      const isEmployeeUser = loggedInUser.role === 'employee' || loggedInUser.role === 'manager';
+
+      if (isAdminMode && !isAdminUser) {
+        logout();
+        setFailedAttempts((prev) => prev + 1);
+        setError('Это вход для администратора. Для сотрудника используйте обычный вход.');
+        return;
+      }
+
+      if (!isAdminMode && !isEmployeeUser) {
+        logout();
+        setFailedAttempts((prev) => prev + 1);
+        setError('Для администратора используйте отдельный вход.');
+        return;
+      }
+
+      setFailedAttempts(0);
+      const from = location.state?.from?.pathname;
+      navigate(from || (isAdminUser ? '/' : '/employee'), { replace: true });
     } catch (err) {
+      setFailedAttempts((prev) => prev + 1);
       setError(err.message || 'Произошла ошибка при входе.');
     } finally {
       setIsSubmitting(false);
@@ -129,32 +131,23 @@ const Login = () => {
   }
 
   return (
-    <div className="jp-wrapper">
-      <div className="jp-orb jp-orb-one" aria-hidden="true" />
-      <div className="jp-orb jp-orb-two" aria-hidden="true" />
-
-      <div className="jp-container">
-        <header className="jp-header">
-          <div>
-            <span className="jp-eyebrow">Закрытый внутренний портал</span>
-            <h1>НИОХ СО РАН</h1>
-            <p>Новосибирский институт органической химии им. Н. Н. Ворожцова</p>
-          </div>
-          <a className="jp-official-link" href="https://web3.nioch.nsc.ru/nioch/index.php/ru/" target="_blank" rel="noreferrer">
-            Официальный сайт
-          </a>
-        </header>
-
+    <div className={`jp-wrapper ${isAdminMode ? 'jp-wrapper--admin' : 'jp-wrapper--employee'}`}>
+      <div className="jp-login-shell">
         <main className="jp-content">
           <section className="jp-login-box" aria-labelledby="login-title">
             <div className="jp-card-topline" />
-            <span className="jp-chip">LAN · служебный доступ</span>
-            <h2 id="login-title">Вход в систему</h2>
-            <p className="jp-subtitle">Один вход для чата сотрудников, заявок и панели администратора.</p>
+            {isAdminMode && <span className="jp-chip">Администратор</span>}
+            <h1 id="login-title">{isAdminMode ? 'Вход администратора' : 'Вход'}</h1>
+            <p className="jp-subtitle">Введите логин и пароль</p>
 
             <form className="jp-form" onSubmit={handleSubmit} noValidate>
               {error && <div className="error-message" role="alert">{error}</div>}
               {recoveryMessage && <div className="success-message" role="status">{recoveryMessage}</div>}
+              {failedAttempts >= 2 && (
+                <div className="warning-message" role="status">
+                  Проверьте раскладку и правильность пароля. После нескольких неверных попыток вход временно блокируется.
+                </div>
+              )}
 
               <div className="jp-field">
                 <label htmlFor="username">Логин</label>
@@ -162,11 +155,10 @@ const Login = () => {
                   id="username"
                   name="username"
                   type="text"
-                  placeholder="например: ivanov или ivanov@nioch"
+                  placeholder="Введите логин"
                   value={formData.username}
                   onChange={(e) => setFormData((prev) => ({ ...prev, username: e.target.value }))}
                   autoComplete="username"
-                  inputMode="email"
                   spellCheck="false"
                   required
                   disabled={isSubmitting}
@@ -199,11 +191,11 @@ const Login = () => {
                     {showPassword ? 'Скрыть' : 'Показать'}
                   </button>
                 </div>
-                {capsLockOn && <p className="jp-caps-warning">Включён Caps Lock — проверьте раскладку и регистр.</p>}
+                {capsLockOn && <p className="jp-caps-warning">Включён Caps Lock.</p>}
               </div>
 
               <button type="submit" className="jp-button" disabled={isSubmitting || isRecovering}>
-                {isSubmitting ? 'Проверяем доступ...' : 'Войти в портал'}
+                {isSubmitting ? 'Проверяем...' : 'Войти'}
               </button>
             </form>
 
@@ -212,42 +204,18 @@ const Login = () => {
             </div>
 
             <div className="jp-footer">
-              <button type="button" className="jp-link-button" onClick={openRecoveryPanel} disabled={isSubmitting || isRecovering}>
-                {isRecovering ? 'Отправка...' : 'Забыли пароль?'}
-              </button>
-              <p>Нет аккаунта сотрудника? <Link to="/register">Зарегистрироваться</Link></p>
-            </div>
-          </section>
-
-          <aside className="jp-info-panel" aria-label="Информация о портале">
-            <div className="jp-status-card">
-              <span className="jp-status-dot" />
-              <div>
-                <strong>Контур доступен</strong>
-                <p>Авторизация ведёт сотрудника в чат, администратора — в панель заявок.</p>
+              {!isAdminMode && (
+                <button type="button" className="jp-link-button" onClick={openRecoveryPanel} disabled={isSubmitting || isRecovering}>
+                  {isRecovering ? 'Отправка...' : 'Забыли пароль?'}
+                </button>
+              )}
+              <div className="jp-footer-links">
+                {!isAdminMode && <Link to="/register">Регистрация сотрудника</Link>}
+                {isAdminMode ? <Link to="/login">Вход для сотрудников</Link> : <Link to="/admin">Вход для администратора</Link>}
               </div>
             </div>
-
-            <div className="jp-audience-grid">
-              {LOGIN_AUDIENCES.map((item) => (
-                <article className="jp-audience-card" key={item.title}>
-                  <span>{item.accent}</span>
-                  <h3>{item.title}</h3>
-                  <p>{item.text}</p>
-                </article>
-              ))}
-            </div>
-
-            <div className="jp-security-card">
-              <h3>Безопасность входа</h3>
-              <ul>
-                {SECURITY_NOTES.map((note) => <li key={note}>{note}</li>)}
-              </ul>
-            </div>
-          </aside>
+          </section>
         </main>
-
-        <footer className="jp-page-footer">© 2026 Внутренний портал НИОХ СО РАН</footer>
       </div>
 
       {isRecoveryOpen && (
@@ -264,7 +232,7 @@ const Login = () => {
                 id="recovery-login"
                 value={recoveryLogin}
                 onChange={(e) => setRecoveryLogin(e.target.value)}
-                placeholder="ivanov или ivanov@nioch"
+                placeholder="Введите логин"
                 autoComplete="username"
                 autoFocus
                 disabled={isRecovering}
