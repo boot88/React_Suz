@@ -1214,3 +1214,120 @@ button:disabled {
 .profile-field-wide {
   grid-column: 1 / -1;
 }
+
+.manager-form-labeled label,
+.manager-password-toggle {
+  display: grid;
+  gap: 7px;
+  color: var(--chat-muted);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .04em;
+}
+
+.manager-form-labeled label span {
+  padding-left: 2px;
+}
+
+.manager-form-labeled label small {
+  color: var(--chat-muted);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.manager-password-toggle {
+  display: inline-flex;
+  grid-auto-flow: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.manager-password-toggle input {
+  width: auto;
+  margin: 0;
+}
+
+.audit-toolbar {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.audit-toolbar input[type="search"] {
+  width: 100%;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-md);
+  background: rgba(255, 255, 255, .72);
+  color: var(--chat-ink);
+  padding: 12px 14px;
+  outline: none;
+}
+
+.audit-filter-row,
+.audit-periods {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.audit-filter-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--chat-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .58);
+  color: var(--chat-muted);
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.audit-periods button {
+  border: 1px solid var(--chat-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .62);
+  color: var(--chat-muted);
+  padding: 8px 12px;
+  font-weight: 900;
+}
+
+.audit-periods button.active {
+  border-color: rgba(31, 111, 104, .35);
+  background: rgba(31, 111, 104, .12);
+  color: var(--chat-accent);
+}
+
+.thread-item {
+  display: grid;
+  gap: 5px;
+  text-align: left;
+}
+
+.thread-title {
+  font-weight: 900;
+  color: var(--chat-ink);
+}
+
+.thread-stats,
+.thread-last {
+  color: var(--chat-muted);
+  font-size: 12px;
+}
+
+.audit-message.deleted {
+  opacity: .78;
+  border-style: dashed;
+}
+
+.audit-history {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  border-left: 3px solid rgba(31, 111, 104, .24);
+  padding-left: 10px;
+  color: var(--chat-muted);
+  font-size: 12px;
+}

@@ -238,12 +238,38 @@ const formatDuration = (seconds) => {
 };
 
 
+const hasMessageAttachments = (message = {}) => Boolean(message.attachment)
+  || (Array.isArray(message.attachments) && message.attachments.length > 0);
+
 const hasVisibleThreadContent = (messages = []) => messages.some((message) => {
   if (!message || message.deletedAt) return false;
   const hasText = String(message.text || '').trim().length > 0;
-  const hasAttachments = Boolean(message.attachment) || (Array.isArray(message.attachments) && message.attachments.length > 0);
-  return hasText || hasAttachments;
+  return hasText || hasMessageAttachments(message);
 });
+
+const getThreadActivityMeta = (messages = []) => {
+  const sortedMessages = [...messages].sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+  const lastMessage = sortedMessages[sortedMessages.length - 1] || null;
+  const visibleMessages = messages.filter((message) => !message.deletedAt && (String(message.text || '').trim() || hasMessageAttachments(message)));
+  return {
+    visible: hasVisibleThreadContent(messages),
+    messageCount: visibleMessages.length,
+    deletedCount: messages.filter((message) => Boolean(message.deletedAt)).length,
+    attachmentsCount: messages.filter((message) => hasMessageAttachments(message)).length,
+    lastAt: lastMessage?.createdAt || '',
+    lastTimestamp: lastMessage?.createdAt ? new Date(lastMessage.createdAt).getTime() : 0
+  };
+};
+
+const isThreadInPeriod = (lastTimestamp, period) => {
+  if (period === 'all') return true;
+  if (!lastTimestamp) return false;
+  const now = Date.now();
+  if (period === 'today') return new Date(lastTimestamp).toDateString() === new Date(now).toDateString();
+  if (period === 'week') return now - lastTimestamp <= 7 * 24 * 60 * 60 * 1000;
+  if (period === 'month') return now - lastTimestamp <= 30 * 24 * 60 * 60 * 1000;
+  return true;
+};
 
 const secondsSince = (dateValue) => {
   if (!dateValue) return 0;
@@ -387,6 +413,14 @@ const EmployeeChat = () => {
     department: '',
     phone: '',
     room: ''
+  });
+  const [showEmployeePassword, setShowEmployeePassword] = useState(false);
+  const [auditSearch, setAuditSearch] = useState('');
+  const [auditFilters, setAuditFilters] = useState({
+    showEmpty: false,
+    attachmentsOnly: false,
+    deletedOnly: false,
+    period: 'all'
   });
 
 
@@ -1203,6 +1237,7 @@ const EmployeeChat = () => {
 
     await fetchEmployees();
     setEmployeeForm({ id: null, login: '', password: '', full_name: '', department: '', phone: '', room: '' });
+    setShowEmployeePassword(false);
   };
 
   const deleteEmployee = async (employeeId) => {
@@ -1219,7 +1254,24 @@ const EmployeeChat = () => {
 
   const activeApplications = useMemo(() => myApplications.filter((item) => item.status !== 'done'), [myApplications]);
   const completedApplications = useMemo(() => myApplications.filter((item) => item.status === 'done'), [myApplications]);
-  const allConversationIds = useMemo(() => Object.keys(threads).filter((threadId) => hasVisibleThreadContent(threads[threadId])).sort(), [threads]);
+  const threadActivityById = useMemo(() => Object.fromEntries(
+    Object.entries(threads).map(([threadId, messages]) => [threadId, getThreadActivityMeta(messages || [])])
+  ), [threads]);
+
+  const allConversationIds = useMemo(() => Object.keys(threads).filter((threadId) => {
+    const messages = threads[threadId] || [];
+    const meta = threadActivityById[threadId] || getThreadActivityMeta(messages);
+    if (!auditFilters.showEmpty && !meta.visible) return false;
+    if (auditFilters.attachmentsOnly && meta.attachmentsCount === 0) return false;
+    if (auditFilters.deletedOnly && meta.deletedCount === 0) return false;
+    if (!isThreadInPeriod(meta.lastTimestamp, auditFilters.period)) return false;
+
+    const query = auditSearch.trim().toLowerCase();
+    if (!query) return true;
+    const participantsText = getParticipantsFromThreadId(threadId).join(' ').toLowerCase();
+    const messagesText = messages.map((message) => [message.sender, message.text, message.deletedBy].filter(Boolean).join(' ')).join(' ').toLowerCase();
+    return `${participantsText} ${messagesText}`.includes(query);
+  }).sort((a, b) => (threadActivityById[b]?.lastTimestamp || 0) - (threadActivityById[a]?.lastTimestamp || 0)), [auditFilters, auditSearch, threadActivityById, threads]);
 
   const typingHint = draft.trim().length > 0 ? 'Вы печатаете…' : '';
   const tabs = isManager ? MANAGER_TABS : EMPLOYEE_TABS;
@@ -1697,12 +1749,11 @@ const EmployeeChat = () => {
         )}
 
         {activeTab === 'employees' && isManager && (
-          <section className="manager-panel"><h2>Управление сотрудниками</h2><form className="manager-form" onSubmit={saveEmployee}><input placeholder="Логин (email)" value={employeeForm.login} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, login: e.target.value }))} required /><input placeholder={employeeForm.id ? 'Новый пароль (опционально)' : 'Пароль'} value={employeeForm.password} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, password: e.target.value }))} /><input placeholder="ФИО" value={employeeForm.full_name} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, full_name: e.target.value }))} /><input placeholder="Отдел" value={employeeForm.department} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, department: e.target.value }))} /><div className="manager-form-actions"><button type="submit">{employeeForm.id ? 'Сохранить' : 'Добавить'}</button>{employeeForm.id && <button type="button" onClick={() => setEmployeeForm({ id: null, login: '', password: '', full_name: '', department: '', phone: '', room: '' })}>Отмена</button>}</div></form><div className="manager-list">{directoryEmployees.map((employee) => <div className="manager-list-item" key={employee.id}><div><strong>{employee.login}</strong><div>{employee.full_name || '—'}</div></div><div className="manager-list-actions"><button type="button" onClick={() => setEmployeeForm({ id: employee.id, login: employee.login || '', password: '', full_name: employee.full_name || '', department: employee.department || '', phone: employee.phone || '', room: employee.room || '' })}>Редактировать</button><button type="button" onClick={() => deleteEmployee(employee.id)}>Удалить</button></div></div>)}</div></section>
+          <section className="manager-panel"><h2>Управление сотрудниками</h2><form className="manager-form manager-form-labeled" onSubmit={saveEmployee}><label><span>Логин (email)</span><input placeholder="ivanov@example.local" value={employeeForm.login} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, login: e.target.value }))} required /></label><label><span>{employeeForm.id ? 'Новый пароль' : 'Пароль'}</span><input type={showEmployeePassword ? 'text' : 'password'} placeholder={employeeForm.id ? 'Оставьте пустым, если не менять' : 'Пароль для входа'} value={employeeForm.password} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, password: e.target.value }))} /><small>{employeeForm.id ? 'Оставьте поле пустым, если пароль менять не нужно.' : 'Минимум 8 символов.'}</small></label><label><span>ФИО</span><input placeholder="Иванов Иван Иванович" value={employeeForm.full_name} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, full_name: e.target.value }))} /></label><label><span>Отдел</span><input placeholder="Отдел сотрудника" value={employeeForm.department} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, department: e.target.value }))} /></label><label className="manager-password-toggle"><input type="checkbox" checked={showEmployeePassword} onChange={(e) => setShowEmployeePassword(e.target.checked)} />Показать пароль</label><div className="manager-form-actions"><button type="submit">{employeeForm.id ? 'Сохранить' : 'Добавить'}</button>{employeeForm.id && <button type="button" onClick={() => { setEmployeeForm({ id: null, login: '', password: '', full_name: '', department: '', phone: '', room: '' }); setShowEmployeePassword(false); }}>Отмена</button>}</div></form><div className="manager-list">{directoryEmployees.map((employee) => <div className="manager-list-item" key={employee.id}><div><strong>{employee.login}</strong><div>{employee.full_name || '—'}</div></div><div className="manager-list-actions"><button type="button" onClick={() => { setEmployeeForm({ id: employee.id, login: employee.login || '', password: '', full_name: employee.full_name || '', department: employee.department || '', phone: employee.phone || '', room: employee.room || '' }); setShowEmployeePassword(false); }}>Редактировать</button><button type="button" onClick={() => deleteEmployee(employee.id)}>Удалить</button></div></div>)}</div></section>
         )}
 
         {activeTab === 'audit' && isManager && (
-          <section className="manager-panel"><h2>Переписка сотрудников</h2><div className="threads-grid"><div className="threads-list">{allConversationIds.map((threadId) => { const participants = getParticipantsFromThreadId(threadId); return <button key={threadId} type="button" className={`thread-item ${selectedThreadId === threadId ? 'active' : ''}`} onClick={() => setSelectedThreadId(threadId)}>{participants.join(' ↔ ')}</button>; })}</div><div className="threads-messages">{!selectedThreadId && <div className="empty-chat">Выберите переписку.</div>}{selectedThreadId && selectedThreadMessages.map((message) => { const isDeleted = Boolean(message.deletedAt);
-                    const attachments = !isDeleted && message.attachments?.length ? message.attachments : !isDeleted && message.attachment ? [message.attachment] : []; return <div key={message.id} className="audit-message"><div className="message-meta"><span>{message.sender}</span><span>{new Date(message.createdAt).toLocaleString('ru-RU')}</span></div><div>{message.text}</div>{attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <a key={`${message.id}-audit-${index}`} className="message-attachment-card" href={file.dataUrl} download={file.name || 'file'} target="_blank" rel="noreferrer">{String(file.type || '').startsWith('image/') ? <img src={file.dataUrl} alt={file.name || 'attachment'} /> : <span className="file-icon">{getFileIcon(file.type)}</span>}<small>{file.name || 'Файл'}</small></a>)}</div>}<div className="message-controls"><button type="button" onClick={() => editMessage(message.id, selectedThreadId)}>Изменить</button><button type="button" onClick={() => deleteMessage(message.id, selectedThreadId)}>Удалить</button></div></div>; })}</div></div></section>
+          <section className="manager-panel"><h2>Переписка сотрудников</h2><div className="audit-toolbar"><input type="search" placeholder="Поиск по участникам и тексту" value={auditSearch} onChange={(e) => setAuditSearch(e.target.value)} /><div className="audit-filter-row"><label><input type="checkbox" checked={auditFilters.showEmpty} onChange={(e) => setAuditFilters((prev) => ({ ...prev, showEmpty: e.target.checked }))} />Показывать пустые/архивные</label><label><input type="checkbox" checked={auditFilters.attachmentsOnly} onChange={(e) => setAuditFilters((prev) => ({ ...prev, attachmentsOnly: e.target.checked }))} />Только с вложениями</label><label><input type="checkbox" checked={auditFilters.deletedOnly} onChange={(e) => setAuditFilters((prev) => ({ ...prev, deletedOnly: e.target.checked }))} />Только удалённые</label></div><div className="audit-periods">{[['all', 'Все'], ['today', 'Сегодня'], ['week', 'Неделя'], ['month', 'Месяц']].map(([value, label]) => <button key={value} type="button" className={auditFilters.period === value ? 'active' : ''} onClick={() => setAuditFilters((prev) => ({ ...prev, period: value }))}>{label}</button>)}</div></div><div className="threads-grid"><div className="threads-list">{allConversationIds.length === 0 && <div className="empty-chat">Диалогов по фильтрам нет.</div>}{allConversationIds.map((threadId) => { const participants = getParticipantsFromThreadId(threadId); const meta = threadActivityById[threadId] || getThreadActivityMeta(threads[threadId] || []); return <button key={threadId} type="button" className={`thread-item ${selectedThreadId === threadId ? 'active' : ''}`} onClick={() => setSelectedThreadId(threadId)}><span className="thread-title">{participants.join(' ↔ ')}</span><span className="thread-stats"><b>{meta.messageCount}</b> сообщ. {meta.attachmentsCount > 0 ? ` · 📎 ${meta.attachmentsCount}` : ''}{meta.deletedCount > 0 ? ` · удалено ${meta.deletedCount}` : ''}</span><span className="thread-last">{meta.lastAt ? `последнее: ${new Date(meta.lastAt).toLocaleString('ru-RU')}` : 'без сообщений'}</span></button>; })}</div><div className="threads-messages">{!selectedThreadId && <div className="empty-chat">Выберите переписку.</div>}{selectedThreadId && selectedThreadMessages.map((message) => { const isDeleted = Boolean(message.deletedAt); const attachments = !isDeleted && message.attachments?.length ? message.attachments : !isDeleted && message.attachment ? [message.attachment] : []; return <div key={message.id} className={`audit-message ${isDeleted ? 'deleted' : ''}`}><div className="message-meta"><span>{message.sender}</span><span>{new Date(message.createdAt).toLocaleString('ru-RU')}</span></div><div>{isDeleted ? <em>Сообщение удалено</em> : message.text}</div>{isDeleted && <div className="audit-history">Удалил: {message.deletedBy || '—'} · {message.deletedAt ? new Date(message.deletedAt).toLocaleString('ru-RU') : '—'}</div>}{attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <a key={`${message.id}-audit-${index}`} className="message-attachment-card" href={file.dataUrl} download={file.name || 'file'} target="_blank" rel="noreferrer">{String(file.type || '').startsWith('image/') ? <img src={file.dataUrl} alt={file.name || 'attachment'} /> : <span className="file-icon">{getFileIcon(file.type)}</span>}<small>{file.name || 'Файл'}</small></a>)}</div>}{Array.isArray(message.audit) && message.audit.length > 0 && <div className="audit-history"><strong>История:</strong>{message.audit.slice(-4).map((entry, index) => <span key={`${message.id}-audit-entry-${index}`}>{entry.action || 'изменение'} · {entry.by || '—'} · {entry.at ? new Date(entry.at).toLocaleString('ru-RU') : '—'}</span>)}</div>}<div className="message-controls"><button type="button" onClick={() => editMessage(message.id, selectedThreadId)}>Изменить</button><button type="button" onClick={() => deleteMessage(message.id, selectedThreadId)}>Удалить</button></div></div>; })}</div></div></section>
         )}
       </section>
 
