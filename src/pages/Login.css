@@ -31,6 +31,27 @@
     linear-gradient(135deg, #f6f8fb 0%, #e9eef4 50%, #dde7ef 100%);
 }
 
+.jp-corner-link {
+  position: fixed;
+  top: 18px;
+  right: 24px;
+  z-index: 5;
+  color: rgba(21, 95, 134, 0.58);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+.jp-corner-link:hover {
+  color: var(--login-blue-strong);
+}
+
+.jp-wrapper--admin .jp-corner-link {
+  color: rgba(38, 58, 94, 0.58);
+}
+
 .jp-login-shell {
   min-height: 100vh;
   width: min(100% - 32px, 520px);
@@ -56,6 +77,14 @@
   backdrop-filter: blur(22px);
   padding: 34px;
   box-sizing: border-box;
+}
+
+.jp-wrapper--admin .jp-login-box {
+  border-color: rgba(38, 58, 94, 0.18);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 30px 88px rgba(22, 34, 54, 0.24);
+  padding-top: 40px;
+  padding-bottom: 40px;
 }
 
 .jp-card-topline {
@@ -258,12 +287,13 @@
 .jp-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px 16px;
+  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
   margin-top: 20px;
   color: var(--login-muted);
   font-size: 13px;
+  text-align: center;
 }
 
 .jp-footer-links {
@@ -379,11 +409,17 @@
     padding: 24px;
   }
 
+  .jp-corner-link {
+    top: 12px;
+    right: 14px;
+    font-size: 11px;
+  }
+
   .jp-footer,
   .jp-footer-links {
-    align-items: flex-start;
+    align-items: center;
     flex-direction: column;
-    justify-content: flex-start;
+    justify-content: center;
     margin-left: 0;
   }
 

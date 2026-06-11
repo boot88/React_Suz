@@ -132,12 +132,16 @@ const Login = ({ mode = 'employee' }) => {
 
   return (
     <div className={`jp-wrapper ${isAdminMode ? 'jp-wrapper--admin' : 'jp-wrapper--employee'}`}>
+      <Link className="jp-corner-link" to={isAdminMode ? '/login' : '/admin'}>
+        {isAdminMode ? '← назад' : 'вход для администратора'}
+      </Link>
+
       <div className="jp-login-shell">
         <main className="jp-content">
           <section className="jp-login-box" aria-labelledby="login-title">
             <div className="jp-card-topline" />
-            {isAdminMode && <span className="jp-chip">Администратор</span>}
-            <h1 id="login-title">{isAdminMode ? 'Вход администратора' : 'Вход'}</h1>
+            {isAdminMode && <span className="jp-chip">Панель управления</span>}
+            <h1 id="login-title">Вход</h1>
             <p className="jp-subtitle">Введите логин и пароль</p>
 
             <form className="jp-form" onSubmit={handleSubmit} noValidate>
@@ -199,21 +203,20 @@ const Login = ({ mode = 'employee' }) => {
               </button>
             </form>
 
-            <div className="jp-login-pattern-wrap" aria-hidden="true">
-              <img className="jp-login-pattern" src={loginSpectrumLines} alt="" />
-            </div>
+            {!isAdminMode && (
+              <div className="jp-login-pattern-wrap" aria-hidden="true">
+                <img className="jp-login-pattern" src={loginSpectrumLines} alt="" />
+              </div>
+            )}
 
-            <div className="jp-footer">
-              {!isAdminMode && (
+            {!isAdminMode && (
+              <div className="jp-footer">
+                <Link to="/register">Регистрация сотрудника</Link>
                 <button type="button" className="jp-link-button" onClick={openRecoveryPanel} disabled={isSubmitting || isRecovering}>
                   {isRecovering ? 'Отправка...' : 'Забыли пароль?'}
                 </button>
-              )}
-              <div className="jp-footer-links">
-                {!isAdminMode && <Link to="/register">Регистрация сотрудника</Link>}
-                {isAdminMode ? <Link to="/login">Вход для сотрудников</Link> : <Link to="/admin">Вход для администратора</Link>}
               </div>
-            </div>
+            )}
           </section>
         </main>
       </div>
