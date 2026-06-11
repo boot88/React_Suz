@@ -4,6 +4,7 @@ import { ADMIN_CREDENTIALS, MANAGER_CREDENTIALS, AUTH_STATE_KEY, LOCAL_EMPLOYEES
 import { API_BASE_URL } from '../utils/apiConfig';
 
 const AuthContext = createContext();
+const SERVICE_PASSWORDS_KEY = 'serviceAccountPasswords';
 
 const getStoredEmployees = () => {
   try {
@@ -17,6 +18,22 @@ const getStoredEmployees = () => {
 
 const saveEmployees = (employees) => {
   localStorage.setItem(LOCAL_EMPLOYEES_KEY, JSON.stringify(employees));
+};
+
+const readServicePasswords = () => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SERVICE_PASSWORDS_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const getServicePassword = (login, fallbackPassword) => readServicePasswords()[login] || fallbackPassword;
+
+const saveServicePassword = (login, password) => {
+  const passwords = readServicePasswords();
+  localStorage.setItem(SERVICE_PASSWORDS_KEY, JSON.stringify({ ...passwords, [login]: password }));
 };
 
 const pushPresenceToServer = async ({ login, isOnline, role }) => {
@@ -105,7 +122,7 @@ export const AuthProvider = ({ children }) => {
     const loginValue = identifier.trim();
 
     const admin = ADMIN_CREDENTIALS.find(
-      (item) => item.username === loginValue && item.password === password
+      (item) => item.username === loginValue && getServicePassword(item.username, item.password) === password
     );
 
     if (admin) {
@@ -122,7 +139,7 @@ export const AuthProvider = ({ children }) => {
       return adminUser;
     }
 
-    if (loginValue === MANAGER_CREDENTIALS.username && password === MANAGER_CREDENTIALS.password) {
+    if (loginValue === MANAGER_CREDENTIALS.username && password === getServicePassword(MANAGER_CREDENTIALS.username, MANAGER_CREDENTIALS.password)) {
       const managerUser = {
         username: MANAGER_CREDENTIALS.username,
         role: 'manager',
@@ -166,6 +183,28 @@ export const AuthProvider = ({ children }) => {
     persistAuthState(employeeUser);
     await pushPresenceToServer({ login: employeeUser.username, isOnline: true, role: employeeUser.role || 'employee' });
     return employeeUser;
+  };
+
+
+  const changeServicePassword = async ({ login: accountLogin, currentPassword, newPassword }) => {
+    const normalizedLogin = String(accountLogin || '').trim();
+    const admin = ADMIN_CREDENTIALS.find((item) => item.username === normalizedLogin);
+    const isManager = normalizedLogin === MANAGER_CREDENTIALS.username;
+    const fallbackPassword = admin?.password || (isManager ? MANAGER_CREDENTIALS.password : '');
+
+    if (!fallbackPassword) {
+      throw new Error('Служебная учётная запись не найдена');
+    }
+
+    if (getServicePassword(normalizedLogin, fallbackPassword) !== currentPassword) {
+      throw new Error('Текущий пароль указан неверно');
+    }
+
+    if (String(newPassword || '').length < 8) {
+      throw new Error('Новый пароль должен содержать минимум 8 символов');
+    }
+
+    saveServicePassword(normalizedLogin, newPassword);
   };
 
   const registerEmployee = async (email, profile = {}) => {
@@ -353,6 +392,7 @@ export const AuthProvider = ({ children }) => {
         login,
         logout,
         registerEmployee,
+        changeServicePassword,
         verifyEmployeeEmail,
         employeeDirectory
       }}

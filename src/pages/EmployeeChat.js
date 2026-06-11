@@ -237,6 +237,14 @@ const formatDuration = (seconds) => {
   return [hours, minutes, rest].map((item) => String(item).padStart(2, '0')).join(':');
 };
 
+
+const hasVisibleThreadContent = (messages = []) => messages.some((message) => {
+  if (!message || message.deletedAt) return false;
+  const hasText = String(message.text || '').trim().length > 0;
+  const hasAttachments = Boolean(message.attachment) || (Array.isArray(message.attachments) && message.attachments.length > 0);
+  return hasText || hasAttachments;
+});
+
 const secondsSince = (dateValue) => {
   if (!dateValue) return 0;
   const startedAt = new Date(dateValue).getTime();
@@ -247,7 +255,7 @@ const secondsSince = (dateValue) => {
 const getApplicationStatusMeta = (status) => APPLICATION_STATUS_META[status] || APPLICATION_STATUS_META.new;
 
 const EmployeeChat = () => {
-  const { user, logout, employeeDirectory } = useAuth();
+  const { user, logout, employeeDirectory, changeServicePassword } = useAuth();
   const isManager = user?.role === 'manager' || user?.role === 'admin';
   const baseDisplayName = user?.name || user?.username || 'Сотрудник';
   const isAdmin = user?.role === 'admin';
@@ -922,6 +930,22 @@ const EmployeeChat = () => {
 
   const changeMyPassword = async (event) => {
     event.preventDefault();
+
+    if (user?.role === 'manager' || user?.role === 'admin') {
+      try {
+        await changeServicePassword({
+          login: user.username,
+          currentPassword: passwordForm.currentPassword,
+          newPassword: passwordForm.newPassword
+        });
+        notify('Пароль обновлён. При следующем входе используйте новый пароль.', 'Пароль');
+        setPasswordForm({ currentPassword: '', newPassword: '' });
+      } catch (error) {
+        notify(error.message || 'Не удалось сменить пароль', 'Пароль');
+      }
+      return;
+    }
+
     const response = await fetch(`${API_BASE_URL}/auth/change-password`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -1195,7 +1219,7 @@ const EmployeeChat = () => {
 
   const activeApplications = useMemo(() => myApplications.filter((item) => item.status !== 'done'), [myApplications]);
   const completedApplications = useMemo(() => myApplications.filter((item) => item.status === 'done'), [myApplications]);
-  const allConversationIds = useMemo(() => Object.keys(threads).sort(), [threads]);
+  const allConversationIds = useMemo(() => Object.keys(threads).filter((threadId) => hasVisibleThreadContent(threads[threadId])).sort(), [threads]);
 
   const typingHint = draft.trim().length > 0 ? 'Вы печатаете…' : '';
   const tabs = isManager ? MANAGER_TABS : EMPLOYEE_TABS;
@@ -1665,7 +1689,7 @@ const EmployeeChat = () => {
               <div className="profile-preview-card"><button type="button" className="back-to-chat-btn" onClick={() => setProfileViewLogin('')}>← Мой профиль</button><div className="profile-preview-head"><div className="profile-preview-avatar">{profilePreview.avatar ? <img src={profilePreview.avatar} alt="profile-avatar" /> : <span>{String(profilePreview.full_name || profilePreview.login || '?').slice(0, 1).toUpperCase()}</span>}</div><div><h3>{profilePreview.full_name || profilePreview.login}</h3><p>@{profilePreview.login}</p><small>{profilePreview.statusText || 'Внутренняя страница сотрудника'}</small></div></div><div className="profile-preview-grid"><div><strong>Должность:</strong> {profilePreview.position || '—'}</div><div><strong>Отдел:</strong> {profilePreview.department || '—'}</div><div><strong>Кабинет:</strong> {profilePreview.room || '—'}</div><div><strong>Телефон:</strong> {profilePreview.phone || '—'}</div><div><strong>Сайт:</strong> {profilePreview.website || '—'}</div><div><strong>О себе:</strong> {profilePreview.bio || '—'}</div></div><button type="button" onClick={() => { setSelectedEmail(profilePreview.login); setProfileViewLogin(''); setActiveTab('chat'); }}>Открыть диалог</button></div>
             ) : (
               <div className="profile-settings-grid">
-                <section className="profile-panel"><h3>Мой профиль</h3><form onSubmit={saveMyProfile} className="profile-form"><input placeholder="ФИО" value={profileForm.full_name} onChange={(e) => updateProfileField('full_name', e.target.value)} /><input placeholder="Должность" value={profileForm.position} onChange={(e) => updateProfileField('position', e.target.value)} /><input placeholder="Отдел" value={profileForm.department} onChange={(e) => updateProfileField('department', e.target.value)} /><input placeholder="Кабинет" value={profileForm.room} onChange={(e) => updateProfileField('room', e.target.value)} /><input placeholder="Внутренний телефон" value={profileForm.phone} onChange={(e) => updateProfileField('phone', e.target.value)} /><input placeholder="Сайт / соцссылка" value={profileForm.website} onChange={(e) => updateProfileField('website', e.target.value)} /><input placeholder="Статус" value={profileForm.statusText} onChange={(e) => updateProfileField('statusText', e.target.value)} /><textarea placeholder="О себе" rows={4} value={profileForm.bio} onChange={(e) => updateProfileField('bio', e.target.value)} /><button type="submit">Сохранить анкету</button></form></section>
+                <section className="profile-panel"><h3>Мой профиль</h3><form onSubmit={saveMyProfile} className="profile-form profile-form-labeled"><label><span>ФИО</span><input placeholder="Иванов Иван Иванович" value={profileForm.full_name} onChange={(e) => updateProfileField('full_name', e.target.value)} /></label><label><span>Логин</span><input value={user?.username || ''} disabled /></label><label><span>Должность</span><input placeholder="Например: инженер" value={profileForm.position} onChange={(e) => updateProfileField('position', e.target.value)} /></label><label><span>Отдел</span><input placeholder="Название отдела" value={profileForm.department} onChange={(e) => updateProfileField('department', e.target.value)} /></label><label><span>Кабинет</span><input placeholder="Например: 214" value={profileForm.room} onChange={(e) => updateProfileField('room', e.target.value)} /></label><label><span>Внутренний телефон</span><input placeholder="Например: 12-34" value={profileForm.phone} onChange={(e) => updateProfileField('phone', e.target.value)} /></label><label><span>Сайт / соцссылка</span><input placeholder="https://..." value={profileForm.website} onChange={(e) => updateProfileField('website', e.target.value)} /></label><label><span>Статус</span><input placeholder="Короткий статус" value={profileForm.statusText} onChange={(e) => updateProfileField('statusText', e.target.value)} /></label><label className="profile-field-wide"><span>О себе</span><textarea placeholder="Кратко о себе" rows={4} value={profileForm.bio} onChange={(e) => updateProfileField('bio', e.target.value)} /></label><button type="submit">Сохранить анкету</button></form></section>
                 <section className="profile-panel"><h3>Безопасность и фото</h3><div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>Изменить фото</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>Удалить фото</button></div><form onSubmit={changeMyPassword} className="profile-password-form"><input type="password" placeholder="Текущий пароль" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))} /><input type="password" placeholder="Новый пароль" value={passwordForm.newPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))} /><button type="submit">Обновить пароль</button></form></section>
               </div>
             )}

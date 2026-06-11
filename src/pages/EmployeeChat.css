@@ -1191,3 +1191,26 @@ button:disabled {
   border-color: transparent;
   color: #fff;
 }
+
+.profile-form-labeled label {
+  display: grid;
+  gap: 7px;
+  color: var(--chat-muted);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .04em;
+}
+
+.profile-form-labeled label span {
+  padding-left: 2px;
+}
+
+.profile-form-labeled input:disabled {
+  color: var(--chat-muted);
+  background: rgba(255, 255, 255, .48);
+  cursor: not-allowed;
+}
+
+.profile-field-wide {
+  grid-column: 1 / -1;
+}
