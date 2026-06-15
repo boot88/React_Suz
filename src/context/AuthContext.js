@@ -118,12 +118,14 @@ export const AuthProvider = ({ children }) => {
     );
   };
 
-  const login = async (identifier, password) => {
+  const login = async (identifier, password, options = {}) => {
     const loginValue = identifier.trim();
+    const loginScope = options?.scope || 'any';
+    const allowServiceAccounts = loginScope !== 'employee';
 
-    const admin = ADMIN_CREDENTIALS.find(
+    const admin = allowServiceAccounts ? ADMIN_CREDENTIALS.find(
       (item) => item.username === loginValue && getServicePassword(item.username, item.password) === password
-    );
+    ) : null;
 
     if (admin) {
       const adminUser = {
@@ -139,7 +141,7 @@ export const AuthProvider = ({ children }) => {
       return adminUser;
     }
 
-    if (loginValue === MANAGER_CREDENTIALS.username && password === getServicePassword(MANAGER_CREDENTIALS.username, MANAGER_CREDENTIALS.password)) {
+    if (loginScope !== 'admin' && allowServiceAccounts && loginValue === MANAGER_CREDENTIALS.username && password === getServicePassword(MANAGER_CREDENTIALS.username, MANAGER_CREDENTIALS.password)) {
       const managerUser = {
         username: MANAGER_CREDENTIALS.username,
         role: 'manager',
@@ -151,6 +153,10 @@ export const AuthProvider = ({ children }) => {
       persistAuthState(managerUser);
       await pushPresenceToServer({ login: managerUser.username, isOnline: true, role: 'manager' });
       return managerUser;
+    }
+
+    if (loginScope === 'admin') {
+      throw new Error('Неверный логин/email или пароль');
     }
 
     const response = await fetch(`${API_BASE_URL}/auth/login`, {
@@ -174,6 +180,10 @@ export const AuthProvider = ({ children }) => {
       role: data?.user?.role || 'employee',
       name: data?.user?.full_name || data?.user?.login || loginValue
     };
+
+    if (loginScope === 'employee' && !['employee', 'manager'].includes(employeeUser.role)) {
+      throw new Error('Неверный логин/email или пароль');
+    }
 
     const nextEmployees = upsertEmployeeOnlineStatus(employeeUser.username, true);
     mergeEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));

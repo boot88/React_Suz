@@ -50,7 +50,7 @@ const Login = ({ mode = 'employee' }) => {
     setIsSubmitting(true);
 
     try {
-      const loggedInUser = await login(username, formData.password);
+      const loggedInUser = await login(username, formData.password, { scope: isAdminMode ? 'admin' : 'employee' });
       const isAdminUser = loggedInUser.role === 'admin';
       const isEmployeeUser = loggedInUser.role === 'employee' || loggedInUser.role === 'manager';
 

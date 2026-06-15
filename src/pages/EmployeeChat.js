@@ -20,7 +20,9 @@ const EMPLOYEE_TABS = [
   { id: 'profile', label: 'Профиль' }
 ];
 const MANAGER_TABS = [
-  ...EMPLOYEE_TABS,
+  { id: 'chat', label: 'Чат' },
+  { id: 'feed', label: 'Лента' },
+  { id: 'profile', label: 'Профиль' },
   { id: 'employees', label: 'Сотрудники' },
   { id: 'audit', label: 'Аудит' }
 ];
@@ -682,10 +684,11 @@ const EmployeeChat = () => {
       && !sourceEmployees.some((item) => item.login.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase())
     ) {
       sourceEmployees.push({
-        id: 'manager-static',
+        id: 'admin-static',
         login: MANAGER_CREDENTIALS.username,
         full_name: MANAGER_CREDENTIALS.name,
-        department: 'Старший сотрудник'
+        role: 'admin',
+        department: 'Администратор'
       });
     }
 
@@ -696,7 +699,7 @@ const EmployeeChat = () => {
         const lastSeen = presence?.lastSeen || null;
         const lastSeenMs = lastSeen ? new Date(lastSeen).getTime() : 0;
         const isRecentlySeen = Boolean(lastSeenMs) && Date.now() - lastSeenMs < 45000;
-        const computedRole = presence?.role || item.role || (item.login.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase() ? 'manager' : 'employee');
+        const computedRole = presence?.role || item.role || (item.login.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase() ? 'admin' : 'employee');
         return {
           email: item.login,
           isOnline: Boolean(presence?.isOnline) || isRecentlySeen,
@@ -706,8 +709,8 @@ const EmployeeChat = () => {
         };
       })
       .sort((a, b) => {
-        const aIsManager = (a.role || '').toLowerCase() === 'manager' || a.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
-        const bIsManager = (b.role || '').toLowerCase() === 'manager' || b.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
+        const aIsManager = ['manager', 'admin'].includes((a.role || '').toLowerCase()) || a.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
+        const bIsManager = ['manager', 'admin'].includes((b.role || '').toLowerCase()) || b.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
 
         if (aIsManager !== bIsManager) return aIsManager ? -1 : 1;
 
@@ -1166,6 +1169,11 @@ const EmployeeChat = () => {
   };
 
   const createRequestFromMessage = (message) => {
+    if (isManager) {
+      notify('Администратор принимает заявки, поэтому подача заявки из чата скрыта.', 'Заявка');
+      return;
+    }
+
     setRequestText(message.text || '');
     setRequestCategory('Другое');
     setRequestPriority('Важный');
@@ -1494,7 +1502,7 @@ const EmployeeChat = () => {
             {availableEmployees.length === 0 && <div className="empty-mini">Ничего не найдено</div>}
             {availableEmployees.map((employee) => {
               const isOnline = Boolean(employee.isOnline);
-              const isManagerContact = (employee.role || '').toLowerCase() === 'manager' || employee.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
+              const isManagerContact = ['manager', 'admin'].includes((employee.role || '').toLowerCase()) || employee.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
               const profile = employee.profile || {};
               return (
                 <div key={employee.email} className={`employee-chat-user ${selectedEmail === employee.email ? 'active' : ''} ${isManagerContact ? 'manager-priority' : ''}`}>
@@ -1504,7 +1512,7 @@ const EmployeeChat = () => {
                       <span className="employee-chat-user-email">{profile.full_name || employee.email}</span>
                       <span className="employee-chat-user-extra">{employee.email} · {profile.department || 'отдел —'} · каб. {profile.room || '—'}</span>
                     </span>
-                    <span className="employee-chat-user-status">{isManagerContact ? 'manager' : (isOnline ? 'online' : 'offline')}</span>
+                    <span className="employee-chat-user-status">{isManagerContact ? 'admin' : (isOnline ? 'online' : 'offline')}</span>
                     {unreadByEmail[employee.email] > 0 && <span className="employee-chat-user-unread">{unreadByEmail[employee.email]}</span>}
                   </button>
                   <button type="button" className="profile-open-btn" onClick={() => { openProfileCard(employee.email); setActiveTab('profile'); }}>Профиль</button>
@@ -1660,7 +1668,7 @@ const EmployeeChat = () => {
           </div>
         )}
 
-        {activeTab === 'request' && (
+        {activeTab === 'request' && !isManager && (
           <div className="request-workspace">
             <header className="section-hero">
               <span className="eyebrow">Служебная заявка</span>
