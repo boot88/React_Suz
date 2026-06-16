@@ -22,8 +22,8 @@ app.use(cors({
   credentials: true,
   exposedHeaders: ['Content-Type', 'Authorization']
 }));
-app.use(express.json({ limit: '50mb' })); // Увеличиваем лимит для больших изображений
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.json({ limit: '150mb' })); // Увеличиваем лимит для изображений и видео-вложений
+app.use(express.urlencoded({ extended: true, limit: '150mb' }));
 
 app.use('/api/employees', employeeRoutes);
 app.use('/api/auth', authRoutes);

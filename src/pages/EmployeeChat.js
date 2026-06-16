@@ -12,7 +12,9 @@ const EMPLOYEE_TEMPLATE_MESSAGES = ['👋 Добрый день!', '🆘 Нуж�
 const REACTION_EMOJIS = ['👍', '✅', '👀', '🙏', '❤️', '😂', '😮', '🔧', '⏳', '❗'];
 const QUICK_EMOJIS = ['😀', '🙂', '😅', '🙏', '👍', '✅', '👀', '📌', '🔧', '⏳', '❗', '❤️'];
 const EMPLOYEE_CUSTOM_TEMPLATES_KEY = 'employeeChatCustomTemplates';
-const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
+const MAX_ATTACHMENT_SIZE_MB = 100;
+const MAX_ATTACHMENT_SIZE = MAX_ATTACHMENT_SIZE_MB * 1024 * 1024;
+const VIDEO_EXTENSION_PATTERN = /\.(mp4|webm|ogg|ogv|mov|m4v|avi|mkv)$/i;
 const EMPLOYEE_TABS = [
   { id: 'chat', label: 'Чат' },
   { id: 'request', label: 'Заявка' },
@@ -222,6 +224,14 @@ const formatDateLabel = (dateValue) => {
 
 const getDateKey = (dateValue) => new Date(dateValue).toDateString();
 
+const isVideoAttachment = (file = {}) => String(file.type || '').startsWith('video/') || VIDEO_EXTENSION_PATTERN.test(String(file.name || ''));
+
+const formatFileSize = (size = 0) => {
+  const bytes = Number(size) || 0;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} МБ`;
+  return `${Math.max(1, Math.round(bytes / 1024))} КБ`;
+};
+
 const getFileIcon = (type = '') => {
   if (type.startsWith('image/')) return '🖼️';
   if (type.startsWith('video/')) return '🎬';
@@ -229,6 +239,34 @@ const getFileIcon = (type = '') => {
   if (type.includes('word')) return '📘';
   if (type.includes('excel') || type.includes('sheet')) return '📗';
   return '📎';
+};
+
+
+const AttachmentCard = ({ file, cardKey, variant = 'message' }) => {
+  const fileName = file?.name || 'Файл';
+  const fileType = String(file?.type || '');
+  const isImage = fileType.startsWith('image/');
+  const isVideo = isVideoAttachment(file);
+  const cardClassName = `${variant === 'feed' ? 'employee-feed-attachment-card' : 'message-attachment-card'} ${isVideo ? 'video-attachment' : ''}`;
+
+  return (
+    <div key={cardKey} className={cardClassName}>
+      {isVideo ? (
+        <video className="attachment-video-player" src={file.dataUrl} controls preload="metadata" playsInline>
+          Ваш браузер не поддерживает просмотр этого видео.
+        </video>
+      ) : isImage ? (
+        <img src={file.dataUrl} alt={fileName} />
+      ) : (
+        <span className="file-icon">{getFileIcon(fileType)}</span>
+      )}
+      <small>{fileName} · {formatFileSize(file?.size)}</small>
+      <div className="attachment-card-actions">
+        <a href={file.dataUrl} download={fileName}>Скачать</a>
+        <a href={file.dataUrl} target="_blank" rel="noreferrer">Открыть</a>
+      </div>
+    </div>
+  );
 };
 
 const formatDuration = (seconds) => {
@@ -891,7 +929,7 @@ const EmployeeChat = () => {
 
     const tooLarge = files.find((file) => file.size > MAX_ATTACHMENT_SIZE);
     if (tooLarge) {
-      notify(`Файл ${tooLarge.name} слишком большой. Максимум 10 МБ.`, 'Вложения');
+      notify(`Файл ${tooLarge.name} слишком большой. Максимум ${MAX_ATTACHMENT_SIZE_MB} МБ.`, 'Вложения');
       return;
     }
 
@@ -1364,7 +1402,7 @@ const EmployeeChat = () => {
     event.target.value = '';
     if (!file) return;
     if (file.size > MAX_ATTACHMENT_SIZE) {
-      notify('Файл слишком большой. Максимум 10 МБ.', 'Вложения');
+      notify(`Файл слишком большой. Максимум ${MAX_ATTACHMENT_SIZE_MB} МБ.`, 'Вложения');
       return;
     }
     const dataUrl = await readFileAsDataUrl(file);
@@ -1587,10 +1625,7 @@ const EmployeeChat = () => {
                           {attachments.length > 0 && (
                             <div className="message-attachments-grid">
                               {attachments.map((file, index) => (
-                                <a key={`${message.id}-file-${index}`} className="message-attachment-card" href={file.dataUrl} download={file.name || 'file'} target="_blank" rel="noreferrer">
-                                  {String(file.type || '').startsWith('image/') ? <img src={file.dataUrl} alt={file.name || 'attachment'} /> : <span className="file-icon">{getFileIcon(file.type)}</span>}
-                                  <small>{file.name || 'Файл'} · {Math.max(1, Math.round((file.size || 0) / 1024))} КБ</small>
-                                </a>
+                                <AttachmentCard key={`${message.id}-file-${index}`} cardKey={`${message.id}-file-${index}`} file={file} />
                               ))}
                             </div>
                           )}
@@ -1648,7 +1683,7 @@ const EmployeeChat = () => {
                     <div className="attachment-preview-grid">
                       {attachmentDrafts.map((file, index) => (
                         <div key={`${file.name}-${index}`} className="attachment-preview">
-                          <span>{getFileIcon(file.type)} {file.name} ({Math.max(1, Math.round(file.size / 1024))} КБ)</span>
+                          <span>{getFileIcon(file.type)} {file.name} ({formatFileSize(file.size)})</span>
                           <button type="button" onClick={() => removeAttachmentDraft(index)}>Убрать</button>
                         </div>
                       ))}
@@ -1659,7 +1694,7 @@ const EmployeeChat = () => {
 
                   <form className="message-form" onSubmit={handleSend}>
                     <input placeholder="Введите сообщение или перетащите файлы сюда..." value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={2000} />
-                    <label className="attach-file-btn">📎 Файлы<input type="file" hidden multiple onChange={handleAttachmentChange} /></label>
+                    <label className="attach-file-btn">📎 Фото/видео/файлы<input type="file" hidden multiple accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={handleAttachmentChange} /></label>
                     <button type="submit">Отправить</button>
                   </form>
                 </div>
@@ -1723,7 +1758,7 @@ const EmployeeChat = () => {
             <form className="employee-feed-composer" onSubmit={addFeedPost}>
               <textarea rows={4} placeholder="Новость, объявление или рабочая заметка..." value={feedDraft} onChange={(e) => setFeedDraft(e.target.value)} />
               {feedAttachment && <div className="employee-feed-attachment-preview"><span>{getFileIcon(feedAttachment.type)} {feedAttachment.name}</span><button type="button" onClick={() => setFeedAttachment(null)}>Убрать</button></div>}
-              <div className="employee-feed-composer-actions"><label>📎 Файл<input type="file" hidden onChange={onFeedFileChange} /></label><button type="submit" disabled={!feedDraft.trim() && !feedAttachment}>Опубликовать</button></div>
+              <div className="employee-feed-composer-actions"><label>📎 Фото/видео/файл<input type="file" hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="submit" disabled={!feedDraft.trim() && !feedAttachment}>Опубликовать</button></div>
             </form>
             <div className="employee-feed-list">
               {feedPosts.length === 0 && <div className="empty-chat">Пока нет публикаций.</div>}
@@ -1733,7 +1768,7 @@ const EmployeeChat = () => {
                   <article key={post.id} className="employee-feed-post">
                     <header className="employee-feed-post-header"><div><strong>{post.pinned ? '📌 ' : ''}{post.authorName}</strong><span>@{post.author} · {new Date(post.createdAt).toLocaleString('ru-RU')}</span></div><div className="feed-post-actions">{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? 'Открепить' : 'Закрепить'}</button>}{canDeletePost && <button type="button" className="employee-feed-delete" onClick={() => deleteFeedPost(post.id)}>Удалить</button>}</div></header>
                     {post.text && <p className="employee-feed-post-text">{post.text}</p>}
-                    {post.attachment?.dataUrl && <div className="employee-feed-attachment">{String(post.attachment.type || '').startsWith('image/') ? <img src={post.attachment.dataUrl} alt={post.attachment.name || 'post-image'} /> : <a href={post.attachment.dataUrl} download={post.attachment.name || 'file'}>{getFileIcon(post.attachment.type)} {post.attachment.name || 'Файл'}</a>}</div>}
+                    {post.attachment?.dataUrl && <div className="employee-feed-attachment"><AttachmentCard cardKey={`${post.id}-attachment`} file={post.attachment} variant="feed" /></div>}
                     <div className="feed-reaction-row">{REACTION_EMOJIS.slice(0, 6).map((emoji) => { const count = post.reactions?.[emoji]?.length || 0; const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => toggleFeedReaction(post.id, emoji)}>{emoji} {count > 0 ? count : ''}</button>; })}</div>
                     <div className="employee-feed-comments"><div className="employee-feed-comments-title">Комментарии</div>{(post.comments || []).filter((comment) => !comment.deletedAt).length === 0 && <small className="employee-feed-no-comments">Комментариев пока нет.</small>}{(post.comments || []).filter((comment) => !comment.deletedAt).map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; return <div key={comment.id} className="employee-feed-comment"><div className="employee-feed-comment-body"><strong>{comment.authorName}</strong><span>{comment.text}</span><small>@{comment.author} · {new Date(comment.createdAt).toLocaleString('ru-RU')}</small></div>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>Удалить</button>}</div>; })}<div className="employee-feed-comment-form"><input placeholder="Оставить комментарий…" value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} /><button type="button" onClick={() => addCommentToPost(post.id)} disabled={!(commentDrafts[post.id] || '').trim()}>Отправить</button></div></div>
                   </article>
@@ -1761,7 +1796,7 @@ const EmployeeChat = () => {
         )}
 
         {activeTab === 'audit' && isManager && (
-          <section className="manager-panel"><h2>Переписка сотрудников</h2><div className="audit-toolbar"><input type="search" placeholder="Поиск по участникам и тексту" value={auditSearch} onChange={(e) => setAuditSearch(e.target.value)} /><div className="audit-filter-row"><label><input type="checkbox" checked={auditFilters.showEmpty} onChange={(e) => setAuditFilters((prev) => ({ ...prev, showEmpty: e.target.checked }))} />Показывать пустые/архивные</label><label><input type="checkbox" checked={auditFilters.attachmentsOnly} onChange={(e) => setAuditFilters((prev) => ({ ...prev, attachmentsOnly: e.target.checked }))} />Только с вложениями</label><label><input type="checkbox" checked={auditFilters.deletedOnly} onChange={(e) => setAuditFilters((prev) => ({ ...prev, deletedOnly: e.target.checked }))} />Только удалённые</label></div><div className="audit-periods">{[['all', 'Все'], ['today', 'Сегодня'], ['week', 'Неделя'], ['month', 'Месяц']].map(([value, label]) => <button key={value} type="button" className={auditFilters.period === value ? 'active' : ''} onClick={() => setAuditFilters((prev) => ({ ...prev, period: value }))}>{label}</button>)}</div></div><div className="threads-grid"><div className="threads-list">{allConversationIds.length === 0 && <div className="empty-chat">Диалогов по фильтрам нет.</div>}{allConversationIds.map((threadId) => { const participants = getParticipantsFromThreadId(threadId); const meta = threadActivityById[threadId] || getThreadActivityMeta(threads[threadId] || []); return <button key={threadId} type="button" className={`thread-item ${selectedThreadId === threadId ? 'active' : ''}`} onClick={() => setSelectedThreadId(threadId)}><span className="thread-title">{participants.join(' ↔ ')}</span><span className="thread-stats"><b>{meta.messageCount}</b> сообщ. {meta.attachmentsCount > 0 ? ` · 📎 ${meta.attachmentsCount}` : ''}{meta.deletedCount > 0 ? ` · удалено ${meta.deletedCount}` : ''}</span><span className="thread-last">{meta.lastAt ? `последнее: ${new Date(meta.lastAt).toLocaleString('ru-RU')}` : 'без сообщений'}</span></button>; })}</div><div className="threads-messages">{!selectedThreadId && <div className="empty-chat">Выберите переписку.</div>}{selectedThreadId && selectedThreadMessages.map((message) => { const isDeleted = Boolean(message.deletedAt); const attachments = !isDeleted && message.attachments?.length ? message.attachments : !isDeleted && message.attachment ? [message.attachment] : []; return <div key={message.id} className={`audit-message ${isDeleted ? 'deleted' : ''}`}><div className="message-meta"><span>{message.sender}</span><span>{new Date(message.createdAt).toLocaleString('ru-RU')}</span></div><div>{isDeleted ? <em>Сообщение удалено</em> : message.text}</div>{isDeleted && <div className="audit-history">Удалил: {message.deletedBy || '—'} · {message.deletedAt ? new Date(message.deletedAt).toLocaleString('ru-RU') : '—'}</div>}{attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <a key={`${message.id}-audit-${index}`} className="message-attachment-card" href={file.dataUrl} download={file.name || 'file'} target="_blank" rel="noreferrer">{String(file.type || '').startsWith('image/') ? <img src={file.dataUrl} alt={file.name || 'attachment'} /> : <span className="file-icon">{getFileIcon(file.type)}</span>}<small>{file.name || 'Файл'}</small></a>)}</div>}{Array.isArray(message.audit) && message.audit.length > 0 && <div className="audit-history"><strong>История:</strong>{message.audit.slice(-4).map((entry, index) => <span key={`${message.id}-audit-entry-${index}`}>{entry.action || 'изменение'} · {entry.by || '—'} · {entry.at ? new Date(entry.at).toLocaleString('ru-RU') : '—'}</span>)}</div>}<div className="message-controls"><button type="button" onClick={() => editMessage(message.id, selectedThreadId)}>Изменить</button><button type="button" onClick={() => deleteMessage(message.id, selectedThreadId)}>Удалить</button></div></div>; })}</div></div></section>
+          <section className="manager-panel"><h2>Переписка сотрудников</h2><div className="audit-toolbar"><input type="search" placeholder="Поиск по участникам и тексту" value={auditSearch} onChange={(e) => setAuditSearch(e.target.value)} /><div className="audit-filter-row"><label><input type="checkbox" checked={auditFilters.showEmpty} onChange={(e) => setAuditFilters((prev) => ({ ...prev, showEmpty: e.target.checked }))} />Показывать пустые/архивные</label><label><input type="checkbox" checked={auditFilters.attachmentsOnly} onChange={(e) => setAuditFilters((prev) => ({ ...prev, attachmentsOnly: e.target.checked }))} />Только с вложениями</label><label><input type="checkbox" checked={auditFilters.deletedOnly} onChange={(e) => setAuditFilters((prev) => ({ ...prev, deletedOnly: e.target.checked }))} />Только удалённые</label></div><div className="audit-periods">{[['all', 'Все'], ['today', 'Сегодня'], ['week', 'Неделя'], ['month', 'Месяц']].map(([value, label]) => <button key={value} type="button" className={auditFilters.period === value ? 'active' : ''} onClick={() => setAuditFilters((prev) => ({ ...prev, period: value }))}>{label}</button>)}</div></div><div className="threads-grid"><div className="threads-list">{allConversationIds.length === 0 && <div className="empty-chat">Диалогов по фильтрам нет.</div>}{allConversationIds.map((threadId) => { const participants = getParticipantsFromThreadId(threadId); const meta = threadActivityById[threadId] || getThreadActivityMeta(threads[threadId] || []); return <button key={threadId} type="button" className={`thread-item ${selectedThreadId === threadId ? 'active' : ''}`} onClick={() => setSelectedThreadId(threadId)}><span className="thread-title">{participants.join(' ↔ ')}</span><span className="thread-stats"><b>{meta.messageCount}</b> сообщ. {meta.attachmentsCount > 0 ? ` · 📎 ${meta.attachmentsCount}` : ''}{meta.deletedCount > 0 ? ` · удалено ${meta.deletedCount}` : ''}</span><span className="thread-last">{meta.lastAt ? `последнее: ${new Date(meta.lastAt).toLocaleString('ru-RU')}` : 'без сообщений'}</span></button>; })}</div><div className="threads-messages">{!selectedThreadId && <div className="empty-chat">Выберите переписку.</div>}{selectedThreadId && selectedThreadMessages.map((message) => { const isDeleted = Boolean(message.deletedAt); const attachments = !isDeleted && message.attachments?.length ? message.attachments : !isDeleted && message.attachment ? [message.attachment] : []; return <div key={message.id} className={`audit-message ${isDeleted ? 'deleted' : ''}`}><div className="message-meta"><span>{message.sender}</span><span>{new Date(message.createdAt).toLocaleString('ru-RU')}</span></div><div>{isDeleted ? <em>Сообщение удалено</em> : message.text}</div>{isDeleted && <div className="audit-history">Удалил: {message.deletedBy || '—'} · {message.deletedAt ? new Date(message.deletedAt).toLocaleString('ru-RU') : '—'}</div>}{attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <AttachmentCard key={`${message.id}-audit-${index}`} cardKey={`${message.id}-audit-${index}`} file={file} />)}</div>}{Array.isArray(message.audit) && message.audit.length > 0 && <div className="audit-history"><strong>История:</strong>{message.audit.slice(-4).map((entry, index) => <span key={`${message.id}-audit-entry-${index}`}>{entry.action || 'изменение'} · {entry.by || '—'} · {entry.at ? new Date(entry.at).toLocaleString('ru-RU') : '—'}</span>)}</div>}<div className="message-controls"><button type="button" onClick={() => editMessage(message.id, selectedThreadId)}>Изменить</button><button type="button" onClick={() => deleteMessage(message.id, selectedThreadId)}>Удалить</button></div></div>; })}</div></div></section>
         )}
       </section>
 
