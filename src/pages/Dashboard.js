@@ -17,7 +17,8 @@ const WORKFLOW_FILTERS = [
   { id: 'queue', label: 'Новые' },
   { id: 'active', label: 'В работе' },
   { id: 'confirmation', label: 'На подтверждении' },
-  { id: 'done', label: 'Выполненные' }
+  { id: 'done', label: 'Выполненные' },
+  { id: 'overdue', label: 'Просроченные' }
 ];
 const formatDuration = (seconds) => {
   const safe = Math.max(0, Math.floor(Number(seconds) || 0));
@@ -25,6 +26,30 @@ const formatDuration = (seconds) => {
   const m = Math.floor((safe % 3600) / 60);
   const s = safe % 60;
   return [h, m, s].map((part) => String(part).padStart(2, '0')).join(':');
+};
+
+
+const secondsSince = (dateValue) => {
+  if (!dateValue) return 0;
+  const started = new Date(dateValue).getTime();
+  if (Number.isNaN(started)) return 0;
+  return Math.max(0, Math.round((Date.now() - started) / 1000));
+};
+
+const getSlaState = (app = {}) => {
+  const status = app.status || (app.fl ? 'done' : 'new');
+  if (['new', 'reopened'].includes(status)) {
+    const waiting = app.waiting_seconds ?? secondsSince(app.created_at || app.data);
+    if (waiting > 15 * 60) return { level: 'critical', label: 'Ожидает более 15 минут', seconds: waiting };
+    if (waiting > 5 * 60) return { level: 'warning', label: 'Ожидает более 5 минут', seconds: waiting };
+    return { level: 'ok', label: 'В норме', seconds: waiting };
+  }
+  if (['accepted', 'in_progress'].includes(status)) {
+    const work = app.work_seconds ?? secondsSince(app.work_started_at || app.accepted_at || app.start_data);
+    if (work > 30 * 60) return { level: 'critical', label: 'В работе более 30 минут', seconds: work };
+    return { level: 'ok', label: 'В норме', seconds: work };
+  }
+  return { level: 'ok', label: 'В норме', seconds: 0 };
 };
 
 const Dashboard = () => {
@@ -39,6 +64,11 @@ const Dashboard = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [workflowMessage, setWorkflowMessage] = useState('');
   const [actionBusyId, setActionBusyId] = useState(null);
+  const [selectedApplication, setSelectedApplication] = useState(null);
+  const [applicationEvents, setApplicationEvents] = useState([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [workflowModal, setWorkflowModal] = useState(null);
+  const [toast, setToast] = useState(null);
   const didInitialLoadRef = useRef(false);
 
   const [stats, setStats] = useState({
@@ -61,8 +91,7 @@ const Dashboard = () => {
     setExportLoading(true);
     try {
       let url = '/applications/export';
-      if (filter === 'done') url += '?status=done';
-      if (filter === 'pending') url += '?status=pending';
+      if (filter !== 'all') url += `?status=${encodeURIComponent(filter)}`;
       if (fromDate) url += `${url.includes('?') ? '&' : '?'}from=${fromDate}`;
       if (toDate) url += `${url.includes('?') ? '&' : '?'}to=${toDate}`;
       if (searchTerm) url += `${url.includes('?') ? '&' : '?'}search=${encodeURIComponent(searchTerm.trim())}`;
@@ -72,7 +101,7 @@ const Dashboard = () => {
       const allApplications = data.applications || [];
 
       if (allApplications.length === 0) {
-        alert('Нет данных для экспорта');
+        showToast('Нет данных для экспорта', 'warning');
         return;
       }
 
@@ -108,11 +137,11 @@ const Dashboard = () => {
         : `все_заявки_${date}.xlsx`;
 
       XLSX.writeFile(workbook, fileName);
-      alert(`Данные успешно экспортированы в файл: ${fileName}`);
+      showToast(`Данные экспортированы: ${fileName}`, 'success');
 
     } catch (error) {
       console.error('Ошибка при экспорте:', error);
-      alert('Произошла ошибка при экспорте данных');
+      showToast('Произошла ошибка при экспорте данных', 'error');
     } finally {
       setExportLoading(false);
     }
@@ -187,6 +216,74 @@ const Dashboard = () => {
     if (safeIds.length > 0) {
       window.dispatchEvent(new CustomEvent('applications:viewed', { detail: { ids: safeIds } }));
     }
+  };
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    window.clearTimeout(showToast.timer);
+    showToast.timer = window.setTimeout(() => setToast(null), 3600);
+  };
+
+  const fetchApplicationEvents = async (applicationId) => {
+    if (!applicationId) return;
+    setEventsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/events`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Не удалось загрузить историю');
+      setApplicationEvents(Array.isArray(data.events) ? data.events : []);
+    } catch (error) {
+      showToast(error.message || 'Не удалось загрузить историю заявки', 'error');
+      setApplicationEvents([]);
+    } finally {
+      setEventsLoading(false);
+    }
+  };
+
+  const openApplicationPanel = async (app) => {
+    setSelectedApplication(app);
+    await fetchApplicationEvents(app.id);
+    if (['new', 'reopened'].includes(app.status || 'new')) {
+      try {
+        await fetch(`${API_BASE_URL}/applications/${app.id}/view`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ admin_login: user?.username || user?.name || 'admin' })
+        });
+        markApplicationsViewed(app.id);
+      } catch (error) {
+        console.error('Не удалось отметить просмотр заявки:', error);
+      }
+    }
+  };
+
+  const closeApplicationPanel = () => {
+    setSelectedApplication(null);
+    setApplicationEvents([]);
+  };
+
+  const openAcceptModal = (app) => {
+    setWorkflowModal({
+      type: 'accept',
+      app,
+      values: {
+        executor: app.executor || user?.name || user?.username || 'Администратор',
+        eta_minutes: app.eta_minutes || 10,
+        admin_comment: app.admin_comment || 'К вам подойдут через 10 минут'
+      }
+    });
+  };
+
+  const openResolveModal = (app) => {
+    setWorkflowModal({
+      type: 'resolve',
+      app,
+      values: { process: app.process || 'Проблема устранена' }
+    });
+  };
+
+  const updateWorkflowModalValue = (field, value) => {
+    setWorkflowModal((prev) => prev ? { ...prev, values: { ...prev.values, [field]: value } } : prev);
   };
 
   useEffect(() => {
@@ -310,22 +407,10 @@ const Dashboard = () => {
     return <span className={`status-badge status-${status}`}><span className="status-icon">{meta.icon}</span>{meta.label}</span>;
   };
 
-  const runWorkflowAction = async (app, action) => {
-    const payload = { actor: user?.username || user?.name || 'admin' };
+  const runWorkflowAction = async (app, action, extraPayload = {}) => {
+    const payload = { actor: user?.username || user?.name || 'admin', ...extraPayload };
     if (action === 'accept') {
-      const executor = window.prompt('Кто подойдёт к сотруднику?', app.executor || user?.name || user?.username || 'Администратор');
-      if (!executor) return;
-      const eta = window.prompt('Через сколько минут подойдут?', app.eta_minutes || '10');
-      const comment = window.prompt('Комментарий сотруднику', app.admin_comment || `К вам подойдут через ${eta || 10} минут`);
       payload.accepted_by = user?.username || 'admin';
-      payload.executor = executor;
-      payload.eta_minutes = Number(eta) || 10;
-      payload.admin_comment = comment || `К вам подойдут через ${Number(eta) || 10} минут`;
-    }
-    if (action === 'resolve') {
-      const process = window.prompt('Что сделано? Это увидит сотрудник.', app.process || 'Проблема устранена');
-      if (!process) return;
-      payload.process = process;
     }
 
     setActionBusyId(app.id);
@@ -339,13 +424,33 @@ const Dashboard = () => {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || data.message || 'Не удалось изменить статус');
       setApplications((prev) => prev.map((item) => (item.id === app.id ? data.application : item)));
+      setSelectedApplication((prev) => (prev?.id === app.id ? data.application : prev));
       setWorkflowMessage(data.message || 'Статус заявки обновлён');
+      showToast(data.message || 'Статус заявки обновлён', 'success');
+      setWorkflowModal(null);
       fetchGeneralStats();
       fetchApplications();
+      fetchApplicationEvents(app.id);
     } catch (error) {
       setWorkflowMessage(error.message || 'Ошибка изменения статуса');
+      showToast(error.message || 'Ошибка изменения статуса', 'error');
     } finally {
       setActionBusyId(null);
+    }
+  };
+
+  const submitWorkflowModal = (event) => {
+    event.preventDefault();
+    if (!workflowModal?.app) return;
+    if (workflowModal.type === 'accept') {
+      runWorkflowAction(workflowModal.app, 'accept', {
+        executor: workflowModal.values.executor,
+        eta_minutes: Number(workflowModal.values.eta_minutes) || 10,
+        admin_comment: workflowModal.values.admin_comment
+      });
+    }
+    if (workflowModal.type === 'resolve') {
+      runWorkflowAction(workflowModal.app, 'resolve', { process: workflowModal.values.process });
     }
   };
 
@@ -407,6 +512,15 @@ const Dashboard = () => {
     );
   };
 
+  const statCards = [
+    { id: 'queue', label: '📥 Новые', value: stats.queue || 0, hint: 'Ждут просмотра' },
+    { id: 'accepted', label: '🤝 Принятые', value: stats.accepted || 0, hint: 'Назначен исполнитель' },
+    { id: 'active', label: '🛠️ В работе', value: stats.in_progress || stats.active || 0, hint: 'Идет ремонт' },
+    { id: 'confirmation', label: '👤 Ждут сотрудника', value: stats.confirmation || 0, hint: 'Нужно подтверждение' },
+    { id: 'done', label: '✅ Выполнено', value: stats.completed || 0, hint: 'Закрытые заявки' },
+    { id: 'overdue', label: '⚠️ Просроченные', value: stats.overdue || 0, hint: 'Нарушен SLA', tone: 'danger' }
+  ];
+
   return (
     <div className="dashboard-container">
       {/* Заголовок */}
@@ -433,8 +547,8 @@ const Dashboard = () => {
       </div>
 
       {/* Статистика */}
-      <div className="stats-grid">
-        <div 
+      <div className="stats-grid dashboard-stats-expanded">
+        <div
           className={`stat-card ${filter === 'all' && !dateFilterActive && !searchTerm ? 'stat-active' : ''}`}
           onClick={() => {
             setFilterAndResetPage('all');
@@ -443,33 +557,20 @@ const Dashboard = () => {
           }}
         >
           <span className="stat-label">📊 Всего заявок</span>
-          <div className="stat-number">
-            {stats.total}
-          </div>
+          <div className="stat-number">{stats.total}</div>
           <small>Всего в системе</small>
         </div>
-
-        <div 
-          className={`stat-card stat-completed ${filter === 'done' && !dateFilterActive && !searchTerm ? 'stat-active' : ''}`}
-          onClick={() => setFilterAndResetPage('done')}
-        >
-          <span className="stat-label">✅ Выполнено</span>
-          <div className="stat-number">
-            {stats.completed}
+        {statCards.map((card) => (
+          <div
+            key={card.id}
+            className={`stat-card ${card.tone === 'danger' ? 'stat-danger' : ''} ${filter === card.id && !dateFilterActive && !searchTerm ? 'stat-active' : ''}`}
+            onClick={() => setFilterAndResetPage(card.id)}
+          >
+            <span className="stat-label">{card.label}</span>
+            <div className="stat-number">{card.value}</div>
+            <small>{card.hint}</small>
           </div>
-          <small>Успешно закрыто</small>
-        </div>
-
-        <div 
-          className={`stat-card stat-pending ${filter === 'pending' && !dateFilterActive && !searchTerm ? 'stat-active' : ''}`}
-          onClick={() => setFilterAndResetPage('pending')}
-        >
-          <span className="stat-label">🔄 В работе</span>
-          <div className="stat-number">
-            {stats.pending}
-          </div>
-          <small>Требуют внимания</small>
-        </div>
+        ))}
       </div>
 
       <div className="workflow-tabs">
@@ -589,17 +690,9 @@ const Dashboard = () => {
       {(filter !== 'all' || dateFilterActive || searchTerm) && (
         <div className="filter-info">
           <strong>Текущий фильтр:</strong> 
-          {searchTerm 
-            ? ` Поиск: "${searchTerm}" - найдено: ${filteredStats.total} заявок`
-            : dateFilterActive 
-              ? filter === 'done' 
-                ? ` Показаны выполненные заявки за период: ${filteredStats.total} из ${stats.completed}` 
-                : filter === 'pending'
-                ? ` Показаны заявки в работе за период: ${filteredStats.total} из ${stats.pending}`
-                : ` Показаны все заявки за период: ${filteredStats.total} из ${stats.total}`
-              : filter === 'done' 
-              ? ` Показаны все выполненные заявки: ${filteredStats.total} из ${stats.completed}` 
-              : ` Показаны все заявки в работе: ${filteredStats.total} из ${stats.pending}`
+          {searchTerm
+            ? ` Поиск: "${searchTerm}" — найдено: ${filteredStats.total} заявок`
+            : ` Показан раздел "${WORKFLOW_FILTERS.find((item) => item.id === filter)?.label || 'Все'}": ${filteredStats.total} заявок`
           }
           {fromDate && ` с ${fromDate}`}
           {toDate && ` по ${toDate}`}
@@ -651,8 +744,8 @@ const Dashboard = () => {
                     applications.map((app) => (
                       <tr
                         key={app.id}
-                        className={app.fl ? 'row-completed' : `row-${app.status || 'new'}`}
-                        onClick={() => { if (['new', 'reopened'].includes(app.status || 'new')) markApplicationsViewed(app.id); }}
+                        className={`${app.fl ? 'row-completed' : `row-${app.status || 'new'}`} row-sla-${getSlaState(app).level} ${selectedApplication?.id === app.id ? 'row-selected' : ''}`}
+                        onClick={() => openApplicationPanel(app)}
                       >
                         <td className="cell-name">{app.name}</td>
                         <td>{app.cabinet || '—'}</td>
@@ -719,9 +812,10 @@ const Dashboard = () => {
                         <td className="cell-date"><div>Ожидание: {formatDuration(app.waiting_seconds)}</div><div>Приход: {formatDuration(app.arrival_seconds)}</div><div>Работа: {formatDuration(app.work_seconds)}</div>{app.admin_comment && <small>{app.admin_comment}</small>}</td>
                         <td>{getStatusLabel(app)}</td>
                         <td><div className="workflow-actions">
-                          {['new', 'reopened'].includes(app.status || 'new') && <button type="button" disabled={actionBusyId === app.id} onClick={() => runWorkflowAction(app, 'accept')}>Взять</button>}
-                          {app.status === 'accepted' && <button type="button" disabled={actionBusyId === app.id} onClick={() => runWorkflowAction(app, 'start-work')}>Запустить таймер</button>}
-                                                    {app.employee_login && <a href={`/employee?dialog=${encodeURIComponent(app.employee_login)}&application=${app.id}`}>Чат</a>}
+                          {['new', 'reopened'].includes(app.status || 'new') && <button type="button" disabled={actionBusyId === app.id} onClick={(event) => { event.stopPropagation(); openAcceptModal(app); }}>Взять</button>}
+                          {app.status === 'accepted' && <button type="button" disabled={actionBusyId === app.id} onClick={(event) => { event.stopPropagation(); runWorkflowAction(app, 'start-work'); }}>Запустить таймер</button>}
+                          {['accepted', 'in_progress'].includes(app.status) && <button type="button" disabled={actionBusyId === app.id} onClick={(event) => { event.stopPropagation(); openResolveModal(app); }}>Что сделано</button>}
+                                                    {app.employee_login && <a onClick={(event) => event.stopPropagation()} href={`/employee?dialog=${encodeURIComponent(app.employee_login)}&application=${app.id}`}>Чат</a>}
                         </div></td>
                       </tr>
                     ))
@@ -745,6 +839,82 @@ const Dashboard = () => {
           {renderPagination()}
         </>
       )}
+
+
+      {selectedApplication && (
+        <aside className="application-side-panel" aria-label="Карточка заявки">
+          <button type="button" className="side-panel-close" onClick={closeApplicationPanel}>×</button>
+          <div className="side-panel-head">
+            <span>{getStatusLabel(selectedApplication)}</span>
+            <h2>Заявка #{selectedApplication.id}</h2>
+            <p>{selectedApplication.name} · каб. {selectedApplication.cabinet || '—'} · {selectedApplication.N_tel || 'телефон —'}</p>
+          </div>
+          <div className={`sla-card sla-${getSlaState(selectedApplication).level}`}>
+            <strong>{getSlaState(selectedApplication).label}</strong>
+            <span>{formatDuration(getSlaState(selectedApplication).seconds)}</span>
+          </div>
+          <div className="side-panel-section">
+            <h3>Описание</h3>
+            <p>{selectedApplication.application}</p>
+          </div>
+          <div className="side-panel-grid">
+            <div><strong>Категория</strong><span>{selectedApplication.category || '—'}</span></div>
+            <div><strong>Приоритет</strong><span>{selectedApplication.priority || 'Обычный'}</span></div>
+            <div><strong>Источник</strong><span>{selectedApplication.source || 'admin'}</span></div>
+            <div><strong>Исполнитель</strong><span>{selectedApplication.executor || 'Не назначен'}</span></div>
+            <div><strong>Ожидание</strong><span>{formatDuration(selectedApplication.waiting_seconds ?? secondsSince(selectedApplication.created_at || selectedApplication.data))}</span></div>
+            <div><strong>Работа</strong><span>{formatDuration(selectedApplication.work_seconds ?? secondsSince(selectedApplication.work_started_at || selectedApplication.accepted_at))}</span></div>
+          </div>
+          <div className="side-panel-section">
+            <h3>Комментарий администратора</h3>
+            <p>{selectedApplication.admin_comment || 'Комментарий пока не добавлен.'}</p>
+          </div>
+          <div className="side-panel-section">
+            <h3>Что сделано</h3>
+            <p>{selectedApplication.process || 'Пока не заполнено.'}</p>
+          </div>
+          <div className="side-panel-actions">
+            {['new', 'reopened'].includes(selectedApplication.status || 'new') && <button type="button" onClick={() => openAcceptModal(selectedApplication)}>Взять в работу</button>}
+            {selectedApplication.status === 'accepted' && <button type="button" onClick={() => runWorkflowAction(selectedApplication, 'start-work')}>Запустить таймер</button>}
+            {['accepted', 'in_progress'].includes(selectedApplication.status) && <button type="button" onClick={() => openResolveModal(selectedApplication)}>Что сделано</button>}
+            {selectedApplication.employee_login && <a href={`/employee?dialog=${encodeURIComponent(selectedApplication.employee_login)}&application=${selectedApplication.id}`}>Открыть чат</a>}
+          </div>
+          <div className="side-panel-section">
+            <h3>История действий</h3>
+            {eventsLoading && <p>Загружаем историю…</p>}
+            {!eventsLoading && applicationEvents.length === 0 && <p>История пока пустая.</p>}
+            <div className="event-list">
+              {applicationEvents.map((event) => (
+                <div key={event.id} className="event-item">
+                  <strong>{event.event_type}</strong>
+                  <span>{event.actor_login || '—'} · {event.created_at ? new Date(event.created_at).toLocaleString('ru-RU') : '—'}</span>
+                  {event.comment && <p>{event.comment}</p>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </aside>
+      )}
+
+      {workflowModal && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setWorkflowModal(null)}>
+          <form className="workflow-modal" onSubmit={submitWorkflowModal} onMouseDown={(event) => event.stopPropagation()}>
+            <h2>{workflowModal.type === 'accept' ? 'Взять заявку в работу' : 'Что сделано'}</h2>
+            {workflowModal.type === 'accept' ? (
+              <>
+                <label>Исполнитель<input value={workflowModal.values.executor} onChange={(event) => updateWorkflowModalValue('executor', event.target.value)} required /></label>
+                <label>Подойдут через, минут<input type="number" min="1" value={workflowModal.values.eta_minutes} onChange={(event) => updateWorkflowModalValue('eta_minutes', event.target.value)} required /></label>
+                <label>Комментарий сотруднику<textarea rows={4} value={workflowModal.values.admin_comment} onChange={(event) => updateWorkflowModalValue('admin_comment', event.target.value)} /></label>
+              </>
+            ) : (
+              <label>Что было сделано<textarea rows={5} value={workflowModal.values.process} onChange={(event) => updateWorkflowModalValue('process', event.target.value)} required /></label>
+            )}
+            <div className="modal-actions"><button type="button" onClick={() => setWorkflowModal(null)}>Отмена</button><button type="submit" disabled={actionBusyId === workflowModal.app.id}>{actionBusyId === workflowModal.app.id ? 'Сохраняем…' : 'Сохранить'}</button></div>
+          </form>
+        </div>
+      )}
+
+      {toast && <div className={`dashboard-toast ${toast.type}`}>{toast.message}</div>}
     </div>
   );
 };

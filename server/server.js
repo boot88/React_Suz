@@ -152,6 +152,21 @@ const ensureApplicationWorkflowSchema = async () => {
       } catch (eventTableError) {
         console.error('Не удалось подготовить журнал событий заявок:', eventTableError.message);
       }
+      try {
+        await pool.execute(`
+          CREATE TABLE IF NOT EXISTS application_views (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            application_id INT NOT NULL,
+            admin_login VARCHAR(255) NOT NULL,
+            viewed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_application_view_admin (application_id, admin_login),
+            INDEX idx_application_views_admin_login (admin_login),
+            INDEX idx_application_views_application_id (application_id)
+          )
+        `);
+      } catch (viewTableError) {
+        console.error('Не удалось подготовить просмотры заявок:', viewTableError.message);
+      }
       await pool.execute(`
         UPDATE application
         SET \`status\` = CASE
@@ -421,9 +436,13 @@ app.get('/api/applications/export', async (req, res) => {
   const queryParams = [];
 
   if (status && status !== 'all') {
-    const statuses = statusGroups[status] || [status];
-    whereClause.push('`status` IN (' + statuses.map(() => '?').join(',') + ')');
-    queryParams.push(...statuses);
+    if (status === 'overdue') {
+      whereClause.push(APPLICATION_OVERDUE_SQL);
+    } else {
+      const statuses = statusGroups[status] || [status];
+      whereClause.push('`status` IN (' + statuses.map(() => '?').join(',') + ')');
+      queryParams.push(...statuses);
+    }
   }
 
   if (from) {
@@ -481,6 +500,28 @@ app.get('/api/applications/export', async (req, res) => {
   }
 });
 
+
+const APPLICATION_OVERDUE_SQL = `(
+  (\`status\` IN ('new', 'reopened') AND TIMESTAMPDIFF(MINUTE, COALESCE(\`created_at\`, \`data\`, NOW()), NOW()) > 5)
+  OR (\`status\` IN ('accepted', 'in_progress') AND TIMESTAMPDIFF(MINUTE, COALESCE(\`work_started_at\`, \`accepted_at\`, \`start_data\`, \`created_at\`, \`data\`, NOW()), NOW()) > 30)
+)`;
+
+const getApplicationEvents = async (applicationId) => {
+  const [events] = await pool.execute(
+    'SELECT `id`, `application_id`, `actor_login`, `actor_role`, `event_type`, `comment`, `created_at` FROM application_events WHERE `application_id` = ? ORDER BY `created_at` DESC, `id` DESC LIMIT 100',
+    [applicationId]
+  );
+  return events;
+};
+
+const markApplicationViewed = async (applicationId, adminLogin) => {
+  await ensureApplicationWorkflowSchema();
+  await pool.execute(
+    'INSERT INTO application_views (`application_id`, `admin_login`, `viewed_at`) VALUES (?, ?, NOW()) ON DUPLICATE KEY UPDATE `viewed_at` = NOW()',
+    [applicationId, adminLogin]
+  );
+};
+
 app.get('/api/applications', async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit) || 10));
@@ -499,9 +540,13 @@ app.get('/api/applications', async (req, res) => {
   const queryParams = [];
 
   if (status && status !== 'all') {
-    const statuses = statusGroups[status] || [status];
-    whereClause.push('`status` IN (' + statuses.map(() => '?').join(',') + ')');
-    queryParams.push(...statuses);
+    if (status === 'overdue') {
+      whereClause.push(APPLICATION_OVERDUE_SQL);
+    } else {
+      const statuses = statusGroups[status] || [status];
+      whereClause.push('`status` IN (' + statuses.map(() => '?').join(',') + ')');
+      queryParams.push(...statuses);
+    }
   }
 
   if (from) {
@@ -556,8 +601,11 @@ app.get('/api/applications', async (req, res) => {
       whereSql ? [...queryParams, 'new', 'accepted', 'in_progress', 'waiting_employee_confirmation', 'reopened'] : ['new', 'accepted', 'in_progress', 'waiting_employee_confirmation', 'reopened']
     );
     const [queueResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `status` IN (?, ?)', ['new', 'reopened']);
+    const [acceptedResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `status` = ?', ['accepted']);
+    const [inProgressResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `status` = ?', ['in_progress']);
     const [activeResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `status` IN (?, ?)', ['accepted', 'in_progress']);
     const [confirmationResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `status` = ?', ['waiting_employee_confirmation']);
+    const [overdueResult] = await pool.execute(`SELECT COUNT(*) AS count FROM application WHERE ${APPLICATION_OVERDUE_SQL}`);
 
     const total = totalResult[0].total;
     const completed = completedResult[0].count;
@@ -583,7 +631,7 @@ app.get('/api/applications', async (req, res) => {
       applications: formattedApplications,
       totalPages,
       currentPage: page,
-      stats: { total, completed, pending, queue: queueResult[0].count, active: activeResult[0].count, confirmation: confirmationResult[0].count }
+      stats: { total, completed, pending, queue: queueResult[0].count, accepted: acceptedResult[0].count, in_progress: inProgressResult[0].count, active: activeResult[0].count, confirmation: confirmationResult[0].count, overdue: overdueResult[0].count }
     });
   } catch (error) {
     console.error('Ошибка при запросе к БД:', error);
@@ -591,6 +639,48 @@ app.get('/api/applications', async (req, res) => {
       error: 'Ошибка сервера при получении заявок',
       details: error.message 
     });
+  }
+});
+
+
+app.get('/api/applications/unseen-count', async (req, res) => {
+  const adminLogin = String(req.query.admin_login || req.query.login || 'admin').trim() || 'admin';
+  try {
+    await ensureApplicationWorkflowSchema();
+    const [rows] = await pool.execute(
+      `SELECT COUNT(*) AS count
+       FROM application a
+       LEFT JOIN application_views v ON v.application_id = a.id AND v.admin_login = ?
+       WHERE a.\`status\` IN ('new', 'reopened') AND v.id IS NULL`,
+      [adminLogin]
+    );
+    res.json({ count: rows[0]?.count || 0 });
+  } catch (error) {
+    console.error('Ошибка подсчёта непросмотренных заявок:', error);
+    res.status(500).json({ error: 'Не удалось получить количество новых заявок', details: error.sqlMessage || error.message });
+  }
+});
+
+app.get('/api/applications/:id/events', async (req, res) => {
+  try {
+    await ensureApplicationWorkflowSchema();
+    const events = await getApplicationEvents(req.params.id);
+    res.json({ events });
+  } catch (error) {
+    console.error('Ошибка получения истории заявки:', error);
+    res.status(500).json({ error: 'Не удалось получить историю заявки', details: error.sqlMessage || error.message });
+  }
+});
+
+app.post('/api/applications/:id/view', async (req, res) => {
+  const adminLogin = String(req.body?.admin_login || req.body?.actor || 'admin').trim() || 'admin';
+  try {
+    await markApplicationViewed(req.params.id, adminLogin);
+    await addApplicationEvent(req.params.id, adminLogin, 'admin', 'viewed', 'Администратор открыл карточку заявки');
+    res.json({ message: 'Заявка отмечена просмотренной' });
+  } catch (error) {
+    console.error('Ошибка отметки просмотра заявки:', error);
+    res.status(500).json({ error: 'Не удалось отметить заявку просмотренной', details: error.sqlMessage || error.message });
   }
 });
 

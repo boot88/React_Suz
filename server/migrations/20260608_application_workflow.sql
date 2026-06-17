@@ -43,3 +43,14 @@ CREATE TABLE IF NOT EXISTS application_events (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_application_events_application_id (application_id)
 );
+
+
+CREATE TABLE IF NOT EXISTS application_views (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  application_id INT NOT NULL,
+  admin_login VARCHAR(255) NOT NULL,
+  viewed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_application_view_admin (application_id, admin_login),
+  INDEX idx_application_views_admin_login (admin_login),
+  INDEX idx_application_views_application_id (application_id)
+);

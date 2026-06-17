@@ -16,7 +16,6 @@ import Support from './components/Support';
 import Statistics from './pages/Statistics';
 import { API_BASE_URL } from './utils/apiConfig';
 
-const ADMIN_SEEN_NEW_APPLICATIONS_KEY = 'adminSeenNewApplications';
 
 function App() {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -89,22 +88,11 @@ function Sidebar() {
 
     const fetchNewRequests = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/applications?page=1&limit=300`);
+        const adminLogin = encodeURIComponent(user?.username || user?.name || 'admin');
+        const response = await fetch(`${API_BASE_URL}/applications/unseen-count?admin_login=${adminLogin}`);
         const data = await response.json().catch(() => ({}));
         if (!response.ok || isCancelled) return;
-        const applications = Array.isArray(data?.applications) ? data.applications : [];
-        const activeNewIds = applications
-          .filter((item) => ['new', 'reopened'].includes(item.status || (item.fl ? 'done' : 'new')))
-          .map((item) => String(item.id));
-        const seenRaw = localStorage.getItem(ADMIN_SEEN_NEW_APPLICATIONS_KEY);
-        const seenIds = JSON.parse(seenRaw || '[]');
-        const seenSet = new Set(Array.isArray(seenIds) ? seenIds.map(String) : []);
-
-        if (seenRaw === null) {
-          localStorage.setItem(ADMIN_SEEN_NEW_APPLICATIONS_KEY, JSON.stringify([]));
-        }
-
-        const fresh = activeNewIds.filter((id) => !seenSet.has(id)).length;
+        const fresh = Number(data?.count || 0);
         setNewRequestsCount(fresh);
         localStorage.setItem('cachedNewRequests', String(fresh));
       } catch (error) {
@@ -117,13 +105,6 @@ function Sidebar() {
     const secondRetry = setTimeout(fetchNewRequests, 1000);
     const interval = setInterval(fetchNewRequests, 5000);
     const markApplicationsViewed = (event) => {
-      const ids = Array.isArray(event?.detail?.ids) ? event.detail.ids.map(String) : [];
-      if (!ids.length) return;
-      const seenRaw = localStorage.getItem(ADMIN_SEEN_NEW_APPLICATIONS_KEY);
-      const seenIds = JSON.parse(seenRaw || '[]');
-      const seenSet = new Set(Array.isArray(seenIds) ? seenIds.map(String) : []);
-      ids.forEach((id) => seenSet.add(id));
-      localStorage.setItem(ADMIN_SEEN_NEW_APPLICATIONS_KEY, JSON.stringify(Array.from(seenSet)));
       fetchNewRequests();
     };
     const refreshOnVisible = () => {
@@ -145,7 +126,7 @@ function Sidebar() {
       window.removeEventListener('applications:refresh', fetchNewRequests);
       window.removeEventListener('applications:viewed', markApplicationsViewed);
     };
-  }, [user?.username]);
+  }, [user?.name, user?.username]);
 
   const isActive = (path) => location.pathname === path;
 
