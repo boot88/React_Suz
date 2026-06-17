@@ -123,13 +123,15 @@ const Dashboard = () => {
       const response = await fetch(`${API_BASE_URL}/applications?limit=1`);
       const data = await response.json();
       setStats(data.stats || { total: 0, completed: 0, pending: 0 });
+      return true;
     } catch (error) {
       console.error('Ошибка загрузки статистики:', error);
+      return false;
     }
   };
 
-  const fetchApplications = async () => {
-    setLoading(true);
+  const fetchApplications = async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     try {
       let url = `/applications?page=${currentPage}&limit=${limit}`;
       
@@ -153,14 +155,19 @@ const Dashboard = () => {
       if (!searchTerm.trim() && !dateFilterActive && filter === 'all') {
         setStats(nextStats);
       }
+      window.dispatchEvent(new Event('applications:refresh'));
+      return true;
     } catch (error) {
       console.error('Ошибка загрузки:', error);
       // Убираем блокирующий alert при стартовой загрузке,
       // чтобы интерфейс не показывал всплывающее окно подтверждения.
-      setApplications([]);
-      setFilteredStats({ total: 0, completed: 0, pending: 0 });
+      if (!silent) {
+        setApplications([]);
+        setFilteredStats({ total: 0, completed: 0, pending: 0 });
+      }
+      return false;
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -175,9 +182,30 @@ const Dashboard = () => {
   };
 
   useEffect(() => {
-    fetchGeneralStats();
-    fetchApplications();
-    didInitialLoadRef.current = true;
+    let isCancelled = false;
+    const retryDelays = [200, 800, 1800];
+    const retryTimers = [];
+
+    const loadInitialData = async () => {
+      await Promise.all([fetchGeneralStats(), fetchApplications()]);
+      didInitialLoadRef.current = true;
+
+      retryDelays.forEach((delay) => {
+        const timer = setTimeout(() => {
+          if (isCancelled) return;
+          fetchGeneralStats();
+          fetchApplications({ silent: true });
+        }, delay);
+        retryTimers.push(timer);
+      });
+    };
+
+    loadInitialData();
+
+    return () => {
+      isCancelled = true;
+      retryTimers.forEach(clearTimeout);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

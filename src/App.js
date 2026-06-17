@@ -83,15 +83,15 @@ function Sidebar() {
   }, []);
 
   useEffect(() => {
+    let isCancelled = false;
+
     const fetchNewRequests = async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/applications?page=1&limit=300`);
         const data = await response.json().catch(() => ({}));
-        if (!response.ok) return;
+        if (!response.ok || isCancelled) return;
         const applications = Array.isArray(data?.applications) ? data.applications : [];
-        const seenRaw = JSON.parse(localStorage.getItem('adminViewedApplications') || '[]');
-        const seenSet = new Set((Array.isArray(seenRaw) ? seenRaw : []).map((id) => String(id)));
-        const fresh = applications.filter((item) => ['new', 'reopened'].includes(item.status || (item.fl ? 'done' : 'new')) && !seenSet.has(String(item.id))).length;
+        const fresh = applications.filter((item) => ['new', 'reopened'].includes(item.status || (item.fl ? 'done' : 'new'))).length;
         setNewRequestsCount(fresh);
         localStorage.setItem('cachedNewRequests', String(fresh));
       } catch (error) {
@@ -100,28 +100,27 @@ function Sidebar() {
     };
 
     fetchNewRequests();
+    const firstRetry = setTimeout(fetchNewRequests, 250);
+    const secondRetry = setTimeout(fetchNewRequests, 1000);
     const interval = setInterval(fetchNewRequests, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    if (location.pathname !== '/') return;
-    const markViewed = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/applications?page=1&limit=300`);
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) return;
-        const applications = Array.isArray(data?.applications) ? data.applications : [];
-        const ids = applications.filter((item) => ['new', 'reopened'].includes(item.status || (item.fl ? 'done' : 'new'))).map((item) => String(item.id));
-        localStorage.setItem('adminViewedApplications', JSON.stringify(ids));
-        setNewRequestsCount(0);
-        localStorage.setItem('cachedNewRequests', '0');
-      } catch (error) {
-        console.error('Ошибка отметки просмотренных заявок:', error);
-      }
+    const refreshOnVisible = () => {
+      if (document.visibilityState === 'visible') fetchNewRequests();
     };
-    markViewed();
-  }, [location.pathname]);
+
+    window.addEventListener('focus', fetchNewRequests);
+    document.addEventListener('visibilitychange', refreshOnVisible);
+    window.addEventListener('applications:refresh', fetchNewRequests);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(firstRetry);
+      clearTimeout(secondRetry);
+      clearInterval(interval);
+      window.removeEventListener('focus', fetchNewRequests);
+      document.removeEventListener('visibilitychange', refreshOnVisible);
+      window.removeEventListener('applications:refresh', fetchNewRequests);
+    };
+  }, [user?.username]);
 
   const isActive = (path) => location.pathname === path;
 
