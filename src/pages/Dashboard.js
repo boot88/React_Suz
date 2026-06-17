@@ -149,11 +149,18 @@ const Dashboard = () => {
       const data = await response.json();
 
       const nextStats = data.stats || { total: 0, completed: 0, pending: 0 };
-      setApplications(data.applications || []);
+      const nextApplications = data.applications || [];
+      setApplications(nextApplications);
       setTotalPages(data.totalPages || 1);
       setFilteredStats(nextStats);
       if (!searchTerm.trim() && !dateFilterActive && filter === 'all') {
         setStats(nextStats);
+      }
+      const viewedNewIds = nextApplications
+        .filter((item) => ['new', 'reopened'].includes(item.status || (item.fl ? 'done' : 'new')))
+        .map((item) => String(item.id));
+      if (viewedNewIds.length > 0) {
+        window.dispatchEvent(new CustomEvent('applications:viewed', { detail: { ids: viewedNewIds } }));
       }
       window.dispatchEvent(new Event('applications:refresh'));
       return true;

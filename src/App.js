@@ -16,6 +16,8 @@ import Support from './components/Support';
 import Statistics from './pages/Statistics';
 import { API_BASE_URL } from './utils/apiConfig';
 
+const ADMIN_SEEN_NEW_APPLICATIONS_KEY = 'adminSeenNewApplications';
+
 function App() {
   const { isAuthenticated, isLoading, user } = useAuth();
 
@@ -91,7 +93,21 @@ function Sidebar() {
         const data = await response.json().catch(() => ({}));
         if (!response.ok || isCancelled) return;
         const applications = Array.isArray(data?.applications) ? data.applications : [];
-        const fresh = applications.filter((item) => ['new', 'reopened'].includes(item.status || (item.fl ? 'done' : 'new'))).length;
+        const activeNewIds = applications
+          .filter((item) => ['new', 'reopened'].includes(item.status || (item.fl ? 'done' : 'new')))
+          .map((item) => String(item.id));
+        const seenRaw = localStorage.getItem(ADMIN_SEEN_NEW_APPLICATIONS_KEY);
+        const seenIds = JSON.parse(seenRaw || '[]');
+        const seenSet = new Set(Array.isArray(seenIds) ? seenIds.map(String) : []);
+
+        if (seenRaw === null) {
+          localStorage.setItem(ADMIN_SEEN_NEW_APPLICATIONS_KEY, JSON.stringify(activeNewIds));
+          setNewRequestsCount(0);
+          localStorage.setItem('cachedNewRequests', '0');
+          return;
+        }
+
+        const fresh = activeNewIds.filter((id) => !seenSet.has(id)).length;
         setNewRequestsCount(fresh);
         localStorage.setItem('cachedNewRequests', String(fresh));
       } catch (error) {
@@ -103,6 +119,16 @@ function Sidebar() {
     const firstRetry = setTimeout(fetchNewRequests, 250);
     const secondRetry = setTimeout(fetchNewRequests, 1000);
     const interval = setInterval(fetchNewRequests, 5000);
+    const markApplicationsViewed = (event) => {
+      const ids = Array.isArray(event?.detail?.ids) ? event.detail.ids.map(String) : [];
+      if (!ids.length) return;
+      const seenRaw = localStorage.getItem(ADMIN_SEEN_NEW_APPLICATIONS_KEY);
+      const seenIds = JSON.parse(seenRaw || '[]');
+      const seenSet = new Set(Array.isArray(seenIds) ? seenIds.map(String) : []);
+      ids.forEach((id) => seenSet.add(id));
+      localStorage.setItem(ADMIN_SEEN_NEW_APPLICATIONS_KEY, JSON.stringify(Array.from(seenSet)));
+      fetchNewRequests();
+    };
     const refreshOnVisible = () => {
       if (document.visibilityState === 'visible') fetchNewRequests();
     };
@@ -110,6 +136,7 @@ function Sidebar() {
     window.addEventListener('focus', fetchNewRequests);
     document.addEventListener('visibilitychange', refreshOnVisible);
     window.addEventListener('applications:refresh', fetchNewRequests);
+    window.addEventListener('applications:viewed', markApplicationsViewed);
 
     return () => {
       isCancelled = true;
@@ -119,6 +146,7 @@ function Sidebar() {
       window.removeEventListener('focus', fetchNewRequests);
       document.removeEventListener('visibilitychange', refreshOnVisible);
       window.removeEventListener('applications:refresh', fetchNewRequests);
+      window.removeEventListener('applications:viewed', markApplicationsViewed);
     };
   }, [user?.username]);
 
