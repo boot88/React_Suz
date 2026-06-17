@@ -8,6 +8,8 @@ const router = express.Router();
 const dataDir = path.join(__dirname, '..', 'data');
 const chatFilePath = path.join(dataDir, 'chatThreads.json');
 const feedFilePath = path.join(dataDir, 'employeeFeed.json');
+const backupDir = path.join(dataDir, 'backups');
+const MAX_BACKUPS_PER_FILE = 30;
 
 let cachedThreads = null;
 let storageReadyPromise = null;
@@ -18,34 +20,110 @@ const streamClients = new Set();
 const cloneThreads = (threads) => JSON.parse(JSON.stringify(threads || {}));
 const createId = (prefix = 'item') => `${prefix}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
+const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const isMeaningfulJson = (value) => (Array.isArray(value) ? value.length > 0 : isPlainObject(value) && Object.keys(value).length > 0);
+
+const pruneBackups = async (filePath) => {
+  try {
+    const fileName = path.basename(filePath);
+    const entries = await fs.readdir(backupDir);
+    const backups = entries
+      .filter((entry) => entry.startsWith(`${fileName}.`) && entry.endsWith('.bak') && !entry.includes('.latest.'))
+      .sort()
+      .reverse();
+    await Promise.all(backups.slice(MAX_BACKUPS_PER_FILE).map((entry) => fs.unlink(path.join(backupDir, entry)).catch(() => {})));
+  } catch {
+    // backup pruning is best-effort
+  }
+};
+
+const backupJsonFile = async (filePath) => {
+  try {
+    await fs.mkdir(backupDir, { recursive: true });
+    const raw = await fs.readFile(filePath, 'utf-8');
+    const parsed = JSON.parse(raw || 'null');
+    if (!isMeaningfulJson(parsed)) return;
+    const latestPath = path.join(backupDir, `${path.basename(filePath)}.latest.bak`);
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    await fs.writeFile(latestPath, raw, 'utf-8');
+    await fs.writeFile(path.join(backupDir, `${path.basename(filePath)}.${stamp}.bak`), raw, 'utf-8');
+    await pruneBackups(filePath);
+  } catch {
+    // no valid source file yet
+  }
+};
+
+const restoreJsonBackup = async (filePath, validate) => {
+  try {
+    const fileName = path.basename(filePath);
+    const entries = await fs.readdir(backupDir).catch(() => []);
+    const candidates = [
+      `${fileName}.latest.bak`,
+      ...entries.filter((entry) => entry.startsWith(`${fileName}.`) && entry.endsWith('.bak')).sort().reverse()
+    ];
+
+    for (const candidate of [...new Set(candidates)]) {
+      try {
+        const raw = await fs.readFile(path.join(backupDir, candidate), 'utf-8');
+        const parsed = JSON.parse(raw || 'null');
+        if (validate(parsed)) {
+          await fs.writeFile(filePath, JSON.stringify(parsed, null, 2), 'utf-8');
+          return parsed;
+        }
+      } catch {
+        // try next backup
+      }
+    }
+  } catch {
+    // no backup directory
+  }
+  return null;
+};
+
+const atomicWriteJson = async (filePath, value) => {
+  await fs.mkdir(dataDir, { recursive: true });
+  await backupJsonFile(filePath);
+  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  await fs.writeFile(tmpPath, JSON.stringify(value, null, 2), 'utf-8');
+  await fs.rename(tmpPath, filePath);
+};
+
 const ensureJsonFile = async (filePath, fallback) => {
   await fs.mkdir(dataDir, { recursive: true });
   try {
     await fs.access(filePath);
   } catch {
-    await fs.writeFile(filePath, JSON.stringify(fallback, null, 2), 'utf-8');
+    await atomicWriteJson(filePath, fallback);
   }
 };
 
-const readFeed = async () => {
-  await ensureJsonFile(feedFilePath, []);
+const readJsonWithRecovery = async (filePath, fallback, validate, label) => {
+  await ensureJsonFile(filePath, fallback);
   try {
-    const raw = await fs.readFile(feedFilePath, 'utf-8');
-    const parsed = JSON.parse(raw || '[]');
-    return Array.isArray(parsed) ? parsed : [];
+    const raw = await fs.readFile(filePath, 'utf-8');
+    const parsed = JSON.parse(raw || JSON.stringify(fallback));
+    if (validate(parsed)) return parsed;
+    throw new Error(`${label} имеет неверный формат`);
   } catch (error) {
-    console.error('Chat feed read error:', error);
-    return [];
+    console.error(`${label} read error, trying backup:`, error.message);
+    const restored = await restoreJsonBackup(filePath, validate);
+    if (restored) return restored;
+    return fallback;
   }
 };
 
-const writeFeed = async (posts) => {
+const readFeed = async () => readJsonWithRecovery(feedFilePath, [], Array.isArray, 'Chat feed');
+
+const writeFeed = async (posts, { allowEmpty = false } = {}) => {
   const safePosts = Array.isArray(posts) ? posts : [];
   feedWriteQueue = feedWriteQueue
     .catch(() => {})
     .then(async () => {
-      await ensureJsonFile(feedFilePath, []);
-      await fs.writeFile(feedFilePath, JSON.stringify(safePosts, null, 2), 'utf-8');
+      const currentPosts = await readFeed();
+      if (!allowEmpty && safePosts.length === 0 && currentPosts.length > 0) {
+        throw new Error('Защита ленты: отказано в перезаписи непустой ленты пустым массивом');
+      }
+      await atomicWriteJson(feedFilePath, safePosts);
     });
 
   await feedWriteQueue;
@@ -53,14 +131,7 @@ const writeFeed = async (posts) => {
 
 const ensureStorage = async () => {
   if (!storageReadyPromise) {
-    storageReadyPromise = (async () => {
-      await fs.mkdir(dataDir, { recursive: true });
-      try {
-        await fs.access(chatFilePath);
-      } catch {
-        await fs.writeFile(chatFilePath, JSON.stringify({}, null, 2), 'utf-8');
-      }
-    })();
+    storageReadyPromise = ensureJsonFile(chatFilePath, {});
   }
 
   return storageReadyPromise;
@@ -68,9 +139,7 @@ const ensureStorage = async () => {
 
 const readThreadsFromDisk = async () => {
   await ensureStorage();
-  const raw = await fs.readFile(chatFilePath, 'utf-8');
-  const parsed = JSON.parse(raw || '{}');
-  return parsed && typeof parsed === 'object' ? parsed : {};
+  return readJsonWithRecovery(chatFilePath, {}, isPlainObject, 'Chat threads');
 };
 
 const readThreads = async () => {
@@ -97,19 +166,39 @@ const broadcastThreads = () => {
 };
 
 const writeThreads = async (threads) => {
-  cachedThreads = cloneThreads(threads);
-  broadcastThreads();
-
+  const nextThreads = cloneThreads(threads);
   writeQueue = writeQueue
     .catch(() => {})
     .then(async () => {
       await ensureStorage();
-      await fs.writeFile(chatFilePath, JSON.stringify(cachedThreads, null, 2), 'utf-8');
+      const currentThreads = await readThreadsFromDisk();
+      if (Object.keys(nextThreads).length === 0 && Object.keys(currentThreads).length > 0) {
+        throw new Error('Защита чата: отказано в перезаписи непустой истории пустым объектом');
+      }
+      await atomicWriteJson(chatFilePath, nextThreads);
+      cachedThreads = cloneThreads(nextThreads);
+      broadcastThreads();
     });
 
   await writeQueue;
 };
 
+
+
+router.post('/storage/recover', async (req, res) => {
+  try {
+    const target = req.body?.target === 'threads' ? 'threads' : 'feed';
+    const filePath = target === 'threads' ? chatFilePath : feedFilePath;
+    const validate = target === 'threads' ? isPlainObject : Array.isArray;
+    const restored = await restoreJsonBackup(filePath, validate);
+    if (!restored) return res.status(404).json({ message: 'Резервная копия не найдена' });
+    if (target === 'threads') cachedThreads = cloneThreads(restored);
+    res.json({ message: 'Восстановлено из резервной копии', target, restored });
+  } catch (error) {
+    console.error('Chat storage recover error:', error);
+    res.status(500).json({ message: 'Не удалось восстановить данные' });
+  }
+});
 
 router.get('/feed', async (req, res) => {
   try {
@@ -129,7 +218,7 @@ router.put('/feed', async (req, res) => {
       return res.status(400).json({ message: 'posts должен быть массивом' });
     }
 
-    await writeFeed(posts);
+    await writeFeed(posts, { allowEmpty: req.query.force === '1' });
     res.json({ message: 'Лента сохранена', posts });
   } catch (error) {
     console.error('Chat PUT /feed error:', error);

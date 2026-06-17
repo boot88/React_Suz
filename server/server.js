@@ -14,10 +14,31 @@ const MAX_PORT_RETRIES = 10;
 app.options('*', cors());
 
 // Middleware
+const isAllowedCorsOrigin = (origin) => {
+  if (!origin) return true;
+  if (process.env.NODE_ENV === 'production') {
+    return origin === 'https://react-suz.onrender.com';
+  }
+
+  try {
+    const { hostname } = new URL(origin);
+    return (
+      hostname === 'localhost'
+      || hostname === '127.0.0.1'
+      || /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname)
+      || /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)
+      || /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(hostname)
+    );
+  } catch {
+    return false;
+  }
+};
+
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['https://react-suz.onrender.com']
-    : ['http://localhost:3000', 'http://192.168.1.35:3000', 'http://192.168.1.35:5000','http://192.168.1.35'],
+  origin(origin, callback) {
+    if (isAllowedCorsOrigin(origin)) return callback(null, true);
+    return callback(new Error('CORS origin is not allowed'));
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true,
   exposedHeaders: ['Content-Type', 'Authorization']

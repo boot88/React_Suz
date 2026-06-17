@@ -582,13 +582,26 @@ const EmployeeChat = () => {
       const response = await fetch(`${API_BASE_URL}/chat/feed`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось загрузить ленту');
-      setFeedPosts(Array.isArray(data?.posts) ? data.posts : []);
+      const nextPosts = Array.isArray(data?.posts) ? data.posts : [];
+      setFeedPosts((currentPosts) => {
+        if (silent && currentPosts.length > 0 && nextPosts.length === 0) {
+          return currentPosts;
+        }
+        return nextPosts;
+      });
       setFeedError('');
     } catch (error) {
       const message = error.message || 'Не удалось загрузить ленту';
       console.error('Ошибка загрузки ленты:', error);
-      setFeedError(message);
-      if (!silent) notify(message, 'Лента');
+      if (!silent) {
+        setFeedError(message);
+        notify(message, 'Лента');
+        return;
+      }
+      setFeedPosts((currentPosts) => {
+        if (currentPosts.length === 0) setFeedError(message);
+        return currentPosts;
+      });
     }
   }, [notify]);
 
