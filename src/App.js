@@ -101,10 +101,7 @@ function Sidebar() {
         const seenSet = new Set(Array.isArray(seenIds) ? seenIds.map(String) : []);
 
         if (seenRaw === null) {
-          localStorage.setItem(ADMIN_SEEN_NEW_APPLICATIONS_KEY, JSON.stringify(activeNewIds));
-          setNewRequestsCount(0);
-          localStorage.setItem('cachedNewRequests', '0');
-          return;
+          localStorage.setItem(ADMIN_SEEN_NEW_APPLICATIONS_KEY, JSON.stringify([]));
         }
 
         const fresh = activeNewIds.filter((id) => !seenSet.has(id)).length;

@@ -156,12 +156,6 @@ const Dashboard = () => {
       if (!searchTerm.trim() && !dateFilterActive && filter === 'all') {
         setStats(nextStats);
       }
-      const viewedNewIds = nextApplications
-        .filter((item) => ['new', 'reopened'].includes(item.status || (item.fl ? 'done' : 'new')))
-        .map((item) => String(item.id));
-      if (viewedNewIds.length > 0) {
-        window.dispatchEvent(new CustomEvent('applications:viewed', { detail: { ids: viewedNewIds } }));
-      }
       window.dispatchEvent(new Event('applications:refresh'));
       return true;
     } catch (error) {
@@ -186,6 +180,13 @@ const Dashboard = () => {
   const clearSearch = () => {
     setSearchTerm('');
     setCurrentPage(1);
+  };
+
+  const markApplicationsViewed = (ids) => {
+    const safeIds = (Array.isArray(ids) ? ids : [ids]).filter(Boolean).map(String);
+    if (safeIds.length > 0) {
+      window.dispatchEvent(new CustomEvent('applications:viewed', { detail: { ids: safeIds } }));
+    }
   };
 
   useEffect(() => {
@@ -648,7 +649,11 @@ const Dashboard = () => {
                 <tbody>
                   {applications.length > 0 ? (
                     applications.map((app) => (
-                      <tr key={app.id} className={app.fl ? 'row-completed' : `row-${app.status || 'new'}`}>
+                      <tr
+                        key={app.id}
+                        className={app.fl ? 'row-completed' : `row-${app.status || 'new'}`}
+                        onClick={() => { if (['new', 'reopened'].includes(app.status || 'new')) markApplicationsViewed(app.id); }}
+                      >
                         <td className="cell-name">{app.name}</td>
                         <td>{app.cabinet || '—'}</td>
                         <td>{app.N_tel || '—'}</td>
