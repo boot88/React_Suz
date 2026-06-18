@@ -273,8 +273,7 @@ const openAttachmentInNewTab = (file = {}) => {
   if (!file.dataUrl) return;
   try {
     const url = file.dataUrl.startsWith('data:') ? URL.createObjectURL(dataUrlToBlob(file.dataUrl)) : file.dataUrl;
-    const opened = window.open(url, '_blank', 'noopener,noreferrer');
-    if (!opened) window.location.href = url;
+    window.open(url, '_blank', 'noopener,noreferrer');
     if (file.dataUrl.startsWith('data:')) {
       window.setTimeout(() => URL.revokeObjectURL(url), 60000);
     }
@@ -421,6 +420,7 @@ const EmployeeChat = () => {
   const [modal, setModal] = useState(null);
   const modalResolverRef = useRef(null);
   const messagesWrapRef = useRef(null);
+  const feedListRef = useRef(null);
   const forceScrollRef = useRef(false);
   const suppressThreadsRefreshUntilRef = useRef(0);
 
@@ -1469,6 +1469,9 @@ const EmployeeChat = () => {
         })
       }, { fallbackMessage: 'Не удалось опубликовать запись' });
       setFeedPosts(Array.isArray(data?.posts) ? data.posts : [data.post, ...feedPosts].filter(Boolean));
+      window.requestAnimationFrame(() => {
+        feedListRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+      });
       setFeedDraft('');
       setFeedAttachment(null);
     } catch (error) {
@@ -1878,7 +1881,7 @@ const EmployeeChat = () => {
               {feedAttachment && <div className="employee-feed-attachment-preview"><span>{getFileIcon(feedAttachment.type)} {feedAttachment.name}</span><button type="button" onClick={() => setFeedAttachment(null)}>Убрать</button></div>}
               <div className="employee-feed-composer-actions"><label>📎 Фото/видео/файл<input type="file" hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="submit" disabled={!feedDraft.trim() && !feedAttachment}>Опубликовать</button></div>
             </form>
-            <div className="employee-feed-list">
+            <div className="employee-feed-list" ref={feedListRef}>
               {feedPosts.length === 0 && <div className="empty-chat">Пока нет публикаций.</div>}
               {feedPosts.filter((post) => !post.deletedAt).sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))).map((post) => {
                 const canDeletePost = isManager || isAdmin || post.author === user?.username;
