@@ -241,6 +241,30 @@ const getFileIcon = (type = '') => {
   return '📎';
 };
 
+const dataUrlToBlob = (dataUrl = '') => {
+  const [meta = '', payload = ''] = String(dataUrl).split(',');
+  const mimeMatch = meta.match(/data:([^;]+);base64/);
+  const mime = mimeMatch?.[1] || 'application/octet-stream';
+  const binary = window.atob(payload);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new Blob([bytes], { type: mime });
+};
+
+const openAttachmentInNewTab = (file = {}) => {
+  if (!file.dataUrl) return;
+  try {
+    const url = file.dataUrl.startsWith('data:') ? URL.createObjectURL(dataUrlToBlob(file.dataUrl)) : file.dataUrl;
+    const opened = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!opened) window.location.href = url;
+    if (file.dataUrl.startsWith('data:')) {
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+  } catch (error) {
+    console.error('Attachment open error:', error);
+  }
+};
+
 
 const AttachmentCard = ({ file, cardKey, variant = 'message' }) => {
   const fileName = file?.name || 'Файл';
@@ -263,7 +287,7 @@ const AttachmentCard = ({ file, cardKey, variant = 'message' }) => {
       <small>{fileName} · {formatFileSize(file?.size)}</small>
       <div className="attachment-card-actions">
         <a href={file.dataUrl} download={fileName}>Скачать</a>
-        <a href={file.dataUrl} target="_blank" rel="noreferrer">Открыть</a>
+        <button type="button" onClick={() => openAttachmentInNewTab(file)}>Открыть</button>
       </div>
     </div>
   );
@@ -644,7 +668,7 @@ const EmployeeChat = () => {
   const persistThreadMessages = useCallback(async (conversationId, messages) => {
     let lastError = null;
 
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
       try {
         const response = await fetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}`, {
           method: 'PUT',
@@ -663,8 +687,8 @@ const EmployeeChat = () => {
         return;
       } catch (error) {
         lastError = error;
-        if (attempt === 0) {
-          await sleep(350);
+        if (attempt < 3) {
+          await sleep(450 + attempt * 350);
         }
       }
     }
@@ -925,14 +949,19 @@ const EmployeeChat = () => {
       attachments: attachmentDrafts
     };
 
+    const nextMessages = [...currentMessages, newMessage];
+
     try {
       forceScrollRef.current = true;
-      await persistThreadMessages(currentConversationId, [...currentMessages, newMessage]);
+      setThreads((prev) => ({ ...prev, [currentConversationId]: nextMessages }));
       setDraft('');
       setAttachmentDrafts([]);
       setReplyTo(null);
+      await persistThreadMessages(currentConversationId, nextMessages);
     } catch (error) {
-      notify(error.message || 'Не удалось отправить сообщение', 'Сообщение');
+      setThreads((prev) => ({ ...prev, [currentConversationId]: currentMessages }));
+      const isNetworkError = error?.message === 'Failed to fetch';
+      notify(isNetworkError ? 'Сервер временно недоступен. Сообщение не сохранено, попробуйте ещё раз.' : (error.message || 'Не удалось отправить сообщение'), 'Сообщение');
     }
   };
 
@@ -1692,25 +1721,28 @@ const EmployeeChat = () => {
                 </div>
 
                 <div className="composer-wrap" onDrop={handleAttachmentDrop} onDragOver={handleDragOver} onDragEnter={handleDragOver}>
-                  <div className="template-toolbar">
-                    <div className="template-row">
-                      {templateMessages.map((template) => (
-                        <span key={template} className="template-chip-wrap">
-                          <button type="button" onClick={() => appendToDraft(template)}>{template}</button>
-                          {customTemplates.includes(template) && <button type="button" className="template-remove" onClick={() => removeCustomTemplate(template)}>×</button>}
-                        </span>
-                      ))}
-                    </div>
-                    <div className="composer-extra-actions">
-                      <button type="button" onClick={addCustomTemplate}>+ Мой шаблон</button>
-                      <button type="button" onClick={() => setIsEmojiOpen((prev) => !prev)}>😊 Смайлы</button>
-                    </div>
-                    {isEmojiOpen && (
-                      <div className="emoji-picker">
-                        {QUICK_EMOJIS.map((emoji) => <button key={emoji} type="button" onClick={() => appendToDraft(emoji)}>{emoji}</button>)}
+                  <details className="template-toolbar template-menu">
+                    <summary>Шаблоны и смайлы</summary>
+                    <div className="template-menu-panel">
+                      <div className="template-row">
+                        {templateMessages.map((template) => (
+                          <span key={template} className="template-chip-wrap">
+                            <button type="button" onClick={() => appendToDraft(template)}>{template}</button>
+                            {customTemplates.includes(template) && <button type="button" className="template-remove" onClick={() => removeCustomTemplate(template)}>×</button>}
+                          </span>
+                        ))}
                       </div>
-                    )}
-                  </div>
+                      <div className="composer-extra-actions">
+                        <button type="button" onClick={addCustomTemplate}>+ Мой шаблон</button>
+                        <button type="button" onClick={() => setIsEmojiOpen((prev) => !prev)}>😊 Смайлы</button>
+                      </div>
+                      {isEmojiOpen && (
+                        <div className="emoji-picker">
+                          {QUICK_EMOJIS.map((emoji) => <button key={emoji} type="button" onClick={() => appendToDraft(emoji)}>{emoji}</button>)}
+                        </div>
+                      )}
+                    </div>
+                  </details>
 
                   {replyTo && <div className="reply-preview active-reply">Ответ на: {replyTo.sender}: {replyTo.text}<button type="button" onClick={() => setReplyTo(null)}>×</button></div>}
 

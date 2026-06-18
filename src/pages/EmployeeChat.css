@@ -627,7 +627,8 @@ button:disabled {
   gap: 8px;
 }
 
-.attachment-card-actions a {
+.attachment-card-actions a,
+.attachment-card-actions button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -639,6 +640,11 @@ button:disabled {
   text-decoration: none;
   font-size: 12px;
   font-weight: 700;
+  cursor: pointer;
+}
+
+.attachment-card-actions button {
+  font: inherit;
 }
 
 .employee-feed-attachment-card {
@@ -1541,4 +1547,51 @@ button:disabled {
 .message-row.mine .message-attachment-card {
   border-color: rgba(255, 255, 255, .28);
   background: rgba(255, 255, 255, .14);
+}
+
+
+/* Collapsed composer templates */
+.template-menu {
+  position: relative;
+  margin-bottom: 10px;
+}
+
+.template-menu summary {
+  width: max-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--chat-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .8);
+  color: var(--chat-ink);
+  font-size: 13px;
+  font-weight: 900;
+  list-style: none;
+  cursor: pointer;
+}
+
+.template-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.template-menu summary::after {
+  content: '▾';
+  color: var(--chat-muted);
+  font-size: 11px;
+}
+
+.template-menu[open] summary::after {
+  content: '▴';
+}
+
+.template-menu-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-md);
+  background: rgba(255, 255, 255, .72);
 }
