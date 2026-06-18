@@ -256,7 +256,7 @@ router.post('/feed/posts', async (req, res) => {
     }
 
     const posts = await mutateFeed((items) => [post, ...items]);
-    res.status(201).json({ message: 'Публикация создана', post, posts });
+    res.status(201).json({ message: 'Публикация создана', post });
   } catch (error) {
     console.error('Chat POST /feed/posts error:', error);
     res.status(500).json({ message: 'Не удалось создать публикацию' });
@@ -449,7 +449,7 @@ router.post('/threads/:conversationId/messages', async (req, res) => {
       : [...currentMessages, message];
 
     await writeThreads(threads);
-    res.status(exists ? 200 : 201).json({ message: exists ? 'Сообщение обновлено' : 'Сообщение добавлено', threads, item: message });
+    res.status(exists ? 200 : 201).json({ message: exists ? 'Сообщение обновлено' : 'Сообщение добавлено', conversationId, item: message });
   } catch (error) {
     console.error('Chat POST /threads/messages error:', error);
     res.status(500).json({ message: 'Не удалось сохранить сообщение' });
@@ -482,7 +482,7 @@ router.patch('/threads/:conversationId/messages/:messageId', async (req, res) =>
     if (!found) return res.status(404).json({ message: 'Сообщение не найдено' });
 
     await writeThreads(threads);
-    res.json({ message: 'Сообщение обновлено', threads, item: threads[conversationId].find((item) => item.id === messageId) });
+    res.json({ message: 'Сообщение обновлено', conversationId, item: threads[conversationId].find((item) => item.id === messageId) });
   } catch (error) {
     console.error('Chat PATCH /threads/messages error:', error);
     res.status(500).json({ message: 'Не удалось обновить сообщение' });
