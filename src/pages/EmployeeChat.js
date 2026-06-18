@@ -422,6 +422,7 @@ const EmployeeChat = () => {
   const modalResolverRef = useRef(null);
   const messagesWrapRef = useRef(null);
   const forceScrollRef = useRef(false);
+  const suppressThreadsRefreshUntilRef = useRef(0);
 
   const openModal = useCallback((config) => new Promise((resolve) => {
     modalResolverRef.current = resolve;
@@ -609,10 +610,13 @@ const EmployeeChat = () => {
   }, [directoryEmployees, user.username]);
 
   const fetchThreads = useCallback(async () => {
+    if (Date.now() < suppressThreadsRefreshUntilRef.current) return;
+
     try {
       const response = await fetch(`${API_BASE_URL}/chat/threads`);
       if (!response.ok) return;
       const data = await response.json();
+      if (Date.now() < suppressThreadsRefreshUntilRef.current) return;
       setThreads(data?.threads && typeof data.threads === 'object' ? data.threads : {});
     } catch (error) {
       console.error('Ошибка загрузки переписки:', error);
@@ -974,6 +978,7 @@ const EmployeeChat = () => {
 
     try {
       forceScrollRef.current = true;
+      suppressThreadsRefreshUntilRef.current = Date.now() + 8000;
       setThreads((prev) => ({ ...prev, [currentConversationId]: nextMessages }));
       setDraft('');
       setAttachmentDrafts([]);
@@ -981,6 +986,7 @@ const EmployeeChat = () => {
       await persistNewMessage(currentConversationId, newMessage);
     } catch (error) {
       setThreads((prev) => ({ ...prev, [currentConversationId]: currentMessages }));
+      suppressThreadsRefreshUntilRef.current = Date.now();
       const isNetworkError = error?.message === 'Failed to fetch';
       notify(isNetworkError ? 'Сервер временно недоступен. Сообщение не сохранено, попробуйте ещё раз.' : (error.message || 'Не удалось отправить сообщение'), 'Сообщение');
     }
@@ -1198,12 +1204,14 @@ const EmployeeChat = () => {
     if (!targetConversationId) return;
     const previousMessages = threads[targetConversationId] || [];
     const nextMessages = previousMessages.map((item) => (item.id === messageId ? updater(item) : item));
+    suppressThreadsRefreshUntilRef.current = Date.now() + 8000;
     setThreads((prev) => ({ ...prev, [targetConversationId]: nextMessages }));
 
     try {
       await persistMessagePatch(targetConversationId, messageId, nextMessages.find((item) => item.id === messageId));
     } catch (error) {
       setThreads((prev) => ({ ...prev, [targetConversationId]: previousMessages }));
+      suppressThreadsRefreshUntilRef.current = Date.now();
       const isNetworkError = error?.message === 'Failed to fetch';
       throw new Error(isNetworkError ? 'Сервер временно недоступен. Изменение не сохранено, попробуйте ещё раз.' : (error.message || 'Не удалось сохранить изменение'));
     }
@@ -1496,7 +1504,9 @@ const EmployeeChat = () => {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось добавить комментарий');
-      setFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts);
+      setFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts.map((post) => (
+        post.id === postId ? { ...post, comments: [...(post.comments || []), data.comment].filter(Boolean), updatedAt: new Date().toISOString() } : post
+      )));
       setCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
     } catch (error) {
       notify(error.message || 'Не удалось добавить комментарий', 'Лента');
@@ -1516,7 +1526,9 @@ const EmployeeChat = () => {
       const response = await fetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}?deletedBy=${encodeURIComponent(user?.username || 'employee')}`, { method: 'DELETE' });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось удалить публикацию');
-      setFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts.map((item) => (item.id === postId ? { ...item, deletedAt: new Date().toISOString(), deletedBy: user?.username } : item)));
+      setFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts.map((item) => (
+        item.id === postId ? { ...item, deletedAt: data.deletedAt || new Date().toISOString(), deletedBy: data.deletedBy || user?.username } : item
+      )));
     } catch (error) {
       notify(error.message || 'Не удалось удалить публикацию', 'Лента');
     }
@@ -1534,7 +1546,16 @@ const EmployeeChat = () => {
       const response = await fetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}?deletedBy=${encodeURIComponent(user?.username || 'employee')}`, { method: 'DELETE' });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось удалить комментарий');
-      setFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts);
+      setFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts.map((item) => (
+        item.id === postId
+          ? {
+            ...item,
+            comments: (item.comments || []).map((row) => (
+              row.id === commentId ? { ...row, deletedAt: data.deletedAt || new Date().toISOString(), deletedBy: data.deletedBy || user?.username } : row
+            ))
+          }
+          : item
+      )));
     } catch (error) {
       notify(error.message || 'Не удалось удалить комментарий', 'Лента');
     }
