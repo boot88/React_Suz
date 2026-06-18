@@ -499,7 +499,7 @@ const EmployeeChat = () => {
   const selectedThreadMessages = selectedThreadId ? (threads[selectedThreadId] || []) : [];
 
   const pinnedMessages = useMemo(
-    () => currentMessages.filter((message) => message.pinned),
+    () => currentMessages.filter((message) => message.pinned && !message.deletedAt),
     [currentMessages]
   );
 
@@ -1175,8 +1175,17 @@ const EmployeeChat = () => {
 
   const updateMessage = async (messageId, updater, targetConversationId = currentConversationId) => {
     if (!targetConversationId) return;
-    const nextMessages = (threads[targetConversationId] || []).map((item) => (item.id === messageId ? updater(item) : item));
-    await persistThreadMessages(targetConversationId, nextMessages);
+    const previousMessages = threads[targetConversationId] || [];
+    const nextMessages = previousMessages.map((item) => (item.id === messageId ? updater(item) : item));
+    setThreads((prev) => ({ ...prev, [targetConversationId]: nextMessages }));
+
+    try {
+      await persistThreadMessages(targetConversationId, nextMessages);
+    } catch (error) {
+      setThreads((prev) => ({ ...prev, [targetConversationId]: previousMessages }));
+      const isNetworkError = error?.message === 'Failed to fetch';
+      throw new Error(isNetworkError ? 'Сервер временно недоступен. Изменение не сохранено, попробуйте ещё раз.' : (error.message || 'Не удалось сохранить изменение'));
+    }
   };
 
   const toggleReaction = async (messageId, emoji, targetConversationId = currentConversationId) => {
@@ -1376,16 +1385,17 @@ const EmployeeChat = () => {
   const activeContact = chatCandidates.find((item) => item.email === selectedEmail);
   void clockTick;
   const normalizedDialogSearch = normalizeText(dialogSearch);
-  const visibleMessages = useMemo(() => (
-    normalizedDialogSearch
-      ? currentMessages.filter((message) => [
-        message.text,
-        message.sender,
-        message.attachment?.name,
-        ...(message.attachments || []).map((item) => item.name)
-      ].some((value) => normalizeText(value).includes(normalizedDialogSearch)))
-      : currentMessages
-  ), [currentMessages, normalizedDialogSearch]);
+  const visibleMessages = useMemo(() => {
+    const notDeletedMessages = currentMessages.filter((message) => !message.deletedAt);
+    if (!normalizedDialogSearch) return notDeletedMessages;
+
+    return notDeletedMessages.filter((message) => [
+      message.text,
+      message.sender,
+      message.attachment?.name,
+      ...(message.attachments || []).map((item) => item.name)
+    ].some((value) => normalizeText(value).includes(normalizedDialogSearch)));
+  }, [currentMessages, normalizedDialogSearch]);
   const messagesWithDateSeparators = useMemo(() => {
     let lastDateKey = '';
     return visibleMessages.flatMap((message) => {
