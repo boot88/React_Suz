@@ -1574,7 +1574,6 @@ const EmployeeChat = () => {
         </div>
 
         <div className="employee-chat-actions">
-          <button className="clear-btn" onClick={clearConversation} disabled={!selectedEmail}>Удалить переписку</button>
           {!isAdmin && <button className="logout-btn" onClick={handleLogout}>Выход</button>}
         </div>
       </aside>
@@ -1598,6 +1597,12 @@ const EmployeeChat = () => {
                   <div className="conversation-tools">
                     <input value={dialogSearch} onChange={(e) => setDialogSearch(e.target.value)} placeholder="Поиск в диалоге..." />
                     <button type="button" onClick={() => { openProfileCard(selectedEmail); setActiveTab('profile'); }}>Профиль</button>
+                    <details className="conversation-menu">
+                      <summary aria-label="Действия с диалогом">⋯</summary>
+                      <div className="conversation-menu-popover">
+                        <button type="button" className="danger-action" onClick={clearConversation}>Удалить переписку</button>
+                      </div>
+                    </details>
                   </div>
                 </header>
 
@@ -1647,21 +1652,38 @@ const EmployeeChat = () => {
                           {message.audit?.length > 0 && <small className="read-state">журнал: {message.audit.length}</small>}
                           {isMine && <small className="read-state">{isRead ? 'прочитано' : 'доставлено'}</small>}
 
-                          <div className="reaction-row">
-                            {REACTION_EMOJIS.map((emoji) => {
-                              const count = message.reactions?.[emoji]?.length || 0;
-                              const active = (message.reactions?.[emoji] || []).includes(user.username);
-                              return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => toggleReaction(message.id, emoji)}>{emoji} {count > 0 ? count : ''}</button>;
-                            })}
-                          </div>
-
-                          <div className="message-controls">
-                            {!isDeleted && <button type="button" onClick={() => setReplyTo(message)}>↩️ Ответить</button>}
-                            {!isDeleted && <button type="button" onClick={() => copyMessageText(message)}>📋 Копировать</button>}
-                            {!isDeleted && <button type="button" onClick={() => createRequestFromMessage(message)}>🧾 В заявку</button>}
-                            <button type="button" onClick={() => togglePinned(message.id)}>{message.pinned ? '📌 Открепить' : '📌 Закрепить'}</button>
-                            {canEdit && !isDeleted && <button type="button" onClick={() => editMessage(message.id)}>✏️ Изменить</button>}
-                            {canEdit && !isDeleted && <button type="button" onClick={() => deleteMessage(message.id)}>🗑️ Удалить</button>}
+                          <div className="message-toolbar">
+                            <div className="reaction-summary" aria-label="Реакции к сообщению">
+                              {REACTION_EMOJIS.map((emoji) => {
+                                const count = message.reactions?.[emoji]?.length || 0;
+                                if (!count) return null;
+                                const active = (message.reactions?.[emoji] || []).includes(user.username);
+                                return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => toggleReaction(message.id, emoji)} title="Убрать реакцию">{emoji}<span>{count}</span></button>;
+                              })}
+                            </div>
+                            {!isDeleted && (
+                              <details className="message-reaction-menu">
+                                <summary aria-label="Добавить реакцию">😊</summary>
+                                <div className="reaction-row compact-popover">
+                                  {REACTION_EMOJIS.map((emoji) => {
+                                    const count = message.reactions?.[emoji]?.length || 0;
+                                    const active = (message.reactions?.[emoji] || []).includes(user.username);
+                                    return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => toggleReaction(message.id, emoji)}>{emoji} {count > 0 ? count : ''}</button>;
+                                  })}
+                                </div>
+                              </details>
+                            )}
+                            <details className="message-actions-menu">
+                              <summary aria-label="Действия с сообщением">⋯</summary>
+                              <div className="message-controls compact-popover">
+                                {!isDeleted && <button type="button" onClick={() => setReplyTo(message)}>↩️ Ответить</button>}
+                                {!isDeleted && <button type="button" onClick={() => copyMessageText(message)}>📋 Копировать</button>}
+                                {!isDeleted && <button type="button" onClick={() => createRequestFromMessage(message)}>🧾 В заявку</button>}
+                                <button type="button" onClick={() => togglePinned(message.id)}>{message.pinned ? '📌 Открепить' : '📌 Закрепить'}</button>
+                                {canEdit && !isDeleted && <button type="button" onClick={() => editMessage(message.id)}>✏️ Изменить</button>}
+                                {canEdit && !isDeleted && <button type="button" className="danger-action" onClick={() => deleteMessage(message.id)}>🗑️ Удалить</button>}
+                              </div>
+                            </details>
                           </div>
                         </div>
                       </div>
