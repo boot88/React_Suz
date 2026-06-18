@@ -200,6 +200,24 @@ const processAvatar = (file) => new Promise((resolve, reject) => {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const fetchJsonWithRetry = async (url, options = {}, { attempts = 4, retryDelay = 450, fallbackMessage = 'Ошибка сети' } = {}) => {
+  let lastError = null;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const response = await fetch(url, options);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || data.error || fallbackMessage);
+      return data;
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts - 1) await sleep(retryDelay + attempt * 350);
+    }
+  }
+
+  throw lastError || new Error(fallbackMessage);
+};
+
 const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => resolve(String(reader.result || ''));
@@ -622,10 +640,8 @@ const EmployeeChat = () => {
         notify(message, 'Лента');
         return;
       }
-      setFeedPosts((currentPosts) => {
-        if (currentPosts.length === 0) setFeedError(message);
-        return currentPosts;
-      });
+      // Silent background polling should not leave a scary banner on first page load.
+      // The manual refresh button still shows an inline error through the !silent branch above.
     }
   }, [notify]);
 
@@ -666,34 +682,39 @@ const EmployeeChat = () => {
   }, []);
 
   const persistThreadMessages = useCallback(async (conversationId, messages) => {
-    let lastError = null;
+    const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages })
+    }, { fallbackMessage: 'Не удалось сохранить сообщение' });
 
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      try {
-        const response = await fetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages })
-        });
-
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(data.message || 'Не удалось сохранить сообщение');
-        }
-
-        if (data?.threads && typeof data.threads === 'object') {
-          setThreads(data.threads);
-        }
-        return;
-      } catch (error) {
-        lastError = error;
-        if (attempt < 3) {
-          await sleep(450 + attempt * 350);
-        }
-      }
+    if (data?.threads && typeof data.threads === 'object') {
+      setThreads(data.threads);
     }
+  }, []);
 
-    throw lastError || new Error('Не удалось сохранить сообщение');
+  const persistNewMessage = useCallback(async (conversationId, message) => {
+    const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message })
+    }, { fallbackMessage: 'Не удалось сохранить сообщение' });
+
+    if (data?.threads && typeof data.threads === 'object') {
+      setThreads(data.threads);
+    }
+  }, []);
+
+  const persistMessagePatch = useCallback(async (conversationId, messageId, message) => {
+    const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message })
+    }, { fallbackMessage: 'Не удалось сохранить изменение' });
+
+    if (data?.threads && typeof data.threads === 'object') {
+      setThreads(data.threads);
+    }
   }, []);
 
   useEffect(() => {
@@ -957,7 +978,7 @@ const EmployeeChat = () => {
       setDraft('');
       setAttachmentDrafts([]);
       setReplyTo(null);
-      await persistThreadMessages(currentConversationId, nextMessages);
+      await persistNewMessage(currentConversationId, newMessage);
     } catch (error) {
       setThreads((prev) => ({ ...prev, [currentConversationId]: currentMessages }));
       const isNetworkError = error?.message === 'Failed to fetch';
@@ -1180,7 +1201,7 @@ const EmployeeChat = () => {
     setThreads((prev) => ({ ...prev, [targetConversationId]: nextMessages }));
 
     try {
-      await persistThreadMessages(targetConversationId, nextMessages);
+      await persistMessagePatch(targetConversationId, messageId, nextMessages.find((item) => item.id === messageId));
     } catch (error) {
       setThreads((prev) => ({ ...prev, [targetConversationId]: previousMessages }));
       const isNetworkError = error?.message === 'Failed to fetch';
@@ -1428,7 +1449,7 @@ const EmployeeChat = () => {
     if (!feedDraft.trim() && !feedAttachment) return;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/feed/posts`, {
+      const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1438,14 +1459,13 @@ const EmployeeChat = () => {
           attachment: feedAttachment,
           category: 'Объявление'
         })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || 'Не удалось опубликовать запись');
+      }, { fallbackMessage: 'Не удалось опубликовать запись' });
       setFeedPosts(Array.isArray(data?.posts) ? data.posts : [data.post, ...feedPosts].filter(Boolean));
       setFeedDraft('');
       setFeedAttachment(null);
     } catch (error) {
-      notify(error.message || 'Не удалось опубликовать запись', 'Лента');
+      const isNetworkError = error?.message === 'Failed to fetch';
+      notify(isNetworkError ? 'Сервер временно недоступен. Запись не опубликована, попробуйте ещё раз.' : (error.message || 'Не удалось опубликовать запись'), 'Лента');
     }
   };
 

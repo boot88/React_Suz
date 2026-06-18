@@ -427,6 +427,68 @@ router.get('/threads/stream', async (req, res) => {
   }
 });
 
+
+router.post('/threads/:conversationId/messages', async (req, res) => {
+  try {
+    const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
+    const message = req.body?.message;
+
+    if (!conversationId) {
+      return res.status(400).json({ message: 'conversationId обязателен' });
+    }
+
+    if (!message || typeof message !== 'object' || !message.id) {
+      return res.status(400).json({ message: 'message обязателен' });
+    }
+
+    const threads = await readThreads();
+    const currentMessages = Array.isArray(threads[conversationId]) ? threads[conversationId] : [];
+    const exists = currentMessages.some((item) => item.id === message.id);
+    threads[conversationId] = exists
+      ? currentMessages.map((item) => (item.id === message.id ? { ...item, ...message } : item))
+      : [...currentMessages, message];
+
+    await writeThreads(threads);
+    res.status(exists ? 200 : 201).json({ message: exists ? 'Сообщение обновлено' : 'Сообщение добавлено', threads, item: message });
+  } catch (error) {
+    console.error('Chat POST /threads/messages error:', error);
+    res.status(500).json({ message: 'Не удалось сохранить сообщение' });
+  }
+});
+
+router.patch('/threads/:conversationId/messages/:messageId', async (req, res) => {
+  try {
+    const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
+    const messageId = decodeURIComponent(req.params.messageId || '').trim();
+    const patch = req.body?.message && typeof req.body.message === 'object' ? req.body.message : req.body?.patch;
+
+    if (!conversationId || !messageId) {
+      return res.status(400).json({ message: 'conversationId и messageId обязательны' });
+    }
+
+    if (!patch || typeof patch !== 'object') {
+      return res.status(400).json({ message: 'message или patch обязателен' });
+    }
+
+    const threads = await readThreads();
+    const currentMessages = Array.isArray(threads[conversationId]) ? threads[conversationId] : [];
+    let found = false;
+    threads[conversationId] = currentMessages.map((item) => {
+      if (item.id !== messageId) return item;
+      found = true;
+      return { ...item, ...patch, id: item.id };
+    });
+
+    if (!found) return res.status(404).json({ message: 'Сообщение не найдено' });
+
+    await writeThreads(threads);
+    res.json({ message: 'Сообщение обновлено', threads, item: threads[conversationId].find((item) => item.id === messageId) });
+  } catch (error) {
+    console.error('Chat PATCH /threads/messages error:', error);
+    res.status(500).json({ message: 'Не удалось обновить сообщение' });
+  }
+});
+
 router.put('/threads/:conversationId', async (req, res) => {
   try {
     const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
