@@ -387,6 +387,7 @@ const EmployeeChat = () => {
   const [selectedMessageId, setSelectedMessageId] = useState('');
   const [messageReactionExpanded, setMessageReactionExpanded] = useState(false);
   const [forwardSourceMessage, setForwardSourceMessage] = useState(null);
+  const [forwardingTargetEmail, setForwardingTargetEmail] = useState('');
   const [readState, setReadState] = useState(() => readReadState(user?.username || 'guest'));
   const [feedReadAt, setFeedReadAt] = useState(() => readFeedReadAt(user?.username || 'guest'));
   const [directoryEmployees, setDirectoryEmployees] = useState(() => readDirectoryCache());
@@ -1341,14 +1342,15 @@ const EmployeeChat = () => {
   };
 
   const forwardMessageToContact = async (targetEmail) => {
-    if (!forwardSourceMessage || !targetEmail) return;
+    if (!forwardSourceMessage || !targetEmail || forwardingTargetEmail) return;
 
+    const sourceMessage = forwardSourceMessage;
     const targetConversationId = getConversationId(user.username, targetEmail);
     const previousMessages = threads[targetConversationId] || [];
-    const attachments = forwardSourceMessage.attachments?.length
-      ? forwardSourceMessage.attachments
-      : forwardSourceMessage.attachment ? [forwardSourceMessage.attachment] : [];
-    const forwardedText = String(forwardSourceMessage.text || '').trim();
+    const attachments = sourceMessage.attachments?.length
+      ? sourceMessage.attachments
+      : sourceMessage.attachment ? [sourceMessage.attachment] : [];
+    const forwardedText = String(sourceMessage.text || '').trim();
     const newMessage = {
       id: createMessageId(),
       sender: user.username,
@@ -1363,23 +1365,23 @@ const EmployeeChat = () => {
     };
     const nextMessages = [...previousMessages, newMessage];
 
+    setForwardingTargetEmail(targetEmail);
+    setForwardSourceMessage(null);
     suppressThreadsRefreshUntilRef.current = Date.now() + 8000;
     setThreads((prev) => ({ ...prev, [targetConversationId]: nextMessages }));
+    notify('Сообщение переслано', 'Переслать');
 
     try {
       await persistNewMessage(targetConversationId, newMessage);
-      setForwardSourceMessage(null);
-      notify('Сообщение переслано', 'Переслать');
     } catch (error) {
       const isNetworkError = error?.message === 'Failed to fetch';
       if (!isNetworkError) {
         setThreads((prev) => ({ ...prev, [targetConversationId]: previousMessages }));
         suppressThreadsRefreshUntilRef.current = Date.now();
         notify(error.message || 'Не удалось переслать сообщение', 'Переслать');
-        return;
       }
-      setForwardSourceMessage(null);
-      notify('Сообщение отправлено, синхронизация завершится автоматически', 'Переслать');
+    } finally {
+      setForwardingTargetEmail('');
     }
   };
 
@@ -2066,7 +2068,12 @@ const EmployeeChat = () => {
             <div className="forward-contact-list">
               {chatCandidates.length === 0 && <div className="empty-mini">Нет доступных получателей</div>}
               {chatCandidates.map((employee) => (
-                <button key={`forward-${employee.email}`} type="button" onClick={() => forwardMessageToContact(employee.email)}>
+                <button
+                  key={`forward-${employee.email}`}
+                  type="button"
+                  disabled={Boolean(forwardingTargetEmail)}
+                  onClick={() => forwardMessageToContact(employee.email)}
+                >
                   <span className="contact-avatar small">{(employee.profile?.full_name || employee.email).slice(0, 1).toUpperCase()}</span>
                   <span>
                     <strong>{employee.profile?.full_name || employee.email}</strong>
