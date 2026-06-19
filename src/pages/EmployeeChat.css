@@ -1595,3 +1595,103 @@ button:disabled {
   border-radius: var(--chat-radius-md);
   background: rgba(255, 255, 255, .72);
 }
+
+/* Telegram-like selected message actions */
+.message-row {
+  position: relative;
+}
+
+.message-bubble {
+  display: block;
+  border: 1px solid var(--chat-border);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.message-row.selected .message-bubble {
+  outline: 2px solid rgba(37, 99, 235, .28);
+  box-shadow: 0 18px 42px rgba(37, 99, 235, .16);
+}
+
+.message-status-line {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 16px;
+  margin-top: 5px;
+  font-weight: 900;
+  letter-spacing: .02em;
+}
+
+.selected-message-menu {
+  position: absolute;
+  left: 12px;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  width: min(520px, calc(100vw - 52px));
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--chat-border);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .98);
+  color: var(--chat-ink);
+  box-shadow: 0 26px 60px rgba(20, 28, 40, .22);
+}
+
+.selected-message-menu.mine {
+  right: 12px;
+  left: auto;
+}
+
+.selected-reaction-row,
+.selected-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.selected-reaction-row {
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(67, 52, 34, .12);
+}
+
+.selected-reaction-row button,
+.selected-actions-row button {
+  border: 1px solid rgba(67, 52, 34, .14);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--chat-ink);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.selected-reaction-row button {
+  min-width: 38px;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 8px;
+  font-size: 18px;
+}
+
+.selected-reaction-row button.active {
+  border-color: rgba(37, 99, 235, .38);
+  background: rgba(37, 99, 235, .12);
+}
+
+.selected-reaction-row button span {
+  font-size: 10px;
+}
+
+.selected-reaction-row .more-reactions {
+  font-size: 20px;
+}
+
+.selected-actions-row button {
+  padding: 8px 11px;
+  font-size: 13px;
+}

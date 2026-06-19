@@ -384,6 +384,8 @@ const EmployeeChat = () => {
   const [customTemplates, setCustomTemplates] = useState(() => readCustomTemplates(user?.username || 'guest'));
   
   const [replyTo, setReplyTo] = useState(null);
+  const [selectedMessageId, setSelectedMessageId] = useState('');
+  const [messageReactionExpanded, setMessageReactionExpanded] = useState(false);
   const [readState, setReadState] = useState(() => readReadState(user?.username || 'guest'));
   const [feedReadAt, setFeedReadAt] = useState(() => readFeedReadAt(user?.username || 'guest'));
   const [directoryEmployees, setDirectoryEmployees] = useState(() => readDirectoryCache());
@@ -1295,18 +1297,13 @@ const EmployeeChat = () => {
     }
   };
 
-  const createRequestFromMessage = (message) => {
-    if (isManager) {
-      notify('Администратор принимает заявки, поэтому подача заявки из чата скрыта.', 'Заявка');
-      return;
-    }
-
-    setRequestText(message.text || '');
-    setRequestCategory('Другое');
-    setRequestPriority('Важный');
-    setRequestStatus({ state: 'idle', text: 'Черновик из сообщения', ticketId: '' });
-    setActiveTab('request');
+  const forwardMessageToDraft = (message) => {
+    const text = String(message?.text || '').trim();
+    if (!text) return;
+    setDraft((prev) => (prev.trim() ? `${prev.trim()}\n${text}` : text));
+    notify('Текст добавлен в поле ввода', 'Переслать');
   };
+
 
   const clearConversation = async () => {
     if (!currentConversationId) return;
@@ -1705,7 +1702,15 @@ const EmployeeChat = () => {
                   </div>
                 )}
 
-                <div className="messages-wrap" ref={messagesWrapRef}>
+                <div
+                  className="messages-wrap"
+                  ref={messagesWrapRef}
+                  onClick={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    if (selectedMessageId && messageReactionExpanded) setMessageReactionExpanded(false);
+                    else if (selectedMessageId) setSelectedMessageId('');
+                  }}
+                >
                   {messagesWithDateSeparators.length === 0 && <div className="empty-chat">{dialogSearch ? 'По запросу ничего не найдено.' : 'Сообщений пока нет.'}</div>}
                   {messagesWithDateSeparators.map((item) => {
                     if (item.type === 'date') return <div key={item.id} className="date-separator"><span>{item.label}</span></div>;
@@ -1717,9 +1722,31 @@ const EmployeeChat = () => {
                     const isDeleted = Boolean(message.deletedAt);
                     const attachments = !isDeleted && message.attachments?.length ? message.attachments : !isDeleted && message.attachment ? [message.attachment] : [];
 
+                    const isSelected = selectedMessageId === message.id;
+                    const visibleReactions = messageReactionExpanded ? REACTION_EMOJIS : REACTION_EMOJIS.slice(0, 7);
+
                     return (
-                      <div key={message.id} className={`message-row ${isMine ? 'mine' : ''}`}>
-                        <div className="message-bubble">
+                      <div key={message.id} className={`message-row ${isMine ? 'mine' : ''} ${isSelected ? 'selected' : ''}`}>
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          className="message-bubble"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (isSelected && messageReactionExpanded) setMessageReactionExpanded(false);
+                            else {
+                              setSelectedMessageId(message.id);
+                              setMessageReactionExpanded(false);
+                            }
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key !== 'Enter' && event.key !== ' ') return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setSelectedMessageId(message.id);
+                            setMessageReactionExpanded(false);
+                          }}
+                        >
                           <div className="message-meta">
                             <span>{isMine ? 'Вы' : message.sender}</span>
                             <span>{new Date(message.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
@@ -1740,44 +1767,35 @@ const EmployeeChat = () => {
                             </div>
                           )}
 
-                          {message.editedAt && !isDeleted && <small className="read-state">изменено</small>}
-                          {message.audit?.length > 0 && <small className="read-state">журнал: {message.audit.length}</small>}
-                          {isMine && <small className="read-state">{isRead ? 'прочитано' : 'доставлено'}</small>}
-
-                          <div className="message-toolbar">
-                            <div className="reaction-summary" aria-label="Реакции к сообщению">
-                              {REACTION_EMOJIS.map((emoji) => {
-                                const count = message.reactions?.[emoji]?.length || 0;
-                                if (!count) return null;
-                                const active = (message.reactions?.[emoji] || []).includes(user.username);
-                                return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => toggleReaction(message.id, emoji)} title="Убрать реакцию">{emoji}<span>{count}</span></button>;
-                              })}
-                            </div>
-                            {!isDeleted && (
-                              <details className="message-reaction-menu">
-                                <summary aria-label="Добавить реакцию">😊</summary>
-                                <div className="reaction-row compact-popover">
-                                  {REACTION_EMOJIS.map((emoji) => {
-                                    const count = message.reactions?.[emoji]?.length || 0;
-                                    const active = (message.reactions?.[emoji] || []).includes(user.username);
-                                    return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => toggleReaction(message.id, emoji)}>{emoji} {count > 0 ? count : ''}</button>;
-                                  })}
-                                </div>
-                              </details>
-                            )}
-                            <details className="message-actions-menu">
-                              <summary aria-label="Действия с сообщением">⋯</summary>
-                              <div className="message-controls compact-popover">
-                                {!isDeleted && <button type="button" onClick={() => setReplyTo(message)}>↩️ Ответить</button>}
-                                {!isDeleted && <button type="button" onClick={() => copyMessageText(message)}>📋 Копировать</button>}
-                                {!isDeleted && <button type="button" onClick={() => createRequestFromMessage(message)}>🧾 В заявку</button>}
-                                <button type="button" onClick={() => togglePinned(message.id)}>{message.pinned ? '📌 Открепить' : '📌 Закрепить'}</button>
-                                {canEdit && !isDeleted && <button type="button" onClick={() => editMessage(message.id)}>✏️ Изменить</button>}
-                                {canEdit && !isDeleted && <button type="button" className="danger-action" onClick={() => deleteMessage(message.id)}>🗑️ Удалить</button>}
-                              </div>
-                            </details>
-                          </div>
+                          <small className="read-state message-status-line">
+                            {message.editedAt && !isDeleted ? 'изменено · ' : ''}
+                            {isMine ? (isRead ? '✓✓' : '✓') : ''}
+                          </small>
                         </div>
+
+                        {isSelected && !isDeleted && (
+                          <div className={`selected-message-menu ${isMine ? 'mine' : ''}`} onClick={(event) => event.stopPropagation()}>
+                            <div className="selected-reaction-row">
+                              {visibleReactions.map((emoji) => {
+                                const count = message.reactions?.[emoji]?.length || 0;
+                                const active = (message.reactions?.[emoji] || []).includes(user.username);
+                                return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => { toggleReaction(message.id, emoji); setSelectedMessageId(''); setMessageReactionExpanded(false); }}>{emoji}{count > 0 ? <span>{count}</span> : null}</button>;
+                              })}
+                              {!messageReactionExpanded && <button type="button" className="more-reactions" onClick={() => setMessageReactionExpanded(true)}>⌄</button>}
+                            </div>
+
+                            {!messageReactionExpanded && (
+                              <div className="selected-actions-row">
+                                <button type="button" onClick={() => { setReplyTo(message); setSelectedMessageId(''); }}>Ответить</button>
+                                <button type="button" onClick={() => { copyMessageText(message); setSelectedMessageId(''); }}>Копировать</button>
+                                <button type="button" onClick={() => { forwardMessageToDraft(message); setSelectedMessageId(''); }}>Переслать</button>
+                                <button type="button" onClick={() => { togglePinned(message.id); setSelectedMessageId(''); }}>{message.pinned ? 'Открепить' : 'Закрепить'}</button>
+                                {canEdit && <button type="button" onClick={() => { editMessage(message.id); setSelectedMessageId(''); }}>Изменить</button>}
+                                {canEdit && <button type="button" className="danger-action" onClick={() => { deleteMessage(message.id); setSelectedMessageId(''); }}>Удалить</button>}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
