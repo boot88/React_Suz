@@ -283,12 +283,21 @@ const openAttachmentInNewTab = (file = {}) => {
 };
 
 
-const AttachmentCard = ({ file, cardKey, variant = 'message' }) => {
+const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, metaLabel = '', statusLabel = '' }) => {
   const fileName = file?.name || 'Файл';
   const fileType = String(file?.type || '');
   const isImage = fileType.startsWith('image/');
   const isVideo = isVideoAttachment(file);
   const cardClassName = `${variant === 'feed' ? 'employee-feed-attachment-card' : 'message-attachment-card'} ${isVideo ? 'video-attachment' : ''}`;
+
+  if (variant === 'message' && isImage) {
+    return (
+      <button key={cardKey} type="button" className="message-photo-card" onClick={onOpen} aria-label={`Открыть фото ${fileName}`}>
+        <img src={file.dataUrl} alt={fileName} />
+        {(metaLabel || statusLabel) && <span className="message-photo-meta">{metaLabel} {statusLabel}</span>}
+      </button>
+    );
+  }
 
   return (
     <div key={cardKey} className={cardClassName}>
@@ -301,11 +310,13 @@ const AttachmentCard = ({ file, cardKey, variant = 'message' }) => {
       ) : (
         <span className="file-icon">{getFileIcon(fileType)}</span>
       )}
-      <small>{fileName} · {formatFileSize(file?.size)}</small>
-      <div className="attachment-card-actions">
-        <a href={file.dataUrl} download={fileName}>Скачать</a>
-        <button type="button" onClick={() => openAttachmentInNewTab(file)}>Открыть</button>
-      </div>
+      {(variant !== 'message' || !isImage) && <small>{fileName} · {formatFileSize(file?.size)}</small>}
+      {(variant !== 'message' || !isImage) && (
+        <div className="attachment-card-actions">
+          <a href={file.dataUrl} download={fileName}>Скачать</a>
+          <button type="button" onClick={() => openAttachmentInNewTab(file)}>Открыть</button>
+        </div>
+      )}
     </div>
   );
 };
@@ -388,6 +399,7 @@ const EmployeeChat = () => {
   const [messageReactionExpanded, setMessageReactionExpanded] = useState(false);
   const [forwardSourceMessage, setForwardSourceMessage] = useState(null);
   const [forwardingTargetEmail, setForwardingTargetEmail] = useState('');
+  const [mediaViewer, setMediaViewer] = useState(null);
   const [readState, setReadState] = useState(() => readReadState(user?.username || 'guest'));
   const [feedReadAt, setFeedReadAt] = useState(() => readFeedReadAt(user?.username || 'guest'));
   const [directoryEmployees, setDirectoryEmployees] = useState(() => readDirectoryCache());
@@ -1341,6 +1353,32 @@ const EmployeeChat = () => {
     setMessageReactionExpanded(false);
   };
 
+  const openChatMediaViewer = (message, file, fileIndex) => {
+    if (!file?.dataUrl) return;
+    setMediaViewer({ message, file, fileIndex });
+    setSelectedMessageId('');
+    setMessageReactionExpanded(false);
+  };
+
+  const replyToViewedMedia = () => {
+    if (!mediaViewer?.message) return;
+    setReplyTo(mediaViewer.message);
+    setMediaViewer(null);
+  };
+
+  const shareViewedMedia = () => {
+    if (!mediaViewer?.message) return;
+    openForwardMessagePicker(mediaViewer.message);
+    setMediaViewer(null);
+  };
+
+  const deleteViewedMedia = async () => {
+    if (!mediaViewer?.message?.id) return;
+    const messageId = mediaViewer.message.id;
+    setMediaViewer(null);
+    await deleteMessage(messageId);
+  };
+
   const forwardMessageToContact = async (targetEmail) => {
     if (!forwardSourceMessage || !targetEmail || forwardingTargetEmail) return;
 
@@ -1808,6 +1846,10 @@ const EmployeeChat = () => {
                     const isRead = isMine && currentMessages.some((row) => row.sender !== user.username && new Date(row.createdAt) > new Date(message.createdAt));
                     const isDeleted = Boolean(message.deletedAt);
                     const attachments = !isDeleted && message.attachments?.length ? message.attachments : !isDeleted && message.attachment ? [message.attachment] : [];
+                    const hasTextContent = !isDeleted && String(message.text || '').trim() && message.text !== '📎 Вложения';
+                    const photoMetaLabel = new Date(message.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                    const statusLabel = isMine ? (isRead ? '✓✓' : '✓') : '';
+                    const isPhotoCollage = attachments.length > 1 && attachments.every((file) => String(file?.type || '').startsWith('image/'));
 
                     const isSelected = selectedMessageId === message.id;
                     const visibleReactions = messageReactionExpanded ? REACTION_EMOJIS : REACTION_EMOJIS.slice(0, 7);
@@ -1843,14 +1885,21 @@ const EmployeeChat = () => {
                           {message.replyTo && <div className="reply-preview">↪ {message.replyTo.sender}: {message.replyTo.text}</div>}
                           {isDeleted ? (
                             <div className="message-deleted">Сообщение удалено {message.deletedBy ? `· ${message.deletedBy}` : ''}</div>
-                          ) : (
+                          ) : hasTextContent ? (
                             <div className="message-text">{message.text}</div>
-                          )}
+                          ) : null}
 
                           {attachments.length > 0 && (
-                            <div className="message-attachments-grid">
+                            <div className={`message-attachments-grid ${isPhotoCollage ? 'photo-collage' : ''}`}>
                               {attachments.map((file, index) => (
-                                <AttachmentCard key={`${message.id}-file-${index}`} cardKey={`${message.id}-file-${index}`} file={file} />
+                                <AttachmentCard
+                                  key={`${message.id}-file-${index}`}
+                                  cardKey={`${message.id}-file-${index}`}
+                                  file={file}
+                                  metaLabel={photoMetaLabel}
+                                  statusLabel={statusLabel}
+                                  onOpen={() => openChatMediaViewer(message, file, index)}
+                                />
                               ))}
                             </div>
                           )}
@@ -1878,7 +1927,7 @@ const EmployeeChat = () => {
 
                           <small className="read-state message-status-line">
                             {message.editedAt && !isDeleted ? 'изменено · ' : ''}
-                            {isMine ? (isRead ? '✓✓' : '✓') : ''}
+                            {statusLabel}
                           </small>
                         </div>
 
@@ -2055,6 +2104,26 @@ const EmployeeChat = () => {
           <section className="manager-panel"><h2>Переписка сотрудников</h2><div className="audit-toolbar"><input type="search" placeholder="Поиск по участникам и тексту" value={auditSearch} onChange={(e) => setAuditSearch(e.target.value)} /><div className="audit-filter-row"><label><input type="checkbox" checked={auditFilters.showEmpty} onChange={(e) => setAuditFilters((prev) => ({ ...prev, showEmpty: e.target.checked }))} />Показывать пустые/архивные</label><label><input type="checkbox" checked={auditFilters.attachmentsOnly} onChange={(e) => setAuditFilters((prev) => ({ ...prev, attachmentsOnly: e.target.checked }))} />Только с вложениями</label><label><input type="checkbox" checked={auditFilters.deletedOnly} onChange={(e) => setAuditFilters((prev) => ({ ...prev, deletedOnly: e.target.checked }))} />Только удалённые</label></div><div className="audit-periods">{[['all', 'Все'], ['today', 'Сегодня'], ['week', 'Неделя'], ['month', 'Месяц']].map(([value, label]) => <button key={value} type="button" className={auditFilters.period === value ? 'active' : ''} onClick={() => setAuditFilters((prev) => ({ ...prev, period: value }))}>{label}</button>)}</div></div><div className="threads-grid"><div className="threads-list">{allConversationIds.length === 0 && <div className="empty-chat">Диалогов по фильтрам нет.</div>}{allConversationIds.map((threadId) => { const participants = getParticipantsFromThreadId(threadId); const meta = threadActivityById[threadId] || getThreadActivityMeta(threads[threadId] || []); return <button key={threadId} type="button" className={`thread-item ${selectedThreadId === threadId ? 'active' : ''}`} onClick={() => setSelectedThreadId(threadId)}><span className="thread-title">{participants.join(' ↔ ')}</span><span className="thread-stats"><b>{meta.messageCount}</b> сообщ. {meta.attachmentsCount > 0 ? ` · 📎 ${meta.attachmentsCount}` : ''}{meta.deletedCount > 0 ? ` · удалено ${meta.deletedCount}` : ''}</span><span className="thread-last">{meta.lastAt ? `последнее: ${new Date(meta.lastAt).toLocaleString('ru-RU')}` : 'без сообщений'}</span></button>; })}</div><div className="threads-messages">{!selectedThreadId && <div className="empty-chat">Выберите переписку.</div>}{selectedThreadId && selectedThreadMessages.map((message) => { const isDeleted = Boolean(message.deletedAt); const attachments = !isDeleted && message.attachments?.length ? message.attachments : !isDeleted && message.attachment ? [message.attachment] : []; return <div key={message.id} className={`audit-message ${isDeleted ? 'deleted' : ''}`}><div className="message-meta"><span>{message.sender}</span><span>{new Date(message.createdAt).toLocaleString('ru-RU')}</span></div><div>{isDeleted ? <em>Сообщение удалено</em> : message.text}</div>{isDeleted && <div className="audit-history">Удалил: {message.deletedBy || '—'} · {message.deletedAt ? new Date(message.deletedAt).toLocaleString('ru-RU') : '—'}</div>}{attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <AttachmentCard key={`${message.id}-audit-${index}`} cardKey={`${message.id}-audit-${index}`} file={file} />)}</div>}{Array.isArray(message.audit) && message.audit.length > 0 && <div className="audit-history"><strong>История:</strong>{message.audit.slice(-4).map((entry, index) => <span key={`${message.id}-audit-entry-${index}`}>{entry.action || 'изменение'} · {entry.by || '—'} · {entry.at ? new Date(entry.at).toLocaleString('ru-RU') : '—'}</span>)}</div>}<div className="message-controls"><button type="button" onClick={() => editMessage(message.id, selectedThreadId)}>Изменить</button><button type="button" onClick={() => deleteMessage(message.id, selectedThreadId)}>Удалить</button></div></div>; })}</div></div></section>
         )}
       </section>
+
+      {mediaViewer && (
+        <div className="photo-viewer-backdrop" onMouseDown={() => setMediaViewer(null)}>
+          <header className="photo-viewer-header" onMouseDown={(event) => event.stopPropagation()}>
+            <button type="button" className="photo-viewer-back" onClick={() => setMediaViewer(null)}>← Назад</button>
+            <details className="photo-viewer-menu">
+              <summary aria-label="Действия с фото">⋯</summary>
+              <div className="photo-viewer-menu-popover">
+                <a href={mediaViewer.file.dataUrl} download={mediaViewer.file.name || 'photo'}>Сохранить</a>
+                <button type="button" onClick={replyToViewedMedia}>Ответить</button>
+                <button type="button" onClick={shareViewedMedia}>Поделиться</button>
+                {(isManager || mediaViewer.message?.sender === user.username) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>Удалить</button>}
+              </div>
+            </details>
+          </header>
+          <div className="photo-viewer-stage" onMouseDown={(event) => event.stopPropagation()}>
+            <img src={mediaViewer.file.dataUrl} alt={mediaViewer.file.name || 'Фото'} />
+          </div>
+        </div>
+      )}
 
       {forwardSourceMessage && (
         <div className="app-modal-backdrop" onMouseDown={() => setForwardSourceMessage(null)}>
