@@ -1695,3 +1695,91 @@ button:disabled {
   padding: 8px 11px;
   font-size: 13px;
 }
+
+.message-reactions-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+  animation: reaction-pop .18s ease-out;
+}
+
+.message-reactions-inline button {
+  border: 1px solid rgba(37, 99, 235, .18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .92);
+  min-width: 30px;
+  min-height: 26px;
+  padding: 2px 8px;
+  font-size: 16px;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(20, 28, 40, .08);
+}
+
+.message-reactions-inline button.active {
+  border-color: rgba(37, 99, 235, .5);
+  background: rgba(37, 99, 235, .14);
+}
+
+@keyframes reaction-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.forward-picker-modal {
+  max-width: 560px;
+}
+
+.forward-source-preview {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  margin: 10px 0 14px;
+  border: 1px solid rgba(37, 99, 235, .14);
+  border-radius: 16px;
+  background: rgba(37, 99, 235, .07);
+}
+
+.forward-source-preview span {
+  color: var(--chat-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.forward-contact-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(420px, 55vh);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.forward-contact-list button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--chat-border);
+  border-radius: 16px;
+  background: #fff;
+  color: var(--chat-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.forward-contact-list button:hover {
+  border-color: rgba(37, 99, 235, .32);
+  background: rgba(37, 99, 235, .06);
+}
+
+.forward-contact-list small {
+  display: block;
+  color: var(--chat-muted);
+}

@@ -386,6 +386,7 @@ const EmployeeChat = () => {
   const [replyTo, setReplyTo] = useState(null);
   const [selectedMessageId, setSelectedMessageId] = useState('');
   const [messageReactionExpanded, setMessageReactionExpanded] = useState(false);
+  const [forwardSourceMessage, setForwardSourceMessage] = useState(null);
   const [readState, setReadState] = useState(() => readReadState(user?.username || 'guest'));
   const [feedReadAt, setFeedReadAt] = useState(() => readFeedReadAt(user?.username || 'guest'));
   const [directoryEmployees, setDirectoryEmployees] = useState(() => readDirectoryCache());
@@ -864,6 +865,11 @@ const EmployeeChat = () => {
   }, [selectedEmail]);
 
   useEffect(() => {
+    setSelectedMessageId('');
+    setMessageReactionExpanded(false);
+  }, [activeTab, selectedEmail]);
+
+  useEffect(() => {
     if (!currentConversationId) return;
     const latestIncoming = (threads[currentConversationId] || [])
       .filter((message) => message.sender !== user.username)
@@ -1289,19 +1295,92 @@ const EmployeeChat = () => {
   };
 
   const copyMessageText = async (message) => {
+    const text = String(message?.text || '').trim();
+    if (!text) {
+      notify('В сообщении нет текста для копирования', 'Копирование');
+      return;
+    }
+
+    const copyFallback = () => {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.top = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const copied = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      if (!copied) throw new Error('copy command failed');
+    };
+
     try {
-      await navigator.clipboard.writeText(message.text || '');
+      if (navigator.clipboard?.writeText && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        copyFallback();
+      }
       notify('Текст сообщения скопирован', 'Копирование');
     } catch {
-      notify('Не удалось скопировать текст', 'Копирование');
+      try {
+        copyFallback();
+        notify('Текст сообщения скопирован', 'Копирование');
+      } catch {
+        notify('Не удалось скопировать текст', 'Копирование');
+      }
     }
   };
 
-  const forwardMessageToDraft = (message) => {
-    const text = String(message?.text || '').trim();
-    if (!text) return;
-    setDraft((prev) => (prev.trim() ? `${prev.trim()}\n${text}` : text));
-    notify('Текст добавлен в поле ввода', 'Переслать');
+  const openForwardMessagePicker = (message) => {
+    if (!message || message.deletedAt) return;
+    setForwardSourceMessage(message);
+    setSelectedMessageId('');
+    setMessageReactionExpanded(false);
+  };
+
+  const forwardMessageToContact = async (targetEmail) => {
+    if (!forwardSourceMessage || !targetEmail) return;
+
+    const targetConversationId = getConversationId(user.username, targetEmail);
+    const previousMessages = threads[targetConversationId] || [];
+    const attachments = forwardSourceMessage.attachments?.length
+      ? forwardSourceMessage.attachments
+      : forwardSourceMessage.attachment ? [forwardSourceMessage.attachment] : [];
+    const forwardedText = String(forwardSourceMessage.text || '').trim();
+    const newMessage = {
+      id: createMessageId(),
+      sender: user.username,
+      text: forwardedText ? `↪ Переслано\n${forwardedText}` : '↪ Пересланное вложение',
+      createdAt: new Date().toISOString(),
+      editedAt: null,
+      reactions: {},
+      pinned: false,
+      replyTo: null,
+      attachment: attachments[0] || null,
+      attachments
+    };
+    const nextMessages = [...previousMessages, newMessage];
+
+    suppressThreadsRefreshUntilRef.current = Date.now() + 8000;
+    setThreads((prev) => ({ ...prev, [targetConversationId]: nextMessages }));
+
+    try {
+      await persistNewMessage(targetConversationId, newMessage);
+      setForwardSourceMessage(null);
+      notify('Сообщение переслано', 'Переслать');
+    } catch (error) {
+      const isNetworkError = error?.message === 'Failed to fetch';
+      if (!isNetworkError) {
+        setThreads((prev) => ({ ...prev, [targetConversationId]: previousMessages }));
+        suppressThreadsRefreshUntilRef.current = Date.now();
+        notify(error.message || 'Не удалось переслать сообщение', 'Переслать');
+        return;
+      }
+      setForwardSourceMessage(null);
+      notify('Сообщение отправлено, синхронизация завершится автоматически', 'Переслать');
+    }
   };
 
 
@@ -1669,7 +1748,13 @@ const EmployeeChat = () => {
 
       <section className="employee-chat-main">
         {activeTab === 'chat' && (
-          <div className="chat-workspace">
+          <div
+            className="chat-workspace"
+            onClick={() => {
+              if (selectedMessageId && messageReactionExpanded) setMessageReactionExpanded(false);
+              else if (selectedMessageId) setSelectedMessageId('');
+            }}
+          >
             {!selectedEmail ? (
               <div className="empty-chat">
                 <strong>Выберите диалог</strong>
@@ -1724,6 +1809,7 @@ const EmployeeChat = () => {
 
                     const isSelected = selectedMessageId === message.id;
                     const visibleReactions = messageReactionExpanded ? REACTION_EMOJIS : REACTION_EMOJIS.slice(0, 7);
+                    const messageReactionBadges = REACTION_EMOJIS.filter((emoji) => (message.reactions?.[emoji] || []).length > 0);
 
                     return (
                       <div key={message.id} className={`message-row ${isMine ? 'mine' : ''} ${isSelected ? 'selected' : ''}`}>
@@ -1767,6 +1853,27 @@ const EmployeeChat = () => {
                             </div>
                           )}
 
+                          {messageReactionBadges.length > 0 && (
+                            <div className="message-reactions-inline" aria-label="Реакции сообщения">
+                              {messageReactionBadges.map((emoji) => {
+                                const active = (message.reactions?.[emoji] || []).includes(user.username);
+                                return (
+                                  <button
+                                    key={emoji}
+                                    type="button"
+                                    className={active ? 'active' : ''}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      toggleReaction(message.id, emoji);
+                                    }}
+                                  >
+                                    {emoji}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+
                           <small className="read-state message-status-line">
                             {message.editedAt && !isDeleted ? 'изменено · ' : ''}
                             {isMine ? (isRead ? '✓✓' : '✓') : ''}
@@ -1777,9 +1884,8 @@ const EmployeeChat = () => {
                           <div className={`selected-message-menu ${isMine ? 'mine' : ''}`} onClick={(event) => event.stopPropagation()}>
                             <div className="selected-reaction-row">
                               {visibleReactions.map((emoji) => {
-                                const count = message.reactions?.[emoji]?.length || 0;
                                 const active = (message.reactions?.[emoji] || []).includes(user.username);
-                                return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => { toggleReaction(message.id, emoji); setSelectedMessageId(''); setMessageReactionExpanded(false); }}>{emoji}{count > 0 ? <span>{count}</span> : null}</button>;
+                                return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => { toggleReaction(message.id, emoji); setSelectedMessageId(''); setMessageReactionExpanded(false); }}>{emoji}</button>;
                               })}
                               {!messageReactionExpanded && <button type="button" className="more-reactions" onClick={() => setMessageReactionExpanded(true)}>⌄</button>}
                             </div>
@@ -1788,7 +1894,7 @@ const EmployeeChat = () => {
                               <div className="selected-actions-row">
                                 <button type="button" onClick={() => { setReplyTo(message); setSelectedMessageId(''); }}>Ответить</button>
                                 <button type="button" onClick={() => { copyMessageText(message); setSelectedMessageId(''); }}>Копировать</button>
-                                <button type="button" onClick={() => { forwardMessageToDraft(message); setSelectedMessageId(''); }}>Переслать</button>
+                                <button type="button" onClick={() => openForwardMessagePicker(message)}>Переслать</button>
                                 <button type="button" onClick={() => { togglePinned(message.id); setSelectedMessageId(''); }}>{message.pinned ? 'Открепить' : 'Закрепить'}</button>
                                 {canEdit && <button type="button" onClick={() => { editMessage(message.id); setSelectedMessageId(''); }}>Изменить</button>}
                                 {canEdit && <button type="button" className="danger-action" onClick={() => { deleteMessage(message.id); setSelectedMessageId(''); }}>Удалить</button>}
@@ -1947,6 +2053,34 @@ const EmployeeChat = () => {
           <section className="manager-panel"><h2>Переписка сотрудников</h2><div className="audit-toolbar"><input type="search" placeholder="Поиск по участникам и тексту" value={auditSearch} onChange={(e) => setAuditSearch(e.target.value)} /><div className="audit-filter-row"><label><input type="checkbox" checked={auditFilters.showEmpty} onChange={(e) => setAuditFilters((prev) => ({ ...prev, showEmpty: e.target.checked }))} />Показывать пустые/архивные</label><label><input type="checkbox" checked={auditFilters.attachmentsOnly} onChange={(e) => setAuditFilters((prev) => ({ ...prev, attachmentsOnly: e.target.checked }))} />Только с вложениями</label><label><input type="checkbox" checked={auditFilters.deletedOnly} onChange={(e) => setAuditFilters((prev) => ({ ...prev, deletedOnly: e.target.checked }))} />Только удалённые</label></div><div className="audit-periods">{[['all', 'Все'], ['today', 'Сегодня'], ['week', 'Неделя'], ['month', 'Месяц']].map(([value, label]) => <button key={value} type="button" className={auditFilters.period === value ? 'active' : ''} onClick={() => setAuditFilters((prev) => ({ ...prev, period: value }))}>{label}</button>)}</div></div><div className="threads-grid"><div className="threads-list">{allConversationIds.length === 0 && <div className="empty-chat">Диалогов по фильтрам нет.</div>}{allConversationIds.map((threadId) => { const participants = getParticipantsFromThreadId(threadId); const meta = threadActivityById[threadId] || getThreadActivityMeta(threads[threadId] || []); return <button key={threadId} type="button" className={`thread-item ${selectedThreadId === threadId ? 'active' : ''}`} onClick={() => setSelectedThreadId(threadId)}><span className="thread-title">{participants.join(' ↔ ')}</span><span className="thread-stats"><b>{meta.messageCount}</b> сообщ. {meta.attachmentsCount > 0 ? ` · 📎 ${meta.attachmentsCount}` : ''}{meta.deletedCount > 0 ? ` · удалено ${meta.deletedCount}` : ''}</span><span className="thread-last">{meta.lastAt ? `последнее: ${new Date(meta.lastAt).toLocaleString('ru-RU')}` : 'без сообщений'}</span></button>; })}</div><div className="threads-messages">{!selectedThreadId && <div className="empty-chat">Выберите переписку.</div>}{selectedThreadId && selectedThreadMessages.map((message) => { const isDeleted = Boolean(message.deletedAt); const attachments = !isDeleted && message.attachments?.length ? message.attachments : !isDeleted && message.attachment ? [message.attachment] : []; return <div key={message.id} className={`audit-message ${isDeleted ? 'deleted' : ''}`}><div className="message-meta"><span>{message.sender}</span><span>{new Date(message.createdAt).toLocaleString('ru-RU')}</span></div><div>{isDeleted ? <em>Сообщение удалено</em> : message.text}</div>{isDeleted && <div className="audit-history">Удалил: {message.deletedBy || '—'} · {message.deletedAt ? new Date(message.deletedAt).toLocaleString('ru-RU') : '—'}</div>}{attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <AttachmentCard key={`${message.id}-audit-${index}`} cardKey={`${message.id}-audit-${index}`} file={file} />)}</div>}{Array.isArray(message.audit) && message.audit.length > 0 && <div className="audit-history"><strong>История:</strong>{message.audit.slice(-4).map((entry, index) => <span key={`${message.id}-audit-entry-${index}`}>{entry.action || 'изменение'} · {entry.by || '—'} · {entry.at ? new Date(entry.at).toLocaleString('ru-RU') : '—'}</span>)}</div>}<div className="message-controls"><button type="button" onClick={() => editMessage(message.id, selectedThreadId)}>Изменить</button><button type="button" onClick={() => deleteMessage(message.id, selectedThreadId)}>Удалить</button></div></div>; })}</div></div></section>
         )}
       </section>
+
+      {forwardSourceMessage && (
+        <div className="app-modal-backdrop" onMouseDown={() => setForwardSourceMessage(null)}>
+          <div className="app-modal-card forward-picker-modal" onMouseDown={(event) => event.stopPropagation()}>
+            <h3>Переслать сообщение</h3>
+            <p>Выберите сотрудника или администратора, кому отправить копию сообщения.</p>
+            <div className="forward-source-preview">
+              <strong>{forwardSourceMessage.sender}</strong>
+              <span>{forwardSourceMessage.text || 'Вложение без текста'}</span>
+            </div>
+            <div className="forward-contact-list">
+              {chatCandidates.length === 0 && <div className="empty-mini">Нет доступных получателей</div>}
+              {chatCandidates.map((employee) => (
+                <button key={`forward-${employee.email}`} type="button" onClick={() => forwardMessageToContact(employee.email)}>
+                  <span className="contact-avatar small">{(employee.profile?.full_name || employee.email).slice(0, 1).toUpperCase()}</span>
+                  <span>
+                    <strong>{employee.profile?.full_name || employee.email}</strong>
+                    <small>{employee.email}</small>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="app-modal-actions">
+              <button type="button" onClick={() => setForwardSourceMessage(null)}>Отмена</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {avatarViewerOpen && (
         <div className="app-modal-backdrop" onMouseDown={() => setAvatarViewerOpen(false)}>
