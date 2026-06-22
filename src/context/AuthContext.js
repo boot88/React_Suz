@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback, createContext, useContext } from 'react';
-import { useInactivityTimer } from '../hooks/useInactivityTimer';
+import { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react';
 import { ADMIN_CREDENTIALS, MANAGER_CREDENTIALS, AUTH_STATE_KEY, LOCAL_EMPLOYEES_KEY } from '../config/authConfig';
 import { API_BASE_URL } from '../utils/apiConfig';
 
 const AuthContext = createContext();
 const SERVICE_PASSWORDS_KEY = 'serviceAccountPasswords';
+const AUTH_SESSION_TIMEOUT_MS = 15 * 60 * 1000;
+const AUTH_ACTIVITY_EVENTS = ['mousedown', 'keydown', 'mousemove', 'scroll', 'touchstart', 'click'];
 
 const getStoredEmployees = () => {
   try {
@@ -103,7 +104,10 @@ export const AuthProvider = ({ children }) => {
     });
   }, []);
 
-  const persistAuthState = (nextUser) => {
+  const sessionTimerRef = useRef(null);
+  const lastActivityWriteRef = useRef(0);
+
+  const persistAuthState = useCallback((nextUser, activityAt = Date.now()) => {
     if (!nextUser) {
       localStorage.removeItem(AUTH_STATE_KEY);
       return;
@@ -113,10 +117,19 @@ export const AuthProvider = ({ children }) => {
       AUTH_STATE_KEY,
       JSON.stringify({
         isAuthenticated: true,
-        user: nextUser
+        user: nextUser,
+        lastActivityAt: activityAt,
+        expiresAt: activityAt + AUTH_SESSION_TIMEOUT_MS
       })
     );
-  };
+  }, []);
+
+  const clearSessionTimer = useCallback(() => {
+    if (sessionTimerRef.current) {
+      clearTimeout(sessionTimerRef.current);
+      sessionTimerRef.current = null;
+    }
+  }, []);
 
   const login = async (identifier, password, options = {}) => {
     const loginValue = identifier.trim();
@@ -260,7 +273,7 @@ export const AuthProvider = ({ children }) => {
 
   const verifyEmployeeEmail = () => true;
 
-  const logout = () => {
+  const logout = useCallback(() => {
     if (user?.username) {
       if (user?.role === 'employee') {
         const nextEmployees = upsertEmployeeOnlineStatus(user.username, false);
@@ -269,12 +282,12 @@ export const AuthProvider = ({ children }) => {
       pushPresenceToServer({ login: user.username, isOnline: false, role: user.role || 'employee' });
     }
 
+    clearSessionTimer();
     setIsAuthenticated(false);
     setUser(null);
     persistAuthState(null);
-  };
+  }, [clearSessionTimer, mergeEmployeeDirectory, persistAuthState, user]);
 
-  useInactivityTimer(logout, 15 * 60 * 1000);
 
   useEffect(() => {
     const syncPresence = async () => {
@@ -351,15 +364,89 @@ export const AuthProvider = ({ children }) => {
     try {
       const savedState = JSON.parse(localStorage.getItem(AUTH_STATE_KEY) || 'null');
       if (savedState?.isAuthenticated && savedState?.user) {
-        setIsAuthenticated(true);
-        setUser(savedState.user);
+        const expiresAt = Number(savedState.expiresAt || 0);
+        if (expiresAt > Date.now()) {
+          setIsAuthenticated(true);
+          setUser(savedState.user);
+        } else {
+          localStorage.removeItem(AUTH_STATE_KEY);
+        }
       }
     } catch (error) {
       console.error('Ошибка при чтении состояния авторизации:', error);
+      localStorage.removeItem(AUTH_STATE_KEY);
     } finally {
       setIsLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated || !user) {
+      clearSessionTimer();
+      return undefined;
+    }
+
+    const expireSession = () => {
+      logout();
+    };
+
+    const scheduleExpiry = (expiresAt) => {
+      clearSessionTimer();
+      const delay = Math.max(0, Number(expiresAt || 0) - Date.now());
+      sessionTimerRef.current = setTimeout(expireSession, delay);
+    };
+
+    const readSavedState = () => {
+      try {
+        return JSON.parse(localStorage.getItem(AUTH_STATE_KEY) || 'null');
+      } catch {
+        return null;
+      }
+    };
+
+    const validateOrLogout = () => {
+      const savedState = readSavedState();
+      const expiresAt = Number(savedState?.expiresAt || 0);
+      if (!savedState?.isAuthenticated || !savedState?.user || expiresAt <= Date.now()) {
+        logout();
+        return false;
+      }
+      scheduleExpiry(expiresAt);
+      return true;
+    };
+
+    const recordActivity = () => {
+      const now = Date.now();
+      if (now - lastActivityWriteRef.current < 1000) return;
+      lastActivityWriteRef.current = now;
+      persistAuthState(user, now);
+      scheduleExpiry(now + AUTH_SESSION_TIMEOUT_MS);
+    };
+
+    const handleVisibilityOrFocus = () => {
+      if (validateOrLogout() && !document.hidden) recordActivity();
+    };
+
+    const handleStorage = (event) => {
+      if (event.key !== AUTH_STATE_KEY) return;
+      validateOrLogout();
+    };
+
+    if (!validateOrLogout()) return undefined;
+    recordActivity();
+    AUTH_ACTIVITY_EVENTS.forEach((eventName) => window.addEventListener(eventName, recordActivity, { passive: true }));
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      clearSessionTimer();
+      AUTH_ACTIVITY_EVENTS.forEach((eventName) => window.removeEventListener(eventName, recordActivity));
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, [clearSessionTimer, isAuthenticated, logout, persistAuthState, user]);
 
   useEffect(() => {
     if (!user?.username) return undefined;
