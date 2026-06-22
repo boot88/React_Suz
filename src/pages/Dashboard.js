@@ -341,17 +341,48 @@ const Dashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const formatDateInput = (date) => date.toISOString().slice(0, 10);
+
   const setFilterAndResetPage = (newFilter) => {
     setFilter(newFilter);
     setCurrentPage(1);
-    setSearchTerm('');
-    setDateFilterActive(false);
   };
 
   const applyFilters = () => {
     setCurrentPage(1);
+    setDateFilterActive(Boolean(fromDate || toDate));
+  };
+
+  const applyQuickDateRange = (range) => {
+    const today = new Date();
+    const start = new Date(today);
+
+    if (range === 'today') {
+      setFromDate(formatDateInput(today));
+      setToDate(formatDateInput(today));
+    }
+
+    if (range === 'week') {
+      start.setDate(today.getDate() - 6);
+      setFromDate(formatDateInput(start));
+      setToDate(formatDateInput(today));
+    }
+
+    if (range === 'month') {
+      start.setDate(today.getDate() - 29);
+      setFromDate(formatDateInput(start));
+      setToDate(formatDateInput(today));
+    }
+
     setDateFilterActive(true);
-    setSearchTerm('');
+    setCurrentPage(1);
+  };
+
+  const clearDateFilter = () => {
+    setFromDate('');
+    setToDate('');
+    setDateFilterActive(false);
+    setCurrentPage(1);
   };
 
   const clearFilters = () => {
@@ -362,6 +393,13 @@ const Dashboard = () => {
     setDateFilterActive(false);
     setSearchTerm('');
   };
+
+  const activeFilterChips = [
+    filter !== 'all' ? { key: 'status', label: WORKFLOW_FILTERS.find((item) => item.id === filter)?.label || 'Раздел', onRemove: () => setFilterAndResetPage('all') } : null,
+    dateFilterActive && fromDate ? { key: 'from', label: `с ${fromDate}`, onRemove: () => { setFromDate(''); setDateFilterActive(Boolean(toDate)); setCurrentPage(1); } } : null,
+    dateFilterActive && toDate ? { key: 'to', label: `по ${toDate}`, onRemove: () => { setToDate(''); setDateFilterActive(Boolean(fromDate)); setCurrentPage(1); } } : null,
+    searchTerm ? { key: 'search', label: `поиск: ${searchTerm}`, onRemove: clearSearch } : null
+  ].filter(Boolean);
 
   const getVisiblePages = () => {
     const visiblePages = 6;
@@ -550,11 +588,7 @@ const Dashboard = () => {
       <div className="stats-grid dashboard-stats-expanded">
         <div
           className={`stat-card ${filter === 'all' && !dateFilterActive && !searchTerm ? 'stat-active' : ''}`}
-          onClick={() => {
-            setFilterAndResetPage('all');
-            setFromDate('');
-            setToDate('');
-          }}
+          onClick={clearFilters}
         >
           <span className="stat-label">📊 Всего заявок</span>
           <div className="stat-number">{stats.total}</div>
@@ -563,7 +597,7 @@ const Dashboard = () => {
         {statCards.map((card) => (
           <div
             key={card.id}
-            className={`stat-card ${card.tone === 'danger' ? 'stat-danger' : ''} ${filter === card.id && !dateFilterActive && !searchTerm ? 'stat-active' : ''}`}
+            className={`stat-card ${card.tone === 'danger' ? 'stat-danger' : ''} ${filter === card.id ? 'stat-active' : ''}`}
             onClick={() => setFilterAndResetPage(card.id)}
           >
             <span className="stat-label">{card.label}</span>
@@ -573,129 +607,51 @@ const Dashboard = () => {
         ))}
       </div>
 
-      <div className="workflow-tabs">
-        {WORKFLOW_FILTERS.map((item) => (
-          <button key={item.id} type="button" className={filter === item.id ? 'active' : ''} onClick={() => setFilterAndResetPage(item.id)}>
-            {item.label}
-          </button>
-        ))}
-      </div>
       {workflowMessage && <div className="workflow-message">{workflowMessage}</div>}
 
       {/* Фильтры */}
-      <div className="filters-section">
-        <div className="filters-group">
-          <h3>
-            <span className="filter-icon">🔍</span>
-            Фильтры и поиск
-          </h3>
-          <div className="date-filters">
-            <div className="filter-group">
-              <label>
-                <span className="science-icon">📅</span>
-                От:
-              </label>
-              <input
-                type="date"
-                value={fromDate}
-                onChange={(e) => setFromDate(e.target.value)}
-              />
+      <div className="filters-section filters-section-compact">
+        <div className="filters-group period-filter-card">
+          <div className="filter-card-head">
+            <div>
+              <span className="eyebrow">Период заявок</span>
+              <h3>Быстрый фильтр по датам</h3>
             </div>
-            <div className="filter-group">
-              <label>
-                <span className="science-icon">📅</span>
-                До:
-              </label>
-              <input
-                type="date"
-                value={toDate}
-                onChange={(e) => setToDate(e.target.value)}
-              />
-            </div>
-            <div className="filter-actions">
-              <button onClick={applyFilters} className="btn-primary">
-                <span className="science-icon">✅</span>
-                Применить фильтр по дате
-              </button>
-              <button onClick={clearFilters} className="btn-secondary">
-                <span className="science-icon">🔄</span>
-                Сбросить все фильтры
-              </button>
-            </div>
+            <button type="button" onClick={clearFilters} className="btn-secondary compact-reset">Сбросить всё</button>
           </div>
 
-          {/* Поиск по заявкам - перемещен сюда для лучшей логической группировки */}
-          <div className="filter-group search-container" style={{marginTop: '20px'}}>
-            <label>
-              <span className="science-icon">🔍</span>
-              Поиск по тексту заявки:
-              {searchTerm && (
-                <span className="search-count">
-                  Найдено: {filteredStats.total}
-                </span>
-              )}
-            </label>
-            <div className="search-input-container">
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => handleSearch(e.target.value)}
-                placeholder="Введите слово или фразу (например, 'интернет', 'принтер')"
-                className="search-input"
-              />
-              {searchTerm && (
-                <button 
-                  onClick={clearSearch} 
-                  className="clear-search"
-                  title="Очистить поиск"
-                >
-                  ×
-                </button>
-              )}
-            </div>
-            <div className="search-info">
-              {searchTerm ? `Поиск по запросу: "${searchTerm}"` : 'Поиск по полю "Заявка"'}
-            </div>
-          </div>
-        </div>
-
-        <div className="filters-group">
-          <h3>
-            <span className="chart-icon">📊</span>
-            Отображение
-          </h3>
-          <div className="filter-group">
-            <label>
-              <span className="science-icon">📋</span>
-              Показывать:
-            </label>
-            <select
-              value={limit}
-              onChange={(e) => {
-                setLimit(Number(e.target.value));
-                setCurrentPage(1);
-              }}
-            >
-              <option value={5}>5 записей</option>
-              <option value={10}>10 записей</option>
-              <option value={15}>15 записей</option>
-              <option value={20}>20 записей</option>
-              <option value={50}>50 записей</option>
-            </select>
+          <div className="date-preset-row">
+            <button type="button" onClick={() => applyQuickDateRange('today')}>Сегодня</button>
+            <button type="button" onClick={() => applyQuickDateRange('week')}>7 дней</button>
+            <button type="button" onClick={() => applyQuickDateRange('month')}>30 дней</button>
+            <details className="custom-date-panel">
+              <summary>Произвольный период</summary>
+              <div className="date-filters">
+                <div className="filter-group">
+                  <label>От</label>
+                  <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+                </div>
+                <div className="filter-group">
+                  <label>До</label>
+                  <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+                </div>
+                <div className="filter-actions">
+                  <button type="button" onClick={applyFilters} className="btn-primary">Применить</button>
+                  <button type="button" onClick={clearDateFilter} className="btn-secondary">Сбросить период</button>
+                </div>
+              </div>
+            </details>
           </div>
         </div>
       </div>
 
-      {/* Информация о текущем фильтре - теперь перед таблицей */}
-      {(filter !== 'all' || dateFilterActive || searchTerm) && (
-        <div className="filter-info">
-          <strong>Текущий фильтр:</strong> 
-          {searchTerm
-            ? ` Поиск: "${searchTerm}" — найдено: ${filteredStats.total} заявок`
-            : ` Показан раздел "${WORKFLOW_FILTERS.find((item) => item.id === filter)?.label || 'Все'}": ${filteredStats.total} заявок`
-          }
-          {fromDate && ` с ${fromDate}`}
-          {toDate && ` по ${toDate}`}
+      {activeFilterChips.length > 0 && (
+        <div className="active-filter-chips">
+          <strong>Активные фильтры:</strong>
+          {activeFilterChips.map((chip) => (
+            <button key={chip.key} type="button" onClick={chip.onRemove}>{chip.label} ×</button>
+          ))}
+          <button type="button" className="clear-all-chip" onClick={clearFilters}>Сбросить всё</button>
         </div>
       )}
 
@@ -708,16 +664,47 @@ const Dashboard = () => {
       ) : (
         <>
           {/* Заголовок таблицы с информацией о результатах */}
-          <div className="table-header">
-            <h3>
-              <span className="science-icon">📋</span>
-              Список заявок
-              {applications.length > 0 && (
-                <span className="table-count">
-                  ({applications.length} из {filteredStats.total})
-                </span>
-              )}
-            </h3>
+          <div className="table-header table-header-modern">
+            <div>
+              <h3>
+                <span className="science-icon">📋</span>
+                Список заявок
+                {applications.length > 0 && (
+                  <span className="table-count">
+                    ({applications.length} из {filteredStats.total})
+                  </span>
+                )}
+              </h3>
+              <p>Поиск работает по заявке, кабинету, сотруднику, телефону и исполнителю.</p>
+            </div>
+            <div className="table-tools">
+              <div className="table-search">
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => handleSearch(e.target.value)}
+                  placeholder="Поиск по заявке, кабинету, сотруднику..."
+                  className="search-input"
+                />
+                {searchTerm && <button type="button" onClick={clearSearch} className="clear-search" title="Очистить поиск">×</button>}
+              </div>
+              <label className="page-size-control">
+                <span>На странице</span>
+                <select
+                  value={limit}
+                  onChange={(e) => {
+                    setLimit(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                >
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={15}>15</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                </select>
+              </label>
+            </div>
           </div>
 
           <div className="table-container">
