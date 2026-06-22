@@ -683,8 +683,10 @@ const EmployeeChat = () => {
       setApplicationsError('');
     } catch (error) {
       const message = error.message || 'Не удалось загрузить заявки';
-      setApplicationsError(message);
-      if (!silent) notify(message, 'Заявки');
+      if (!silent) {
+        setApplicationsError(message);
+        notify(message, 'Заявки');
+      }
     } finally {
       if (!silent) setApplicationsLoading(false);
     }
@@ -2024,11 +2026,12 @@ const EmployeeChat = () => {
               <h2>Сообщить о проблеме</h2>
               <p>Заполните категорию, приоритет и описание — статус заявки появится сразу после отправки.</p>
             </header>
-            <div className={`request-status-card ${requestStatus.state}`}>
-              <strong>{requestStatus.text}</strong>
-              {requestStatus.ticketId && <span>Номер: #{requestStatus.ticketId}</span>}
-              {applicationsError && <small>Заявки временно недоступны: {applicationsError}</small>}
-            </div>
+            {requestStatus.state !== 'idle' && (
+              <div className={`request-status-card ${requestStatus.state}`}>
+                <strong>{requestStatus.text}</strong>
+                {requestStatus.ticketId && <span>Номер: #{requestStatus.ticketId}</span>}
+              </div>
+            )}
             <form className="employee-request-box" onSubmit={submitRequest}>
               <div className="form-grid two">
                 <label>Категория<select value={requestCategory} onChange={(e) => setRequestCategory(e.target.value)}>{REQUEST_CATEGORIES.map((item) => <option key={item}>{item}</option>)}</select></label>
@@ -2036,10 +2039,11 @@ const EmployeeChat = () => {
               </div>
               <textarea rows={7} placeholder="Например: кабинет 204, не работает принтер, требуется проверка подключения..." value={requestText} onChange={(e) => setRequestText(e.target.value)} />
               <div className="request-form-actions"><button type="submit" disabled={!requestText.trim() || requestStatus.state === 'sending'}>{requestStatus.state === 'sending' ? 'Отправляем...' : 'Отправить заявку'}</button><button type="button" onClick={() => fetchMyApplications({ silent: false })}>{applicationsLoading ? 'Обновляем...' : 'Обновить статусы'}</button></div>
+              {applicationsError && <div className="request-inline-error">Заявки временно недоступны: {applicationsError}</div>}
             </form>
 
             <section className="employee-ticket-board">
-              <div className="ticket-board-head"><h3>Мои активные заявки</h3><span>{activeApplications.length}</span></div>
+              <div className="ticket-board-head"><h3>Мои активные заявки</h3>{activeApplications.length > 0 && <span>{activeApplications.length}</span>}</div>
               {activeApplications.length === 0 && <div className="empty-mini">Активных заявок нет — новые появятся здесь сразу после отправки.</div>}
               {activeApplications.map((ticket) => {
                 const meta = getApplicationStatusMeta(ticket.status);
