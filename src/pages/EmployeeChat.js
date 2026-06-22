@@ -124,6 +124,13 @@ const getFeedLatestTimestamp = (posts = []) => posts.reduce((latest, post) => {
   return Math.max(latest, postTimestamp, latestCommentTimestamp);
 }, 0);
 
+const getForwardedMessageText = (text = '') => String(text)
+  .replace(/^↪\s*Переслано(?:\s+от\s+[^\n]+)?\n?/i, '')
+  .replace(/^Переслано(?:\s+от\s+[^\n]+)?\n?/i, '')
+  .replace(/^↪\s*Пересланное вложение\n?/i, '')
+  .replace(/^📎\s*Вложения\n?/i, '')
+  .trim();
+
 const readDirectoryCache = () => {
   try {
     const parsed = JSON.parse(localStorage.getItem(EMPLOYEE_DIRECTORY_CACHE_KEY) || '[]');
@@ -1388,11 +1395,12 @@ const EmployeeChat = () => {
     const attachments = sourceMessage.attachments?.length
       ? sourceMessage.attachments
       : sourceMessage.attachment ? [sourceMessage.attachment] : [];
-    const forwardedText = String(sourceMessage.text || '').trim();
+    const forwardedText = getForwardedMessageText(sourceMessage.text);
     const newMessage = {
       id: createMessageId(),
       sender: user.username,
-      text: forwardedText ? `↪ Переслано\n${forwardedText}` : '↪ Пересланное вложение',
+      text: forwardedText,
+      forwardedFrom: sourceMessage.forwardedFrom || sourceMessage.sender,
       createdAt: new Date().toISOString(),
       editedAt: null,
       reactions: {},
@@ -1882,6 +1890,7 @@ const EmployeeChat = () => {
                             <span>{new Date(message.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
                           </div>
 
+                          {message.forwardedFrom && <div className="forwarded-preview">Переслано от {message.forwardedFrom}</div>}
                           {message.replyTo && <div className="reply-preview">↪ {message.replyTo.sender}: {message.replyTo.text}</div>}
                           {isDeleted ? (
                             <div className="message-deleted">Сообщение удалено {message.deletedBy ? `· ${message.deletedBy}` : ''}</div>
@@ -2114,7 +2123,7 @@ const EmployeeChat = () => {
               <div className="photo-viewer-menu-popover">
                 <a href={mediaViewer.file.dataUrl} download={mediaViewer.file.name || 'photo'}>Сохранить</a>
                 <button type="button" onClick={replyToViewedMedia}>Ответить</button>
-                <button type="button" onClick={shareViewedMedia}>Поделиться</button>
+                <button type="button" onClick={shareViewedMedia}>Переслать</button>
                 {(isManager || mediaViewer.message?.sender === user.username) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>Удалить</button>}
               </div>
             </details>

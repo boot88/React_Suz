@@ -559,12 +559,14 @@ button:disabled {
 }
 
 .reply-preview,
+.forwarded-preview,
 .attachment-preview-grid,
 .message-attachments-grid {
   margin-top: 10px;
 }
 
-.reply-preview {
+.reply-preview,
+.forwarded-preview {
   display: flex;
   justify-content: space-between;
   gap: 8px;
