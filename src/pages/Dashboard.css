@@ -760,7 +760,7 @@ button:disabled,
 }
 
 .table-tools {
-  width: min(640px, 100%);
+  width: min(760px, 100%);
   display: flex;
   justify-content: flex-end;
   align-items: center;
@@ -769,7 +769,7 @@ button:disabled,
 
 .table-search {
   position: relative;
-  flex: 1 1 380px;
+  flex: 1 1 500px;
 }
 
 .table-search .search-input {

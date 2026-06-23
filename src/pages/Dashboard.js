@@ -318,7 +318,7 @@ const Dashboard = () => {
     if (!didInitialLoadRef.current) return undefined;
 
     const timer = setTimeout(() => {
-      fetchApplications();
+      fetchApplications({ silent: true });
     }, 500);
 
     return () => clearTimeout(timer);
@@ -683,7 +683,7 @@ const Dashboard = () => {
                   type="text"
                   value={searchTerm}
                   onChange={(e) => handleSearch(e.target.value)}
-                  placeholder="Поиск по заявке, кабинету, сотруднику..."
+                  placeholder="Поиск: заявка, кабинет, сотрудник..."
                   className="search-input"
                 />
                 {searchTerm && <button type="button" onClick={clearSearch} className="clear-search" title="Очистить поиск">×</button>}
