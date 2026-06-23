@@ -461,7 +461,8 @@ app.get('/api/applications/export', async (req, res) => {
       whereClause.push(APPLICATION_OVERDUE_SQL);
     } else {
       const statuses = statusGroups[status] || [status];
-      whereClause.push('`status` IN (' + statuses.map(() => '?').join(',') + ')');
+      const statusSql = '`status` IN (' + statuses.map(() => '?').join(',') + ')';
+      whereClause.push(status === 'done' ? `(${statusSql} OR COALESCE(\`fl\`, 0) = 1)` : `COALESCE(\`fl\`, 0) = 0 AND ${statusSql}`);
       queryParams.push(...statuses);
     }
   }
@@ -523,8 +524,10 @@ app.get('/api/applications/export', async (req, res) => {
 
 
 const APPLICATION_OVERDUE_SQL = `(
-  (\`status\` IN ('new', 'reopened') AND TIMESTAMPDIFF(MINUTE, COALESCE(\`created_at\`, \`data\`, NOW()), NOW()) > 5)
-  OR (\`status\` IN ('accepted', 'in_progress') AND TIMESTAMPDIFF(MINUTE, COALESCE(\`work_started_at\`, \`accepted_at\`, \`start_data\`, \`created_at\`, \`data\`, NOW()), NOW()) > 30)
+  COALESCE(\`fl\`, 0) = 0 AND (
+    (\`status\` IN ('new', 'reopened') AND TIMESTAMPDIFF(MINUTE, COALESCE(\`created_at\`, \`data\`, NOW()), NOW()) > 15)
+    OR (\`status\` IN ('accepted', 'in_progress') AND TIMESTAMPDIFF(MINUTE, COALESCE(\`work_started_at\`, \`accepted_at\`, \`start_data\`, \`created_at\`, \`data\`, NOW()), NOW()) > 30)
+  )
 )`;
 
 const getApplicationEvents = async (applicationId) => {
@@ -565,7 +568,8 @@ app.get('/api/applications', async (req, res) => {
       whereClause.push(APPLICATION_OVERDUE_SQL);
     } else {
       const statuses = statusGroups[status] || [status];
-      whereClause.push('`status` IN (' + statuses.map(() => '?').join(',') + ')');
+      const statusSql = '`status` IN (' + statuses.map(() => '?').join(',') + ')';
+      whereClause.push(status === 'done' ? `(${statusSql} OR COALESCE(\`fl\`, 0) = 1)` : `COALESCE(\`fl\`, 0) = 0 AND ${statusSql}`);
       queryParams.push(...statuses);
     }
   }
@@ -616,16 +620,16 @@ app.get('/api/applications', async (req, res) => {
     );
 
     // Запрос количества заявок в работе с учетом фильтров
-    const pendingQuery = 'SELECT COUNT(*) AS count FROM application ' + (whereSql ? whereSql + ' AND `status` IN (?, ?, ?, ?, ?)' : 'WHERE `status` IN (?, ?, ?, ?, ?)');
+    const pendingQuery = 'SELECT COUNT(*) AS count FROM application ' + (whereSql ? whereSql + ' AND COALESCE(`fl`, 0) = 0 AND `status` IN (?, ?, ?, ?, ?)' : 'WHERE COALESCE(`fl`, 0) = 0 AND `status` IN (?, ?, ?, ?, ?)');
     const [pendingResult] = await pool.execute(
       pendingQuery,
       whereSql ? [...queryParams, 'new', 'accepted', 'in_progress', 'waiting_employee_confirmation', 'reopened'] : ['new', 'accepted', 'in_progress', 'waiting_employee_confirmation', 'reopened']
     );
-    const [queueResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `status` IN (?, ?)', ['new', 'reopened']);
-    const [acceptedResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `status` = ?', ['accepted']);
-    const [inProgressResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `status` = ?', ['in_progress']);
-    const [activeResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `status` IN (?, ?)', ['accepted', 'in_progress']);
-    const [confirmationResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `status` = ?', ['waiting_employee_confirmation']);
+    const [queueResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE COALESCE(`fl`, 0) = 0 AND `status` IN (?, ?)', ['new', 'reopened']);
+    const [acceptedResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE COALESCE(`fl`, 0) = 0 AND `status` = ?', ['accepted']);
+    const [inProgressResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE COALESCE(`fl`, 0) = 0 AND `status` = ?', ['in_progress']);
+    const [activeResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE COALESCE(`fl`, 0) = 0 AND `status` IN (?, ?)', ['accepted', 'in_progress']);
+    const [confirmationResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE COALESCE(`fl`, 0) = 0 AND `status` = ?', ['waiting_employee_confirmation']);
     const [overdueResult] = await pool.execute(`SELECT COUNT(*) AS count FROM application WHERE ${APPLICATION_OVERDUE_SQL}`);
 
     const total = totalResult[0].total;
@@ -826,7 +830,7 @@ app.put('/api/applications/:id', async (req, res) => {
     const has = (field) => Object.prototype.hasOwnProperty.call(req.body, field);
     const pick = (field, fallback = null) => (has(field) ? handleNullValues(req.body[field], fallback) : existingApp[field]);
     const pickDate = (field) => (has(field) ? formatDateForMySQL(req.body[field]) : existingApp[field]);
-    const nextStatus = has('status') ? (status || 'new') : (has('fl') ? (fl ? 'done' : 'new') : existingApp.status);
+    const nextStatus = has('fl') && Boolean(fl) ? 'done' : (has('status') ? (status || 'new') : (has('fl') ? 'new' : existingApp.status));
     const processedData = {
       name: pick('name', ''), cabinet: pick('cabinet', ''), N_tel: pick('N_tel', ''),
       application: pick('application', ''), process: pick('process', ''), executor: pick('executor', ''),

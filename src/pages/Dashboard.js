@@ -555,7 +555,6 @@ const Dashboard = () => {
     { id: 'accepted', label: '🤝 Принятые', value: stats.accepted || 0, hint: 'Назначен исполнитель' },
     { id: 'active', label: '🛠️ В работе', value: stats.in_progress || stats.active || 0, hint: 'Идет ремонт' },
     { id: 'confirmation', label: '👤 Ждут сотрудника', value: stats.confirmation || 0, hint: 'Нужно подтверждение' },
-    { id: 'done', label: '✅ Выполнено', value: stats.completed || 0, hint: 'Закрытые заявки' },
     { id: 'overdue', label: '⚠️ Просроченные', value: stats.overdue || 0, hint: 'Нарушен SLA', tone: 'danger' }
   ];
 
