@@ -38,17 +38,21 @@ const secondsSince = (dateValue) => {
 
 const getSlaState = (app = {}) => {
   const status = app.status || (app.fl ? 'done' : 'new');
+  const paused = Boolean(app.sla_paused_at);
   if (['new', 'reopened'].includes(status)) {
-    const waiting = app.waiting_seconds ?? secondsSince(app.created_at || app.data);
+    const waiting = app.sla_paused_seconds ?? app.waiting_seconds ?? secondsSince(app.created_at || app.data);
+    if (paused) return { level: 'critical', label: 'Просрочка зафиксирована', seconds: waiting, paused: true };
     if (waiting > 15 * 60) return { level: 'critical', label: 'Ожидает более 15 минут', seconds: waiting };
     if (waiting > 5 * 60) return { level: 'warning', label: 'Ожидает более 5 минут', seconds: waiting };
     return { level: 'ok', label: 'В норме', seconds: waiting };
   }
   if (['accepted', 'in_progress'].includes(status)) {
-    const work = app.work_seconds ?? secondsSince(app.work_started_at || app.accepted_at || app.start_data);
+    const work = app.sla_paused_seconds ?? app.work_seconds ?? secondsSince(app.work_started_at || app.accepted_at || app.start_data);
+    if (paused) return { level: 'critical', label: 'Просрочка зафиксирована', seconds: work, paused: true };
     if (work > 30 * 60) return { level: 'critical', label: 'В работе более 30 минут', seconds: work };
     return { level: 'ok', label: 'В норме', seconds: work };
   }
+  if (paused) return { level: 'critical', label: 'Просрочка зафиксирована', seconds: app.sla_paused_seconds || 0, paused: true };
   return { level: 'ok', label: 'В норме', seconds: 0 };
 };
 
@@ -795,7 +799,7 @@ const Dashboard = () => {
                         <td className="cell-date">{formatDate(app.data)}</td>
                         <td className="cell-date">{formatTime(app.start_data)}</td>
                         <td className="cell-date">{formatTime(app.end_data)}</td>
-                        <td className="cell-date"><div>Ожидание: {formatDuration(app.waiting_seconds)}</div><div>Приход: {formatDuration(app.arrival_seconds)}</div><div>Работа: {formatDuration(app.work_seconds)}</div>{app.admin_comment && <small>{app.admin_comment}</small>}</td>
+                        <td className="cell-date"><div>Ожидание: {formatDuration(app.sla_paused_seconds ?? app.waiting_seconds)}</div><div>Приход: {formatDuration(app.arrival_seconds)}</div><div>Работа: {formatDuration(app.sla_paused_seconds ?? app.work_seconds)}</div>{app.sla_paused_at && <small>Таймер просрочки остановлен</small>}{app.admin_comment && <small>{app.admin_comment}</small>}</td>
                         <td>{getStatusLabel(app)}</td>
                         <td><div className="workflow-actions">
                           {['new', 'reopened'].includes(app.status || 'new') && <button type="button" disabled={actionBusyId === app.id} onClick={(event) => { event.stopPropagation(); openAcceptModal(app); }}>Взять</button>}
@@ -848,8 +852,8 @@ const Dashboard = () => {
             <div><strong>Приоритет</strong><span>{selectedApplication.priority || 'Обычный'}</span></div>
             <div><strong>Источник</strong><span>{selectedApplication.source || 'admin'}</span></div>
             <div><strong>Исполнитель</strong><span>{selectedApplication.executor || 'Не назначен'}</span></div>
-            <div><strong>Ожидание</strong><span>{formatDuration(selectedApplication.waiting_seconds ?? secondsSince(selectedApplication.created_at || selectedApplication.data))}</span></div>
-            <div><strong>Работа</strong><span>{formatDuration(selectedApplication.work_seconds ?? secondsSince(selectedApplication.work_started_at || selectedApplication.accepted_at))}</span></div>
+            <div><strong>Ожидание</strong><span>{formatDuration(selectedApplication.sla_paused_seconds ?? selectedApplication.waiting_seconds ?? secondsSince(selectedApplication.created_at || selectedApplication.data))}</span></div>
+            <div><strong>Работа</strong><span>{formatDuration(selectedApplication.sla_paused_seconds ?? selectedApplication.work_seconds ?? secondsSince(selectedApplication.work_started_at || selectedApplication.accepted_at))}</span></div>
           </div>
           <div className="side-panel-section">
             <h3>Комментарий администратора</h3>
@@ -863,6 +867,8 @@ const Dashboard = () => {
             {['new', 'reopened'].includes(selectedApplication.status || 'new') && <button type="button" onClick={() => openAcceptModal(selectedApplication)}>Взять в работу</button>}
             {selectedApplication.status === 'accepted' && <button type="button" onClick={() => runWorkflowAction(selectedApplication, 'start-work')}>Запустить таймер</button>}
             {['accepted', 'in_progress'].includes(selectedApplication.status) && <button type="button" onClick={() => openResolveModal(selectedApplication)}>Что сделано</button>}
+            {getSlaState(selectedApplication).level === 'critical' && !getSlaState(selectedApplication).paused && <button type="button" onClick={() => runWorkflowAction(selectedApplication, 'pause-overdue')}>Остановить таймер просрочки</button>}
+            {getSlaState(selectedApplication).paused && <button type="button" disabled>Таймер просрочки остановлен</button>}
             {selectedApplication.employee_login && <a href={`/employee?dialog=${encodeURIComponent(selectedApplication.employee_login)}&application=${selectedApplication.id}`}>Открыть чат</a>}
           </div>
           <div className="side-panel-section">

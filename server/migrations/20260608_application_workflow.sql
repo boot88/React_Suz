@@ -23,6 +23,8 @@ ALTER TABLE application ADD COLUMN IF NOT EXISTS source VARCHAR(40) NOT NULL DEF
 ALTER TABLE application ADD COLUMN IF NOT EXISTS chat_thread_id VARCHAR(255) NULL;
 ALTER TABLE application ADD COLUMN IF NOT EXISTS source_message_id VARCHAR(255) NULL;
 ALTER TABLE application ADD COLUMN IF NOT EXISTS employee_comment TEXT NULL;
+ALTER TABLE application ADD COLUMN IF NOT EXISTS sla_paused_at DATETIME NULL;
+ALTER TABLE application ADD COLUMN IF NOT EXISTS sla_paused_seconds INT NULL;
 
 UPDATE application
 SET `status` = CASE

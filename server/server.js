@@ -80,7 +80,8 @@ const APPLICATION_WORKFLOW_COLUMN_NAMES = [
   'category', 'priority', 'accepted_by', 'accepted_at', 'work_started_at',
   'resolved_at', 'employee_confirmed_at', 'admin_comment', 'eta_minutes',
   'waiting_seconds', 'arrival_seconds', 'work_seconds', 'source',
-  'chat_thread_id', 'source_message_id', 'employee_comment'
+  'chat_thread_id', 'source_message_id', 'employee_comment',
+  'sla_paused_at', 'sla_paused_seconds'
 ];
 const APPLICATION_WORKFLOW_COLUMNS = APPLICATION_WORKFLOW_COLUMN_NAMES.map(quoteColumn).join(', ');
 
@@ -110,7 +111,8 @@ const normalizeApplication = (app = {}) => ({
   eta_minutes: app.eta_minutes == null ? null : Number(app.eta_minutes),
   waiting_seconds: app.waiting_seconds == null ? null : Number(app.waiting_seconds),
   arrival_seconds: app.arrival_seconds == null ? null : Number(app.arrival_seconds),
-  work_seconds: app.work_seconds == null ? null : Number(app.work_seconds)
+  work_seconds: app.work_seconds == null ? null : Number(app.work_seconds),
+  sla_paused_seconds: app.sla_paused_seconds == null ? null : Number(app.sla_paused_seconds)
 });
 
 const APPLICATION_WORKFLOW_ALTERS = [
@@ -133,7 +135,9 @@ const APPLICATION_WORKFLOW_ALTERS = [
   ['source', "ALTER TABLE application ADD COLUMN `source` VARCHAR(40) NOT NULL DEFAULT 'admin'"],
   ['chat_thread_id', 'ALTER TABLE application ADD COLUMN `chat_thread_id` VARCHAR(255) NULL'],
   ['source_message_id', 'ALTER TABLE application ADD COLUMN `source_message_id` VARCHAR(255) NULL'],
-  ['employee_comment', 'ALTER TABLE application ADD COLUMN `employee_comment` TEXT NULL']
+  ['employee_comment', 'ALTER TABLE application ADD COLUMN `employee_comment` TEXT NULL'],
+  ['sla_paused_at', 'ALTER TABLE application ADD COLUMN `sla_paused_at` DATETIME NULL'],
+  ['sla_paused_seconds', 'ALTER TABLE application ADD COLUMN `sla_paused_seconds` INT NULL']
 ];
 
 let applicationSchemaReadyPromise = null;
@@ -525,6 +529,8 @@ app.get('/api/applications/export', async (req, res) => {
 
 const APPLICATION_OVERDUE_SQL = `(
   COALESCE(\`fl\`, 0) = 0 AND (
+    (\`sla_paused_at\` IS NOT NULL AND \`status\` IN ('new', 'reopened', 'accepted', 'in_progress', 'waiting_employee_confirmation'))
+    OR
     (\`status\` IN ('new', 'reopened') AND TIMESTAMPDIFF(MINUTE, COALESCE(\`created_at\`, \`data\`, NOW()), NOW()) > 15)
     OR (\`status\` IN ('accepted', 'in_progress') AND TIMESTAMPDIFF(MINUTE, COALESCE(\`work_started_at\`, \`accepted_at\`, \`start_data\`, \`created_at\`, \`data\`, NOW()), NOW()) > 30)
   )
@@ -887,6 +893,15 @@ const updateApplicationWorkflow = async (id, updater, event) => {
   return getApplicationById(id);
 };
 
+const getCurrentSlaSeconds = (app = {}, now = new Date()) => {
+  if (app.sla_paused_seconds != null) return Number(app.sla_paused_seconds) || 0;
+  const status = app.status || (app.fl ? 'done' : 'new');
+  if (['accepted', 'in_progress'].includes(status)) {
+    return secondsBetween(app.work_started_at || app.accepted_at || app.start_data || app.created_at || app.data, now) || 0;
+  }
+  return secondsBetween(app.created_at || app.data, now) || 0;
+};
+
 app.post('/api/applications/:id/accept', async (req, res) => {
   const { id } = req.params;
   const { accepted_by, executor, eta_minutes, admin_comment } = req.body;
@@ -983,6 +998,28 @@ app.post('/api/applications/:id/reopen', async (req, res) => {
   } catch (error) {
     console.error('Ошибка при переоткрытии заявки:', error);
     res.status(500).json({ error: 'Не удалось переоткрыть заявку', details: error.sqlMessage || error.message });
+  }
+});
+
+app.post('/api/applications/:id/pause-overdue', async (req, res) => {
+  const { id } = req.params;
+  const { actor } = req.body;
+  try {
+    await ensureApplicationWorkflowSchema();
+    const updated = await updateApplicationWorkflow(id, (app) => {
+      const nowDate = new Date();
+      const now = formatDateForMySQL(nowDate);
+      const pausedSeconds = getCurrentSlaSeconds(app, nowDate);
+      return {
+        sql: 'UPDATE application SET `sla_paused_at` = ?, `sla_paused_seconds` = ? WHERE `id` = ?',
+        params: [now, pausedSeconds, id]
+      };
+    }, { actorLogin: actor || 'admin', actorRole: 'admin', eventType: 'sla_timer_paused', comment: 'Администратор остановил отображение таймера просрочки' });
+    if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
+    res.json({ message: 'Таймер просрочки остановлен. Заявка остаётся в просроченных.', application: updated });
+  } catch (error) {
+    console.error('Ошибка при остановке таймера просрочки:', error);
+    res.status(500).json({ error: 'Не удалось остановить таймер просрочки', details: error.sqlMessage || error.message });
   }
 });
 
