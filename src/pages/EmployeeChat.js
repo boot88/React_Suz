@@ -2057,7 +2057,9 @@ const EmployeeChat = () => {
                 const meta = getApplicationStatusMeta(ticket.status);
                 const waitingStartedAt = ticket.created_at || ticket.data;
                 const waitingSeconds = ticket.waiting_seconds ?? (ticket.status === 'new' || ticket.status === 'reopened' ? secondsSince(waitingStartedAt) : null);
-                const workSeconds = ticket.work_seconds ?? (['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(ticket.status) ? secondsSince(ticket.work_started_at || ticket.accepted_at) : null);
+                const workSeconds = ticket.work_seconds != null
+                  ? Number(ticket.work_seconds || 0) + (['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(ticket.status) ? secondsSince(ticket.resolved_at || ticket.work_started_at || ticket.accepted_at) : 0)
+                  : (['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(ticket.status) ? secondsSince(ticket.work_started_at || ticket.accepted_at) : null);
                 return (
                   <article key={ticket.id} className={`employee-ticket-card ${meta.tone}`}>
                     <header><div><strong>#{ticket.id} · {meta.label}</strong><span>{ticket.category || 'Другое'} · {ticket.priority || 'Обычный'}</span></div><em>{meta.hint}</em></header>
@@ -2065,7 +2067,7 @@ const EmployeeChat = () => {
                     <div className="ticket-metrics">{waitingSeconds != null && <span>Ожидание: {formatDuration(waitingSeconds)}</span>}{workSeconds != null && workSeconds > 0 && <span>В работе: {formatDuration(workSeconds)}</span>}</div>
                     {(ticket.executor || ticket.accepted_by || ticket.admin_comment || ticket.eta_minutes) && <div className="ticket-admin-note"><strong>{ticket.executor || ticket.accepted_by || 'Администратор'}</strong><span>{ticket.admin_comment || (ticket.eta_minutes ? `К вам подойдут через ${ticket.eta_minutes} минут` : 'Заявка принята, ожидайте исполнителя.')}</span></div>}
                     {ticket.process && <div className="ticket-admin-note"><strong>Что сделано</strong><span>{ticket.process}</span></div>}
-                    {ticket.status === 'waiting_employee_confirmation' && <div className="ticket-actions"><button type="button" onClick={() => confirmApplicationDone(ticket.id)}>✅ Заявка выполнена</button><button type="button" onClick={() => reopenApplication(ticket.id)}>Проблема осталась</button></div>}
+                    {['in_progress', 'waiting_employee_confirmation'].includes(ticket.status) && <div className="ticket-actions"><button type="button" onClick={() => confirmApplicationDone(ticket.id)}>✅ Заявка выполнена</button><button type="button" onClick={() => reopenApplication(ticket.id)}>Проблема осталась</button></div>}
                   </article>
                 );
               })}

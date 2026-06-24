@@ -949,9 +949,11 @@ app.post('/api/applications/:id/resolve', async (req, res) => {
     await ensureApplicationWorkflowSchema();
     const updated = await updateApplicationWorkflow(id, (app) => {
       const now = formatNowForMySQL();
+      const previousWorkSeconds = Number(app.work_seconds || 0);
+      const currentWorkSeconds = secondsBetween(app.work_started_at || app.accepted_at || app.created_at || app.data, now) || 0;
       return {
         sql: 'UPDATE application SET `status` = ?, `resolved_at` = ?, `process` = ?, `work_seconds` = ?, `fl` = 0 WHERE `id` = ?',
-        params: ['waiting_employee_confirmation', now, process || app.process || '', secondsBetween(app.work_started_at || app.accepted_at || app.created_at || app.data, now), id]
+        params: ['waiting_employee_confirmation', now, process || app.process || '', previousWorkSeconds + currentWorkSeconds, id]
       };
     }, { actorLogin: actor || 'admin', actorRole: 'admin', eventType: 'resolved', comment: process || 'Работа выполнена, ожидается подтверждение' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
@@ -969,11 +971,12 @@ app.post('/api/applications/:id/confirm', async (req, res) => {
     await ensureApplicationWorkflowSchema();
     const updated = await updateApplicationWorkflow(id, (app) => {
       const now = formatNowForMySQL();
-      const resolvedAt = app.resolved_at || now;
-      const workSeconds = app.work_seconds ?? secondsBetween(app.work_started_at || app.accepted_at || app.created_at || app.data, resolvedAt);
+      const previousWorkSeconds = Number(app.work_seconds || 0);
+      const activeWorkSeconds = secondsBetween(app.resolved_at || app.work_started_at || app.accepted_at || app.created_at || app.data, now) || 0;
+      const workSeconds = previousWorkSeconds + activeWorkSeconds;
       return {
         sql: 'UPDATE application SET `status` = ?, `resolved_at` = ?, `work_seconds` = ?, `employee_confirmed_at` = ?, `employee_comment` = ?, `end_data` = ?, `fl` = 1 WHERE `id` = ?',
-        params: ['done', resolvedAt, workSeconds, now, employee_comment || app.employee_comment || '', now, id]
+        params: ['done', app.resolved_at || now, workSeconds, now, employee_comment || app.employee_comment || '', now, id]
       };
     }, { actorLogin: actor || 'employee', actorRole: 'employee', eventType: 'employee_confirmed', comment: employee_comment || 'Сотрудник подтвердил выполнение' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
@@ -990,7 +993,7 @@ app.post('/api/applications/:id/reopen', async (req, res) => {
   try {
     await ensureApplicationWorkflowSchema();
     const updated = await updateApplicationWorkflow(id, () => ({
-      sql: 'UPDATE application SET `status` = ?, `employee_comment` = ?, `fl` = 0 WHERE `id` = ?',
+      sql: 'UPDATE application SET `status` = ?, `employee_comment` = ?, `work_started_at` = NULL, `resolved_at` = NULL, `fl` = 0 WHERE `id` = ?',
       params: ['reopened', employee_comment || '', id]
     }), { actorLogin: actor || 'employee', actorRole: 'employee', eventType: 'reopened', comment: employee_comment || 'Проблема осталась' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });

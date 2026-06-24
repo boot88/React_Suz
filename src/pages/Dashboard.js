@@ -64,11 +64,16 @@ const getWaitingSeconds = (app = {}) => {
 const getWorkSeconds = (app = {}) => {
   const status = app.status || (app.fl ? 'done' : 'new');
   if (app.sla_paused_at && ['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(status)) return app.sla_paused_seconds ?? null;
-  if (app.work_seconds != null) return app.work_seconds;
+  if (app.work_seconds != null) {
+    if (!app.fl && ['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(status)) {
+      return Number(app.work_seconds || 0) + secondsSince(app.resolved_at || app.work_started_at || app.accepted_at || app.start_data);
+    }
+    return app.work_seconds;
+  }
   const startedAt = app.work_started_at || app.accepted_at || app.start_data;
   const finishedAt = app.resolved_at || app.end_data || app.employee_confirmed_at;
   if (startedAt && finishedAt) return secondsBetweenValues(startedAt, finishedAt);
-  if (startedAt && ['accepted', 'in_progress'].includes(status) && !app.fl) return secondsSince(startedAt);
+  if (startedAt && ['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(status) && !app.fl) return secondsSince(startedAt);
   return null;
 };
 
