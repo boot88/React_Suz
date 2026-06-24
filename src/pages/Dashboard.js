@@ -6,9 +6,9 @@ import { useAuth } from '../context/AuthContext';
 
 const STATUS_META = {
   new: { label: 'Новая', icon: '📥' },
-  accepted: { label: 'Принята', icon: '🤝' },
+  accepted: { label: 'Назначена', icon: '🤝' },
   in_progress: { label: 'В работе', icon: '🛠️' },
-  waiting_employee_confirmation: { label: 'Ждёт сотрудника', icon: '👤' },
+  waiting_employee_confirmation: { label: 'Ждёт подтверждения', icon: '👤' },
   done: { label: 'Выполнено', icon: '✅' },
   reopened: { label: 'Переоткрыта', icon: '↩️' }
 };
@@ -16,7 +16,7 @@ const WORKFLOW_FILTERS = [
   { id: 'all', label: 'Все' },
   { id: 'queue', label: 'Новые' },
   { id: 'active', label: 'В работе' },
-  { id: 'confirmation', label: 'На подтверждении' },
+  { id: 'confirmation', label: 'Ждут подтверждения' },
   { id: 'done', label: 'Выполненные' },
   { id: 'overdue', label: 'Просроченные' }
 ];
@@ -556,9 +556,8 @@ const Dashboard = () => {
 
   const statCards = [
     { id: 'queue', label: '📥 Новые', value: stats.queue || 0, hint: 'Ждут просмотра' },
-    { id: 'accepted', label: '🤝 Принятые', value: stats.accepted || 0, hint: 'Назначен исполнитель' },
-    { id: 'active', label: '🛠️ В работе', value: stats.in_progress || stats.active || 0, hint: 'Идет ремонт' },
-    { id: 'confirmation', label: '👤 Ждут сотрудника', value: stats.confirmation || 0, hint: 'Нужно подтверждение' },
+    { id: 'active', label: '🛠️ В работе', value: stats.active || 0, hint: 'Назначены или выполняются' },
+    { id: 'confirmation', label: '👤 Ждут подтверждения', value: stats.confirmation || 0, hint: 'Нужно подтверждение сотрудника' },
     { id: 'overdue', label: '⚠️ Просроченные', value: stats.overdue || 0, hint: 'Нарушен SLA', tone: 'danger' }
   ];
 

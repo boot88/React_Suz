@@ -87,7 +87,7 @@ const APPLICATION_WORKFLOW_COLUMNS = APPLICATION_WORKFLOW_COLUMN_NAMES.map(quote
 
 const APPLICATION_STATUS_LABELS = {
   new: 'Новая',
-  accepted: 'Принята',
+  accepted: 'Назначена',
   in_progress: 'В работе',
   waiting_employee_confirmation: 'Ждёт подтверждения',
   done: 'Выполнена',
