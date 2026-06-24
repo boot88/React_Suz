@@ -915,7 +915,7 @@ const Dashboard = () => {
           </div>
           <div className={`sla-card sla-${getSlaState(selectedApplication).level}`}>
             <strong>{getSlaState(selectedApplication).label}</strong>
-            <span>{formatDuration(getSlaState(selectedApplication).seconds)}</span>
+            <span>{selectedApplication.fl || selectedApplication.status === 'done' ? `Работа: ${formatDuration(getDisplayWorkSeconds(selectedApplication))}` : formatDuration(getSlaState(selectedApplication).seconds)}</span>
           </div>
           <div className="side-panel-section">
             <h3>Описание</h3>
@@ -929,14 +929,22 @@ const Dashboard = () => {
             {getWaitingSeconds(selectedApplication) != null && <div><strong>Ожидание</strong><span>{formatDuration(getWaitingSeconds(selectedApplication))}</span></div>}
             <div><strong>Работа</strong><span>{formatDuration(getDisplayWorkSeconds(selectedApplication))}</span></div>
           </div>
-          <div className="side-panel-section">
-            <h3>Комментарий администратора</h3>
-            <p>{selectedApplication.admin_comment || 'Комментарий пока не добавлен.'}</p>
-          </div>
+          {selectedApplication.admin_comment && (
+            <div className="side-panel-section">
+              <h3>Комментарий администратора</h3>
+              <p>{selectedApplication.admin_comment}</p>
+            </div>
+          )}
           <div className="side-panel-section">
             <h3>Что сделано</h3>
             <p>{selectedApplication.process || 'Пока не заполнено.'}</p>
           </div>
+          {selectedApplication.employee_comment && (
+            <div className="side-panel-section">
+              <h3>Комментарий сотрудника</h3>
+              <p>{selectedApplication.employee_comment}</p>
+            </div>
+          )}
           <div className="side-panel-actions">
             {['new', 'reopened'].includes(selectedApplication.status || 'new') && <button type="button" onClick={() => openAcceptModal(selectedApplication)}>Взять в работу</button>}
             {selectedApplication.status === 'accepted' && <button type="button" onClick={() => runWorkflowAction(selectedApplication, 'start-work')}>Запустить таймер</button>}

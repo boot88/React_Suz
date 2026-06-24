@@ -1154,7 +1154,10 @@ const EmployeeChat = () => {
 
   const submitRequest = async (event) => {
     event.preventDefault();
-    if (!requestText.trim()) return;
+    if (!requestText.trim()) {
+      setRequestStatus({ state: 'error', text: 'Заполните описание заявки.', ticketId: '' });
+      return;
+    }
     setRequestStatus({ state: 'sending', text: 'Отправка заявки...', ticketId: '' });
     let lastError = null;
 
@@ -1202,11 +1205,16 @@ const EmployeeChat = () => {
   };
 
   const confirmApplicationDone = async (applicationId) => {
+    const employeeComment = await promptAction('Если хотите, оставьте комментарий к закрытию заявки. Можно оставить пустым.', '', 'Комментарий к закрытию');
+    if (employeeComment === '') {
+      const confirmed = await confirmAction('Закрыть заявку без комментария?', 'Заявка выполнена');
+      if (!confirmed) return;
+    }
     try {
       const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ actor: user?.username || 'employee' })
+        body: JSON.stringify({ actor: user?.username || 'employee', employee_comment: String(employeeComment || '').trim() })
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || data.message || 'Не удалось подтвердить заявку');
@@ -2038,7 +2046,7 @@ const EmployeeChat = () => {
                 <label>Приоритет<select value={requestPriority} onChange={(e) => setRequestPriority(e.target.value)}>{REQUEST_PRIORITIES.map((item) => <option key={item}>{item}</option>)}</select></label>
               </div>
               <textarea rows={7} placeholder="Например: кабинет 204, не работает принтер, требуется проверка подключения..." value={requestText} onChange={(e) => setRequestText(e.target.value)} />
-              <div className="request-form-actions"><button type="submit" disabled={!requestText.trim() || requestStatus.state === 'sending'}>{requestStatus.state === 'sending' ? 'Отправляем...' : 'Отправить заявку'}</button><button type="button" onClick={() => fetchMyApplications({ silent: false })}>{applicationsLoading ? 'Обновляем...' : 'Обновить статусы'}</button></div>
+              <div className="request-form-actions"><button type="submit" disabled={requestStatus.state === 'sending'}>{requestStatus.state === 'sending' ? 'Отправляем...' : 'Отправить заявку'}</button><button type="button" onClick={() => fetchMyApplications({ silent: false })}>{applicationsLoading ? 'Обновляем...' : 'Обновить статусы'}</button></div>
               {applicationsError && <div className="request-inline-error">Заявки временно недоступны: {applicationsError}</div>}
             </form>
 
@@ -2048,16 +2056,16 @@ const EmployeeChat = () => {
               {activeApplications.map((ticket) => {
                 const meta = getApplicationStatusMeta(ticket.status);
                 const waitingStartedAt = ticket.created_at || ticket.data;
-                const waitingSeconds = ticket.waiting_seconds ?? (ticket.status === 'new' || ticket.status === 'reopened' ? secondsSince(waitingStartedAt) : 0);
-                const workSeconds = ticket.work_seconds ?? (['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(ticket.status) ? secondsSince(ticket.work_started_at || ticket.accepted_at) : 0);
+                const waitingSeconds = ticket.waiting_seconds ?? (ticket.status === 'new' || ticket.status === 'reopened' ? secondsSince(waitingStartedAt) : null);
+                const workSeconds = ticket.work_seconds ?? (['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(ticket.status) ? secondsSince(ticket.work_started_at || ticket.accepted_at) : null);
                 return (
                   <article key={ticket.id} className={`employee-ticket-card ${meta.tone}`}>
                     <header><div><strong>#{ticket.id} · {meta.label}</strong><span>{ticket.category || 'Другое'} · {ticket.priority || 'Обычный'}</span></div><em>{meta.hint}</em></header>
                     <p>{ticket.application}</p>
-                    <div className="ticket-metrics"><span>Ожидание: {formatDuration(waitingSeconds)}</span><span>В работе: {formatDuration(workSeconds)}</span>{ticket.eta_minutes && <span>Подойдут через: {ticket.eta_minutes} мин.</span>}</div>
-                    {(ticket.executor || ticket.accepted_by || ticket.admin_comment) && <div className="ticket-admin-note"><strong>{ticket.executor || ticket.accepted_by || 'Администратор'}</strong><span>{ticket.admin_comment || 'Заявка принята, ожидайте исполнителя.'}</span></div>}
+                    <div className="ticket-metrics">{waitingSeconds != null && <span>Ожидание: {formatDuration(waitingSeconds)}</span>}{workSeconds != null && workSeconds > 0 && <span>В работе: {formatDuration(workSeconds)}</span>}</div>
+                    {(ticket.executor || ticket.accepted_by || ticket.admin_comment || ticket.eta_minutes) && <div className="ticket-admin-note"><strong>{ticket.executor || ticket.accepted_by || 'Администратор'}</strong><span>{ticket.admin_comment || (ticket.eta_minutes ? `К вам подойдут через ${ticket.eta_minutes} минут` : 'Заявка принята, ожидайте исполнителя.')}</span></div>}
                     {ticket.process && <div className="ticket-admin-note"><strong>Что сделано</strong><span>{ticket.process}</span></div>}
-                    {['in_progress', 'waiting_employee_confirmation'].includes(ticket.status) && <div className="ticket-actions"><button type="button" onClick={() => confirmApplicationDone(ticket.id)}>✅ Заявка выполнена</button><button type="button" onClick={() => reopenApplication(ticket.id)}>Проблема осталась</button></div>}
+                    {ticket.status === 'waiting_employee_confirmation' && <div className="ticket-actions"><button type="button" onClick={() => confirmApplicationDone(ticket.id)}>✅ Заявка выполнена</button><button type="button" onClick={() => reopenApplication(ticket.id)}>Проблема осталась</button></div>}
                   </article>
                 );
               })}

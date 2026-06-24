@@ -964,7 +964,7 @@ app.post('/api/applications/:id/resolve', async (req, res) => {
 
 app.post('/api/applications/:id/confirm', async (req, res) => {
   const { id } = req.params;
-  const { actor } = req.body;
+  const { actor, employee_comment } = req.body;
   try {
     await ensureApplicationWorkflowSchema();
     const updated = await updateApplicationWorkflow(id, (app) => {
@@ -972,10 +972,10 @@ app.post('/api/applications/:id/confirm', async (req, res) => {
       const resolvedAt = app.resolved_at || now;
       const workSeconds = app.work_seconds ?? secondsBetween(app.work_started_at || app.accepted_at || app.created_at || app.data, resolvedAt);
       return {
-        sql: 'UPDATE application SET `status` = ?, `resolved_at` = ?, `work_seconds` = ?, `employee_confirmed_at` = ?, `end_data` = ?, `fl` = 1 WHERE `id` = ?',
-        params: ['done', resolvedAt, workSeconds, now, now, id]
+        sql: 'UPDATE application SET `status` = ?, `resolved_at` = ?, `work_seconds` = ?, `employee_confirmed_at` = ?, `employee_comment` = ?, `end_data` = ?, `fl` = 1 WHERE `id` = ?',
+        params: ['done', resolvedAt, workSeconds, now, employee_comment || app.employee_comment || '', now, id]
       };
-    }, { actorLogin: actor || 'employee', actorRole: 'employee', eventType: 'employee_confirmed', comment: 'Сотрудник подтвердил выполнение' });
+    }, { actorLogin: actor || 'employee', actorRole: 'employee', eventType: 'employee_confirmed', comment: employee_comment || 'Сотрудник подтвердил выполнение' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
     res.json({ message: 'Заявка подтверждена', application: updated });
   } catch (error) {
