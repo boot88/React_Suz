@@ -531,7 +531,7 @@ const APPLICATION_OVERDUE_SQL = `(
   COALESCE(\`fl\`, 0) = 0 AND (
     (\`sla_paused_at\` IS NOT NULL AND \`status\` IN ('new', 'reopened', 'accepted', 'in_progress', 'waiting_employee_confirmation'))
     OR
-    (\`status\` IN ('new', 'reopened') AND TIMESTAMPDIFF(MINUTE, COALESCE(\`created_at\`, \`data\`, NOW()), NOW()) > 15)
+    (\`status\` IN ('new', 'reopened') AND (\`source\` = 'chat' OR COALESCE(\`employee_login\`, '') <> '') AND TIMESTAMPDIFF(MINUTE, COALESCE(\`created_at\`, \`data\`, NOW()), NOW()) > 15)
     OR (\`status\` IN ('accepted', 'in_progress') AND TIMESTAMPDIFF(MINUTE, COALESCE(\`work_started_at\`, \`accepted_at\`, \`start_data\`, \`created_at\`, \`data\`, NOW()), NOW()) > 30)
   )
 )`;

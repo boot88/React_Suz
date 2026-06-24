@@ -21,6 +21,7 @@ const WORKFLOW_FILTERS = [
   { id: 'overdue', label: 'Просроченные' }
 ];
 const formatDuration = (seconds) => {
+  if (seconds === null || seconds === undefined || seconds === '') return '—';
   const safe = Math.max(0, Math.floor(Number(seconds) || 0));
   const h = Math.floor(safe / 3600);
   const m = Math.floor((safe % 3600) / 60);
@@ -36,18 +37,55 @@ const secondsSince = (dateValue) => {
   return Math.max(0, Math.round((Date.now() - started) / 1000));
 };
 
+const secondsBetweenValues = (startValue, endValue) => {
+  if (!startValue || !endValue) return null;
+  const start = new Date(startValue).getTime();
+  const end = new Date(endValue).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end)) return null;
+  return Math.max(0, Math.round((end - start) / 1000));
+};
+
+const isEmployeeCreatedApplication = (app = {}) => (
+  app.source === 'chat' || Boolean(String(app.employee_login || '').trim())
+);
+
+const getWaitingSeconds = (app = {}) => {
+  if (!isEmployeeCreatedApplication(app)) return null;
+  const status = app.status || (app.fl ? 'done' : 'new');
+  if (app.sla_paused_at && ['new', 'reopened'].includes(status)) return app.sla_paused_seconds ?? null;
+  if (app.waiting_seconds != null) return app.waiting_seconds;
+  const createdAt = app.created_at || app.data;
+  const stoppedAt = app.accepted_at || app.work_started_at || app.start_data || app.resolved_at || app.end_data;
+  if (stoppedAt) return secondsBetweenValues(createdAt, stoppedAt);
+  if (app.fl || status === 'done') return null;
+  return secondsSince(createdAt);
+};
+
+const getWorkSeconds = (app = {}) => {
+  const status = app.status || (app.fl ? 'done' : 'new');
+  if (app.sla_paused_at && ['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(status)) return app.sla_paused_seconds ?? null;
+  if (app.work_seconds != null) return app.work_seconds;
+  const startedAt = app.work_started_at || app.accepted_at || app.start_data;
+  const finishedAt = app.resolved_at || app.end_data || app.employee_confirmed_at;
+  if (startedAt && finishedAt) return secondsBetweenValues(startedAt, finishedAt);
+  if (startedAt && ['accepted', 'in_progress'].includes(status) && !app.fl) return secondsSince(startedAt);
+  return null;
+};
+
 const getSlaState = (app = {}) => {
   const status = app.status || (app.fl ? 'done' : 'new');
   const paused = Boolean(app.sla_paused_at);
+  if (app.fl || status === 'done') return { level: 'ok', label: 'Выполнена', seconds: 0 };
   if (['new', 'reopened'].includes(status)) {
-    const waiting = app.sla_paused_seconds ?? app.waiting_seconds ?? secondsSince(app.created_at || app.data);
+    const waiting = getWaitingSeconds(app) || 0;
+    if (!isEmployeeCreatedApplication(app)) return { level: 'ok', label: 'Ручная заявка', seconds: 0 };
     if (paused) return { level: 'critical', label: 'Просрочка зафиксирована', seconds: waiting, paused: true };
     if (waiting > 15 * 60) return { level: 'critical', label: 'Ожидает более 15 минут', seconds: waiting };
     if (waiting > 5 * 60) return { level: 'warning', label: 'Ожидает более 5 минут', seconds: waiting };
     return { level: 'ok', label: 'В норме', seconds: waiting };
   }
   if (['accepted', 'in_progress'].includes(status)) {
-    const work = app.sla_paused_seconds ?? app.work_seconds ?? secondsSince(app.work_started_at || app.accepted_at || app.start_data);
+    const work = getWorkSeconds(app) || 0;
     if (paused) return { level: 'critical', label: 'Просрочка зафиксирована', seconds: work, paused: true };
     if (work > 30 * 60) return { level: 'critical', label: 'В работе более 30 минут', seconds: work };
     return { level: 'ok', label: 'В норме', seconds: work };
@@ -468,15 +506,10 @@ const Dashboard = () => {
   };
 
   const getTableTimers = (app = {}) => {
-    const status = app.status || (app.fl ? 'done' : 'new');
-    const paused = Boolean(app.sla_paused_at);
-    const waitingSeconds = paused && ['new', 'reopened'].includes(status)
-      ? app.sla_paused_seconds
-      : (app.waiting_seconds ?? secondsSince(app.created_at || app.data));
-    const workSeconds = paused && ['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(status)
-      ? app.sla_paused_seconds
-      : (app.work_seconds ?? (['accepted', 'in_progress'].includes(status) ? secondsSince(app.work_started_at || app.accepted_at || app.start_data) : null));
-    return { waitingSeconds, workSeconds };
+    return {
+      waitingSeconds: getWaitingSeconds(app),
+      workSeconds: getWorkSeconds(app)
+    };
   };
 
   const getStatusLabel = (app) => {
@@ -882,8 +915,8 @@ const Dashboard = () => {
             <div><strong>Приоритет</strong><span>{selectedApplication.priority || 'Обычный'}</span></div>
             <div><strong>Источник</strong><span>{selectedApplication.source || 'admin'}</span></div>
             <div><strong>Исполнитель</strong><span>{selectedApplication.executor || 'Не назначен'}</span></div>
-            <div><strong>Ожидание</strong><span>{formatDuration(selectedApplication.sla_paused_seconds ?? selectedApplication.waiting_seconds ?? secondsSince(selectedApplication.created_at || selectedApplication.data))}</span></div>
-            <div><strong>Работа</strong><span>{formatDuration(selectedApplication.sla_paused_seconds ?? selectedApplication.work_seconds ?? secondsSince(selectedApplication.work_started_at || selectedApplication.accepted_at))}</span></div>
+            <div><strong>Ожидание</strong><span>{formatDuration(getWaitingSeconds(selectedApplication))}</span></div>
+            <div><strong>Работа</strong><span>{formatDuration(getWorkSeconds(selectedApplication))}</span></div>
           </div>
           <div className="side-panel-section">
             <h3>Комментарий администратора</h3>
