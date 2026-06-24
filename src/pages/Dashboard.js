@@ -430,17 +430,53 @@ const Dashboard = () => {
   const goToPrevPage = () => goToPage(currentPage - 1);
   const goToNextPage = () => goToPage(currentPage + 1);
 
-  const formatDate = (dateString) => {
-    if (!dateString) return '—';
-    return new Date(dateString).toLocaleDateString('ru-RU');
-  };
-
   const formatTime = (dateString) => {
     if (!dateString) return '—';
     return new Date(dateString).toLocaleTimeString('ru-RU', {
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  const formatShortDate = (dateString) => {
+    if (!dateString) return '—';
+    return new Date(dateString).toLocaleDateString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      year: '2-digit'
+    });
+  };
+
+  const formatTimeRange = (app) => {
+    const start = formatTime(app.start_data || app.work_started_at);
+    const end = formatTime(app.end_data || app.resolved_at);
+    if (start === '—' && end === '—') return '—';
+    if (start !== '—' && end !== '—') return `${start} — ${end}`;
+    if (start !== '—') return `${start} — …`;
+    return `… — ${end}`;
+  };
+
+  const formatCompactDuration = (seconds) => {
+    if (seconds === null || seconds === undefined || seconds === '') return '—';
+    const safe = Math.max(0, Math.floor(Number(seconds) || 0));
+    if (safe < 60) return '<1 мин';
+    const minutes = Math.round(safe / 60);
+    if (minutes < 60) return `${minutes} мин`;
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    return rest ? `${hours} ч ${rest} мин` : `${hours} ч`;
+  };
+
+  const getTableTimers = (app = {}) => {
+    const status = app.status || (app.fl ? 'done' : 'new');
+    const paused = Boolean(app.sla_paused_at);
+    const waitingSeconds = paused && ['new', 'reopened'].includes(status)
+      ? app.sla_paused_seconds
+      : (app.waiting_seconds ?? secondsSince(app.created_at || app.data));
+    const workSeconds = paused && ['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(status)
+      ? app.sla_paused_seconds
+      : (app.work_seconds ?? (['accepted', 'in_progress'].includes(status) ? secondsSince(app.work_started_at || app.accepted_at || app.start_data) : null));
+    return { waitingSeconds, workSeconds };
   };
 
   const getStatusLabel = (app) => {
@@ -714,16 +750,12 @@ const Dashboard = () => {
               <table className="applications-table">
                 <thead>
                   <tr>
-                    <th>ФИО</th>
-                    <th>Кабинет</th>
-                    <th>Телефон</th>
+                    <th>Сотрудник</th>
                     <th>Заявка</th>
-                    <th>Что сделано</th>
                     <th>Исполнитель</th>
-                    <th>Дата подачи</th>
-                    <th>Начало</th>
-                    <th>Окончание</th>
-                    <th>Таймеры</th>
+                    <th>Дата</th>
+                    <th>Время</th>
+                    <th>Таймер</th>
                     <th>Статус</th>
                     <th>Действия</th>
                   </tr>
@@ -736,9 +768,10 @@ const Dashboard = () => {
                         className={`${app.fl ? 'row-completed' : `row-${app.status || 'new'}`} row-sla-${getSlaState(app).level} ${selectedApplication?.id === app.id ? 'row-selected' : ''}`}
                         onClick={() => openApplicationPanel(app)}
                       >
-                        <td className="cell-name">{app.name}</td>
-                        <td>{app.cabinet || '—'}</td>
-                        <td>{app.N_tel || '—'}</td>
+                        <td className="cell-person">
+                          <strong>{app.name || 'Сотрудник'}</strong>
+                          <span>каб. {app.cabinet || '—'}{app.N_tel ? ` · ${app.N_tel}` : ''}</span>
+                        </td>
 						
                         <td 
                              className="cell-application" 
@@ -749,16 +782,6 @@ const Dashboard = () => {
                              }}
                         >
                              {app.application}
-                        </td>
-                        <td 
-                              className="cell-process" 
-                              data-tooltip={app.process || 'Информация отсутствует'}
-                              onMouseMove={(e) => {
-                                document.documentElement.style.setProperty('--mouse-x', `${e.clientX}px`);
-                                document.documentElement.style.setProperty('--mouse-y', `${e.clientY}px`);
-                              }}
-                        >
-                             {app.process || '—'}
                         </td>
 
                         <td className="cell-executor">
@@ -795,22 +818,30 @@ const Dashboard = () => {
                           )}
                         </td>
                         
-                        <td className="cell-date">{formatDate(app.data)}</td>
-                        <td className="cell-date">{formatTime(app.start_data)}</td>
-                        <td className="cell-date">{formatTime(app.end_data)}</td>
-                        <td className="cell-date"><div>Ожидание: {formatDuration(app.sla_paused_seconds ?? app.waiting_seconds)}</div><div>Приход: {formatDuration(app.arrival_seconds)}</div><div>Работа: {formatDuration(app.sla_paused_seconds ?? app.work_seconds)}</div>{app.sla_paused_at && <small>Таймер просрочки остановлен</small>}{app.admin_comment && <small>{app.admin_comment}</small>}</td>
+                        <td className="cell-date">{formatShortDate(app.data)}</td>
+                        <td className="cell-date cell-time-range">{formatTimeRange(app)}</td>
+                        <td className="cell-timers">
+                          {(() => {
+                            const { waitingSeconds, workSeconds } = getTableTimers(app);
+                            return (
+                              <>
+                                <div>Ожидание: {formatCompactDuration(waitingSeconds)}</div>
+                                <div>Работа: {formatCompactDuration(workSeconds)}</div>
+                              </>
+                            );
+                          })()}
+                          {app.sla_paused_at && <small>Таймер остановлен</small>}
+                        </td>
                         <td>{getStatusLabel(app)}</td>
-                        <td><div className="workflow-actions">
-                          {['new', 'reopened'].includes(app.status || 'new') && <button type="button" disabled={actionBusyId === app.id} onClick={(event) => { event.stopPropagation(); openAcceptModal(app); }}>Взять</button>}
-                          {app.status === 'accepted' && <button type="button" disabled={actionBusyId === app.id} onClick={(event) => { event.stopPropagation(); runWorkflowAction(app, 'start-work'); }}>Запустить таймер</button>}
-                          {['accepted', 'in_progress'].includes(app.status) && <button type="button" disabled={actionBusyId === app.id} onClick={(event) => { event.stopPropagation(); openResolveModal(app); }}>Что сделано</button>}
-                                                    {app.employee_login && <a onClick={(event) => event.stopPropagation()} href={`/employee?dialog=${encodeURIComponent(app.employee_login)}&application=${app.id}`}>Чат</a>}
+                        <td className="cell-actions"><div className="workflow-actions">
+                          <button type="button" disabled={actionBusyId === app.id} onClick={(event) => { event.stopPropagation(); openApplicationPanel(app); }}>Открыть</button>
+                          {app.employee_login && <a onClick={(event) => event.stopPropagation()} href={`/employee?dialog=${encodeURIComponent(app.employee_login)}&application=${app.id}`}>Чат</a>}
                         </div></td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan="12" className="no-data">
+                      <td colSpan="8" className="no-data">
                         <span className="science-icon">🔍</span>
                         {searchTerm 
                           ? `Не найдено заявок по запросу "${searchTerm}"`

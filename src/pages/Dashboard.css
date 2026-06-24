@@ -342,37 +342,75 @@ button:disabled,
 }
 
 .table-responsive {
-  overflow-x: auto;
+  max-height: min(68vh, 760px);
+  overflow: auto;
+  border: 1px solid var(--dash-border);
+  border-radius: 18px;
+  background: #fff;
 }
 
 .applications-table {
   width: 100%;
-  min-width: 1050px;
+  min-width: 980px;
   border-collapse: collapse;
   font-size: 14px;
 }
 
 .applications-table th,
 .applications-table td {
-  padding: 14px 12px;
+  padding: 13px 12px;
   border-bottom: 1px solid var(--dash-border);
   text-align: left;
-  vertical-align: top;
+  vertical-align: middle;
 }
 
 .applications-table th {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 3;
   background: #f8fafc;
   color: #334155;
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: .04em;
+  border-bottom: 1px solid #dbe3ef;
+}
+
+.applications-table th:first-child,
+.applications-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: inherit;
+  box-shadow: 1px 0 0 var(--dash-border);
+}
+
+.applications-table th:first-child {
+  z-index: 4;
+  background: #f8fafc;
+}
+
+.applications-table th:last-child,
+.applications-table td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  background: inherit;
+  box-shadow: -1px 0 0 var(--dash-border);
+}
+
+.applications-table th:last-child {
+  z-index: 4;
+  background: #f8fafc;
 }
 
 .applications-table tbody tr {
   cursor: pointer;
+  background: #fff;
+}
+
+.applications-table tbody tr:nth-child(even) {
+  background: #f8fafc;
 }
 
 .applications-table tbody tr:hover,
@@ -395,14 +433,38 @@ button:disabled,
 
 .cell-application,
 .cell-process {
-  max-width: 260px;
+  max-width: 340px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.cell-name {
+.cell-person {
   font-weight: 800;
+  min-width: 210px;
+}
+
+.cell-person span,
+.cell-timers small {
+  display: block;
+  margin-top: 4px;
+  color: var(--dash-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.cell-date,
+.cell-time-range {
+  white-space: nowrap;
+}
+
+.cell-timers {
+  min-width: 150px;
+  white-space: nowrap;
+}
+
+.cell-actions {
+  min-width: 150px;
 }
 
 .workflow-actions {
