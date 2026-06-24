@@ -156,7 +156,7 @@ const AddApplication = () => {
       // Получаем текущую дату и время для Новосибирска
       const currentDateTime = getCurrentNovosibirskDateTime();
       const startData = formData.fl ? formatDateTimeForInput(currentDateTime) : null;
-      const endData = formData.fl ? formatDateTimeForInput(currentDateTime) : null;
+      const endData = formData.fl ? formatDateTimeForInput(new Date(currentDateTime.getTime() + 30 * 60000)) : null;
 
       // Санитизация данных перед отправкой
       const sanitizedData = sanitizeData({
@@ -284,7 +284,7 @@ const AddApplication = () => {
             </div>
 
             <div className="form-group">
-              <label htmlFor="executor">Исполнитель (можно назначить позже)</label>
+              <label htmlFor="executor">Исполнитель</label>
               <input
                 id="executor"
                 name="executor"

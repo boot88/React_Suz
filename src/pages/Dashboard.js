@@ -72,6 +72,12 @@ const getWorkSeconds = (app = {}) => {
   return null;
 };
 
+const getDisplayWorkSeconds = (app = {}) => {
+  const workSeconds = getWorkSeconds(app);
+  if (workSeconds == null) return null;
+  return Math.max(workSeconds, 30 * 60);
+};
+
 const getSlaState = (app = {}) => {
   const status = app.status || (app.fl ? 'done' : 'new');
   const paused = Boolean(app.sla_paused_at);
@@ -486,8 +492,13 @@ const Dashboard = () => {
   };
 
   const formatTimeRange = (app) => {
-    const start = formatTime(app.start_data || app.work_started_at);
-    const end = formatTime(app.end_data || app.resolved_at);
+    const startValue = app.start_data || app.work_started_at || app.accepted_at;
+    const displayWorkSeconds = getDisplayWorkSeconds(app);
+    const calculatedEnd = startValue && displayWorkSeconds != null
+      ? new Date(new Date(startValue).getTime() + displayWorkSeconds * 1000)
+      : null;
+    const start = formatTime(startValue);
+    const end = formatTime(calculatedEnd || app.end_data || app.resolved_at);
     if (start === '—' && end === '—') return '—';
     if (start !== '—' && end !== '—') return `${start} — ${end}`;
     if (start !== '—') return `${start} — …`;
@@ -858,8 +869,8 @@ const Dashboard = () => {
                             const { waitingSeconds, workSeconds } = getTableTimers(app);
                             return (
                               <>
-                                <div>Ожидание: {formatCompactDuration(waitingSeconds)}</div>
-                                <div>Работа: {formatCompactDuration(workSeconds)}</div>
+                                {waitingSeconds != null && <div>Ожидание: {formatCompactDuration(waitingSeconds)}</div>}
+                                <div>Работа: {formatCompactDuration(getDisplayWorkSeconds(app) ?? workSeconds)}</div>
                               </>
                             );
                           })()}
@@ -915,8 +926,8 @@ const Dashboard = () => {
             <div><strong>Приоритет</strong><span>{selectedApplication.priority || 'Обычный'}</span></div>
             <div><strong>Источник</strong><span>{selectedApplication.source || 'admin'}</span></div>
             <div><strong>Исполнитель</strong><span>{selectedApplication.executor || 'Не назначен'}</span></div>
-            <div><strong>Ожидание</strong><span>{formatDuration(getWaitingSeconds(selectedApplication))}</span></div>
-            <div><strong>Работа</strong><span>{formatDuration(getWorkSeconds(selectedApplication))}</span></div>
+            {getWaitingSeconds(selectedApplication) != null && <div><strong>Ожидание</strong><span>{formatDuration(getWaitingSeconds(selectedApplication))}</span></div>}
+            <div><strong>Работа</strong><span>{formatDuration(getDisplayWorkSeconds(selectedApplication))}</span></div>
           </div>
           <div className="side-panel-section">
             <h3>Комментарий администратора</h3>
