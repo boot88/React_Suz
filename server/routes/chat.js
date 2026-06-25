@@ -97,7 +97,7 @@ const ensureJsonFile = async (filePath, fallback) => {
   }
 };
 
-const readJsonWithRecovery = async (filePath, fallback, validate, label) => {
+const readJsonWithRecovery = async (filePath, fallback, validate, label, { throwOnUnrecoverable = false } = {}) => {
   await ensureJsonFile(filePath, fallback);
   try {
     const raw = await fs.readFile(filePath, 'utf-8');
@@ -108,11 +108,14 @@ const readJsonWithRecovery = async (filePath, fallback, validate, label) => {
     console.error(`${label} read error, trying backup:`, error.message);
     const restored = await restoreJsonBackup(filePath, validate);
     if (restored) return restored;
+    if (throwOnUnrecoverable) {
+      throw new Error(`${label}: не удалось прочитать файл и восстановить резервную копию`);
+    }
     return fallback;
   }
 };
 
-const readFeed = async () => readJsonWithRecovery(feedFilePath, [], Array.isArray, 'Chat feed');
+const readFeed = async () => readJsonWithRecovery(feedFilePath, [], Array.isArray, 'Chat feed', { throwOnUnrecoverable: true });
 
 const writeFeed = async (posts, { allowEmpty = false } = {}) => {
   const safePosts = Array.isArray(posts) ? posts : [];
@@ -245,13 +248,14 @@ router.post('/feed/posts', async (req, res) => {
       category: req.body?.category || 'Объявление',
       pinned: Boolean(req.body?.pinned),
       attachment: req.body?.attachment || null,
+      attachments: Array.isArray(req.body?.attachments) ? req.body.attachments.filter(Boolean) : (req.body?.attachment ? [req.body.attachment] : []),
       reactions: req.body?.reactions || {},
       createdAt: req.body?.createdAt || now,
       updatedAt: now,
       comments: []
     };
 
-    if (!post.text && !post.attachment) {
+    if (!post.text && !post.attachments.length) {
       return res.status(400).json({ message: 'text или attachment обязателен' });
     }
 
