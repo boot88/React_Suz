@@ -14,6 +14,7 @@ function EditApplicationsTable() {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [totalItems, setTotalItems] = useState(0);
   const [fieldErrors, setFieldErrors] = useState({});
+  const [statusFilter, setStatusFilter] = useState('all');
 
   const adjustForNovosibirskTime = (date) => {
     const localDate = new Date(date);
@@ -31,8 +32,9 @@ function EditApplicationsTable() {
     setLoading(true);
     setError(null);
     try {
+      const statusQuery = statusFilter !== 'all' ? `&status=${encodeURIComponent(statusFilter)}` : '';
       const response = await fetch(
-        `${API_BASE_URL}/applications?page=${currentPage}&limit=${itemsPerPage}`
+        `${API_BASE_URL}/applications?page=${currentPage}&limit=${itemsPerPage}${statusQuery}`
       );
       
       if (!response.ok) {
@@ -42,14 +44,14 @@ function EditApplicationsTable() {
       const data = await response.json();
       setApplications(data.applications || []);
       setTotalPages(data.totalPages || 1);
-      setTotalItems(data.stats?.total || 0);
+      setTotalItems(data.total ?? data.stats?.total ?? 0);
       setLoading(false);
     } catch (err) {
       console.error('Ошибка загрузки:', err.message);
       setError('Не удалось загрузить данные. Проверьте подключение к серверу.');
       setLoading(false);
     }
-  }, [currentPage, itemsPerPage]);
+  }, [currentPage, itemsPerPage, statusFilter]);
 
   useEffect(() => {
     fetchApplications();
@@ -224,6 +226,15 @@ function EditApplicationsTable() {
         appToSave.end_data = endDate.toISOString();
       }
 
+      if (appToSave.fl && appToSave.start_data && appToSave.end_data) {
+        const startDate = new Date(appToSave.start_data);
+        const endDate = new Date(appToSave.end_data);
+        const minimumEndDate = new Date(startDate.getTime() + 30 * 60000);
+        if (!Number.isNaN(startDate.getTime()) && !Number.isNaN(endDate.getTime()) && endDate < minimumEndDate) {
+          appToSave.end_data = minimumEndDate.toISOString();
+        }
+      }
+
       const response = await fetch(`${API_BASE_URL}/applications/${appToSave.id}`, {
         method: 'PUT',
         headers: { 
@@ -330,6 +341,19 @@ function EditApplicationsTable() {
     });
   };
 
+  const getStatusLabel = (app) => {
+    if (app.fl) return 'Выполнено';
+    const labels = {
+      new: 'Новая',
+      reopened: 'Переоткрыта',
+      accepted: 'Назначена',
+      in_progress: 'В работе',
+      waiting_employee_confirmation: 'Ждёт подтверждения',
+      done: 'Выполнено'
+    };
+    return labels[app.status] || 'Новая';
+  };
+
   const renderPagination = () => {
     if (totalPages <= 1) return null;
 
@@ -394,6 +418,11 @@ function EditApplicationsTable() {
     setCurrentPage(1);
   };
 
+  const handleStatusFilterChange = (e) => {
+    setStatusFilter(e.target.value);
+    setCurrentPage(1);
+  };
+
   const handleTooltipMouseMove = (e) => {
     document.documentElement.style.setProperty('--mouse-x', `${e.clientX}px`);
     document.documentElement.style.setProperty('--mouse-y', `${e.clientY}px`);
@@ -428,6 +457,19 @@ function EditApplicationsTable() {
           <button onClick={fetchApplications} className="refresh-button">
             Обновить
           </button>
+          <select
+            value={statusFilter}
+            onChange={handleStatusFilterChange}
+            className="page-size-select"
+            title="Фильтр по статусу заявки"
+          >
+            <option value="all">Все статусы</option>
+            <option value="queue">Новые</option>
+            <option value="active">В работе</option>
+            <option value="confirmation">Ждут подтверждения</option>
+            <option value="done">Выполненные</option>
+            <option value="overdue">Просроченные</option>
+          </select>
           <select
             value={itemsPerPage}
             onChange={handleItemsPerPageChange}
@@ -682,7 +724,7 @@ function EditApplicationsTable() {
                     <td>{app.executor || '—'}</td>
                     <td>
                       <span className={`status-badge ${app.fl ? 'completed' : 'pending'}`}>
-                        {app.fl ? 'Выполнено' : 'В работе'}
+                        {getStatusLabel(app)}
                       </span>
                     </td>
                     <td>
