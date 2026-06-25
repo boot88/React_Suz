@@ -1077,8 +1077,8 @@ const EmployeeChat = () => {
     if (!event.currentTarget.contains(event.relatedTarget)) setIsDraggingFiles(false);
   };
 
-  const removeAttachmentDraft = (indexToRemove) => {
-    setAttachmentDrafts((prev) => prev.filter((_, index) => index !== indexToRemove));
+  const removeAttachmentDraft = (attachmentId) => {
+    setAttachmentDrafts((prev) => prev.filter((file, index) => (file.id || `${file.name}-${index}`) !== attachmentId));
   };
 
   const saveMyProfile = async (event) => {
@@ -1391,9 +1391,37 @@ const EmployeeChat = () => {
 
   const deleteViewedMedia = async () => {
     if (!mediaViewer?.message?.id) return;
-    const messageId = mediaViewer.message.id;
+    const { message, fileIndex = 0 } = mediaViewer;
+    const messageId = message.id;
+    const confirmed = await confirmAction('Удалить только это вложение?', 'Удаление вложения');
+    if (!confirmed) return;
     setMediaViewer(null);
-    await deleteMessage(messageId);
+    try {
+      await updateMessage(messageId, (item) => {
+        const currentAttachments = item.attachments?.length ? item.attachments : item.attachment ? [item.attachment] : [];
+        const nextAttachments = currentAttachments.filter((_, index) => index !== fileIndex);
+        const hasText = String(item.text || '').trim() && item.text !== '📎 Вложения';
+        if (!nextAttachments.length && !hasText) {
+          return {
+            ...item,
+            text: '',
+            attachment: null,
+            attachments: [],
+            deletedAt: new Date().toISOString(),
+            deletedBy: user.username,
+            audit: [...(item.audit || []), { action: 'delete_attachment', by: user.username, at: new Date().toISOString(), previousText: item.text }]
+          };
+        }
+        return {
+          ...item,
+          attachment: nextAttachments[0] || null,
+          attachments: nextAttachments,
+          audit: [...(item.audit || []), { action: 'delete_attachment', by: user.username, at: new Date().toISOString(), fileName: currentAttachments[fileIndex]?.name || '' }]
+        };
+      });
+    } catch (error) {
+      notify(error.message || 'Не удалось удалить вложение', 'Вложение');
+    }
   };
 
   const forwardMessageToContact = async (targetEmail) => {
@@ -2006,9 +2034,9 @@ const EmployeeChat = () => {
                   {attachmentDrafts.length > 0 && (
                     <div className="attachment-preview-grid">
                       {attachmentDrafts.map((file, index) => (
-                        <div key={`${file.name}-${index}`} className="attachment-preview">
+                        <div key={file.id || `${file.name}-${index}`} className="attachment-preview">
                           <span>{getFileIcon(file.type)} {file.name} ({formatFileSize(file.size)})</span>
-                          <button type="button" onClick={() => removeAttachmentDraft(index)}>Убрать</button>
+                          <button type="button" onClick={() => removeAttachmentDraft(file.id || `${file.name}-${index}`)}>Убрать</button>
                         </div>
                       ))}
                     </div>
