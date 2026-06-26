@@ -738,7 +738,7 @@ const EmployeeChat = () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message })
-    }, { fallbackMessage: 'Не удалось сохранить сообщение' });
+    }, { attempts: 1, fallbackMessage: 'Не удалось сохранить сообщение' });
 
     if (data?.threads && typeof data.threads === 'object') {
       setThreads(data.threads);
@@ -1683,19 +1683,26 @@ const EmployeeChat = () => {
       }
     }
 
+    const optimisticPost = {
+      id: createMessageId(),
+      author: user?.username || 'employee',
+      authorName: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
+      text: feedDraft.trim(),
+      attachment: feedAttachments[0] || null,
+      attachments: feedAttachments,
+      category: 'Объявление',
+      reactions: {},
+      comments: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
     try {
       const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          author: user?.username || 'employee',
-          authorName: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
-          text: feedDraft.trim(),
-          attachment: feedAttachments[0] || null,
-          attachments: feedAttachments,
-          category: 'Объявление'
-        })
-      }, { fallbackMessage: 'Не удалось опубликовать запись' });
+        body: JSON.stringify(optimisticPost)
+      }, { attempts: 1, fallbackMessage: 'Не удалось опубликовать запись' });
       setFeedPosts(Array.isArray(data?.posts) ? data.posts : [data.post, ...feedPosts].filter(Boolean));
       window.requestAnimationFrame(() => {
         feedListRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1704,7 +1711,15 @@ const EmployeeChat = () => {
       setFeedAttachments([]);
     } catch (error) {
       const isNetworkError = error?.message === 'Failed to fetch';
-      notify(isNetworkError ? 'Сервер временно недоступен. Запись не опубликована, попробуйте ещё раз.' : (error.message || 'Не удалось опубликовать запись'), 'Лента');
+      if (isNetworkError) {
+        setFeedPosts((current) => current.some((post) => post.id === optimisticPost.id) ? current : [optimisticPost, ...current]);
+        setFeedDraft('');
+        setFeedAttachments([]);
+        window.requestAnimationFrame(() => feedListRef.current?.scrollTo({ top: 0, behavior: 'smooth' }));
+        fetchFeed({ silent: true });
+        return;
+      }
+      notify(error.message || 'Не удалось опубликовать запись', 'Лента');
     } finally {
       setIsPublishingFeed(false);
     }
@@ -1789,14 +1804,25 @@ const EmployeeChat = () => {
     const confirmed = await confirmAction('Скрыть публикацию из общей ленты? Запись останется в журнале как удалённая.', 'Лента');
     if (!confirmed) return;
 
+    const previousPosts = feedPosts;
+    const deletedAt = new Date().toISOString();
+    setFeedPosts((current) => current.map((item) => (
+      item.id === postId ? { ...item, deletedAt, deletedBy: user?.username || 'employee' } : item
+    )));
+
     try {
       const response = await fetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}?deletedBy=${encodeURIComponent(user?.username || 'employee')}`, { method: 'DELETE' });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось удалить публикацию');
-      setFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts.map((item) => (
-        item.id === postId ? { ...item, deletedAt: data.deletedAt || new Date().toISOString(), deletedBy: data.deletedBy || user?.username } : item
+      setFeedPosts(Array.isArray(data?.posts) ? data.posts : previousPosts.map((item) => (
+        item.id === postId ? { ...item, deletedAt: data.deletedAt || deletedAt, deletedBy: data.deletedBy || user?.username } : item
       )));
     } catch (error) {
+      if (error?.message === 'Failed to fetch') {
+        fetchFeed({ silent: true });
+        return;
+      }
+      setFeedPosts(previousPosts);
       notify(error.message || 'Не удалось удалить публикацию', 'Лента');
     }
   };
