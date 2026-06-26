@@ -2103,13 +2103,21 @@ const EmployeeChat = () => {
                   {replyTo && <div className="reply-preview active-reply">Ответ на: {replyTo.sender}: {replyTo.text}<button type="button" onClick={() => setReplyTo(null)}>×</button></div>}
 
                   {attachmentDrafts.length > 0 && (
-                    <div className="attachment-preview-grid">
-                      {attachmentDrafts.map((file, index) => (
-                        <div key={file.id || `${file.name}-${index}`} className="attachment-preview">
-                          <span>{getFileIcon(file.type)} {file.name} ({formatFileSize(file.size)})</span>
-                          <button type="button" onClick={() => removeAttachmentDraft(file.id || `${file.name}-${index}`)}>Убрать</button>
-                        </div>
-                      ))}
+                    <div className="attachment-preview-grid media-draft-grid">
+                      {attachmentDrafts.map((file, index) => {
+                        const mediaFile = String(file.type || '').startsWith('image/') || isVideoAttachment(file);
+                        return (
+                          <div key={file.id || `${file.name}-${index}`} className={`attachment-preview media-draft-tile ${mediaFile ? 'is-media' : ''}`}>
+                            {mediaFile ? (
+                              <button type="button" className="media-draft-thumb" onClick={() => setMediaViewer({ source: 'chat-draft', file, fileIndex: index })}>
+                                {isVideoAttachment(file) ? <video src={file.dataUrl} muted playsInline preload="metadata" /> : <img src={file.dataUrl} alt={file.name} />}
+                              </button>
+                            ) : <span className="media-draft-file-icon">{getFileIcon(file.type)}</span>}
+                            <span>{file.name} · {formatFileSize(file.size)}</span>
+                            <button type="button" className="media-draft-remove" onClick={() => removeAttachmentDraft(file.id || `${file.name}-${index}`)}>×</button>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
 
@@ -2117,7 +2125,7 @@ const EmployeeChat = () => {
 
                   <form className="message-form" onSubmit={handleSend}>
                     <input placeholder="Введите сообщение или перетащите файлы сюда..." value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={2000} />
-                    <label className="attach-file-btn">📎 Фото/видео/файлы<input type="file" hidden multiple accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={handleAttachmentChange} /></label>
+                    <label className="attach-file-btn">📎 Выбрать несколько фото/видео<input type="file" hidden multiple accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={handleAttachmentChange} /></label>
                     <button type="submit">Отправить</button>
                   </form>
                 </div>
@@ -2185,16 +2193,24 @@ const EmployeeChat = () => {
             <form className="employee-feed-composer" onSubmit={addFeedPost}>
               <textarea rows={4} placeholder="Новость, объявление или рабочая заметка..." value={feedDraft} onChange={(e) => setFeedDraft(e.target.value)} />
               {feedAttachments.length > 0 && (
-                <div className="employee-feed-attachment-preview-grid">
-                  {feedAttachments.map((file, index) => (
-                    <div key={file.id || `${file.name}-${index}`} className="employee-feed-attachment-preview">
-                      <span>{getFileIcon(file.type)} {file.name} · {formatFileSize(file.size)}</span>
-                      <button type="button" onClick={() => removeFeedAttachment(file.id || `${file.name}-${index}`)}>Убрать</button>
-                    </div>
-                  ))}
+                <div className="employee-feed-attachment-preview-grid media-draft-grid">
+                  {feedAttachments.map((file, index) => {
+                    const mediaFile = String(file.type || '').startsWith('image/') || isVideoAttachment(file);
+                    return (
+                      <div key={file.id || `${file.name}-${index}`} className={`employee-feed-attachment-preview media-draft-tile ${mediaFile ? 'is-media' : ''}`}>
+                        {mediaFile ? (
+                          <button type="button" className="media-draft-thumb" onClick={() => setMediaViewer({ source: 'feed-draft', file, fileIndex: index })}>
+                            {isVideoAttachment(file) ? <video src={file.dataUrl} muted playsInline preload="metadata" /> : <img src={file.dataUrl} alt={file.name} />}
+                          </button>
+                        ) : <span className="media-draft-file-icon">{getFileIcon(file.type)}</span>}
+                        <span>{file.name} · {formatFileSize(file.size)}</span>
+                        <button type="button" className="media-draft-remove" onClick={() => removeFeedAttachment(file.id || `${file.name}-${index}`)}>×</button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
-              <div className="employee-feed-composer-actions"><label>📎 Фото/видео/файл<input type="file" multiple hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="submit" disabled={!feedDraft.trim() && feedAttachments.length === 0}>Опубликовать</button></div>
+              <div className="employee-feed-composer-actions"><label>📎 Выбрать несколько фото/видео<input type="file" multiple hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="submit" disabled={!feedDraft.trim() && feedAttachments.length === 0}>Опубликовать</button></div>
             </form>
             <div className="employee-feed-list" ref={feedListRef} onClick={(event) => { if (event.target === event.currentTarget) { setSelectedFeedPostId(''); setFeedReactionExpanded(false); } }}>
               {feedPosts.length === 0 && <div className="empty-chat">Пока нет публикаций.</div>}
@@ -2269,10 +2285,10 @@ const EmployeeChat = () => {
               <summary aria-label="Действия с фото">⋯</summary>
               <div className="photo-viewer-menu-popover">
                 <a href={mediaViewer.file.dataUrl} download={mediaViewer.file.name || 'photo'}>Сохранить</a>
-                {mediaViewer.source !== 'feed' && <button type="button" onClick={replyToViewedMedia}>Ответить</button>}
-                {mediaViewer.source !== 'feed' && <button type="button" onClick={shareViewedMedia}>Переслать</button>}
+                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={replyToViewedMedia}>Ответить</button>}
+                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={shareViewedMedia}>Переслать</button>}
                 {mediaViewer.source === 'feed' && (isManager || isAdmin || mediaViewer.post?.author === user?.username) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>Удалить публикацию</button>}
-                {mediaViewer.source !== 'feed' && (isManager || mediaViewer.message?.sender === user.username) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>Удалить</button>}
+                {mediaViewer.message && mediaViewer.source !== 'feed' && (isManager || mediaViewer.message?.sender === user.username) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>Удалить</button>}
               </div>
             </details>
           </header>
