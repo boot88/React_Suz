@@ -2032,3 +2032,25 @@ button:disabled {
   border-radius: 18px;
   background: #050816;
 }
+
+.employee-feed-post.selected {
+  border-color: rgba(37, 99, 235, .38);
+  box-shadow: 0 18px 44px rgba(37, 99, 235, .16);
+}
+
+.feed-selected-menu {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.feed-actions-row {
+  position: static;
+  justify-content: flex-start;
+  transform: none;
+  box-shadow: none;
+}
+
+.feed-actions-row .danger-action {
+  color: var(--chat-danger);
+}

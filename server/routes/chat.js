@@ -287,6 +287,36 @@ router.delete('/feed/posts/:postId', async (req, res) => {
   }
 });
 
+router.patch('/feed/posts/:postId', async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const patch = req.body || {};
+    const now = new Date().toISOString();
+    let updatedPost = null;
+    const posts = await mutateFeed((items) => items.map((post) => {
+      if (post.id !== postId) return post;
+      const nextPost = {
+        ...post,
+        ...patch,
+        id: post.id,
+        updatedAt: now
+      };
+      if (Array.isArray(patch.attachments)) {
+        nextPost.attachments = patch.attachments.filter(Boolean);
+        nextPost.attachment = nextPost.attachments[0] || null;
+      }
+      updatedPost = nextPost;
+      return nextPost;
+    }));
+
+    if (!updatedPost) return res.status(404).json({ message: 'Публикация не найдена' });
+    res.json({ message: 'Публикация обновлена', post: updatedPost, posts });
+  } catch (error) {
+    console.error('Chat PATCH /feed/posts error:', error);
+    res.status(500).json({ message: 'Не удалось обновить публикацию' });
+  }
+});
+
 router.post('/feed/posts/:postId/comments', async (req, res) => {
   try {
     const { postId } = req.params;
