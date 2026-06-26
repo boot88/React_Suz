@@ -405,6 +405,8 @@ const EmployeeChat = () => {
   const [dialogSearch, setDialogSearch] = useState('');
   const [activeTab, setActiveTab] = useState('chat');
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [isPublishingFeed, setIsPublishingFeed] = useState(false);
   const [isEmojiOpen, setIsEmojiOpen] = useState(false);
   const [customTemplates, setCustomTemplates] = useState(() => readCustomTemplates(user?.username || 'guest'));
   
@@ -1003,7 +1005,15 @@ const EmployeeChat = () => {
 
   const handleSend = async (e) => {
     e.preventDefault();
-    if ((!draft.trim() && attachmentDrafts.length === 0) || !currentConversationId) return;
+    if (isSendingMessage || (!draft.trim() && attachmentDrafts.length === 0) || !currentConversationId) return;
+    setIsSendingMessage(true);
+    if (attachmentDrafts.length > 1) {
+      const confirmed = await confirmAction(`Отправить ${attachmentDrafts.length} файлов одним сообщением?`, 'Подтверждение отправки');
+      if (!confirmed) {
+        setIsSendingMessage(false);
+        return;
+      }
+    }
 
     const newMessage = {
       id: createMessageId(),
@@ -1038,6 +1048,8 @@ const EmployeeChat = () => {
       setThreads((prev) => ({ ...prev, [currentConversationId]: currentMessages }));
       suppressThreadsRefreshUntilRef.current = Date.now();
       notify(error.message || 'Не удалось отправить сообщение', 'Сообщение');
+    } finally {
+      setIsSendingMessage(false);
     }
   };
 
@@ -1661,7 +1673,15 @@ const EmployeeChat = () => {
 
   const addFeedPost = async (event) => {
     event.preventDefault();
-    if (!feedDraft.trim() && feedAttachments.length === 0) return;
+    if (isPublishingFeed || (!feedDraft.trim() && feedAttachments.length === 0)) return;
+    setIsPublishingFeed(true);
+    if (feedAttachments.length > 1) {
+      const confirmed = await confirmAction(`Опубликовать ${feedAttachments.length} файлов одной записью?`, 'Подтверждение публикации');
+      if (!confirmed) {
+        setIsPublishingFeed(false);
+        return;
+      }
+    }
 
     try {
       const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts`, {
@@ -1685,6 +1705,8 @@ const EmployeeChat = () => {
     } catch (error) {
       const isNetworkError = error?.message === 'Failed to fetch';
       notify(isNetworkError ? 'Сервер временно недоступен. Запись не опубликована, попробуйте ещё раз.' : (error.message || 'Не удалось опубликовать запись'), 'Лента');
+    } finally {
+      setIsPublishingFeed(false);
     }
   };
 
@@ -2126,7 +2148,7 @@ const EmployeeChat = () => {
                   <form className="message-form" onSubmit={handleSend}>
                     <input placeholder="Введите сообщение или перетащите файлы сюда..." value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={2000} />
                     <label className="attach-file-btn">📎 Выбрать несколько фото/видео<input type="file" hidden multiple accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={handleAttachmentChange} /></label>
-                    <button type="submit">Отправить</button>
+                    <button type="submit" disabled={isSendingMessage}>{isSendingMessage ? 'Отправляем...' : 'Отправить'}</button>
                   </form>
                 </div>
               </>
@@ -2210,7 +2232,7 @@ const EmployeeChat = () => {
                   })}
                 </div>
               )}
-              <div className="employee-feed-composer-actions"><label>📎 Выбрать несколько фото/видео<input type="file" multiple hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="submit" disabled={!feedDraft.trim() && feedAttachments.length === 0}>Опубликовать</button></div>
+              <div className="employee-feed-composer-actions"><label>📎 Выбрать несколько фото/видео<input type="file" multiple hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="submit" disabled={isPublishingFeed || (!feedDraft.trim() && feedAttachments.length === 0)}>{isPublishingFeed ? 'Публикуем...' : 'Опубликовать'}</button></div>
             </form>
             <div className="employee-feed-list" ref={feedListRef} onClick={(event) => { if (event.target === event.currentTarget) { setSelectedFeedPostId(''); setFeedReactionExpanded(false); } }}>
               {feedPosts.length === 0 && <div className="empty-chat">Пока нет публикаций.</div>}
