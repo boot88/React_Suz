@@ -777,6 +777,11 @@ const EmployeeChat = () => {
   }, [fetchThreads, fetchEmployees, fetchFeed, fetchMyApplications]);
 
   useEffect(() => {
+    if (activeTab !== 'feed') return;
+    fetchFeed({ silent: false });
+  }, [activeTab, fetchFeed]);
+
+  useEffect(() => {
     const timer = setInterval(() => setClockTick((tick) => tick + 1), 1000);
     return () => clearInterval(timer);
   }, []);
