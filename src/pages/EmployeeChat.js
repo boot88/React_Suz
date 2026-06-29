@@ -297,6 +297,8 @@ const getFeedAttachments = (post = {}) => {
   return post.attachment ? [post.attachment] : [];
 };
 
+const sameLogin = (left = '', right = '') => formatFeedLogin(left).trim().toLowerCase() === formatFeedLogin(right).trim().toLowerCase();
+
 const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, metaLabel = '', statusLabel = '' }) => {
   const fileName = file?.name || 'Файл';
   const fileType = String(file?.type || '');
@@ -1799,7 +1801,7 @@ const EmployeeChat = () => {
     const post = feedPosts.find((item) => item.id === postId);
     if (!post) return;
 
-    const canDeletePost = isManager || isAdmin || post.author === user?.username;
+    const canDeletePost = isManager || isAdmin || sameLogin(post.author, user?.username);
     if (!canDeletePost) return;
     const confirmed = await confirmAction('Скрыть публикацию из общей ленты? Запись останется в журнале как удалённая.', 'Лента');
     if (!confirmed) return;
@@ -1811,15 +1813,12 @@ const EmployeeChat = () => {
     )));
 
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}?deletedBy=${encodeURIComponent(user?.username || 'employee')}`, { method: 'DELETE' });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || 'Не удалось удалить публикацию');
+      const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}?deletedBy=${encodeURIComponent(user?.username || 'employee')}`, { method: 'DELETE' }, { attempts: 3, fallbackMessage: 'Не удалось удалить публикацию' });
       setFeedPosts(Array.isArray(data?.posts) ? data.posts : previousPosts.map((item) => (
         item.id === postId ? { ...item, deletedAt: data.deletedAt || deletedAt, deletedBy: data.deletedBy || user?.username } : item
       )));
     } catch (error) {
       if (error?.message === 'Failed to fetch') {
-        fetchFeed({ silent: true });
         return;
       }
       setFeedPosts(previousPosts);
@@ -2263,7 +2262,7 @@ const EmployeeChat = () => {
             <div className="employee-feed-list" ref={feedListRef} onClick={(event) => { if (event.target === event.currentTarget) { setSelectedFeedPostId(''); setFeedReactionExpanded(false); } }}>
               {feedPosts.length === 0 && <div className="empty-chat">Пока нет публикаций.</div>}
               {feedPosts.filter((post) => !post.deletedAt).sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))).map((post) => {
-                const canDeletePost = isManager || isAdmin || post.author === user?.username;
+                const canDeletePost = isManager || isAdmin || sameLogin(post.author, user?.username);
                 return (
                   <article
                     key={post.id}
@@ -2335,7 +2334,7 @@ const EmployeeChat = () => {
                 <a href={mediaViewer.file.dataUrl} download={mediaViewer.file.name || 'photo'}>Сохранить</a>
                 {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={replyToViewedMedia}>Ответить</button>}
                 {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={shareViewedMedia}>Переслать</button>}
-                {mediaViewer.source === 'feed' && (isManager || isAdmin || mediaViewer.post?.author === user?.username) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>Удалить публикацию</button>}
+                {mediaViewer.source === 'feed' && (isManager || isAdmin || sameLogin(mediaViewer.post?.author, user?.username)) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>Удалить вложение</button>}
                 {mediaViewer.message && mediaViewer.source !== 'feed' && (isManager || mediaViewer.message?.sender === user.username) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>Удалить</button>}
               </div>
             </details>

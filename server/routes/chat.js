@@ -280,7 +280,7 @@ router.delete('/feed/posts/:postId', async (req, res) => {
     }));
 
     if (!found) return res.status(404).json({ message: 'Публикация не найдена' });
-    res.json({ message: 'Публикация удалена', postId, deletedAt: now, deletedBy });
+    res.json({ message: 'Публикация удалена', postId, deletedAt: now, deletedBy, posts });
   } catch (error) {
     console.error('Chat DELETE /feed/posts error:', error);
     res.status(500).json({ message: 'Не удалось удалить публикацию' });
@@ -367,7 +367,7 @@ router.delete('/feed/posts/:postId/comments/:commentId', async (req, res) => {
     }));
 
     if (!found) return res.status(404).json({ message: 'Комментарий не найден' });
-    res.json({ message: 'Комментарий удалён', postId, commentId, deletedAt: now, deletedBy });
+    res.json({ message: 'Комментарий удалён', postId, commentId, deletedAt: now, deletedBy, posts });
   } catch (error) {
     console.error('Chat DELETE /feed/comments error:', error);
     res.status(500).json({ message: 'Не удалось удалить комментарий' });
