@@ -322,13 +322,9 @@ const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, 
         onClick={(event) => {
           event.stopPropagation();
           onSelect?.(event);
-        }}
-        onDoubleClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
           onOpen?.(event);
         }}
-        aria-label={`Выбрать фото ${fileName}. Двойной клик — открыть`}
+        aria-label={`Открыть фото ${fileName}`}
       >
         <img src={file.dataUrl} alt={fileName} />
         {(metaLabel || statusLabel) && <span className="message-photo-meta">{metaLabel} {statusLabel}</span>}
@@ -1439,24 +1435,55 @@ const EmployeeChat = () => {
     setMediaViewer(null);
   };
 
+  const deleteChatAttachment = async (messageId, fileIndex = 0, targetConversationId = currentConversationId) => {
+    if (!messageId || !targetConversationId) return;
+    const confirmed = await confirmAction('Удалить только это вложение?', 'Удаление вложения');
+    if (!confirmed) return;
+
+    await updateMessage(messageId, (item) => {
+      const currentAttachments = item.attachments?.length ? item.attachments : item.attachment ? [item.attachment] : [];
+      const nextAttachments = currentAttachments.filter((_, index) => index !== fileIndex);
+      const hasText = String(item.text || '').trim() && item.text !== '📎 Вложения';
+      const auditEntry = {
+        action: 'delete_attachment',
+        by: user.username,
+        at: new Date().toISOString(),
+        fileName: currentAttachments[fileIndex]?.name || ''
+      };
+
+      if (!nextAttachments.length && !hasText) {
+        return {
+          ...item,
+          text: '',
+          attachment: null,
+          attachments: [],
+          deletedAt: new Date().toISOString(),
+          deletedBy: user.username,
+          audit: [...(item.audit || []), auditEntry]
+        };
+      }
+
+      return {
+        ...item,
+        text: hasText ? item.text : '📎 Вложения',
+        attachment: nextAttachments[0] || null,
+        attachments: nextAttachments,
+        audit: [...(item.audit || []), auditEntry]
+      };
+    }, targetConversationId);
+  };
+
   const deleteViewedMedia = async () => {
     if (mediaViewer?.source === 'feed') {
       const { post, fileIndex = 0 } = mediaViewer;
       if (!post?.id) return;
       const currentAttachments = getFeedAttachments(post);
       const nextAttachments = currentAttachments.filter((_, index) => index !== fileIndex);
-      const confirmMessage = nextAttachments.length || String(post.text || '').trim()
-        ? 'Удалить только это вложение из публикации?'
-        : 'Это последнее вложение без текста. Скрыть публикацию?';
-      const confirmed = await confirmAction(confirmMessage, 'Удаление вложения');
+      const confirmed = await confirmAction('Удалить только это вложение из публикации?', 'Удаление вложения');
       if (!confirmed) return;
       setMediaViewer(null);
       try {
-        if (!nextAttachments.length && !String(post.text || '').trim()) {
-          await deleteFeedPost(post.id);
-        } else {
-          await patchFeedPost(post.id, { attachments: nextAttachments });
-        }
+        await patchFeedPost(post.id, { attachments: nextAttachments });
       } catch (error) {
         notify(error.message || 'Не удалось удалить вложение', 'Лента');
       }
@@ -1464,33 +1491,9 @@ const EmployeeChat = () => {
     }
     if (!mediaViewer?.message?.id) return;
     const { message, fileIndex = 0 } = mediaViewer;
-    const messageId = message.id;
-    const confirmed = await confirmAction('Удалить только это вложение?', 'Удаление вложения');
-    if (!confirmed) return;
     setMediaViewer(null);
     try {
-      await updateMessage(messageId, (item) => {
-        const currentAttachments = item.attachments?.length ? item.attachments : item.attachment ? [item.attachment] : [];
-        const nextAttachments = currentAttachments.filter((_, index) => index !== fileIndex);
-        const hasText = String(item.text || '').trim() && item.text !== '📎 Вложения';
-        if (!nextAttachments.length && !hasText) {
-          return {
-            ...item,
-            text: '',
-            attachment: null,
-            attachments: [],
-            deletedAt: new Date().toISOString(),
-            deletedBy: user.username,
-            audit: [...(item.audit || []), { action: 'delete_attachment', by: user.username, at: new Date().toISOString(), previousText: item.text }]
-          };
-        }
-        return {
-          ...item,
-          attachment: nextAttachments[0] || null,
-          attachments: nextAttachments,
-          audit: [...(item.audit || []), { action: 'delete_attachment', by: user.username, at: new Date().toISOString(), fileName: currentAttachments[fileIndex]?.name || '' }]
-        };
-      });
+      await deleteChatAttachment(message.id, fileIndex);
     } catch (error) {
       notify(error.message || 'Не удалось удалить вложение', 'Вложение');
     }
@@ -2314,7 +2317,7 @@ const EmployeeChat = () => {
                   >
                     <header className="employee-feed-post-header"><div><strong>{post.pinned ? '📌 ' : ''}{post.authorName}</strong><span>{formatFeedLogin(post.author)} · {new Date(post.createdAt).toLocaleString('ru-RU')}</span></div></header>
                     {post.text && <p className="employee-feed-post-text">{post.text}</p>}
-                    {getFeedAttachments(post).length > 0 && <div className="employee-feed-media-grid">{getFeedAttachments(post).map((file, index) => { const isMedia = String(file.type || '').startsWith('image/') || isVideoAttachment(file); return isMedia ? <button key={file.id || `${post.id}-feed-media-${index}`} type="button" className={`employee-feed-media-tile ${isVideoAttachment(file) ? 'video' : ''}`} onClick={(event) => { event.stopPropagation(); setSelectedFeedPostId(post.id); setFeedReactionExpanded(false); }} onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); openFeedMediaViewer(post, file, index); }} aria-label={`Выбрать вложение ${file.name || 'медиа'}. Двойной клик — открыть`}>{isVideoAttachment(file) ? <video src={file.dataUrl} preload="metadata" muted playsInline /> : <img src={file.dataUrl} alt={file.name || 'Вложение'} />}<span>{file.name} · {formatFileSize(file.size)}</span></button> : <AttachmentCard key={file.id || `${post.id}-feed-file-${index}`} cardKey={`${post.id}-feed-file-${index}`} file={file} variant="feed" />; })}</div>}
+                    {getFeedAttachments(post).length > 0 && <div className="employee-feed-media-grid">{getFeedAttachments(post).map((file, index) => { const isMedia = String(file.type || '').startsWith('image/') || isVideoAttachment(file); return isMedia ? <button key={file.id || `${post.id}-feed-media-${index}`} type="button" className={`employee-feed-media-tile ${isVideoAttachment(file) ? 'video' : ''}`} onClick={(event) => { event.stopPropagation(); openFeedMediaViewer(post, file, index); }} aria-label={`Открыть вложение ${file.name || 'медиа'}`}>{isVideoAttachment(file) ? <video src={file.dataUrl} preload="metadata" muted playsInline /> : <img src={file.dataUrl} alt={file.name || 'Вложение'} />}<span>{file.name} · {formatFileSize(file.size)}</span></button> : <AttachmentCard key={file.id || `${post.id}-feed-file-${index}`} cardKey={`${post.id}-feed-file-${index}`} file={file} variant="feed" />; })}</div>}
                     <div className="message-reactions-inline feed-reactions-inline">{REACTION_EMOJIS.filter((emoji) => (post.reactions?.[emoji] || []).length > 0).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={(event) => { event.stopPropagation(); toggleFeedReaction(post.id, emoji); }}>{emoji}</button>; })}</div>
                     {selectedFeedPostId === post.id && (
                       <div className="feed-selected-menu" onClick={(event) => event.stopPropagation()}>
@@ -2363,7 +2366,7 @@ const EmployeeChat = () => {
                 {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={replyToViewedMedia}>↩ Ответить</button>}
                 {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={shareViewedMedia}>➜ Переслать</button>}
                 {mediaViewer.source === 'feed' && (isManager || isAdmin || sameLogin(mediaViewer.post?.author, user?.username)) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>✕ Удалить вложение</button>}
-                {mediaViewer.message && mediaViewer.source !== 'feed' && (isManager || mediaViewer.message?.sender === user.username) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>✕ Удалить</button>}
+                {mediaViewer.message && mediaViewer.source !== 'feed' && (isManager || mediaViewer.message?.sender === user.username) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>✕ Удалить вложение</button>}
               </div>
             </details>
           </header>
