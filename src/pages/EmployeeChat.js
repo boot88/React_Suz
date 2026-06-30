@@ -2007,13 +2007,17 @@ const EmployeeChat = () => {
                     const message = item.message;
                     const canEdit = isManager || message.sender === user.username;
                     const isMine = message.sender === user.username;
-                    const isRead = isMine && currentMessages.some((row) => row.sender !== user.username && new Date(row.createdAt) > new Date(message.createdAt));
                     const isDeleted = Boolean(message.deletedAt);
                     const attachments = !isDeleted && message.attachments?.length ? message.attachments : !isDeleted && message.attachment ? [message.attachment] : [];
                     const hasTextContent = !isDeleted && String(message.text || '').trim() && message.text !== '📎 Вложения';
                     const photoMetaLabel = new Date(message.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-                    const statusLabel = isMine ? (isRead ? '✓✓' : '✓') : '';
+                    const statusLabel = isMine ? '✓' : '';
                     const isPhotoCollage = attachments.length > 1 && attachments.every((file) => String(file?.type || '').startsWith('image/'));
+                    const isMediaOnly = attachments.length > 0
+                      && !hasTextContent
+                      && !message.replyTo
+                      && !message.forwardedFrom
+                      && attachments.every((file) => String(file?.type || '').startsWith('image/') || isVideoAttachment(file));
 
                     const isSelected = selectedMessageId === message.id;
                     const visibleReactions = messageReactionExpanded ? REACTION_EMOJIS : REACTION_EMOJIS.slice(0, 7);
@@ -2024,7 +2028,7 @@ const EmployeeChat = () => {
                         <div
                           role="button"
                           tabIndex={0}
-                          className="message-bubble"
+                          className={`message-bubble ${isMediaOnly ? 'media-only' : ''}`}
                           onClick={(event) => {
                             event.stopPropagation();
                             if (isSelected && messageReactionExpanded) setMessageReactionExpanded(false);
@@ -2041,10 +2045,12 @@ const EmployeeChat = () => {
                             setMessageReactionExpanded(false);
                           }}
                         >
-                          <div className="message-meta">
-                            <span>{isMine ? 'Вы' : message.sender}</span>
-                            <span>{new Date(message.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
-                          </div>
+                          {!isMediaOnly && (
+                            <div className="message-meta">
+                              <span>{isMine ? 'Вы' : message.sender}</span>
+                              <span>{new Date(message.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
+                            </div>
+                          )}
 
                           {message.forwardedFrom && <div className="forwarded-preview">Переслано от {message.forwardedFrom}</div>}
                           {message.replyTo && <div className="reply-preview">↪ {message.replyTo.sender}: {message.replyTo.text}</div>}

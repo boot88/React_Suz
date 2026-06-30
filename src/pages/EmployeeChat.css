@@ -2121,3 +2121,33 @@ button:disabled {
   line-height: 1;
   cursor: pointer;
 }
+
+.message-bubble.media-only {
+  padding: 2px;
+  border: 1px solid rgba(15, 23, 42, .14);
+  border-radius: 16px;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  overflow: hidden;
+}
+
+.message-row.mine .message-bubble.media-only {
+  border-color: rgba(37, 99, 235, .22);
+  background: transparent;
+  color: inherit;
+}
+
+.message-bubble.media-only .message-attachments-grid {
+  margin-top: 0;
+  gap: 2px;
+}
+
+.message-bubble.media-only .message-photo-card {
+  border-radius: 14px;
+  min-height: 190px;
+}
+
+.message-bubble.media-only .message-attachments-grid.photo-collage {
+  border-radius: 14px;
+}
