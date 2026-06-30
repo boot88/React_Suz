@@ -2151,3 +2151,17 @@ button:disabled {
 .message-bubble.media-only .message-attachments-grid.photo-collage {
   border-radius: 14px;
 }
+
+.photo-viewer-menu-popover {
+  font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif;
+  letter-spacing: .01em;
+}
+
+.photo-viewer-menu-popover a,
+.photo-viewer-menu-popover button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 700;
+}

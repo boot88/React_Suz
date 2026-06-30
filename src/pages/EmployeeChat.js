@@ -2119,12 +2119,12 @@ const EmployeeChat = () => {
 
                             {!messageReactionExpanded && (
                               <div className="selected-actions-row">
-                                <button type="button" onClick={() => { setReplyTo(message); setSelectedMessageId(''); }}>↩️ Ответить</button>
+                                <button type="button" onClick={() => { setReplyTo(message); setSelectedMessageId(''); }}>↩ Ответить</button>
                                 <button type="button" onClick={() => { copyMessageText(message); setSelectedMessageId(''); }}>Копировать</button>
-                                <button type="button" onClick={() => openForwardMessagePicker(message)}>📤 Переслать</button>
+                                <button type="button" onClick={() => openForwardMessagePicker(message)}>➜ Переслать</button>
                                 <button type="button" onClick={() => { togglePinned(message.id); setSelectedMessageId(''); }}>{message.pinned ? 'Открепить' : 'Закрепить'}</button>
                                 {canEdit && <button type="button" onClick={() => { editMessage(message.id); setSelectedMessageId(''); }}>Изменить</button>}
-                                {canEdit && <button type="button" className="danger-action" onClick={() => { deleteMessage(message.id); setSelectedMessageId(''); }}>🗑️ Удалить</button>}
+                                {canEdit && <button type="button" className="danger-action" onClick={() => { deleteMessage(message.id); setSelectedMessageId(''); }}>✕ Удалить</button>}
                               </div>
                             )}
                           </div>
@@ -2302,7 +2302,7 @@ const EmployeeChat = () => {
                     {selectedFeedPostId === post.id && (
                       <div className="feed-selected-menu" onClick={(event) => event.stopPropagation()}>
                         <div className="selected-reaction-row feed-reaction-picker">{(feedReactionExpanded ? REACTION_EMOJIS : REACTION_EMOJIS.slice(0, 7)).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => toggleFeedReaction(post.id, emoji)}>{emoji}</button>; })}{!feedReactionExpanded && <button type="button" className="more-reactions" onClick={() => setFeedReactionExpanded(true)}>⌄</button>}</div>
-                        <div className="selected-actions-row feed-actions-row">{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? 'Открепить' : 'Закрепить'}</button>}{canDeletePost && <button type="button" className="danger-action" onClick={() => deleteFeedPost(post.id)}>🗑️ Удалить</button>}</div>
+                        <div className="selected-actions-row feed-actions-row">{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? 'Открепить' : 'Закрепить'}</button>}{canDeletePost && <button type="button" className="danger-action" onClick={() => deleteFeedPost(post.id)}>✕ Удалить</button>}</div>
                       </div>
                     )}
                     <div className="employee-feed-comments"><div className="employee-feed-comments-title">Комментарии</div>{(post.comments || []).filter((comment) => !comment.deletedAt).length === 0 && <small className="employee-feed-no-comments">Комментариев пока нет.</small>}{(post.comments || []).filter((comment) => !comment.deletedAt).map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; return <div key={comment.id} className="employee-feed-comment"><div className="employee-feed-comment-body"><strong>{comment.authorName}</strong><span>{comment.text}</span><small>{formatFeedLogin(comment.author)} · {new Date(comment.createdAt).toLocaleString('ru-RU')}</small></div>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>Удалить</button>}</div>; })}<div className="employee-feed-comment-form"><input placeholder="Оставить комментарий…" value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} /><button type="button" onClick={() => addCommentToPost(post.id)} disabled={!(commentDrafts[post.id] || '').trim()}>Отправить</button></div></div>
@@ -2342,11 +2342,11 @@ const EmployeeChat = () => {
             <details className="photo-viewer-menu">
               <summary aria-label="Действия с фото">⋯</summary>
               <div className="photo-viewer-menu-popover">
-                <a href={mediaViewer.file.dataUrl} download={mediaViewer.file.name || 'photo'}>💾 Сохранить</a>
-                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={replyToViewedMedia}>↩️ Ответить</button>}
-                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={shareViewedMedia}>📤 Переслать</button>}
-                {mediaViewer.source === 'feed' && (isManager || isAdmin || sameLogin(mediaViewer.post?.author, user?.username)) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>🗑️ Удалить вложение</button>}
-                {mediaViewer.message && mediaViewer.source !== 'feed' && (isManager || mediaViewer.message?.sender === user.username) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>🗑️ Удалить</button>}
+                <a href={mediaViewer.file.dataUrl} download={mediaViewer.file.name || 'photo'}>⬇️ Скачать</a>
+                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={replyToViewedMedia}>↩ Ответить</button>}
+                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={shareViewedMedia}>➜ Переслать</button>}
+                {mediaViewer.source === 'feed' && (isManager || isAdmin || sameLogin(mediaViewer.post?.author, user?.username)) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>✕ Удалить вложение</button>}
+                {mediaViewer.message && mediaViewer.source !== 'feed' && (isManager || mediaViewer.message?.sender === user.username) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>✕ Удалить</button>}
               </div>
             </details>
           </header>
