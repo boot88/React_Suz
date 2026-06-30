@@ -16,6 +16,7 @@ import Support from './components/Support';
 import Statistics from './pages/Statistics';
 import { API_BASE_URL } from './utils/apiConfig';
 
+
 function App() {
   const { isAuthenticated, isLoading, user } = useAuth();
 
@@ -38,6 +39,7 @@ function App() {
           <div className={`app-content ${isAuthenticated && !isEmployee ? 'app-content--with-sidebar' : ''}`}>
             <Routes>
               <Route path="/login" element={<Login />} />
+              <Route path="/admin" element={<Login mode="admin" />} />
               <Route path="/register" element={<Register />} />
 
               <Route path="/employee" element={<ProtectedRoute><EmployeeChat /></ProtectedRoute>} />
@@ -82,15 +84,15 @@ function Sidebar() {
   }, []);
 
   useEffect(() => {
+    let isCancelled = false;
+
     const fetchNewRequests = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/applications?page=1&limit=300`);
+        const adminLogin = encodeURIComponent(user?.username || user?.name || 'admin');
+        const response = await fetch(`${API_BASE_URL}/applications/unseen-count?admin_login=${adminLogin}`);
         const data = await response.json().catch(() => ({}));
-        if (!response.ok) return;
-        const applications = Array.isArray(data?.applications) ? data.applications : [];
-        const seenRaw = JSON.parse(localStorage.getItem('adminViewedApplications') || '[]');
-        const seenSet = new Set((Array.isArray(seenRaw) ? seenRaw : []).map((id) => String(id)));
-        const fresh = applications.filter((item) => !item.fl && !seenSet.has(String(item.id))).length;
+        if (!response.ok || isCancelled) return;
+        const fresh = Number(data?.count || 0);
         setNewRequestsCount(fresh);
         localStorage.setItem('cachedNewRequests', String(fresh));
       } catch (error) {
@@ -99,28 +101,32 @@ function Sidebar() {
     };
 
     fetchNewRequests();
+    const firstRetry = setTimeout(fetchNewRequests, 250);
+    const secondRetry = setTimeout(fetchNewRequests, 1000);
     const interval = setInterval(fetchNewRequests, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    if (location.pathname !== '/') return;
-    const markViewed = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/applications?page=1&limit=300`);
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) return;
-        const applications = Array.isArray(data?.applications) ? data.applications : [];
-        const ids = applications.filter((item) => !item.fl).map((item) => String(item.id));
-        localStorage.setItem('adminViewedApplications', JSON.stringify(ids));
-        setNewRequestsCount(0);
-        localStorage.setItem('cachedNewRequests', '0');
-      } catch (error) {
-        console.error('Ошибка отметки просмотренных заявок:', error);
-      }
+    const markApplicationsViewed = (event) => {
+      fetchNewRequests();
     };
-    markViewed();
-  }, [location.pathname]);
+    const refreshOnVisible = () => {
+      if (document.visibilityState === 'visible') fetchNewRequests();
+    };
+
+    window.addEventListener('focus', fetchNewRequests);
+    document.addEventListener('visibilitychange', refreshOnVisible);
+    window.addEventListener('applications:refresh', fetchNewRequests);
+    window.addEventListener('applications:viewed', markApplicationsViewed);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(firstRetry);
+      clearTimeout(secondRetry);
+      clearInterval(interval);
+      window.removeEventListener('focus', fetchNewRequests);
+      document.removeEventListener('visibilitychange', refreshOnVisible);
+      window.removeEventListener('applications:refresh', fetchNewRequests);
+      window.removeEventListener('applications:viewed', markApplicationsViewed);
+    };
+  }, [user?.name, user?.username]);
 
   const isActive = (path) => location.pathname === path;
 
@@ -179,21 +185,21 @@ function Sidebar() {
   );
 }
 
-function ProtectedRoute({ children }) {
+function ProtectedRoute({ children, loginPath = '/login' }) {
   const { isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {
     return <div className="app-loading"><div className="spinner"></div><p>Проверка авторизации...</p></div>;
   }
 
-  return !isAuthenticated ? <Navigate to="/login" replace /> : children;
+  return !isAuthenticated ? <Navigate to={loginPath} replace /> : children;
 }
 
 function AdminRoute({ children }) {
   const { user } = useAuth();
 
   return (
-    <ProtectedRoute>
+    <ProtectedRoute loginPath="/admin">
       {user?.role === 'admin' ? children : <Navigate to="/employee" replace />}
     </ProtectedRoute>
   );
