@@ -304,7 +304,7 @@ const getFeedAttachments = (post = {}) => {
 
 const sameLogin = (left = '', right = '') => formatFeedLogin(left).trim().toLowerCase() === formatFeedLogin(right).trim().toLowerCase();
 
-const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, metaLabel = '', statusLabel = '' }) => {
+const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, metaLabel = '', statusLabel = '' }) => {
   const fileName = file?.name || 'Файл';
   const fileType = String(file?.type || '');
   const isImage = fileType.startsWith('image/');
@@ -313,7 +313,21 @@ const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, metaLabel 
 
   if (variant === 'message' && isImage) {
     return (
-      <button key={cardKey} type="button" className="message-photo-card" onClick={onOpen} aria-label={`Открыть фото ${fileName}`}>
+      <button
+        key={cardKey}
+        type="button"
+        className="message-photo-card"
+        onClick={(event) => {
+          event.stopPropagation();
+          onSelect?.(event);
+        }}
+        onDoubleClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpen?.(event);
+        }}
+        aria-label={`Выбрать фото ${fileName}. Двойной клик — открыть`}
+      >
         <img src={file.dataUrl} alt={fileName} />
         {(metaLabel || statusLabel) && <span className="message-photo-meta">{metaLabel} {statusLabel}</span>}
       </button>
@@ -332,7 +346,13 @@ const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, metaLabel 
         <span className="file-icon">{getFileIcon(fileType)}</span>
       )}
       {(variant !== 'message' || !isImage) && <small>{fileName} · {formatFileSize(file?.size)}</small>}
-      {(variant !== 'message' || !isImage) && (
+      {variant !== 'message' && (
+        <div className="attachment-card-actions">
+          <a href={file.dataUrl} download={fileName}>Скачать</a>
+          <button type="button" onClick={() => openAttachmentInNewTab(file)}>Открыть</button>
+        </div>
+      )}
+      {variant === 'message' && !isVideo && !isImage && (
         <div className="attachment-card-actions">
           <a href={file.dataUrl} download={fileName}>Скачать</a>
           <button type="button" onClick={() => openAttachmentInNewTab(file)}>Открыть</button>
@@ -2074,6 +2094,10 @@ const EmployeeChat = () => {
                                   file={file}
                                   metaLabel={photoMetaLabel}
                                   statusLabel={statusLabel}
+                                  onSelect={() => {
+                                    setSelectedMessageId(message.id);
+                                    setMessageReactionExpanded(false);
+                                  }}
                                   onOpen={() => openChatMediaViewer(message, file, index)}
                                 />
                               ))}
