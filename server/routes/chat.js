@@ -116,6 +116,7 @@ const readJsonWithRecovery = async (filePath, fallback, validate, label, { throw
 };
 
 const readFeed = async () => readJsonWithRecovery(feedFilePath, [], Array.isArray, 'Chat feed', { throwOnUnrecoverable: true });
+const getVisibleFeedPosts = (posts = []) => (Array.isArray(posts) ? posts.filter((post) => post && !post.deletedAt) : []);
 
 const writeFeed = async (posts, { allowEmpty = false } = {}) => {
   const safePosts = Array.isArray(posts) ? posts : [];
@@ -207,7 +208,7 @@ router.get('/feed', async (req, res) => {
   try {
     const posts = await readFeed();
     res.set('Cache-Control', 'no-store');
-    res.json({ posts });
+    res.json({ posts: getVisibleFeedPosts(posts) });
   } catch (error) {
     console.error('Chat GET /feed error:', error);
     res.status(500).json({ message: 'Не удалось загрузить ленту' });
@@ -260,7 +261,7 @@ router.post('/feed/posts', async (req, res) => {
     }
 
     const posts = await mutateFeed((items) => [post, ...items]);
-    res.status(201).json({ message: 'Публикация создана', post });
+    res.status(201).json({ message: 'Публикация создана', post, posts: getVisibleFeedPosts(posts) });
   } catch (error) {
     console.error('Chat POST /feed/posts error:', error);
     res.status(500).json({ message: 'Не удалось создать публикацию' });
@@ -273,14 +274,14 @@ router.delete('/feed/posts/:postId', async (req, res) => {
     const deletedBy = req.query?.deletedBy || req.body?.deletedBy || 'system';
     const now = new Date().toISOString();
     let found = false;
-    const posts = await mutateFeed((items) => items.map((post) => {
-      if (post.id !== postId) return post;
+    const posts = await mutateFeed((items) => items.filter((post) => {
+      if (post.id !== postId) return true;
       found = true;
-      return { ...post, deletedAt: now, deletedBy, updatedAt: now };
+      return false;
     }));
 
     if (!found) return res.status(404).json({ message: 'Публикация не найдена' });
-    res.json({ message: 'Публикация удалена', postId, deletedAt: now, deletedBy, posts });
+    res.json({ message: 'Публикация удалена', postId, deletedAt: now, deletedBy, posts: getVisibleFeedPosts(posts) });
   } catch (error) {
     console.error('Chat DELETE /feed/posts error:', error);
     res.status(500).json({ message: 'Не удалось удалить публикацию' });
@@ -310,7 +311,7 @@ router.patch('/feed/posts/:postId', async (req, res) => {
     }));
 
     if (!updatedPost) return res.status(404).json({ message: 'Публикация не найдена' });
-    res.json({ message: 'Публикация обновлена', post: updatedPost, posts });
+    res.json({ message: 'Публикация обновлена', post: updatedPost, posts: getVisibleFeedPosts(posts) });
   } catch (error) {
     console.error('Chat PATCH /feed/posts error:', error);
     res.status(500).json({ message: 'Не удалось обновить публикацию' });
@@ -340,7 +341,7 @@ router.post('/feed/posts/:postId/comments', async (req, res) => {
     }));
 
     if (!found) return res.status(404).json({ message: 'Публикация не найдена' });
-    res.status(201).json({ message: 'Комментарий добавлен', postId, comment });
+    res.status(201).json({ message: 'Комментарий добавлен', postId, comment, posts: getVisibleFeedPosts(posts) });
   } catch (error) {
     console.error('Chat POST /feed/posts/:postId/comments error:', error);
     res.status(500).json({ message: 'Не удалось добавить комментарий' });
@@ -367,7 +368,7 @@ router.delete('/feed/posts/:postId/comments/:commentId', async (req, res) => {
     }));
 
     if (!found) return res.status(404).json({ message: 'Комментарий не найден' });
-    res.json({ message: 'Комментарий удалён', postId, commentId, deletedAt: now, deletedBy, posts });
+    res.json({ message: 'Комментарий удалён', postId, commentId, deletedAt: now, deletedBy, posts: getVisibleFeedPosts(posts) });
   } catch (error) {
     console.error('Chat DELETE /feed/comments error:', error);
     res.status(500).json({ message: 'Не удалось удалить комментарий' });
@@ -395,7 +396,7 @@ router.post('/feed/posts/:postId/reactions', async (req, res) => {
     }));
 
     if (!found) return res.status(404).json({ message: 'Публикация не найдена' });
-    res.json({ message: 'Реакция обновлена', posts });
+    res.json({ message: 'Реакция обновлена', posts: getVisibleFeedPosts(posts) });
   } catch (error) {
     console.error('Chat POST /feed/reactions error:', error);
     res.status(500).json({ message: 'Не удалось обновить реакцию' });
@@ -415,7 +416,7 @@ router.post('/feed/posts/:postId/pin', async (req, res) => {
     }));
 
     if (!found) return res.status(404).json({ message: 'Публикация не найдена' });
-    res.json({ message: 'Закрепление обновлено', posts });
+    res.json({ message: 'Закрепление обновлено', posts: getVisibleFeedPosts(posts) });
   } catch (error) {
     console.error('Chat POST /feed/pin error:', error);
     res.status(500).json({ message: 'Не удалось закрепить публикацию' });

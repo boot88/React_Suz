@@ -2188,3 +2188,15 @@ button:disabled {
   width: 100%;
   border-radius: 12px;
 }
+
+.feed-actions-row {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+}
+
+.feed-actions-row button {
+  justify-content: flex-start;
+  width: 100%;
+  border-radius: 12px;
+}

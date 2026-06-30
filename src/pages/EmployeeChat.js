@@ -302,6 +302,8 @@ const getFeedAttachments = (post = {}) => {
   return post.attachment ? [post.attachment] : [];
 };
 
+const getVisibleFeedPosts = (posts = []) => (Array.isArray(posts) ? posts.filter((post) => post && !post.deletedAt) : []);
+
 const sameLogin = (left = '', right = '') => formatFeedLogin(left).trim().toLowerCase() === formatFeedLogin(right).trim().toLowerCase();
 
 const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, metaLabel = '', statusLabel = '' }) => {
@@ -689,13 +691,8 @@ const EmployeeChat = () => {
       const response = await fetch(`${API_BASE_URL}/chat/feed`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось загрузить ленту');
-      const nextPosts = Array.isArray(data?.posts) ? data.posts : [];
-      setFeedPosts((currentPosts) => {
-        if (silent && currentPosts.length > 0 && nextPosts.length === 0) {
-          return currentPosts;
-        }
-        return nextPosts;
-      });
+      const nextPosts = getVisibleFeedPosts(data?.posts);
+      setFeedPosts(nextPosts);
       setFeedError('');
     } catch (error) {
       const message = error.message || 'Не удалось загрузить ленту';
@@ -1730,7 +1727,7 @@ const EmployeeChat = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(optimisticPost)
       }, { attempts: 1, fallbackMessage: 'Не удалось опубликовать запись' });
-      setFeedPosts(Array.isArray(data?.posts) ? data.posts : [data.post, ...feedPosts].filter(Boolean));
+      setFeedPosts(getVisibleFeedPosts(Array.isArray(data?.posts) ? data.posts : [data.post, ...feedPosts].filter(Boolean)));
       window.requestAnimationFrame(() => {
         feedListRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
       });
@@ -1794,7 +1791,7 @@ const EmployeeChat = () => {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.message || 'Не удалось обновить публикацию');
-    setFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts.map((post) => (post.id === postId ? { ...post, ...data.post } : post)));
+    setFeedPosts(getVisibleFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts.map((post) => (post.id === postId ? { ...post, ...data.post } : post))));
     return data.post;
   };
 
@@ -1813,9 +1810,9 @@ const EmployeeChat = () => {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось добавить комментарий');
-      setFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts.map((post) => (
+      setFeedPosts(getVisibleFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts.map((post) => (
         post.id === postId ? { ...post, comments: [...(post.comments || []), data.comment].filter(Boolean), updatedAt: new Date().toISOString() } : post
-      )));
+      ))));
       setCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
     } catch (error) {
       notify(error.message || 'Не удалось добавить комментарий', 'Лента');
@@ -1828,22 +1825,18 @@ const EmployeeChat = () => {
 
     const canDeletePost = isManager || isAdmin || sameLogin(post.author, user?.username);
     if (!canDeletePost) return;
-    const confirmed = await confirmAction('Скрыть публикацию из общей ленты? Запись останется в журнале как удалённая.', 'Лента');
+    const confirmed = await confirmAction('Удалить публикацию из ленты?', 'Лента');
     if (!confirmed) return;
 
     const previousPosts = feedPosts;
-    const deletedAt = new Date().toISOString();
-    setFeedPosts((current) => current.map((item) => (
-      item.id === postId ? { ...item, deletedAt, deletedBy: user?.username || 'employee' } : item
-    )));
+    setFeedPosts((current) => current.filter((item) => item.id !== postId));
 
     try {
-      const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}?deletedBy=${encodeURIComponent(user?.username || 'employee')}`, { method: 'DELETE' }, { attempts: 3, fallbackMessage: 'Не удалось удалить публикацию' });
-      setFeedPosts(Array.isArray(data?.posts) ? data.posts : previousPosts.map((item) => (
-        item.id === postId ? { ...item, deletedAt: data.deletedAt || deletedAt, deletedBy: data.deletedBy || user?.username } : item
-      )));
+      const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}?deletedBy=${encodeURIComponent(user?.username || 'employee')}`, { method: 'DELETE' }, { attempts: 4, fallbackMessage: 'Не удалось удалить публикацию' });
+      setFeedPosts(getVisibleFeedPosts(Array.isArray(data?.posts) ? data.posts : previousPosts.filter((item) => item.id !== postId)));
     } catch (error) {
       if (isNetworkFailure(error)) {
+        fetchFeed({ silent: true });
         return;
       }
       setFeedPosts(previousPosts);
@@ -1863,7 +1856,7 @@ const EmployeeChat = () => {
       const response = await fetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}?deletedBy=${encodeURIComponent(user?.username || 'employee')}`, { method: 'DELETE' });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось удалить комментарий');
-      setFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts.map((item) => (
+      setFeedPosts(getVisibleFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts.map((item) => (
         item.id === postId
           ? {
             ...item,
@@ -1872,7 +1865,7 @@ const EmployeeChat = () => {
             ))
           }
           : item
-      )));
+      ))));
     } catch (error) {
       notify(error.message || 'Не удалось удалить комментарий', 'Лента');
     }
@@ -1887,7 +1880,7 @@ const EmployeeChat = () => {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось обновить реакцию');
-      setFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts);
+      setFeedPosts(getVisibleFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts));
     } catch (error) {
       notify(error.message || 'Не удалось обновить реакцию', 'Лента');
     }
@@ -1902,7 +1895,7 @@ const EmployeeChat = () => {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось закрепить публикацию');
-      setFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts);
+      setFeedPosts(getVisibleFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts));
     } catch (error) {
       notify(error.message || 'Не удалось закрепить публикацию', 'Лента');
     }
@@ -2295,8 +2288,8 @@ const EmployeeChat = () => {
               <div className="employee-feed-composer-actions"><label>📎 Выбрать несколько фото/видео<input type="file" multiple hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="submit" disabled={isPublishingFeed || (!feedDraft.trim() && feedAttachments.length === 0)}>{isPublishingFeed ? 'Публикуем...' : 'Опубликовать'}</button></div>
             </form>
             <div className="employee-feed-list" ref={feedListRef} onClick={(event) => { if (event.target === event.currentTarget) { setSelectedFeedPostId(''); setFeedReactionExpanded(false); } }}>
-              {feedPosts.length === 0 && <div className="empty-chat">Пока нет публикаций.</div>}
-              {feedPosts.filter((post) => !post.deletedAt).sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))).map((post) => {
+              {getVisibleFeedPosts(feedPosts).length === 0 && <div className="empty-chat">Пока нет публикаций.</div>}
+              {getVisibleFeedPosts(feedPosts).sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))).map((post) => {
                 const canDeletePost = isManager || isAdmin || sameLogin(post.author, user?.username);
                 return (
                   <article
@@ -2321,7 +2314,7 @@ const EmployeeChat = () => {
                   >
                     <header className="employee-feed-post-header"><div><strong>{post.pinned ? '📌 ' : ''}{post.authorName}</strong><span>{formatFeedLogin(post.author)} · {new Date(post.createdAt).toLocaleString('ru-RU')}</span></div></header>
                     {post.text && <p className="employee-feed-post-text">{post.text}</p>}
-                    {getFeedAttachments(post).length > 0 && <div className="employee-feed-media-grid">{getFeedAttachments(post).map((file, index) => { const isMedia = String(file.type || '').startsWith('image/') || isVideoAttachment(file); return isMedia ? <button key={file.id || `${post.id}-feed-media-${index}`} type="button" className={`employee-feed-media-tile ${isVideoAttachment(file) ? 'video' : ''}`} onClick={(event) => { event.stopPropagation(); openFeedMediaViewer(post, file, index); }}>{isVideoAttachment(file) ? <video src={file.dataUrl} preload="metadata" muted playsInline /> : <img src={file.dataUrl} alt={file.name || 'Вложение'} />}<span>{file.name} · {formatFileSize(file.size)}</span></button> : <AttachmentCard key={file.id || `${post.id}-feed-file-${index}`} cardKey={`${post.id}-feed-file-${index}`} file={file} variant="feed" />; })}</div>}
+                    {getFeedAttachments(post).length > 0 && <div className="employee-feed-media-grid">{getFeedAttachments(post).map((file, index) => { const isMedia = String(file.type || '').startsWith('image/') || isVideoAttachment(file); return isMedia ? <button key={file.id || `${post.id}-feed-media-${index}`} type="button" className={`employee-feed-media-tile ${isVideoAttachment(file) ? 'video' : ''}`} onClick={(event) => { event.stopPropagation(); setSelectedFeedPostId(post.id); setFeedReactionExpanded(false); }} onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); openFeedMediaViewer(post, file, index); }} aria-label={`Выбрать вложение ${file.name || 'медиа'}. Двойной клик — открыть`}>{isVideoAttachment(file) ? <video src={file.dataUrl} preload="metadata" muted playsInline /> : <img src={file.dataUrl} alt={file.name || 'Вложение'} />}<span>{file.name} · {formatFileSize(file.size)}</span></button> : <AttachmentCard key={file.id || `${post.id}-feed-file-${index}`} cardKey={`${post.id}-feed-file-${index}`} file={file} variant="feed" />; })}</div>}
                     <div className="message-reactions-inline feed-reactions-inline">{REACTION_EMOJIS.filter((emoji) => (post.reactions?.[emoji] || []).length > 0).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={(event) => { event.stopPropagation(); toggleFeedReaction(post.id, emoji); }}>{emoji}</button>; })}</div>
                     {selectedFeedPostId === post.id && (
                       <div className="feed-selected-menu" onClick={(event) => event.stopPropagation()}>
