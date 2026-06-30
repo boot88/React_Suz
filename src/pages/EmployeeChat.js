@@ -207,6 +207,11 @@ const processAvatar = (file) => new Promise((resolve, reject) => {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const isNetworkFailure = (error) => {
+  const message = String(error?.message || error || '').toLowerCase();
+  return message.includes('failed to fetch') || message.includes('networkerror') || message.includes('network error');
+};
+
 const fetchJsonWithRetry = async (url, options = {}, { attempts = 4, retryDelay = 450, fallbackMessage = 'Ошибка сети' } = {}) => {
   let lastError = null;
 
@@ -1041,7 +1046,7 @@ const EmployeeChat = () => {
       setReplyTo(null);
       await persistNewMessage(currentConversationId, newMessage);
     } catch (error) {
-      const isNetworkError = error?.message === 'Failed to fetch';
+      const isNetworkError = isNetworkFailure(error);
       if (isNetworkError) {
         // Сервер иногда успевает сохранить вложение, но соединение обрывается на ответе.
         // Не откатываем оптимистичное сообщение, чтобы фото не исчезало и не мигало обратно.
@@ -1281,7 +1286,7 @@ const EmployeeChat = () => {
     try {
       await persistMessagePatch(targetConversationId, messageId, nextMessages.find((item) => item.id === messageId));
     } catch (error) {
-      const isNetworkError = error?.message === 'Failed to fetch';
+      const isNetworkError = isNetworkFailure(error);
       if (isNetworkError) {
         // Как и при отправке вложений, не возвращаем старое состояние, если запись могла сохраниться на сервере.
         return;
@@ -1508,7 +1513,7 @@ const EmployeeChat = () => {
     try {
       await persistNewMessage(targetConversationId, newMessage);
     } catch (error) {
-      const isNetworkError = error?.message === 'Failed to fetch';
+      const isNetworkError = isNetworkFailure(error);
       if (!isNetworkError) {
         setThreads((prev) => ({ ...prev, [targetConversationId]: previousMessages }));
         suppressThreadsRefreshUntilRef.current = Date.now();
@@ -1712,7 +1717,7 @@ const EmployeeChat = () => {
       setFeedDraft('');
       setFeedAttachments([]);
     } catch (error) {
-      const isNetworkError = error?.message === 'Failed to fetch';
+      const isNetworkError = isNetworkFailure(error);
       if (isNetworkError) {
         setFeedPosts((current) => current.some((post) => post.id === optimisticPost.id) ? current : [optimisticPost, ...current]);
         setFeedDraft('');
@@ -1818,7 +1823,7 @@ const EmployeeChat = () => {
         item.id === postId ? { ...item, deletedAt: data.deletedAt || deletedAt, deletedBy: data.deletedBy || user?.username } : item
       )));
     } catch (error) {
-      if (error?.message === 'Failed to fetch') {
+      if (isNetworkFailure(error)) {
         return;
       }
       setFeedPosts(previousPosts);

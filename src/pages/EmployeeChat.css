@@ -2126,7 +2126,7 @@ button:disabled {
   padding: 2px;
   border: 1px solid rgba(15, 23, 42, .14);
   border-radius: 16px;
-  background: transparent;
+  background: rgba(248, 250, 252, .92);
   box-shadow: none;
   color: inherit;
   overflow: hidden;
@@ -2134,7 +2134,7 @@ button:disabled {
 
 .message-row.mine .message-bubble.media-only {
   border-color: rgba(37, 99, 235, .22);
-  background: transparent;
+  background: rgba(219, 234, 254, .78);
   color: inherit;
 }
 
