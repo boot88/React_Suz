@@ -57,7 +57,7 @@ const AddApplication = () => {
   };
 
   const validateExecutor = (value) => {
-    if (!value.trim()) return 'Исполнитель обязателен для заполнения';
+    if (!value) return '';
     if (value.length > 60) return 'Максимум 60 символов';
     if (!/^[а-яА-ЯёЁ\s,\.]+$/.test(value)) return 'Только русские буквы, пробелы, запятые и точки';
     return '';
@@ -155,11 +155,8 @@ const AddApplication = () => {
     try {
       // Получаем текущую дату и время для Новосибирска
       const currentDateTime = getCurrentNovosibirskDateTime();
-      const startData = formatDateTimeForInput(currentDateTime);
-      
-      // Вычисляем дату окончания (+30 минут)
-      const endDate = new Date(currentDateTime.getTime() + 30 * 60000);
-      const endData = formatDateTimeForInput(endDate);
+      const startData = formData.fl ? formatDateTimeForInput(currentDateTime) : null;
+      const endData = formData.fl ? formatDateTimeForInput(new Date(currentDateTime.getTime() + 30 * 60000)) : null;
 
       // Санитизация данных перед отправкой
       const sanitizedData = sanitizeData({
@@ -172,7 +169,9 @@ const AddApplication = () => {
         start_data: startData,
         end_data: endData,
         fl: Boolean(formData.fl),
-        process: '-' // Ставим "-" для выполненных работ
+        status: formData.fl ? 'done' : 'new',
+        source: 'admin',
+        process: formData.fl ? '-' : ''
       });
 
       console.log('Отправляемые данные:', sanitizedData);
@@ -285,7 +284,7 @@ const AddApplication = () => {
             </div>
 
             <div className="form-group">
-              <label htmlFor="executor">Исполнитель (техник/инженер) *</label>
+              <label htmlFor="executor">Исполнитель</label>
               <input
                 id="executor"
                 name="executor"
@@ -293,7 +292,6 @@ const AddApplication = () => {
                 placeholder="ФИО исполнителя"
                 value={formData.executor}
                 onChange={handleChange}
-                required
                 maxLength={60}
                 className={errors.executor ? 'error' : ''}
               />
