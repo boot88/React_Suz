@@ -322,9 +322,13 @@ const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, 
         onClick={(event) => {
           event.stopPropagation();
           onSelect?.(event);
+        }}
+        onDoubleClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
           onOpen?.(event);
         }}
-        aria-label={`Открыть фото ${fileName}`}
+        aria-label={`Выбрать фото ${fileName}. Двойной клик — открыть`}
       >
         <img src={file.dataUrl} alt={fileName} />
         {(metaLabel || statusLabel) && <span className="message-photo-meta">{metaLabel} {statusLabel}</span>}
@@ -1481,10 +1485,21 @@ const EmployeeChat = () => {
       const nextAttachments = currentAttachments.filter((_, index) => index !== fileIndex);
       const confirmed = await confirmAction('Удалить только это вложение из публикации?', 'Удаление вложения');
       if (!confirmed) return;
+      const previousPosts = feedPosts;
       setMediaViewer(null);
+      setFeedPosts((current) => current.map((item) => (
+        item.id === post.id
+          ? { ...item, attachment: nextAttachments[0] || null, attachments: nextAttachments, updatedAt: new Date().toISOString() }
+          : item
+      )));
       try {
         await patchFeedPost(post.id, { attachments: nextAttachments });
       } catch (error) {
+        if (isNetworkFailure(error)) {
+          fetchFeed({ silent: true });
+          return;
+        }
+        setFeedPosts(previousPosts);
         notify(error.message || 'Не удалось удалить вложение', 'Лента');
       }
       return;
@@ -1787,13 +1802,11 @@ const EmployeeChat = () => {
   };
 
   const patchFeedPost = async (postId, patch) => {
-    const response = await fetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}`, {
+    const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch)
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.message || 'Не удалось обновить публикацию');
+    }, { fallbackMessage: 'Не удалось обновить публикацию' });
     setFeedPosts(getVisibleFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts.map((post) => (post.id === postId ? { ...post, ...data.post } : post))));
     return data.post;
   };
@@ -2121,10 +2134,18 @@ const EmployeeChat = () => {
                             </div>
                           )}
 
-                          <small className="read-state message-status-line">
-                            {message.editedAt && !isDeleted ? 'изменено · ' : ''}
-                            {statusLabel}
-                          </small>
+                          {isMediaOnly && (
+                            <small className="read-state message-status-line media-status-line">
+                              {message.editedAt && !isDeleted ? 'изменено · ' : ''}
+                              {photoMetaLabel} {statusLabel}
+                            </small>
+                          )}
+                          {!isMediaOnly && (
+                            <small className="read-state message-status-line">
+                              {message.editedAt && !isDeleted ? 'изменено · ' : ''}
+                              {statusLabel}
+                            </small>
+                          )}
                         </div>
 
                         {isSelected && !isDeleted && (
@@ -2317,7 +2338,7 @@ const EmployeeChat = () => {
                   >
                     <header className="employee-feed-post-header"><div><strong>{post.pinned ? '📌 ' : ''}{post.authorName}</strong><span>{formatFeedLogin(post.author)} · {new Date(post.createdAt).toLocaleString('ru-RU')}</span></div></header>
                     {post.text && <p className="employee-feed-post-text">{post.text}</p>}
-                    {getFeedAttachments(post).length > 0 && <div className="employee-feed-media-grid">{getFeedAttachments(post).map((file, index) => { const isMedia = String(file.type || '').startsWith('image/') || isVideoAttachment(file); return isMedia ? <button key={file.id || `${post.id}-feed-media-${index}`} type="button" className={`employee-feed-media-tile ${isVideoAttachment(file) ? 'video' : ''}`} onClick={(event) => { event.stopPropagation(); openFeedMediaViewer(post, file, index); }} aria-label={`Открыть вложение ${file.name || 'медиа'}`}>{isVideoAttachment(file) ? <video src={file.dataUrl} preload="metadata" muted playsInline /> : <img src={file.dataUrl} alt={file.name || 'Вложение'} />}<span>{file.name} · {formatFileSize(file.size)}</span></button> : <AttachmentCard key={file.id || `${post.id}-feed-file-${index}`} cardKey={`${post.id}-feed-file-${index}`} file={file} variant="feed" />; })}</div>}
+                    {getFeedAttachments(post).length > 0 && <div className="employee-feed-media-grid">{getFeedAttachments(post).map((file, index) => { const isMedia = String(file.type || '').startsWith('image/') || isVideoAttachment(file); return isMedia ? <button key={file.id || `${post.id}-feed-media-${index}`} type="button" className={`employee-feed-media-tile ${isVideoAttachment(file) ? 'video' : ''}`} onClick={(event) => { event.stopPropagation(); setSelectedFeedPostId(post.id); setFeedReactionExpanded(false); }} onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); openFeedMediaViewer(post, file, index); }} aria-label={`Выбрать вложение ${file.name || 'медиа'}. Двойной клик — открыть`}>{isVideoAttachment(file) ? <video src={file.dataUrl} preload="metadata" muted playsInline /> : <img src={file.dataUrl} alt={file.name || 'Вложение'} />}<span>{file.name} · {formatFileSize(file.size)}</span></button> : <AttachmentCard key={file.id || `${post.id}-feed-file-${index}`} cardKey={`${post.id}-feed-file-${index}`} file={file} variant="feed" />; })}</div>}
                     <div className="message-reactions-inline feed-reactions-inline">{REACTION_EMOJIS.filter((emoji) => (post.reactions?.[emoji] || []).length > 0).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={(event) => { event.stopPropagation(); toggleFeedReaction(post.id, emoji); }}>{emoji}</button>; })}</div>
                     {selectedFeedPostId === post.id && (
                       <div className="feed-selected-menu" onClick={(event) => event.stopPropagation()}>

@@ -2200,3 +2200,13 @@ button:disabled {
   width: 100%;
   border-radius: 12px;
 }
+
+.message-bubble.media-only .media-status-line {
+  padding: 2px 8px 5px;
+  margin-top: 0;
+  color: var(--chat-muted);
+}
+
+.message-row.mine .message-bubble.media-only .media-status-line {
+  color: #1d4ed8;
+}
