@@ -6,10 +6,12 @@ import './EmployeeChat.css';
 
 const CHAT_READ_STATE_KEY = 'chatReadState';
 const FEED_READ_STATE_KEY = 'employeeFeedReadState';
+const FEED_DRAFT_KEY = 'employeeFeedDraft';
+const FEED_HIDDEN_POSTS_KEY = 'employeeFeedHiddenPosts';
 const EMPLOYEE_DIRECTORY_CACHE_KEY = 'employeeDirectoryCache';
 const MANAGER_TEMPLATE_MESSAGES = ['✅ Принято в работу', '👀 Смотрю сейчас', '🔧 Исправляю', '📌 Уточните кабинет и устройство', '📷 Пришлите фото ошибки', '⏱️ Вернусь с ответом в течение 15 минут', '🧪 Проверяю решение', '✅ Готово, проверьте пожалуйста', '🙏 Спасибо, закрываю обращение'];
 const EMPLOYEE_TEMPLATE_MESSAGES = ['👋 Добрый день!', '🆘 Нужна помощь', '📍 Я в кабинете ...', '📷 Сейчас пришлю фото', '✅ Получилось, спасибо!', '❌ Ошибка осталась', '🔁 Повторил действие, результат тот же', '📞 Можем созвониться?', '🙏 Спасибо!'];
-const REACTION_EMOJIS = ['👍', '✅', '👀', '🙏', '❤️', '😂', '😮', '🔧', '⏳', '❗'];
+const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '👏', '🔥'];
 const QUICK_EMOJIS = ['😀', '🙂', '😅', '🙏', '👍', '✅', '👀', '📌', '🔧', '⏳', '❗', '❤️'];
 const EMPLOYEE_CUSTOM_TEMPLATES_KEY = 'employeeChatCustomTemplates';
 const MAX_ATTACHMENT_SIZE_MB = 100;
@@ -30,6 +32,23 @@ const MANAGER_TABS = [
 ];
 const REQUEST_CATEGORIES = ['Техника', 'Сеть', 'ПО', 'Доступы', 'Другое'];
 const REQUEST_PRIORITIES = ['Обычный', 'Важный', 'Срочный'];
+const FEED_CATEGORIES = ['Объявление', 'Новость', 'Вопрос', 'Важно', 'Фотоотчёт', 'Потеряно/найдено', 'Заявка', 'Поздравление'];
+const FEED_FILTERS = [
+  { id: 'all', label: 'Все' },
+  { id: 'mine', label: 'Мои' },
+  { id: 'photo', label: 'С фото' },
+  { id: 'video', label: 'С видео' },
+  { id: 'pinned', label: 'Закреплённые' },
+  { id: 'unread', label: 'Непрочитанные' },
+  { id: 'today', label: 'Сегодня' },
+  { id: 'week', label: 'Неделя' },
+  { id: 'month', label: 'Месяц' }
+];
+const COMMENT_SORTS = [
+  { id: 'old', label: 'Сначала старые' },
+  { id: 'new', label: 'Сначала новые' },
+  { id: 'popular', label: 'Популярные' }
+];
 const APPLICATION_STATUS_META = {
   new: { label: 'Новая', hint: 'Ожидает администратора', tone: 'new' },
   accepted: { label: 'Принята', hint: 'Администратор назначил исполнителя', tone: 'accepted' },
@@ -306,14 +325,54 @@ const getVisibleFeedPosts = (posts = []) => (Array.isArray(posts) ? posts.filter
 
 const sameLogin = (left = '', right = '') => formatFeedLogin(left).trim().toLowerCase() === formatFeedLogin(right).trim().toLowerCase();
 
+const getFeedDraftKey = (username = 'guest') => `${FEED_DRAFT_KEY}:${username || 'guest'}`;
+const getHiddenFeedPostsKey = (username = 'guest') => `${FEED_HIDDEN_POSTS_KEY}:${username || 'guest'}`;
+
+const readSavedFeedDraft = (username = 'guest') => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(getFeedDraftKey(username)) || '{}');
+    return {
+      text: String(saved.text || ''),
+      category: FEED_CATEGORIES.includes(saved.category) ? saved.category : FEED_CATEGORIES[0]
+    };
+  } catch {
+    return { text: '', category: FEED_CATEGORIES[0] };
+  }
+};
+
+const saveFeedDraft = (username = 'guest', draft = {}) => {
+  localStorage.setItem(getFeedDraftKey(username), JSON.stringify({ text: draft.text || '', category: draft.category || FEED_CATEGORIES[0] }));
+};
+
+const clearSavedFeedDraft = (username = 'guest') => localStorage.removeItem(getFeedDraftKey(username));
+
+const readHiddenFeedPosts = (username = 'guest') => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(getHiddenFeedPostsKey(username)) || '[]');
+    return Array.isArray(saved) ? saved.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveHiddenFeedPosts = (username = 'guest', postIds = []) => {
+  localStorage.setItem(getHiddenFeedPostsKey(username), JSON.stringify([...new Set(postIds.filter(Boolean))]));
+};
+
+const isImageAttachment = (file = {}) => String(file.type || '').startsWith('image/');
+const isMediaAttachment = (file = {}) => isImageAttachment(file) || isVideoAttachment(file);
+const getAttachmentUrl = (file = {}) => file.dataUrl || file.url || file.previewUrl || file.thumbnailUrl || '';
+const getPostShareUrl = (postId = '') => `${window.location.origin}${window.location.pathname}?feedPost=${encodeURIComponent(postId)}`;
+const isPostAuthor = (post = {}, currentUser = {}) => sameLogin(post.author, currentUser?.username || '') || sameLogin(post.login, currentUser?.username || '') || sameLogin(post.sender, currentUser?.username || '');
+
+
 const canManageFeedPost = (post = {}, currentUser = {}, isManager = false, isAdmin = false) => {
   if (isManager || isAdmin) return true;
   const username = currentUser?.username || '';
   if (!username) return false;
   return sameLogin(post.author, username)
     || sameLogin(post.login, username)
-    || sameLogin(post.sender, username)
-    || (!post.author && !post.login && !post.sender);
+    || sameLogin(post.sender, username);
 };
 
 const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, metaLabel = '', statusLabel = '' }) => {
@@ -454,6 +513,18 @@ const EmployeeChat = () => {
   const [messageReactionExpanded, setMessageReactionExpanded] = useState(false);
   const [selectedFeedPostId, setSelectedFeedPostId] = useState('');
   const [feedReactionExpanded, setFeedReactionExpanded] = useState(false);
+  const [openFeedMenuId, setOpenFeedMenuId] = useState('');
+  const [feedSearch, setFeedSearch] = useState('');
+  const [feedFilter, setFeedFilter] = useState('all');
+  const [feedCategory, setFeedCategory] = useState(() => readSavedFeedDraft(user?.username || 'guest').category);
+  const [editingFeedPostId, setEditingFeedPostId] = useState('');
+  const [editingFeedText, setEditingFeedText] = useState('');
+  const [hiddenFeedPostIds, setHiddenFeedPostIds] = useState(() => readHiddenFeedPosts(user?.username || 'guest'));
+  const [commentSort, setCommentSort] = useState('old');
+  const [expandedCommentPosts, setExpandedCommentPosts] = useState({});
+  const [feedLoading, setFeedLoading] = useState(false);
+  const [feedRefreshing, setFeedRefreshing] = useState(false);
+  const [viewerTouchStart, setViewerTouchStart] = useState(null);
   const [forwardSourceMessage, setForwardSourceMessage] = useState(null);
   const [forwardingTargetEmail, setForwardingTargetEmail] = useState('');
   const [mediaViewer, setMediaViewer] = useState(null);
@@ -487,7 +558,7 @@ const EmployeeChat = () => {
   const [clockTick, setClockTick] = useState(0);
   const [feedPosts, setFeedPosts] = useState([]);
   const [feedError, setFeedError] = useState('');
-  const [feedDraft, setFeedDraft] = useState('');
+  const [feedDraft, setFeedDraft] = useState(() => readSavedFeedDraft(user?.username || 'guest').text);
   const [feedAttachments, setFeedAttachments] = useState([]);
   const [commentDrafts, setCommentDrafts] = useState({});
   const [modal, setModal] = useState(null);
@@ -599,8 +670,16 @@ const EmployeeChat = () => {
     const username = user?.username || 'guest';
     setReadState(readReadState(username));
     setFeedReadAt(readFeedReadAt(username));
+    const savedFeedDraft = readSavedFeedDraft(username);
+    setFeedDraft(savedFeedDraft.text);
+    setFeedCategory(savedFeedDraft.category);
+    setHiddenFeedPostIds(readHiddenFeedPosts(username));
     setCustomTemplates(readCustomTemplates(username));
   }, [user?.username]);
+
+  useEffect(() => {
+    saveFeedDraft(user?.username || 'guest', { text: feedDraft, category: feedCategory });
+  }, [feedCategory, feedDraft, user?.username]);
 
   useEffect(() => {
     if (!user?.username) return;
@@ -697,6 +776,9 @@ const EmployeeChat = () => {
   }, []);
 
   const fetchFeed = useCallback(async ({ silent = true } = {}) => {
+    const initialLoad = !silent && feedPosts.length === 0;
+    if (initialLoad) setFeedLoading(true);
+    else if (silent) setFeedRefreshing(true);
     try {
       const response = await fetch(`${API_BASE_URL}/chat/feed`);
       const data = await response.json().catch(() => ({}));
@@ -714,8 +796,11 @@ const EmployeeChat = () => {
       }
       // Silent background polling should not leave a scary banner on first page load.
       // The manual refresh button still shows an inline error through the !silent branch above.
+    } finally {
+      if (initialLoad) setFeedLoading(false);
+      if (silent) setFeedRefreshing(false);
     }
-  }, [notify]);
+  }, [feedPosts.length, notify]);
 
   const fetchMyApplications = useCallback(async ({ silent = true } = {}) => {
     if (!user?.username) return;
@@ -1465,6 +1550,39 @@ const EmployeeChat = () => {
     setMediaViewer(null);
   };
 
+
+
+  const getViewerFiles = () => {
+    if (!mediaViewer) return [];
+    if (mediaViewer.source === 'feed') return getFeedAttachments(mediaViewer.post).filter(isMediaAttachment);
+    if (mediaViewer.message) return (mediaViewer.message.attachments?.length ? mediaViewer.message.attachments : mediaViewer.message.attachment ? [mediaViewer.message.attachment] : []).filter(isMediaAttachment);
+    return [mediaViewer.file].filter(Boolean);
+  };
+
+  const moveMediaViewer = useCallback((direction) => {
+    setMediaViewer((current) => {
+      if (!current) return current;
+      const files = current.source === 'feed'
+        ? getFeedAttachments(current.post).filter(isMediaAttachment)
+        : current.message ? (current.message.attachments?.length ? current.message.attachments : current.message.attachment ? [current.message.attachment] : []).filter(isMediaAttachment) : [current.file].filter(Boolean);
+      if (files.length < 2) return current;
+      const currentIndex = Math.max(0, Math.min(files.length - 1, current.fileIndex || 0));
+      const nextIndex = (currentIndex + direction + files.length) % files.length;
+      return { ...current, file: files[nextIndex], fileIndex: nextIndex };
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!mediaViewer) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setMediaViewer(null);
+      if (event.key === 'ArrowLeft') moveMediaViewer(-1);
+      if (event.key === 'ArrowRight') moveMediaViewer(1);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [mediaViewer, moveMediaViewer]);
+
   const deleteChatAttachment = async (messageId, fileIndex = 0, targetConversationId = currentConversationId) => {
     if (!messageId || !targetConversationId) return;
     const confirmed = await confirmAction('Удалить только это вложение?', 'Удаление вложения');
@@ -1508,9 +1626,19 @@ const EmployeeChat = () => {
       const { post, fileIndex = 0 } = mediaViewer;
       if (!post?.id) return;
       const currentAttachments = getFeedAttachments(post);
+      const targetFile = currentAttachments[fileIndex] || {};
       const nextAttachments = currentAttachments.filter((_, index) => index !== fileIndex);
-      const confirmed = await confirmAction('Удалить только это вложение из публикации?', 'Удаление вложения');
+      const fileLabel = targetFile.name || (isVideoAttachment(targetFile) ? 'видео' : 'фото');
+      const postHasText = Boolean(String(post.text || '').trim());
+      let confirmed = await confirmAction(`Удалить ${isVideoAttachment(targetFile) ? 'видео' : 'фото'} ${fileLabel} из публикации?`, 'Удаление вложения');
       if (!confirmed) return;
+      if (!nextAttachments.length && !postHasText) {
+        confirmed = await confirmAction('Это последнее вложение. Удалить всю публикацию?', 'Удаление публикации');
+        if (!confirmed) return;
+        setMediaViewer(null);
+        await deleteFeedPost(post.id, { skipConfirm: true });
+        return;
+      }
       const previousPosts = feedPosts;
       setMediaViewer(null);
       setFeedPosts((current) => current.map((item) => (
@@ -1519,7 +1647,8 @@ const EmployeeChat = () => {
           : item
       )));
       try {
-        await patchFeedPost(post.id, { attachments: nextAttachments });
+        await patchFeedPost(post.id, { attachment: nextAttachments[0] || null, attachments: nextAttachments, editedAt: new Date().toISOString() });
+        notify(`${isVideoAttachment(targetFile) ? 'Видео' : 'Фото'} удалено`, 'Лента');
       } catch (error) {
         if (isNetworkFailure(error)) {
           fetchFeed({ silent: true });
@@ -1726,6 +1855,41 @@ const EmployeeChat = () => {
     });
   }, [visibleMessages]);
 
+
+  const visibleFeedPosts = useMemo(() => {
+    const query = feedSearch.trim().toLowerCase();
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    return getVisibleFeedPosts(feedPosts)
+      .filter((post) => !hiddenFeedPostIds.includes(post.id))
+      .filter((post) => {
+        const attachments = getFeedAttachments(post);
+        const text = [post.text, post.authorName, post.author, post.category, ...attachments.map((file) => file.name)].filter(Boolean).join(' ').toLowerCase();
+        if (query && !text.includes(query)) return false;
+        const timestamp = getFeedItemTimestamp(post);
+        if (feedFilter === 'mine') return isPostAuthor(post, user);
+        if (feedFilter === 'photo') return attachments.some(isImageAttachment);
+        if (feedFilter === 'video') return attachments.some(isVideoAttachment);
+        if (feedFilter === 'pinned') return Boolean(post.pinned);
+        if (feedFilter === 'unread') return post.author !== user?.username && timestamp > feedReadTimestamp;
+        if (feedFilter === 'today') return now - timestamp <= day;
+        if (feedFilter === 'week') return now - timestamp <= 7 * day;
+        if (feedFilter === 'month') return now - timestamp <= 31 * day;
+        return true;
+      })
+      .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || getFeedItemTimestamp(b) - getFeedItemTimestamp(a));
+  }, [feedFilter, feedPosts, feedReadTimestamp, feedSearch, hiddenFeedPostIds, user]);
+
+  const pinnedFeedPosts = useMemo(() => visibleFeedPosts.filter((post) => post.pinned), [visibleFeedPosts]);
+  const regularFeedPosts = useMemo(() => visibleFeedPosts.filter((post) => !post.pinned), [visibleFeedPosts]);
+
+  const sortComments = (comments = []) => {
+    const visible = comments.filter((comment) => !comment.deletedAt);
+    if (commentSort === 'new') return [...visible].sort((a, b) => getFeedItemTimestamp(b) - getFeedItemTimestamp(a));
+    if (commentSort === 'popular') return [...visible].sort((a, b) => Object.values(b.reactions || {}).flat().length - Object.values(a.reactions || {}).flat().length);
+    return visible;
+  };
+
   useEffect(() => {
     if (activeTab !== 'feed' || !user?.username) return;
     const latestTimestamp = getFeedLatestTimestamp(feedPosts);
@@ -1758,7 +1922,7 @@ const EmployeeChat = () => {
       text: feedDraft.trim(),
       attachment: feedAttachments[0] || null,
       attachments: feedAttachments,
-      category: 'Объявление',
+      category: feedCategory,
       reactions: {},
       comments: [],
       createdAt: new Date().toISOString(),
@@ -1777,12 +1941,14 @@ const EmployeeChat = () => {
       });
       setFeedDraft('');
       setFeedAttachments([]);
+      clearSavedFeedDraft(user?.username || 'guest');
     } catch (error) {
       const isNetworkError = isNetworkFailure(error);
       if (isNetworkError) {
         setFeedPosts((current) => current.some((post) => post.id === optimisticPost.id) ? current : [optimisticPost, ...current]);
         setFeedDraft('');
         setFeedAttachments([]);
+        clearSavedFeedDraft(user?.username || 'guest');
         window.requestAnimationFrame(() => feedListRef.current?.scrollTo({ top: 0, behavior: 'smooth' }));
         fetchFeed({ silent: true });
         return;
@@ -1821,7 +1987,7 @@ const EmployeeChat = () => {
   };
 
   const openFeedMediaViewer = (post, file, fileIndex) => {
-    if (!file?.dataUrl) return;
+    if (!getAttachmentUrl(file)) return;
     setMediaViewer({ source: 'feed', post, file, fileIndex });
     setSelectedFeedPostId('');
     setFeedReactionExpanded(false);
@@ -1885,15 +2051,86 @@ const EmployeeChat = () => {
     }
   };
 
+  const startEditFeedPost = (post) => {
+    setEditingFeedPostId(post.id);
+    setEditingFeedText(post.text || '');
+    setOpenFeedMenuId('');
+  };
 
-  const deleteFeedPost = async (postId) => {
+  const saveFeedPostEdit = async (postId) => {
+    const text = editingFeedText.trim();
+    const previousPosts = feedPosts;
+    setFeedPosts((current) => current.map((post) => (post.id === postId ? { ...post, text, editedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } : post)));
+    setEditingFeedPostId('');
+    try {
+      await patchFeedPost(postId, { text, editedAt: new Date().toISOString() });
+      notify('Публикация изменена', 'Лента');
+    } catch (error) {
+      setFeedPosts(previousPosts);
+      notify(error.message || 'Не удалось изменить публикацию', 'Лента');
+    }
+  };
+
+  const hideFeedPost = (postId) => {
+    setHiddenFeedPostIds((prev) => {
+      const next = [...new Set([...prev, postId])];
+      saveHiddenFeedPosts(user?.username || 'guest', next);
+      return next;
+    });
+    setOpenFeedMenuId('');
+  };
+
+  const reportFeedPost = (postId) => {
+    notify('Жалоба отправлена модератору', 'Лента');
+    setOpenFeedMenuId('');
+    void postId;
+  };
+
+  const copyFeedPostLink = async (postId) => {
+    const url = getPostShareUrl(postId);
+    try {
+      await navigator.clipboard?.writeText(url);
+      notify('Ссылка скопирована', 'Лента');
+    } catch {
+      window.prompt('Скопируйте ссылку на публикацию', url);
+    }
+    setOpenFeedMenuId('');
+  };
+
+  const shareFeedPostToChat = (post) => {
+    const attachments = getFeedAttachments(post);
+    openForwardMessagePicker({
+      id: post.id || createMessageId(),
+      sender: post.authorName || post.author || 'Лента',
+      text: post.text || 'Публикация из ленты',
+      attachment: attachments[0] || null,
+      attachments,
+      createdAt: post.createdAt || new Date().toISOString(),
+      reactions: {},
+      pinned: false
+    });
+    setOpenFeedMenuId('');
+  };
+
+  const quoteFeedPost = (post) => {
+    setFeedDraft((prev) => `${prev ? `${prev}
+
+` : ''}> ${post.text || 'Публикация из ленты'}
+`);
+    setOpenFeedMenuId('');
+  };
+
+
+  const deleteFeedPost = async (postId, options = {}) => {
     const post = feedPosts.find((item) => item.id === postId);
     if (!post) return;
 
     const canDeletePost = canManageFeedPost(post, user, isManager, isAdmin);
     if (!canDeletePost) return;
-    const confirmed = await confirmAction('Удалить публикацию из ленты?', 'Лента');
-    if (!confirmed) return;
+    if (!options.skipConfirm) {
+      const confirmed = await confirmAction('Удалить публикацию из ленты?', 'Лента');
+      if (!confirmed) return;
+    }
 
     const previousPosts = feedPosts;
     setFeedPosts((current) => current.filter((item) => item.id !== postId));
@@ -2341,7 +2578,7 @@ const EmployeeChat = () => {
             </header>
             {feedError && <div className="feed-status-warning">Лента временно недоступна: {feedError}</div>}
             <form className="employee-feed-composer" onSubmit={addFeedPost}>
-              <textarea rows={4} placeholder="Новость, объявление или рабочая заметка..." value={feedDraft} onChange={(e) => setFeedDraft(e.target.value)} />
+              <div className="feed-composer-meta"><select value={feedCategory} onChange={(e) => setFeedCategory(e.target.value)}>{FEED_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select><button type="button" onClick={() => { setFeedDraft(''); setFeedAttachments([]); clearSavedFeedDraft(user?.username || 'guest'); }}>Очистить черновик</button></div><textarea rows={4} placeholder="Новость, объявление или рабочая заметка... @ivanov #важно" value={feedDraft} onChange={(e) => setFeedDraft(e.target.value)} />
               {feedAttachments.length > 0 && (
                 <div className="employee-feed-attachment-preview-grid media-draft-grid">
                   {feedAttachments.map((file, index) => {
@@ -2362,9 +2599,13 @@ const EmployeeChat = () => {
               )}
               <div className="employee-feed-composer-actions"><label>📎 Выбрать несколько фото/видео<input type="file" multiple hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="submit" disabled={isPublishingFeed || (!feedDraft.trim() && feedAttachments.length === 0)}>{isPublishingFeed ? 'Публикуем...' : 'Опубликовать'}</button></div>
             </form>
+            <div className="feed-toolbar"><input type="search" placeholder="Поиск по ленте, автору, #тегу..." value={feedSearch} onChange={(e) => setFeedSearch(e.target.value)} /><div>{FEED_FILTERS.map((filter) => <button key={filter.id} type="button" className={feedFilter === filter.id ? 'active' : ''} onClick={() => setFeedFilter(filter.id)}>{filter.label}</button>)}</div></div>{feedRefreshing && <div className="feed-refreshing">Обновляем ленту…</div>}
             <div className="employee-feed-list" ref={feedListRef} onClick={(event) => { if (event.target === event.currentTarget) { setSelectedFeedPostId(''); setFeedReactionExpanded(false); } }}>
-              {getVisibleFeedPosts(feedPosts).length === 0 && <div className="empty-chat">Пока нет публикаций.</div>}
-              {getVisibleFeedPosts(feedPosts).sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))).map((post) => {
+              {feedLoading && <div className="feed-skeleton-list"><div /><div /><div /></div>}
+              {!feedLoading && feedError && <button type="button" className="feed-retry" onClick={() => fetchFeed({ silent: false })}>Повторить загрузку</button>}
+              {!feedLoading && visibleFeedPosts.length === 0 && <div className="empty-chat">Пока нет публикаций.</div>}
+              {pinnedFeedPosts.length > 0 && <div className="feed-pinned-title">📌 Закреплено</div>}
+              {[...pinnedFeedPosts, ...regularFeedPosts].map((post) => {
                 const canDeletePost = canManageFeedPost(post, user, isManager, isAdmin);
                 return (
                   <article
@@ -2387,17 +2628,17 @@ const EmployeeChat = () => {
                       setFeedReactionExpanded(false);
                     }}
                   >
-                    <header className="employee-feed-post-header"><div><strong>{post.pinned ? '📌 ' : ''}{post.authorName}</strong><span>{formatFeedLogin(post.author)} · {new Date(post.createdAt).toLocaleString('ru-RU')}</span></div></header>
-                    {post.text && <p className="employee-feed-post-text">{post.text}</p>}
-                    {getFeedAttachments(post).length > 0 && <div className="employee-feed-media-grid">{getFeedAttachments(post).map((file, index) => { const isMedia = String(file.type || '').startsWith('image/') || isVideoAttachment(file); return isMedia ? <button key={file.id || `${post.id}-feed-media-${index}`} type="button" className={`employee-feed-media-tile ${isVideoAttachment(file) ? 'video' : ''}`} onClick={(event) => { event.stopPropagation(); setSelectedFeedPostId(post.id); setFeedReactionExpanded(false); }} onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); openFeedMediaViewer(post, file, index); }} aria-label={`Выбрать вложение ${file.name || 'медиа'}. Двойной клик — открыть`}>{isVideoAttachment(file) ? <video src={file.dataUrl} preload="metadata" muted playsInline /> : <img src={file.dataUrl} alt={file.name || 'Вложение'} />}<span>{file.name} · {formatFileSize(file.size)}</span></button> : <AttachmentCard key={file.id || `${post.id}-feed-file-${index}`} cardKey={`${post.id}-feed-file-${index}`} file={file} variant="feed" />; })}</div>}
-                    <div className="message-reactions-inline feed-reactions-inline">{REACTION_EMOJIS.filter((emoji) => (post.reactions?.[emoji] || []).length > 0).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={(event) => { event.stopPropagation(); toggleFeedReaction(post.id, emoji); }}>{emoji}</button>; })}</div>
+                    <header className="employee-feed-post-header"><div><strong>{post.pinned ? '📌 ' : ''}{post.authorName}</strong><span>{post.category || 'Объявление'} · {formatFeedLogin(post.author)} · {new Date(post.createdAt).toLocaleString('ru-RU')}{post.editedAt && ' · изменено'}</span></div><button type="button" className="feed-post-menu-button" onClick={(event) => { event.stopPropagation(); setOpenFeedMenuId(openFeedMenuId === post.id ? '' : post.id); }}>⋯</button>{openFeedMenuId === post.id && <div className="feed-post-menu" onClick={(event) => event.stopPropagation()}>{canDeletePost && <button type="button" onClick={() => startEditFeedPost(post)}>Редактировать текст</button>}{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? 'Открепить' : 'Закрепить'}</button>}<button type="button" onClick={() => copyFeedPostLink(post.id)}>Скопировать ссылку</button><button type="button" onClick={() => shareFeedPostToChat(post)}>Поделиться постом в чат</button><button type="button" onClick={() => quoteFeedPost(post)}>Цитировать пост</button><button type="button" onClick={() => hideFeedPost(post.id)}>Скрыть пост</button>{!isPostAuthor(post, user) && <button type="button" onClick={() => reportFeedPost(post.id)}>Пожаловаться</button>}{(isManager || isAdmin) && <button type="button" onClick={() => notify((post.audit || []).length ? 'История есть в аудите' : 'История изменений пуста', 'Лента')}>История изменений</button>}{canDeletePost && <button type="button" className="danger-action" onClick={() => deleteFeedPost(post.id)}>Удалить</button>}</div>}</header>
+                    {editingFeedPostId === post.id ? <div className="feed-edit-box"><textarea rows={3} value={editingFeedText} onChange={(e) => setEditingFeedText(e.target.value)} /><div><button type="button" onClick={() => saveFeedPostEdit(post.id)}>Сохранить</button><button type="button" onClick={() => setEditingFeedPostId('')}>Отмена</button></div></div> : post.text && <p className="employee-feed-post-text">{post.text}</p>}
+                    {getFeedAttachments(post).length > 0 && <div className="employee-feed-media-grid">{getFeedAttachments(post).map((file, index) => { const isMedia = String(file.type || '').startsWith('image/') || isVideoAttachment(file); return isMedia ? <button key={file.id || `${post.id}-feed-media-${index}`} type="button" className={`employee-feed-media-tile ${isVideoAttachment(file) ? 'video' : ''}`} onClick={(event) => { event.stopPropagation(); openFeedMediaViewer(post, file, index); }} onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); toggleFeedReaction(post.id, '👍'); }} aria-label={`Открыть вложение ${file.name || 'медиа'}`}>{isVideoAttachment(file) ? <video src={getAttachmentUrl(file)} poster={file.posterUrl || file.thumbnailUrl} preload="metadata" muted playsInline /> : <img src={getAttachmentUrl(file)} alt={file.name || 'Вложение'} loading="lazy" />}<span>{file.name} · {formatFileSize(file.size)}</span></button> : <AttachmentCard key={file.id || `${post.id}-feed-file-${index}`} cardKey={`${post.id}-feed-file-${index}`} file={file} variant="feed" />; })}</div>}
+                    <div className="message-reactions-inline feed-reactions-inline">{REACTION_EMOJIS.filter((emoji) => (post.reactions?.[emoji] || []).length > 0).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={(event) => { event.stopPropagation(); toggleFeedReaction(post.id, emoji); }} title={(post.reactions?.[emoji] || []).join(', ')}>{emoji} {(post.reactions?.[emoji] || []).length}</button>; })}</div>
                     {selectedFeedPostId === post.id && (
                       <div className="feed-selected-menu" onClick={(event) => event.stopPropagation()}>
                         <div className="selected-reaction-row feed-reaction-picker">{(feedReactionExpanded ? REACTION_EMOJIS : REACTION_EMOJIS.slice(0, 7)).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => toggleFeedReaction(post.id, emoji)}>{emoji}</button>; })}{!feedReactionExpanded && <button type="button" className="more-reactions" onClick={() => setFeedReactionExpanded(true)}>⌄</button>}</div>
                         <div className="selected-actions-row feed-actions-row">{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? 'Открепить' : 'Закрепить'}</button>}{canDeletePost && <button type="button" className="danger-action" onClick={() => deleteFeedPost(post.id)}>✕ Удалить</button>}</div>
                       </div>
                     )}
-                    <div className="employee-feed-comments"><div className="employee-feed-comments-title">Комментарии</div>{(post.comments || []).filter((comment) => !comment.deletedAt).length === 0 && <small className="employee-feed-no-comments">Комментариев пока нет.</small>}{(post.comments || []).filter((comment) => !comment.deletedAt).map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; return <div key={comment.id} className="employee-feed-comment"><div className="employee-feed-comment-body"><strong>{comment.authorName}</strong><span>{comment.text}</span><small>{formatFeedLogin(comment.author)} · {new Date(comment.createdAt).toLocaleString('ru-RU')}</small></div>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>Удалить</button>}</div>; })}<div className="employee-feed-comment-form"><input placeholder="Оставить комментарий…" value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} /><button type="button" onClick={() => addCommentToPost(post.id)} disabled={!(commentDrafts[post.id] || '').trim()}>Отправить</button></div></div>
+                    <div className="employee-feed-comments"><div className="employee-feed-comments-title">Комментарии</div>{sortComments(post.comments || []).length === 0 && <small className="employee-feed-no-comments">Комментариев пока нет.</small>}<div className="feed-comment-tools"><select value={commentSort} onChange={(e) => setCommentSort(e.target.value)}>{COMMENT_SORTS.map((sort) => <option key={sort.id} value={sort.id}>{sort.label}</option>)}</select></div>{sortComments(post.comments || []).slice(0, expandedCommentPosts[post.id] ? undefined : 3).map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; return <div key={comment.id} className="employee-feed-comment"><div className="employee-feed-comment-body"><strong>{comment.authorName}</strong><span>{comment.text}</span><small>{formatFeedLogin(comment.author)} · {new Date(comment.createdAt).toLocaleString('ru-RU')}</small></div><div className="feed-comment-actions"><button type="button" onClick={() => setCommentDrafts((prev) => ({ ...prev, [post.id]: `@${formatFeedLogin(comment.author)} ` }))}>Ответить</button><button type="button" onClick={() => notify('Реакция на комментарий сохранится после подключения серверного метода', 'Лента')}>👍</button>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>Удалить</button>}</div></div>; })}{sortComments(post.comments || []).length > 3 && !expandedCommentPosts[post.id] && <button type="button" className="feed-show-more-comments" onClick={() => setExpandedCommentPosts((prev) => ({ ...prev, [post.id]: true }))}>Показать ещё {sortComments(post.comments || []).length - 3} комментариев</button>}<div className="employee-feed-comment-form"><input placeholder="Оставить комментарий…" value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} /><button type="button" onClick={() => addCommentToPost(post.id)} disabled={!(commentDrafts[post.id] || '').trim()}>Отправить</button></div></div>
                   </article>
                 );
               })}
@@ -2427,31 +2668,54 @@ const EmployeeChat = () => {
         )}
       </section>
 
-      {mediaViewer && (
-        <div className="photo-viewer-backdrop" onMouseDown={() => setMediaViewer(null)}>
+      {mediaViewer && (() => {
+        const viewerFiles = getViewerFiles();
+        const viewerIndex = Math.max(0, Math.min(viewerFiles.length - 1, mediaViewer.fileIndex || 0));
+        const hasManyViewerFiles = viewerFiles.length > 1;
+        return (
+          <div
+            className="photo-viewer-backdrop"
+            onMouseDown={() => setMediaViewer(null)}
+            onTouchStart={(event) => setViewerTouchStart({ x: event.touches[0]?.clientX || 0, y: event.touches[0]?.clientY || 0 })}
+            onTouchEnd={(event) => {
+              if (!viewerTouchStart) return;
+              const touch = event.changedTouches[0];
+              const dx = (touch?.clientX || 0) - viewerTouchStart.x;
+              const dy = (touch?.clientY || 0) - viewerTouchStart.y;
+              if (Math.abs(dy) > 80 && Math.abs(dy) > Math.abs(dx)) setMediaViewer(null);
+              else if (Math.abs(dx) > 60) moveMediaViewer(dx > 0 ? -1 : 1);
+              setViewerTouchStart(null);
+            }}
+          >
           <header className="photo-viewer-header" onMouseDown={(event) => event.stopPropagation()}>
             <button type="button" className="photo-viewer-back" onClick={() => setMediaViewer(null)}>← Назад</button>
+            <strong className="photo-viewer-counter">{viewerIndex + 1} из {viewerFiles.length || 1}</strong>
             <details className="photo-viewer-menu">
               <summary aria-label="Действия с фото">⋯</summary>
               <div className="photo-viewer-menu-popover">
-                <a href={mediaViewer.file.dataUrl} download={mediaViewer.file.name || 'photo'}>⬇️ Скачать</a>
+                <a href={getAttachmentUrl(mediaViewer.file)} download={mediaViewer.file.name || 'photo'}>⬇️ Скачать</a>
                 {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={replyToViewedMedia}>↩ Ответить</button>}
                 {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={shareViewedMedia}>➜ Переслать</button>}
-                {mediaViewer.source === 'feed' && <button type="button" onClick={shareViewedFeedMedia}>➜ Переслать</button>}
+                {mediaViewer.source === 'feed' && <button type="button" onClick={shareViewedFeedMedia}>➜ Переслать только это фото/видео</button>}
+                {mediaViewer.source === 'feed' && mediaViewer.post && <button type="button" onClick={() => shareFeedPostToChat(mediaViewer.post)}>↗ Переслать весь пост</button>}
                 {mediaViewer.source === 'feed' && canManageFeedPost(mediaViewer.post, user, isManager, isAdmin) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>✕ Удалить</button>}
                 {mediaViewer.message && mediaViewer.source !== 'feed' && (isManager || mediaViewer.message?.sender === user.username) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>✕ Удалить</button>}
               </div>
             </details>
           </header>
           <div className="photo-viewer-stage" onMouseDown={(event) => event.stopPropagation()}>
+            {hasManyViewerFiles && <button type="button" className="photo-viewer-nav prev" onClick={() => moveMediaViewer(-1)}>‹</button>}
             {isVideoAttachment(mediaViewer.file) ? (
-              <video src={mediaViewer.file.dataUrl} controls autoPlay playsInline>Ваш браузер не поддерживает просмотр видео.</video>
+              <video src={getAttachmentUrl(mediaViewer.file)} controls playsInline poster={mediaViewer.file.posterUrl || mediaViewer.file.thumbnailUrl}>Ваш браузер не поддерживает просмотр видео.</video>
             ) : (
-              <img src={mediaViewer.file.dataUrl} alt={mediaViewer.file.name || 'Фото'} />
+              <img src={getAttachmentUrl(mediaViewer.file)} alt={mediaViewer.file.name || 'Фото'} />
             )}
+            {hasManyViewerFiles && <button type="button" className="photo-viewer-nav next" onClick={() => moveMediaViewer(1)}>›</button>}
           </div>
+          {hasManyViewerFiles && <div className="photo-viewer-thumbs" onMouseDown={(event) => event.stopPropagation()}>{viewerFiles.map((file, index) => <button key={file.id || `${file.name}-${index}`} type="button" className={index === viewerIndex ? 'active' : ''} onClick={() => setMediaViewer((current) => ({ ...current, file, fileIndex: index }))}>{isVideoAttachment(file) ? <video src={getAttachmentUrl(file)} muted playsInline /> : <img src={getAttachmentUrl(file)} alt={file.name || 'Миниатюра'} loading="lazy" />}</button>)}</div>}
         </div>
-      )}
+        );
+      })()}
 
       {forwardSourceMessage && (
         <div className="app-modal-backdrop" onMouseDown={() => setForwardSourceMessage(null)}>

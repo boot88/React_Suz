@@ -2210,3 +2210,237 @@ button:disabled {
 .message-row.mine .message-bubble.media-only .media-status-line {
   color: #1d4ed8;
 }
+
+.feed-composer-meta,
+.feed-toolbar,
+.feed-comment-tools,
+.feed-comment-actions,
+.photo-viewer-thumbs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.feed-composer-meta {
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.feed-composer-meta select,
+.feed-toolbar input,
+.feed-comment-tools select,
+.feed-edit-box textarea {
+  border: 1px solid rgba(148, 163, 184, .35);
+  border-radius: 12px;
+  padding: 9px 12px;
+  background: #fff;
+  color: #0f172a;
+}
+
+.feed-toolbar {
+  justify-content: space-between;
+  margin: 14px 0;
+}
+
+.feed-toolbar input {
+  min-width: min(320px, 100%);
+  flex: 1;
+}
+
+.feed-toolbar button,
+.feed-retry,
+.feed-show-more-comments,
+.feed-comment-actions button,
+.feed-edit-box button,
+.feed-composer-meta button {
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: rgba(37, 99, 235, .1);
+  color: #1d4ed8;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.feed-toolbar button.active {
+  background: #2563eb;
+  color: #fff;
+}
+
+.feed-refreshing,
+.feed-pinned-title {
+  margin: 10px 0;
+  color: var(--chat-muted);
+  font-weight: 800;
+}
+
+.feed-skeleton-list {
+  display: grid;
+  gap: 12px;
+}
+
+.feed-skeleton-list div {
+  min-height: 150px;
+  border-radius: 20px;
+  background: linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0);
+  background-size: 220% 100%;
+  animation: feedSkeletonPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes feedSkeletonPulse {
+  from { background-position: 220% 0; }
+  to { background-position: -220% 0; }
+}
+
+.employee-feed-post-header {
+  position: relative;
+  gap: 12px;
+}
+
+.feed-post-menu-button {
+  border: 0;
+  border-radius: 999px;
+  width: 34px;
+  height: 34px;
+  background: rgba(15, 23, 42, .06);
+  cursor: pointer;
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.feed-post-menu {
+  position: absolute;
+  z-index: 20;
+  top: 42px;
+  right: 0;
+  min-width: 230px;
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid rgba(148, 163, 184, .24);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 18px 46px rgba(15, 23, 42, .16);
+}
+
+.feed-post-menu button {
+  justify-content: flex-start;
+  border: 0;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.feed-post-menu button:hover {
+  background: rgba(37, 99, 235, .08);
+}
+
+.feed-edit-box {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.feed-edit-box textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.feed-edit-box div {
+  display: flex;
+  gap: 8px;
+}
+
+.feed-comment-actions {
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.photo-viewer-counter {
+  color: #fff;
+  background: rgba(15, 23, 42, .5);
+  border-radius: 999px;
+  padding: 8px 12px;
+}
+
+.photo-viewer-nav {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 52px;
+  height: 52px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, .58);
+  color: #fff;
+  font-size: 42px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.photo-viewer-nav.prev { left: 20px; }
+.photo-viewer-nav.next { right: 20px; }
+
+.photo-viewer-thumbs {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  max-width: min(92vw, 900px);
+  padding: 8px;
+  border-radius: 18px;
+  background: rgba(15, 23, 42, .66);
+  overflow-x: auto;
+  flex-wrap: nowrap;
+}
+
+.photo-viewer-thumbs button {
+  flex: 0 0 auto;
+  width: 74px;
+  height: 58px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0f172a;
+  cursor: pointer;
+}
+
+.photo-viewer-thumbs button.active {
+  border-color: #fff;
+}
+
+.photo-viewer-thumbs img,
+.photo-viewer-thumbs video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+@media (max-width: 720px) {
+  .feed-toolbar,
+  .feed-composer-meta {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .photo-viewer-menu-popover {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    top: auto;
+    min-width: auto;
+  }
+
+  .photo-viewer-nav {
+    width: 44px;
+    height: 44px;
+    font-size: 34px;
+  }
+}
