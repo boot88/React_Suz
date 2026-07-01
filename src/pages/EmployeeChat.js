@@ -306,6 +306,16 @@ const getVisibleFeedPosts = (posts = []) => (Array.isArray(posts) ? posts.filter
 
 const sameLogin = (left = '', right = '') => formatFeedLogin(left).trim().toLowerCase() === formatFeedLogin(right).trim().toLowerCase();
 
+const canManageFeedPost = (post = {}, currentUser = {}, isManager = false, isAdmin = false) => {
+  if (isManager || isAdmin) return true;
+  const username = currentUser?.username || '';
+  if (!username) return false;
+  return sameLogin(post.author, username)
+    || sameLogin(post.login, username)
+    || sameLogin(post.sender, username)
+    || (!post.author && !post.login && !post.sender);
+};
+
 const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, metaLabel = '', statusLabel = '' }) => {
   const fileName = file?.name || 'Файл';
   const fileType = String(file?.type || '');
@@ -1439,6 +1449,22 @@ const EmployeeChat = () => {
     setMediaViewer(null);
   };
 
+  const shareViewedFeedMedia = () => {
+    if (mediaViewer?.source !== 'feed' || !mediaViewer?.file) return;
+    const sourcePost = mediaViewer.post || {};
+    openForwardMessagePicker({
+      id: sourcePost.id || createMessageId(),
+      sender: sourcePost.authorName || sourcePost.author || 'Лента',
+      text: sourcePost.text || 'Вложение из ленты',
+      attachment: mediaViewer.file,
+      attachments: [mediaViewer.file],
+      createdAt: sourcePost.createdAt || new Date().toISOString(),
+      reactions: {},
+      pinned: false
+    });
+    setMediaViewer(null);
+  };
+
   const deleteChatAttachment = async (messageId, fileIndex = 0, targetConversationId = currentConversationId) => {
     if (!messageId || !targetConversationId) return;
     const confirmed = await confirmAction('Удалить только это вложение?', 'Удаление вложения');
@@ -1814,32 +1840,57 @@ const EmployeeChat = () => {
   const addCommentToPost = async (postId) => {
     const text = (commentDrafts[postId] || '').trim();
     if (!text) return;
+
+    const optimisticComment = {
+      id: createMessageId(),
+      author: user?.username || 'employee',
+      authorName: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
+      text,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    const previousPosts = feedPosts;
+
+    setCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
+    setFeedPosts((current) => current.map((post) => (
+      post.id === postId
+        ? { ...post, comments: [...(post.comments || []), optimisticComment], updatedAt: optimisticComment.updatedAt }
+        : post
+    )));
+
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments`, {
+      const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          author: user?.username || 'employee',
-          authorName: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
+          id: optimisticComment.id,
+          author: optimisticComment.author,
+          authorName: optimisticComment.authorName,
           text
         })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || 'Не удалось добавить комментарий');
+      }, { attempts: 1, fallbackMessage: 'Не удалось добавить комментарий' });
       setFeedPosts(getVisibleFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts.map((post) => (
-        post.id === postId ? { ...post, comments: [...(post.comments || []), data.comment].filter(Boolean), updatedAt: new Date().toISOString() } : post
+        post.id === postId
+          ? { ...post, comments: [...(post.comments || []), data.comment || optimisticComment].filter(Boolean), updatedAt: new Date().toISOString() }
+          : post
       ))));
-      setCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
     } catch (error) {
+      if (isNetworkFailure(error)) {
+        fetchFeed({ silent: true });
+        return;
+      }
+      setFeedPosts(previousPosts);
+      setCommentDrafts((prev) => ({ ...prev, [postId]: text }));
       notify(error.message || 'Не удалось добавить комментарий', 'Лента');
     }
   };
+
 
   const deleteFeedPost = async (postId) => {
     const post = feedPosts.find((item) => item.id === postId);
     if (!post) return;
 
-    const canDeletePost = isManager || isAdmin || sameLogin(post.author, user?.username);
+    const canDeletePost = canManageFeedPost(post, user, isManager, isAdmin);
     if (!canDeletePost) return;
     const confirmed = await confirmAction('Удалить публикацию из ленты?', 'Лента');
     if (!confirmed) return;
@@ -2314,7 +2365,7 @@ const EmployeeChat = () => {
             <div className="employee-feed-list" ref={feedListRef} onClick={(event) => { if (event.target === event.currentTarget) { setSelectedFeedPostId(''); setFeedReactionExpanded(false); } }}>
               {getVisibleFeedPosts(feedPosts).length === 0 && <div className="empty-chat">Пока нет публикаций.</div>}
               {getVisibleFeedPosts(feedPosts).sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))).map((post) => {
-                const canDeletePost = isManager || isAdmin || sameLogin(post.author, user?.username);
+                const canDeletePost = canManageFeedPost(post, user, isManager, isAdmin);
                 return (
                   <article
                     key={post.id}
@@ -2386,8 +2437,9 @@ const EmployeeChat = () => {
                 <a href={mediaViewer.file.dataUrl} download={mediaViewer.file.name || 'photo'}>⬇️ Скачать</a>
                 {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={replyToViewedMedia}>↩ Ответить</button>}
                 {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={shareViewedMedia}>➜ Переслать</button>}
-                {mediaViewer.source === 'feed' && (isManager || isAdmin || sameLogin(mediaViewer.post?.author, user?.username)) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>✕ Удалить вложение</button>}
-                {mediaViewer.message && mediaViewer.source !== 'feed' && (isManager || mediaViewer.message?.sender === user.username) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>✕ Удалить вложение</button>}
+                {mediaViewer.source === 'feed' && <button type="button" onClick={shareViewedFeedMedia}>➜ Переслать</button>}
+                {mediaViewer.source === 'feed' && canManageFeedPost(mediaViewer.post, user, isManager, isAdmin) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>✕ Удалить</button>}
+                {mediaViewer.message && mediaViewer.source !== 'feed' && (isManager || mediaViewer.message?.sender === user.username) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>✕ Удалить</button>}
               </div>
             </details>
           </header>
