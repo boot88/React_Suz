@@ -2501,7 +2501,7 @@ const EmployeeChat = () => {
             <strong>{headerName}</strong>
             <span>{profileForm.position || profileForm.department || user?.role || 'Рабочий чат'}</span>
           </div>
-          <button type="button" className="icon-btn" onClick={() => { setActiveTab('profile'); setProfileViewLogin(''); }}>Профиль</button>
+          <div className="brand-actions"><button type="button" className="icon-btn" onClick={() => { setActiveTab('profile'); setProfileViewLogin(''); }}>Профиль</button>{!isAdmin && <button type="button" className="logout-link-btn" onClick={handleLogout}>Выход</button>}</div>
         </div>
 
         <nav className="employee-chat-tabs" aria-label="Разделы чата">
@@ -2525,7 +2525,7 @@ const EmployeeChat = () => {
             onChange={(e) => setSearch(e.target.value)}
           />
 
-          <div className="contact-filter-row">{CONTACT_FILTERS.map((filter) => <button key={filter.id} type="button" className={contactFilter === filter.id ? 'active' : ''} onClick={() => setContactFilter(filter.id)}>{filter.label}</button>)}</div><div className={`employee-chat-list ${isManager ? 'manager-mode' : ''}`}>
+          <label className="contact-filter-select"><span>Фильтр</span><select value={contactFilter} onChange={(e) => setContactFilter(e.target.value)}>{CONTACT_FILTERS.map((filter) => <option key={filter.id} value={filter.id}>{filter.label}</option>)}</select></label><div className={`employee-chat-list ${isManager ? 'manager-mode' : ''}`}>
             {availableEmployees.length === 0 && <div className="empty-mini">Ничего не найдено</div>}
             {availableEmployees.map((employee) => {
               const isOnline = Boolean(employee.isOnline);
@@ -2542,16 +2542,13 @@ const EmployeeChat = () => {
                     <span className="employee-chat-user-status">{isManagerContact ? 'admin' : (isOnline ? 'online' : 'offline')}</span>
                     {unreadByEmail[employee.email] > 0 && <span className="employee-chat-user-unread">{unreadByEmail[employee.email]}</span>}
                   </button>
-                  <button type="button" className="profile-open-btn" onClick={() => { openProfileCard(employee.email); setActiveTab('profile'); }}>Профиль</button><button type="button" className="favorite-contact-btn" onClick={() => toggleLocalListValue('favorites', employee.email)}>{(chatLocalSettings.favorites || []).includes(employee.email) ? '★' : '☆'}</button>
+                  <span className="contact-card-actions"><button type="button" className="profile-open-btn" onClick={() => { openProfileCard(employee.email); setActiveTab('profile'); }}>Профиль</button><button type="button" className="favorite-contact-btn" aria-label="Избранное" onClick={() => toggleLocalListValue('favorites', employee.email)}>{(chatLocalSettings.favorites || []).includes(employee.email) ? '★' : '☆'}</button></span>
                 </div>
               );
             })}
           </div>
         </div>
 
-        <div className="employee-chat-actions">
-          {!isAdmin && <button className="logout-btn" onClick={handleLogout}>Выход</button>}
-        </div>
       </aside>
 
       <section className="employee-chat-main">

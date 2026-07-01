@@ -2640,3 +2640,105 @@ button:disabled {
     grid-template-columns: repeat(2, minmax(120px, 1fr));
   }
 }
+
+/* Compact sidebar polish */
+.employee-chat-tabs button.active {
+  border-color: rgba(37, 99, 235, .28);
+  background: linear-gradient(135deg, #2563eb, #0ea5e9);
+  color: #fff;
+  box-shadow: 0 12px 26px rgba(37, 99, 235, .22);
+}
+
+.brand-actions {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+}
+
+.logout-link-btn {
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.contact-filter-select {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+  color: var(--chat-muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.contact-filter-select select {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, .34);
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: #fff;
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.employee-chat-user {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.employee-contact-open {
+  min-height: 58px;
+  padding: 10px 11px;
+}
+
+.contact-card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: center;
+}
+
+.contact-card-actions .profile-open-btn {
+  min-height: 34px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
+.contact-card-actions .favorite-contact-btn {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  color: #f59e0b;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.employee-chat-actions {
+  display: none;
+}
+
+.employee-contact-panel {
+  min-height: 0;
+}
+
+.employee-chat-list {
+  gap: 7px;
+}
+
+@media (max-width: 720px) {
+  .brand-actions {
+    justify-items: stretch;
+  }
+
+  .contact-card-actions .profile-open-btn {
+    display: none;
+  }
+}
