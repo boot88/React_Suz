@@ -5,6 +5,8 @@ import { MANAGER_CREDENTIALS } from '../config/authConfig';
 import './EmployeeChat.css';
 
 const CHAT_READ_STATE_KEY = 'chatReadState';
+const CHAT_DRAFTS_KEY = 'chatDrafts';
+const CHAT_LOCAL_SETTINGS_KEY = 'chatLocalSettings';
 const FEED_READ_STATE_KEY = 'employeeFeedReadState';
 const FEED_DRAFT_KEY = 'employeeFeedDraft';
 const FEED_HIDDEN_POSTS_KEY = 'employeeFeedHiddenPosts';
@@ -49,6 +51,32 @@ const COMMENT_SORTS = [
   { id: 'new', label: 'Сначала новые' },
   { id: 'popular', label: 'Популярные' }
 ];
+const CHAT_FILTERS = [
+  { id: 'all', label: 'Все' },
+  { id: 'mine', label: 'Мои' },
+  { id: 'peer', label: 'Собеседник' },
+  { id: 'files', label: 'С файлами' },
+  { id: 'photo', label: 'Фото' },
+  { id: 'today', label: 'Сегодня' },
+  { id: 'week', label: 'Неделя' },
+  { id: 'month', label: 'Месяц' }
+];
+const CONTACT_FILTERS = [
+  { id: 'all', label: 'Все' },
+  { id: 'online', label: 'Онлайн' },
+  { id: 'unread', label: 'Непрочитанные' },
+  { id: 'managers', label: 'Менеджеры' },
+  { id: 'department', label: 'Мой отдел' },
+  { id: 'favorites', label: 'Избранные' },
+  { id: 'recent', label: 'Недавние' },
+  { id: 'attachments', label: 'С вложениями' },
+  { id: 'tickets', label: 'С заявками' }
+];
+const CHAT_MEDIA_TABS = [
+  { id: 'media', label: 'Медиа' },
+  { id: 'files', label: 'Файлы' },
+  { id: 'links', label: 'Ссылки' }
+];
 const APPLICATION_STATUS_META = {
   new: { label: 'Новая', hint: 'Ожидает администратора', tone: 'new' },
   accepted: { label: 'Принята', hint: 'Администратор назначил исполнителя', tone: 'accepted' },
@@ -89,6 +117,56 @@ const saveReadState = (username, nextState) => {
     // noop
   }
 };
+
+const readChatDrafts = (username = 'guest') => {
+  try {
+    const all = JSON.parse(localStorage.getItem(CHAT_DRAFTS_KEY) || '{}');
+    return all?.[username] && typeof all[username] === 'object' ? all[username] : {};
+  } catch {
+    return {};
+  }
+};
+
+const saveChatDrafts = (username = 'guest', drafts = {}) => {
+  try {
+    const all = JSON.parse(localStorage.getItem(CHAT_DRAFTS_KEY) || '{}');
+    all[username] = drafts;
+    localStorage.setItem(CHAT_DRAFTS_KEY, JSON.stringify(all));
+  } catch {
+    // noop
+  }
+};
+
+const readChatLocalSettings = (username = 'guest') => {
+  try {
+    const all = JSON.parse(localStorage.getItem(CHAT_LOCAL_SETTINGS_KEY) || '{}');
+    return {
+      archived: [],
+      hidden: [],
+      pinned: [],
+      muted: [],
+      favorites: [],
+      ...(all?.[username] || {})
+    };
+  } catch {
+    return { archived: [], hidden: [], pinned: [], muted: [], favorites: [] };
+  }
+};
+
+const saveChatLocalSettings = (username = 'guest', settings = {}) => {
+  try {
+    const all = JSON.parse(localStorage.getItem(CHAT_LOCAL_SETTINGS_KEY) || '{}');
+    all[username] = settings;
+    localStorage.setItem(CHAT_LOCAL_SETTINGS_KEY, JSON.stringify(all));
+  } catch {
+    // noop
+  }
+};
+
+const getMessageAttachments = (message = {}) => (message.attachments?.length ? message.attachments : message.attachment ? [message.attachment] : []).filter(Boolean);
+const getMessageMediaAttachments = (message = {}) => getMessageAttachments(message).filter(isMediaAttachment);
+const extractLinks = (text = '') => String(text || '').match(/https?:\/\/\S+/gi) || [];
+
 
 
 const readFeedReadAt = (username) => {
@@ -375,7 +453,7 @@ const canManageFeedPost = (post = {}, currentUser = {}, isManager = false, isAdm
     || sameLogin(post.sender, username);
 };
 
-const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, metaLabel = '', statusLabel = '' }) => {
+const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, onQuickReaction, metaLabel = '', statusLabel = '' }) => {
   const fileName = file?.name || 'Файл';
   const fileType = String(file?.type || '');
   const isImage = fileType.startsWith('image/');
@@ -390,14 +468,19 @@ const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, 
         className="message-photo-card"
         onClick={(event) => {
           event.stopPropagation();
-          onSelect?.(event);
+          onOpen?.(event);
         }}
         onDoubleClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          onOpen?.(event);
+          onQuickReaction?.(event);
         }}
-        aria-label={`Выбрать фото ${fileName}. Двойной клик — открыть`}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onSelect?.(event);
+        }}
+        aria-label={`Открыть фото ${fileName}`}
       >
         <img src={file.dataUrl} alt={fileName} />
         {(metaLabel || statusLabel) && <span className="message-photo-meta">{metaLabel} {statusLabel}</span>}
@@ -501,6 +584,20 @@ const EmployeeChat = () => {
   const [attachmentDrafts, setAttachmentDrafts] = useState([]);
   const [search, setSearch] = useState('');
   const [dialogSearch, setDialogSearch] = useState('');
+  const [dialogSearchIndex, setDialogSearchIndex] = useState(0);
+  const [dialogFilter, setDialogFilter] = useState('all');
+  const [mediaPanelOpen, setMediaPanelOpen] = useState(false);
+  const [mediaPanelTab, setMediaPanelTab] = useState('media');
+  const [mediaPanelSearch, setMediaPanelSearch] = useState('');
+  const [contactFilter, setContactFilter] = useState('all');
+  const [chatDrafts, setChatDrafts] = useState(() => readChatDrafts(user?.username || 'guest'));
+  const [chatLocalSettings, setChatLocalSettings] = useState(() => readChatLocalSettings(user?.username || 'guest'));
+  const [selectedMessageIds, setSelectedMessageIds] = useState([]);
+  const [multiSelectMode, setMultiSelectMode] = useState(false);
+  const [inlineEditMessageId, setInlineEditMessageId] = useState('');
+  const [inlineEditText, setInlineEditText] = useState('');
+  const [pinnedMessageIndex, setPinnedMessageIndex] = useState(0);
+  const [peerTypingUntil, setPeerTypingUntil] = useState(0);
   const [activeTab, setActiveTab] = useState('chat');
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
@@ -669,6 +766,8 @@ const EmployeeChat = () => {
   useEffect(() => {
     const username = user?.username || 'guest';
     setReadState(readReadState(username));
+    setChatDrafts(readChatDrafts(username));
+    setChatLocalSettings(readChatLocalSettings(username));
     setFeedReadAt(readFeedReadAt(username));
     const savedFeedDraft = readSavedFeedDraft(username);
     setFeedDraft(savedFeedDraft.text);
@@ -984,8 +1083,20 @@ const EmployeeChat = () => {
   const availableEmployees = useMemo(() => {
     const normalizedSearch = normalizeText(search);
     return chatCandidates.filter((item) => {
-      if (!normalizedSearch) return true;
+      const conversationId = getConversationId(user.username, item.email);
+      const messages = threads[conversationId] || [];
+      const lastReadAt = readState[conversationId] ? new Date(readState[conversationId]).getTime() : 0;
+      const unread = messages.filter((message) => message.sender !== user.username && new Date(message.createdAt).getTime() > lastReadAt).length;
       const profile = item.profile || {};
+      if (contactFilter === 'online' && !item.isOnline) return false;
+      if (contactFilter === 'unread' && unread === 0) return false;
+      if (contactFilter === 'managers' && !['manager', 'admin'].includes((item.role || '').toLowerCase())) return false;
+      if (contactFilter === 'department' && profile.department && profile.department !== profileForm.department) return false;
+      if (contactFilter === 'favorites' && !(chatLocalSettings.favorites || []).includes(item.email)) return false;
+      if (contactFilter === 'attachments' && !messages.some(hasMessageAttachments)) return false;
+      if (contactFilter === 'tickets' && !myApplications.some((ticket) => ticket.chat_thread_id === conversationId)) return false;
+      if (contactFilter === 'recent' && messages.length === 0) return false;
+      if (!normalizedSearch) return true;
       return [
         item.email,
         item.role,
@@ -998,7 +1109,7 @@ const EmployeeChat = () => {
         profile.N_tel
       ].some((value) => normalizeText(value).includes(normalizedSearch));
     });
-  }, [chatCandidates, search]);
+  }, [chatCandidates, search, contactFilter, readState, threads, user.username, chatLocalSettings.favorites, myApplications, profileForm.department]);
 
   const unreadByEmail = useMemo(() => {
     const map = {};
@@ -1020,6 +1131,20 @@ const EmployeeChat = () => {
   useEffect(() => {
     if (selectedEmail) setActiveTab('chat');
   }, [selectedEmail]);
+
+  useEffect(() => {
+    if (!currentConversationId) return;
+    const saved = chatDrafts[currentConversationId] || {};
+    setDraft(saved.text || '');
+    setAttachmentDrafts(Array.isArray(saved.attachments) ? saved.attachments : []);
+  }, [currentConversationId]);
+
+  useEffect(() => {
+    if (!currentConversationId) return;
+    const next = { ...chatDrafts, [currentConversationId]: { text: draft, attachments: attachmentDrafts } };
+    setChatDrafts(next);
+    saveChatDrafts(user?.username || 'guest', next);
+  }, [attachmentDrafts, draft]);
 
   useEffect(() => {
     setSelectedMessageId('');
@@ -1142,6 +1267,8 @@ const EmployeeChat = () => {
       editedAt: null,
       reactions: {},
       pinned: false,
+      deliveryStatus: 'sending',
+      readAt: null,
       replyTo: replyTo ? { id: replyTo.id, sender: replyTo.sender, text: replyTo.text } : null,
       attachment: attachmentDrafts[0] || null,
       attachments: attachmentDrafts
@@ -1156,12 +1283,18 @@ const EmployeeChat = () => {
       setDraft('');
       setAttachmentDrafts([]);
       setReplyTo(null);
-      await persistNewMessage(currentConversationId, newMessage);
+      await persistNewMessage(currentConversationId, { ...newMessage, deliveryStatus: 'sent' });
+      setThreads((prev) => ({
+        ...prev,
+        [currentConversationId]: (prev[currentConversationId] || []).map((item) => (item.id === newMessage.id ? { ...item, deliveryStatus: 'sent' } : item))
+      }));
     } catch (error) {
       const isNetworkError = isNetworkFailure(error);
       if (isNetworkError) {
-        // Сервер иногда успевает сохранить вложение, но соединение обрывается на ответе.
-        // Не откатываем оптимистичное сообщение, чтобы фото не исчезало и не мигало обратно.
+        setThreads((prev) => ({
+          ...prev,
+          [currentConversationId]: (prev[currentConversationId] || []).map((item) => (item.id === newMessage.id ? { ...item, deliveryStatus: 'waiting' } : item))
+        }));
         return;
       }
       setThreads((prev) => ({ ...prev, [currentConversationId]: currentMessages }));
@@ -1388,6 +1521,113 @@ const EmployeeChat = () => {
     }
   };
 
+
+  const updateChatLocalSettings = (updater) => {
+    setChatLocalSettings((prev) => {
+      const next = updater(prev);
+      saveChatLocalSettings(user?.username || 'guest', next);
+      return next;
+    });
+  };
+
+  const toggleLocalListValue = (key, value) => {
+    updateChatLocalSettings((prev) => {
+      const current = new Set(prev[key] || []);
+      if (current.has(value)) current.delete(value);
+      else current.add(value);
+      return { ...prev, [key]: [...current] };
+    });
+  };
+
+  const clearCurrentDraft = () => {
+    if (!currentConversationId) return;
+    setDraft('');
+    setAttachmentDrafts([]);
+    const next = { ...chatDrafts };
+    delete next[currentConversationId];
+    setChatDrafts(next);
+    saveChatDrafts(user?.username || 'guest', next);
+  };
+
+  const getConversationMediaItems = (scope = 'message', sourceMessage = null) => {
+    const sourceMessages = scope === 'dialog' ? currentMessages : sourceMessage ? [sourceMessage] : [];
+    return sourceMessages.flatMap((message) => getMessageMediaAttachments(message).map((file, index) => ({ file, message, fileIndex: index })));
+  };
+
+  const retryMessageSend = async (message) => {
+    if (!currentConversationId || !message?.id) return;
+    setThreads((prev) => ({ ...prev, [currentConversationId]: (prev[currentConversationId] || []).map((item) => (item.id === message.id ? { ...item, deliveryStatus: 'sending' } : item)) }));
+    try {
+      await persistNewMessage(currentConversationId, { ...message, deliveryStatus: 'sent' });
+      setThreads((prev) => ({ ...prev, [currentConversationId]: (prev[currentConversationId] || []).map((item) => (item.id === message.id ? { ...item, deliveryStatus: 'sent' } : item)) }));
+    } catch (error) {
+      setThreads((prev) => ({ ...prev, [currentConversationId]: (prev[currentConversationId] || []).map((item) => (item.id === message.id ? { ...item, deliveryStatus: isNetworkFailure(error) ? 'waiting' : 'error' } : item)) }));
+      if (!isNetworkFailure(error)) notify(error.message || 'Не удалось отправить сообщение', 'Сообщение');
+    }
+  };
+
+  const startInlineEditMessage = (message) => {
+    setInlineEditMessageId(message.id);
+    setInlineEditText(message.text || '');
+    setSelectedMessageId('');
+  };
+
+  const saveInlineEditMessage = async (message) => {
+    if (!inlineEditText.trim() && getMessageAttachments(message).length === 0) {
+      notify('Нельзя сохранить пустое сообщение без вложений', 'Сообщение');
+      return;
+    }
+    try {
+      await updateMessage(message.id, (item) => ({
+        ...item,
+        text: inlineEditText.trim(),
+        editedAt: new Date().toISOString(),
+        editedBy: user.username,
+        audit: [...(item.audit || []), { action: 'edit', by: user.username, at: new Date().toISOString(), previousText: item.text, nextText: inlineEditText.trim() }]
+      }));
+      setInlineEditMessageId('');
+      setInlineEditText('');
+    } catch (error) {
+      notify(error.message || 'Не удалось изменить сообщение', 'Сообщение');
+    }
+  };
+
+  const createRequestFromMessage = (message) => {
+    setRequestText(`${message.text || 'Сообщение с вложением'}\n\nИсточник: ${message.sender}, ${new Date(message.createdAt).toLocaleString('ru-RU')}`);
+    setReplyTo(message);
+    setSelectedMessageId('');
+    setActiveTab('request');
+  };
+
+  const toggleSelectedMessage = (messageId) => {
+    setSelectedMessageIds((prev) => (prev.includes(messageId) ? prev.filter((id) => id !== messageId) : [...prev, messageId]));
+  };
+
+  const getSelectedMessages = () => currentMessages.filter((message) => selectedMessageIds.includes(message.id));
+
+  const clearSelectedMessages = () => {
+    setSelectedMessageIds([]);
+    setMultiSelectMode(false);
+  };
+
+  const copySelectedMessages = async () => {
+    const text = getSelectedMessages().map((message) => `${message.sender}: ${message.text || '[вложение]'}`).join('\n');
+    if (!text) return;
+    try {
+      await navigator.clipboard?.writeText(text);
+      notify('Выбранные сообщения скопированы', 'Копирование');
+    } catch {
+      notify('Не удалось скопировать выбранные сообщения', 'Копирование');
+    }
+  };
+
+  const deleteSelectedMessages = async () => {
+    const confirmed = await confirmAction(`Удалить выбранные сообщения: ${selectedMessageIds.length}?`, 'Удаление сообщений');
+    if (!confirmed) return;
+    await Promise.all(getSelectedMessages().map((message) => deleteMessage(message.id)));
+    clearSelectedMessages();
+  };
+
   const updateMessage = async (messageId, updater, targetConversationId = currentConversationId) => {
     if (!targetConversationId) return;
     const previousMessages = threads[targetConversationId] || [];
@@ -1517,7 +1757,7 @@ const EmployeeChat = () => {
 
   const openChatMediaViewer = (message, file, fileIndex) => {
     if (!file?.dataUrl) return;
-    setMediaViewer({ message, file, fileIndex });
+    setMediaViewer({ message, file, fileIndex, scope: 'message' });
     setSelectedMessageId('');
     setMessageReactionExpanded(false);
   };
@@ -1555,16 +1795,18 @@ const EmployeeChat = () => {
   const getViewerFiles = () => {
     if (!mediaViewer) return [];
     if (mediaViewer.source === 'feed') return getFeedAttachments(mediaViewer.post).filter(isMediaAttachment);
-    if (mediaViewer.message) return (mediaViewer.message.attachments?.length ? mediaViewer.message.attachments : mediaViewer.message.attachment ? [mediaViewer.message.attachment] : []).filter(isMediaAttachment);
+    if (mediaViewer.message && mediaViewer.scope === 'dialog') return getConversationMediaItems('dialog').map((item) => item.file);
+    if (mediaViewer.message) return getMessageMediaAttachments(mediaViewer.message);
     return [mediaViewer.file].filter(Boolean);
   };
 
   const moveMediaViewer = useCallback((direction) => {
     setMediaViewer((current) => {
       if (!current) return current;
+      const items = current.message && current.scope === 'dialog' ? getConversationMediaItems('dialog') : [];
       const files = current.source === 'feed'
         ? getFeedAttachments(current.post).filter(isMediaAttachment)
-        : current.message ? (current.message.attachments?.length ? current.message.attachments : current.message.attachment ? [current.message.attachment] : []).filter(isMediaAttachment) : [current.file].filter(Boolean);
+        : current.message ? (current.scope === 'dialog' ? items.map((item) => item.file) : getMessageMediaAttachments(current.message)) : [current.file].filter(Boolean);
       if (files.length < 2) return current;
       const currentIndex = Math.max(0, Math.min(files.length - 1, current.fileIndex || 0));
       const nextIndex = (currentIndex + direction + files.length) % files.length;
@@ -1688,6 +1930,8 @@ const EmployeeChat = () => {
       editedAt: null,
       reactions: {},
       pinned: false,
+      deliveryStatus: 'sending',
+      readAt: null,
       replyTo: null,
       attachment: attachments[0] || null,
       attachments
@@ -1831,16 +2075,54 @@ const EmployeeChat = () => {
   void clockTick;
   const normalizedDialogSearch = normalizeText(dialogSearch);
   const visibleMessages = useMemo(() => {
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
     const notDeletedMessages = currentMessages.filter((message) => !message.deletedAt);
-    if (!normalizedDialogSearch) return notDeletedMessages;
+    return notDeletedMessages.filter((message) => {
+      const attachments = getMessageAttachments(message);
+      if (normalizedDialogSearch && ![
+        message.text,
+        message.sender,
+        message.attachment?.name,
+        ...attachments.map((item) => item.name)
+      ].some((value) => normalizeText(value).includes(normalizedDialogSearch))) return false;
+      const timestamp = new Date(message.createdAt || 0).getTime();
+      if (dialogFilter === 'mine') return message.sender === user.username;
+      if (dialogFilter === 'peer') return message.sender !== user.username;
+      if (dialogFilter === 'files') return attachments.length > 0;
+      if (dialogFilter === 'photo') return attachments.some(isImageAttachment);
+      if (dialogFilter === 'today') return now - timestamp <= day;
+      if (dialogFilter === 'week') return now - timestamp <= 7 * day;
+      if (dialogFilter === 'month') return now - timestamp <= 31 * day;
+      return true;
+    });
+  }, [currentMessages, dialogFilter, normalizedDialogSearch, user.username]);
+  const dialogSearchResults = useMemo(() => (
+    normalizedDialogSearch ? visibleMessages.filter((message) => normalizeText(`${message.text || ''} ${message.sender || ''} ${getMessageAttachments(message).map((file) => file.name).join(' ')}`).includes(normalizedDialogSearch)) : []
+  ), [normalizedDialogSearch, visibleMessages]);
+  const activeDialogSearchResult = dialogSearchResults[dialogSearchIndex] || null;
+  const highlightText = (text = '') => {
+    if (!normalizedDialogSearch) return text;
+    const source = String(text || '');
+    const lower = source.toLowerCase();
+    const needle = normalizedDialogSearch.toLowerCase();
+    const index = lower.indexOf(needle);
+    if (index < 0) return source;
+    return <>{source.slice(0, index)}<mark>{source.slice(index, index + needle.length)}</mark>{source.slice(index + needle.length)}</>;
+  };
+  const dialogMediaItems = useMemo(() => currentMessages.flatMap((message) => [
+    ...getMessageAttachments(message).map((file, index) => ({ message, file, fileIndex: index, type: isMediaAttachment(file) ? 'media' : 'file' })),
+    ...extractLinks(message.text).map((link, index) => ({ message, file: { id: `${message.id}-link-${index}`, name: link, dataUrl: link, type: 'text/link' }, fileIndex: index, type: 'link' }))
+  ]), [currentMessages]);
+  const filteredDialogMediaItems = useMemo(() => dialogMediaItems.filter(({ message, file, type }) => {
+    const query = normalizeText(mediaPanelSearch);
+    if (query && !normalizeText(`${file.name || ''} ${message.text || ''}`).includes(query)) return false;
+    if (mediaPanelTab === 'media') return type === 'media';
+    if (mediaPanelTab === 'files') return type === 'file';
+    if (mediaPanelTab === 'links') return type === 'link';
+    return true;
+  }), [dialogMediaItems, mediaPanelSearch, mediaPanelTab]);
 
-    return notDeletedMessages.filter((message) => [
-      message.text,
-      message.sender,
-      message.attachment?.name,
-      ...(message.attachments || []).map((item) => item.name)
-    ].some((value) => normalizeText(value).includes(normalizedDialogSearch)));
-  }, [currentMessages, normalizedDialogSearch]);
   const messagesWithDateSeparators = useMemo(() => {
     let lastDateKey = '';
     return visibleMessages.flatMap((message) => {
@@ -2243,14 +2525,14 @@ const EmployeeChat = () => {
             onChange={(e) => setSearch(e.target.value)}
           />
 
-          <div className={`employee-chat-list ${isManager ? 'manager-mode' : ''}`}>
+          <div className="contact-filter-row">{CONTACT_FILTERS.map((filter) => <button key={filter.id} type="button" className={contactFilter === filter.id ? 'active' : ''} onClick={() => setContactFilter(filter.id)}>{filter.label}</button>)}</div><div className={`employee-chat-list ${isManager ? 'manager-mode' : ''}`}>
             {availableEmployees.length === 0 && <div className="empty-mini">Ничего не найдено</div>}
             {availableEmployees.map((employee) => {
               const isOnline = Boolean(employee.isOnline);
               const isManagerContact = ['manager', 'admin'].includes((employee.role || '').toLowerCase()) || employee.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
               const profile = employee.profile || {};
               return (
-                <div key={employee.email} className={`employee-chat-user ${selectedEmail === employee.email ? 'active' : ''} ${isManagerContact ? 'manager-priority' : ''}`}>
+                <div key={employee.email} className={`employee-chat-user ${selectedEmail === employee.email ? 'active' : ''} ${isManagerContact ? 'manager-priority' : ''} ${(chatLocalSettings.favorites || []).includes(employee.email) ? 'favorite' : ''}`}>
                   <button type="button" className="employee-contact-open" onClick={() => setSelectedEmail(employee.email)}>
                     <span className={`status-dot ${isOnline ? 'online' : 'offline'}`} />
                     <span className="employee-chat-user-main">
@@ -2260,7 +2542,7 @@ const EmployeeChat = () => {
                     <span className="employee-chat-user-status">{isManagerContact ? 'admin' : (isOnline ? 'online' : 'offline')}</span>
                     {unreadByEmail[employee.email] > 0 && <span className="employee-chat-user-unread">{unreadByEmail[employee.email]}</span>}
                   </button>
-                  <button type="button" className="profile-open-btn" onClick={() => { openProfileCard(employee.email); setActiveTab('profile'); }}>Профиль</button>
+                  <button type="button" className="profile-open-btn" onClick={() => { openProfileCard(employee.email); setActiveTab('profile'); }}>Профиль</button><button type="button" className="favorite-contact-btn" onClick={() => toggleLocalListValue('favorites', employee.email)}>{(chatLocalSettings.favorites || []).includes(employee.email) ? '★' : '☆'}</button>
                 </div>
               );
             })}
@@ -2295,24 +2577,27 @@ const EmployeeChat = () => {
                     <p>{selectedEmail}</p>
                   </div>
                   <div className="conversation-tools">
-                    <input value={dialogSearch} onChange={(e) => setDialogSearch(e.target.value)} placeholder="Поиск в диалоге..." />
+                    <input value={dialogSearch} onChange={(e) => { setDialogSearch(e.target.value); setDialogSearchIndex(0); }} placeholder="Поиск в диалоге..." />{normalizedDialogSearch && <span className="dialog-search-count">{dialogSearchResults.length ? dialogSearchIndex + 1 : 0} из {dialogSearchResults.length}</span>}<button type="button" disabled={!dialogSearchResults.length} onClick={() => setDialogSearchIndex((prev) => Math.max(0, prev - 1))}>↑</button><button type="button" disabled={!dialogSearchResults.length} onClick={() => setDialogSearchIndex((prev) => Math.min(dialogSearchResults.length - 1, prev + 1))}>↓</button><button type="button" onClick={() => setMediaPanelOpen((prev) => !prev)}>Медиа / Файлы</button>
                     <button type="button" onClick={() => { openProfileCard(selectedEmail); setActiveTab('profile'); }}>Профиль</button>
                     <details className="conversation-menu">
                       <summary aria-label="Действия с диалогом">⋯</summary>
                       <div className="conversation-menu-popover">
-                        <button type="button" className="danger-action" onClick={clearConversation}>Удалить переписку</button>
+                        <button type="button" onClick={() => toggleLocalListValue('archived', currentConversationId)}>Архивировать диалог</button><button type="button" onClick={() => toggleLocalListValue('hidden', currentConversationId)}>Скрыть диалог</button><button type="button" onClick={() => toggleLocalListValue('pinned', currentConversationId)}>Закрепить диалог</button><button type="button" onClick={() => setReadState((prev) => ({ ...prev, [currentConversationId]: '' }))}>Пометить непрочитанным</button><button type="button" onClick={() => toggleLocalListValue('muted', currentConversationId)}>Отключить уведомления</button><button type="button" className="danger-action" onClick={clearConversation}>Удалить переписку</button>
                       </div>
                     </details>
                   </div>
                 </header>
 
+                <div className="dialog-filter-row">{CHAT_FILTERS.map((filter) => <button key={filter.id} type="button" className={dialogFilter === filter.id ? 'active' : ''} onClick={() => setDialogFilter(filter.id)}>{filter.label}</button>)}</div>
+                {mediaPanelOpen && <div className="dialog-media-panel"><div className="dialog-media-tabs">{CHAT_MEDIA_TABS.map((tab) => <button key={tab.id} type="button" className={mediaPanelTab === tab.id ? 'active' : ''} onClick={() => setMediaPanelTab(tab.id)}>{tab.label}</button>)}</div><input type="search" placeholder="Поиск по имени файла или ссылке..." value={mediaPanelSearch} onChange={(e) => setMediaPanelSearch(e.target.value)} /><button type="button" onClick={() => notify('Скачивание архива будет доступно после серверного zip-метода', 'Медиа')}>Скачать всё архивом</button><div className="dialog-media-grid">{filteredDialogMediaItems.length === 0 && <small>Ничего не найдено</small>}{filteredDialogMediaItems.map(({ message, file, fileIndex, type }, index) => <button key={`${message.id}-${file.name}-${index}`} type="button" onClick={() => type === 'link' ? window.open(file.dataUrl, '_blank', 'noopener,noreferrer') : isMediaAttachment(file) ? setMediaViewer({ message, file, fileIndex, scope: 'dialog' }) : openAttachmentInNewTab(file)}>{type === 'link' ? <span>🔗 {file.name}</span> : isMediaAttachment(file) ? (isVideoAttachment(file) ? <video src={getAttachmentUrl(file)} muted playsInline /> : <img src={getAttachmentUrl(file)} alt={file.name || 'Медиа'} />) : <span>{getFileIcon(file.type)} {file.name}</span>}<em>{new Date(message.createdAt).toLocaleDateString('ru-RU')}</em></button>)}</div></div>}
+
                 {pinnedMessages.length > 0 && (
                   <div className="pinned-box">
-                    <strong>📌 Закреплённые</strong>
-                    {pinnedMessages.map((message) => <div key={`pin-${message.id}`}>• {message.text}</div>)}
+                    <strong>📌 Закреплённые {pinnedMessageIndex + 1} из {pinnedMessages.length}</strong><div className="pinned-controls"><button type="button" onClick={() => setPinnedMessageIndex((prev) => Math.max(0, prev - 1))}>‹</button><button type="button" onClick={() => setPinnedMessageIndex((prev) => Math.min(pinnedMessages.length - 1, prev + 1))}>›</button></div>{pinnedMessages[pinnedMessageIndex] && <button type="button" onClick={() => document.querySelector(`[data-message-id=\"${pinnedMessages[pinnedMessageIndex].id}\"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>• {pinnedMessages[pinnedMessageIndex].text || (getMessageAttachments(pinnedMessages[pinnedMessageIndex]).some(isImageAttachment) ? '📷 Фото' : '📎 Документ')}</button>}
                   </div>
                 )}
 
+                {multiSelectMode && <div className="multi-select-toolbar"><strong>Выбрано: {selectedMessageIds.length}</strong><button type="button" onClick={copySelectedMessages}>Копировать</button><button type="button" onClick={() => { const selected = getSelectedMessages(); if (selected[0]) openForwardMessagePicker({ ...selected[0], text: selected.map((msg) => `${msg.sender}: ${msg.text || '[вложение]'}`).join('\n') }); }}>Переслать</button><button type="button" onClick={() => { const selected = getSelectedMessages(); setRequestText(selected.map((msg) => `${msg.sender}: ${msg.text || '[вложение]'}`).join('\n')); setActiveTab('request'); }}>Создать заявку</button><button type="button" onClick={() => notify('Архив вложений будет доступен после серверного zip-метода', 'Вложения')}>Скачать вложения</button><button type="button" className="danger-action" onClick={deleteSelectedMessages}>Удалить</button><button type="button" onClick={clearSelectedMessages}>Отмена</button></div>}
                 <div
                   className="messages-wrap"
                   ref={messagesWrapRef}
@@ -2346,19 +2631,22 @@ const EmployeeChat = () => {
                     const messageReactionBadges = REACTION_EMOJIS.filter((emoji) => (message.reactions?.[emoji] || []).length > 0);
 
                     return (
-                      <div key={message.id} className={`message-row ${isMine ? 'mine' : ''} ${isSelected ? 'selected' : ''}`}>
+                      <div key={message.id} data-message-id={message.id} className={`message-row ${isMine ? 'mine' : ''} ${isSelected ? 'selected' : ''} ${selectedMessageIds.includes(message.id) ? 'multi-selected' : ''} ${activeDialogSearchResult?.id === message.id ? 'search-current' : ''}`}>
                         <div
                           role="button"
                           tabIndex={0}
                           className={`message-bubble ${isMediaOnly ? 'media-only' : ''}`}
                           onClick={(event) => {
                             event.stopPropagation();
+                            if (multiSelectMode) { toggleSelectedMessage(message.id); return; }
                             if (isSelected && messageReactionExpanded) setMessageReactionExpanded(false);
                             else {
                               setSelectedMessageId(message.id);
                               setMessageReactionExpanded(false);
                             }
                           }}
+                          onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); toggleReaction(message.id, '👍'); }}
+                          onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setSelectedMessageId(message.id); setMessageReactionExpanded(false); }}
                           onKeyDown={(event) => {
                             if (event.key !== 'Enter' && event.key !== ' ') return;
                             event.preventDefault();
@@ -2375,11 +2663,11 @@ const EmployeeChat = () => {
                           )}
 
                           {message.forwardedFrom && <div className="forwarded-preview">Переслано от {message.forwardedFrom}</div>}
-                          {message.replyTo && <div className="reply-preview">↪ {message.replyTo.sender}: {message.replyTo.text}</div>}
+                          {message.replyTo && <button type="button" className="reply-preview reply-jump" onClick={(event) => { event.stopPropagation(); document.querySelector(`[data-message-id=\"${message.replyTo.id}\"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>↪ {message.replyTo.sender}: {message.replyTo.text || 'Исходное сообщение удалено'}</button>}
                           {isDeleted ? (
                             <div className="message-deleted">Сообщение удалено {message.deletedBy ? `· ${message.deletedBy}` : ''}</div>
                           ) : hasTextContent ? (
-                            <div className="message-text">{message.text}</div>
+                            inlineEditMessageId === message.id ? <div className="inline-message-editor"><textarea value={inlineEditText} onChange={(e) => setInlineEditText(e.target.value)} /><button type="button" onClick={() => saveInlineEditMessage(message)}>Сохранить</button><button type="button" onClick={() => setInlineEditMessageId('')}>Отмена</button></div> : <div className="message-text">{highlightText(message.text)}</div>
                           ) : null}
 
                           {attachments.length > 0 && (
@@ -2396,6 +2684,7 @@ const EmployeeChat = () => {
                                     setMessageReactionExpanded(false);
                                   }}
                                   onOpen={() => openChatMediaViewer(message, file, index)}
+                                  onQuickReaction={() => toggleReaction(message.id, '❤️')}
                                 />
                               ))}
                             </div>
@@ -2414,8 +2703,9 @@ const EmployeeChat = () => {
                                       event.stopPropagation();
                                       toggleReaction(message.id, emoji);
                                     }}
+                                    title={(message.reactions?.[emoji] || []).join(', ')}
                                   >
-                                    {emoji}
+                                    {emoji}<span>{(message.reactions?.[emoji] || []).length}</span>
                                   </button>
                                 );
                               })}
@@ -2425,13 +2715,15 @@ const EmployeeChat = () => {
                           {isMediaOnly && (
                             <small className="read-state message-status-line media-status-line">
                               {message.editedAt && !isDeleted ? 'изменено · ' : ''}
-                              {photoMetaLabel} {statusLabel}
+                              {photoMetaLabel} {message.deliveryStatus === 'sending' ? 'Отправляется…' : message.deliveryStatus === 'waiting' ? 'Ожидает сети' : message.deliveryStatus === 'error' ? 'Ошибка' : message.deliveryStatus === 'sent' ? '✓' : statusLabel}
+                              {isMine && message.deliveryStatus !== 'sending' && message.deliveryStatus !== 'waiting' && message.deliveryStatus !== 'error' ? '✓' : ''}
                             </small>
                           )}
                           {!isMediaOnly && (
                             <small className="read-state message-status-line">
                               {message.editedAt && !isDeleted ? 'изменено · ' : ''}
-                              {statusLabel}
+                              {message.deliveryStatus === 'sending' ? 'Отправляется…' : message.deliveryStatus === 'waiting' ? 'Ожидает сети' : message.deliveryStatus === 'error' ? 'Ошибка' : message.deliveryStatus === 'sent' ? '✓' : statusLabel}
+                              {isMine && message.deliveryStatus !== 'sending' && message.deliveryStatus !== 'waiting' && message.deliveryStatus !== 'error' ? '✓' : ''}
                             </small>
                           )}
                         </div>
@@ -2447,13 +2739,13 @@ const EmployeeChat = () => {
                             </div>
 
                             {!messageReactionExpanded && (
-                              <div className="selected-actions-row">
+                              <div className="selected-actions-row"><button type="button" onClick={() => { setMultiSelectMode(true); toggleSelectedMessage(message.id); setSelectedMessageId(''); }}>Выбрать несколько</button>
                                 <button type="button" onClick={() => { setReplyTo(message); setSelectedMessageId(''); }}>↩ Ответить</button>
                                 <button type="button" onClick={() => { copyMessageText(message); setSelectedMessageId(''); }}>Копировать</button>
                                 <button type="button" onClick={() => openForwardMessagePicker(message)}>➜ Переслать</button>
                                 <button type="button" onClick={() => { togglePinned(message.id); setSelectedMessageId(''); }}>{message.pinned ? 'Открепить' : 'Закрепить'}</button>
-                                {canEdit && <button type="button" onClick={() => { editMessage(message.id); setSelectedMessageId(''); }}>Изменить</button>}
-                                {canEdit && <button type="button" className="danger-action" onClick={() => { deleteMessage(message.id); setSelectedMessageId(''); }}>✕ Удалить</button>}
+                                {canEdit && <button type="button" onClick={() => startInlineEditMessage(message)}>Изменить</button>}<button type="button" onClick={() => createRequestFromMessage(message)}>Создать заявку</button><button type="button" onClick={() => notify('Добавление к существующей заявке будет доступно после выбора заявки', 'Заявка')}>Добавить к заявке</button><button type="button" onClick={() => notify('Задача создана как черновик после подключения задач', 'Задачи')}>Создать задачу</button><button type="button" onClick={() => notify('Назначение исполнителя появится в модуле задач', 'Задачи')}>Назначить исполнителя</button><button type="button" onClick={() => notify('Срок можно будет поставить после подключения задач', 'Задачи')}>Поставить срок</button><button type="button" onClick={() => getMessageAttachments(message).forEach(openAttachmentInNewTab)}>Скачать вложения</button>
+                                {isMine && ['waiting', 'error'].includes(message.deliveryStatus) && <button type="button" onClick={() => retryMessageSend(message)}>Повторить</button>}{canEdit && <button type="button" className="danger-action" onClick={() => { deleteMessage(message.id); setSelectedMessageId(''); }}>✕ Удалить</button>}
                               </div>
                             )}
                           </div>
@@ -2508,10 +2800,10 @@ const EmployeeChat = () => {
                     </div>
                   )}
 
-                  {typingHint && <div className="typing-hint">{typingHint}</div>}
+                  {typingHint && <div className="typing-hint">{typingHint}</div>}{Date.now() < peerTypingUntil && <div className="typing-hint peer-typing">{activeContact?.profile?.full_name || selectedEmail} печатает<span>•••</span></div>}<button type="button" className="clear-chat-draft" onClick={clearCurrentDraft}>Очистить черновик</button>
 
                   <form className="message-form" onSubmit={handleSend}>
-                    <input placeholder="Введите сообщение или перетащите файлы сюда..." value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={2000} />
+                    <textarea placeholder="Введите сообщение или перетащите файлы сюда... @username" value={draft} onChange={(e) => { setDraft(e.target.value); setPeerTypingUntil(Date.now() + 1800); }} maxLength={2000} rows={1} />
                     <label className="attach-file-btn">📎 Выбрать несколько фото/видео<input type="file" hidden multiple accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={handleAttachmentChange} /></label>
                     <button type="submit" disabled={isSendingMessage}>{isSendingMessage ? 'Отправляем...' : 'Отправить'}</button>
                   </form>
@@ -2696,6 +2988,9 @@ const EmployeeChat = () => {
                 <a href={getAttachmentUrl(mediaViewer.file)} download={mediaViewer.file.name || 'photo'}>⬇️ Скачать</a>
                 {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={replyToViewedMedia}>↩ Ответить</button>}
                 {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={shareViewedMedia}>➜ Переслать</button>}
+                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={() => createRequestFromMessage(mediaViewer.message)}>🧾 Создать заявку из фото</button>}
+                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={() => setMediaViewer((current) => ({ ...current, scope: current.scope === 'dialog' ? 'message' : 'dialog' }))}>{mediaViewer.scope === 'dialog' ? 'Показать медиа сообщения' : 'Показать все медиа диалога'}</button>}
+                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={() => openAttachmentInNewTab(mediaViewer.file)}>Открыть оригинал</button>}
                 {mediaViewer.source === 'feed' && <button type="button" onClick={shareViewedFeedMedia}>➜ Переслать только это фото/видео</button>}
                 {mediaViewer.source === 'feed' && mediaViewer.post && <button type="button" onClick={() => shareFeedPostToChat(mediaViewer.post)}>↗ Переслать весь пост</button>}
                 {mediaViewer.source === 'feed' && canManageFeedPost(mediaViewer.post, user, isManager, isAdmin) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>✕ Удалить</button>}
