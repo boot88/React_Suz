@@ -600,6 +600,7 @@ const EmployeeChat = () => {
   const [peerTypingUntil, setPeerTypingUntil] = useState(0);
   const [activeTab, setActiveTab] = useState('chat');
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const [customCursor, setCustomCursor] = useState({ x: 0, y: 0, visible: false, active: false, label: '' });
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [isPublishingFeed, setIsPublishingFeed] = useState(false);
   const [isEmojiOpen, setIsEmojiOpen] = useState(false);
@@ -1353,6 +1354,20 @@ const EmployeeChat = () => {
     event.preventDefault();
     event.stopPropagation();
     if (!event.currentTarget.contains(event.relatedTarget)) setIsDraggingFiles(false);
+  };
+
+
+  const updateCustomCursor = (event) => {
+    const interactive = event.target.closest?.('button, a, input, textarea, select, summary, label, .message-bubble, .employee-chat-user, .employee-feed-post, .message-photo-card, .employee-feed-media-tile');
+    const label = interactive?.getAttribute?.('aria-label')
+      || interactive?.querySelector?.('.employee-chat-user-email')?.textContent
+      || interactive?.textContent?.trim()?.slice(0, 28)
+      || '';
+    setCustomCursor({ x: event.clientX, y: event.clientY, visible: true, active: Boolean(interactive), label });
+  };
+
+  const hideCustomCursor = () => {
+    setCustomCursor((prev) => ({ ...prev, visible: false, active: false, label: '' }));
   };
 
   const removeAttachmentDraft = (attachmentId) => {
@@ -2488,7 +2503,24 @@ const EmployeeChat = () => {
   };
 
   return (
-    <div className={`employee-chat-layout ${isDraggingFiles ? 'dragging-files' : ''}`} onDrop={handleAttachmentDrop} onDragOver={handleDragOver} onDragEnter={handleDragOver} onDragLeave={handleDragLeave}>
+    <div
+      className={`employee-chat-layout ${isDraggingFiles ? 'dragging-files' : ''} ${customCursor.visible ? 'custom-cursor-visible' : ''} ${customCursor.active ? 'custom-cursor-active' : ''}`}
+      onDrop={handleAttachmentDrop}
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onMouseMove={updateCustomCursor}
+      onMouseEnter={updateCustomCursor}
+      onMouseLeave={hideCustomCursor}
+    >
+      <div
+        className={`chat-custom-cursor ${customCursor.visible ? 'visible' : ''} ${customCursor.active ? 'active' : ''}`}
+        style={{ '--cursor-x': `${customCursor.x}px`, '--cursor-y': `${customCursor.y}px` }}
+        aria-hidden="true"
+      >
+        <span />
+        {customCursor.active && customCursor.label && <em>{customCursor.label}</em>}
+      </div>
       {isDraggingFiles && <div className="drop-zone-overlay"><strong>📎 Отпустите файлы</strong><span>Добавим их в текущее сообщение</span></div>}
       <input ref={avatarInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={handleAvatarUpload} hidden />
       
