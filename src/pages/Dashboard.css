@@ -433,10 +433,69 @@ button:disabled,
 
 .cell-application,
 .cell-process {
-  max-width: 340px;
+  max-width: 390px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.application-summary {
+  display: grid;
+  gap: 7px;
+  min-width: 280px;
+}
+
+.application-summary strong {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.application-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.meta-badge {
+  display: inline-flex;
+  align-items: center;
+  max-width: 150px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.category-badge {
+  background: #ecfeff;
+  color: #0e7490;
+}
+
+.source-badge {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.priority-normal {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.priority-low {
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.priority-high {
+  background: #fef2f2;
+  color: #b91c1c;
 }
 
 .cell-person {
@@ -445,7 +504,8 @@ button:disabled,
 }
 
 .cell-person span,
-.cell-timers small {
+.cell-created span,
+.sla-badge small {
   display: block;
   margin-top: 4px;
   color: var(--dash-muted);
@@ -453,14 +513,56 @@ button:disabled,
   font-weight: 650;
 }
 
-.cell-date,
-.cell-time-range {
+.cell-date {
   white-space: nowrap;
 }
 
-.cell-timers {
-  min-width: 150px;
+.cell-created {
+  min-width: 145px;
+}
+
+.cell-created strong {
+  display: block;
+  font-size: 13px;
+}
+
+.cell-sla {
+  min-width: 130px;
   white-space: nowrap;
+}
+
+.sla-badge {
+  display: inline-grid;
+  gap: 2px;
+  min-width: 105px;
+  padding: 7px 10px;
+  border-radius: 14px;
+  border: 1px solid #dbe3ef;
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 850;
+}
+
+.sla-badge strong {
+  font-size: 13px;
+}
+
+.sla-badge-ok {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #047857;
+}
+
+.sla-badge-warning {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.sla-badge-critical {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
 }
 
 .cell-actions {

@@ -487,12 +487,16 @@ const Dashboard = () => {
     });
   };
 
-  const formatShortDate = (dateString) => {
-    if (!dateString) return '—';
-    return new Date(dateString).toLocaleDateString('ru-RU', {
+  const formatCreatedAt = (dateString) => {
+    if (!dateString) return 'Ручная подача · дата —';
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return 'Ручная подача · дата —';
+    return date.toLocaleString('ru-RU', {
       day: '2-digit',
       month: '2-digit',
-      year: '2-digit'
+      year: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
     });
   };
 
@@ -521,10 +525,39 @@ const Dashboard = () => {
     return rest ? `${hours} ч ${rest} мин` : `${hours} ч`;
   };
 
-  const getTableTimers = (app = {}) => {
+  const getApplicationSourceLabel = (app = {}) => {
+    if (app.source === 'chat' || app.employee_login) return 'Из чата';
+    if (app.source === 'employee') return 'От сотрудника';
+    return 'Ручная подача';
+  };
+
+  const getPriorityLabel = (priority) => {
+    const value = String(priority || '').trim().toLowerCase();
+    if (['high', 'urgent', 'срочно', 'высокий', 'critical'].includes(value)) return 'Срочно';
+    if (['low', 'низкий'].includes(value)) return 'Низкий';
+    if (['medium', 'normal', 'обычный', 'средний'].includes(value)) return 'Обычный';
+    return priority || 'Обычный';
+  };
+
+  const getPriorityClass = (priority) => {
+    const value = String(priority || '').trim().toLowerCase();
+    if (['high', 'urgent', 'срочно', 'высокий', 'critical'].includes(value)) return 'high';
+    if (['low', 'низкий'].includes(value)) return 'low';
+    return 'normal';
+  };
+
+  const getCategoryLabel = (category) => String(category || '').trim() || 'Без категории';
+
+  const getSlaBadge = (app = {}) => {
+    const sla = getSlaState(app);
+    const status = app.status || (app.fl ? 'done' : 'new');
+    if (app.fl || status === 'done') {
+      return { ...sla, title: 'SLA закрыта', value: 'готово' };
+    }
     return {
-      waitingSeconds: getWaitingSeconds(app),
-      workSeconds: getWorkSeconds(app)
+      ...sla,
+      title: sla.label,
+      value: formatCompactDuration(sla.seconds)
     };
   };
 
@@ -802,9 +835,8 @@ const Dashboard = () => {
                     <th>Сотрудник</th>
                     <th>Заявка</th>
                     <th>Исполнитель</th>
-                    <th>Дата</th>
-                    <th>Время</th>
-                    <th>Таймер</th>
+                    <th>Создана</th>
+                    <th>SLA</th>
                     <th>Статус</th>
                     <th>Действия</th>
                   </tr>
@@ -830,7 +862,14 @@ const Dashboard = () => {
                                document.documentElement.style.setProperty('--mouse-y', `${e.clientY}px`);
                              }}
                         >
-                             {app.application}
+                          <div className="application-summary">
+                            <strong>#{app.id || '—'} · {app.application || 'Без описания'}</strong>
+                            <div className="application-badges">
+                              <span className="meta-badge category-badge">{getCategoryLabel(app.category)}</span>
+                              <span className={`meta-badge priority-badge priority-${getPriorityClass(app.priority)}`}>{getPriorityLabel(app.priority)}</span>
+                              <span className="meta-badge source-badge">{getApplicationSourceLabel(app)}</span>
+                            </div>
+                          </div>
                         </td>
 
                         <td className="cell-executor">
@@ -867,19 +906,20 @@ const Dashboard = () => {
                           )}
                         </td>
                         
-                        <td className="cell-date">{formatShortDate(app.data)}</td>
-                        <td className="cell-date cell-time-range">{formatTimeRange(app)}</td>
-                        <td className="cell-timers">
+                        <td className="cell-date cell-created">
+                          <strong>{formatCreatedAt(app.data)}</strong>
+                          <span>{formatTimeRange(app)}</span>
+                        </td>
+                        <td className="cell-sla">
                           {(() => {
-                            const { waitingSeconds, workSeconds } = getTableTimers(app);
+                            const sla = getSlaBadge(app);
                             return (
-                              <>
-                                {waitingSeconds != null && <div>Ожидание: {formatCompactDuration(waitingSeconds)}</div>}
-                                <div>Работа: {formatCompactDuration(getDisplayWorkSeconds(app) ?? workSeconds)}</div>
-                              </>
+                              <span className={`sla-badge sla-badge-${sla.level}`} title={sla.title}>
+                                <strong>{sla.value}</strong>
+                                <small>{sla.title}</small>
+                              </span>
                             );
                           })()}
-                          {app.sla_paused_at && <small>Таймер остановлен</small>}
                         </td>
                         <td>{getStatusLabel(app)}</td>
                         <td className="cell-actions"><div className="workflow-actions">
@@ -888,9 +928,9 @@ const Dashboard = () => {
                         </div></td>
                       </tr>
                     ))
-                  ) : (
-                    <tr>
-                      <td colSpan="8" className="no-data">
+	                  ) : (
+	                    <tr>
+	                      <td colSpan="7" className="no-data">
                         <span className="science-icon">🔍</span>
                         {searchTerm 
                           ? `Не найдено заявок по запросу "${searchTerm}"`
@@ -931,6 +971,8 @@ const Dashboard = () => {
             <div><strong>Приоритет</strong><span>{selectedApplication.priority || 'Обычный'}</span></div>
             <div><strong>Источник</strong><span>{selectedApplication.source || 'admin'}</span></div>
             <div><strong>Исполнитель</strong><span>{selectedApplication.executor || 'Не назначен'}</span></div>
+            <div><strong>Создана</strong><span>{formatCreatedAt(selectedApplication.data)}</span></div>
+            <div><strong>Рабочий интервал</strong><span>{formatTimeRange(selectedApplication)}</span></div>
             {getWaitingSeconds(selectedApplication) != null && <div><strong>Ожидание</strong><span>{formatDuration(getWaitingSeconds(selectedApplication))}</span></div>}
             <div><strong>Работа</strong><span>{formatDuration(getDisplayWorkSeconds(selectedApplication))}</span></div>
           </div>
