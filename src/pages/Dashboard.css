@@ -576,6 +576,67 @@ button:disabled,
   min-width: 170px;
 }
 
+.workflow-actions-compact {
+  flex-wrap: nowrap;
+  align-items: center;
+  min-width: 142px;
+}
+
+.workflow-actions .primary-workflow-action {
+  background: var(--dash-primary);
+  color: #fff;
+}
+
+.row-action-menu-wrap {
+  position: relative;
+}
+
+.row-action-menu-toggle {
+  width: 34px;
+  min-width: 34px;
+  padding: 8px 0 !important;
+  text-align: center;
+}
+
+.row-action-menu {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  min-width: 210px;
+  padding: 8px;
+  border: 1px solid var(--dash-border);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: var(--dash-shadow);
+}
+
+.row-action-menu button,
+.row-action-menu a {
+  justify-content: flex-start;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--dash-text);
+  text-align: left;
+  box-shadow: none;
+}
+
+.row-action-menu button:hover,
+.row-action-menu a:hover {
+  background: #eff6ff;
+  color: var(--dash-primary-dark);
+  transform: none;
+  box-shadow: none;
+}
+
+.row-action-menu .danger-menu-action {
+  color: var(--dash-danger);
+}
+
 .status-badge {
   display: inline-flex;
   align-items: center;
@@ -799,6 +860,36 @@ button:disabled,
 .filters-section-compact {
   padding: 18px;
   margin: 18px 0 12px;
+}
+
+.queue-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.queue-filter-row button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 13px;
+  border: 1px solid var(--dash-border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--dash-text);
+  font-weight: 850;
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+
+.queue-filter-row button:hover,
+.queue-filter-row button.active {
+  border-color: rgba(37, 99, 235, .35);
+  background: #eff6ff;
+  color: var(--dash-primary-dark);
+  box-shadow: 0 10px 22px rgba(37, 99, 235, .10);
+  transform: translateY(-1px);
 }
 
 .period-filter-card {

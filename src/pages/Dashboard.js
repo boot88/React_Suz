@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import './Dashboard.css';
 import { API_BASE_URL } from '../utils/apiConfig';
@@ -15,11 +15,34 @@ const STATUS_META = {
 const WORKFLOW_FILTERS = [
   { id: 'all', label: 'Все' },
   { id: 'queue', label: 'Новые' },
+  { id: 'my', label: 'Мои' },
   { id: 'active', label: 'В работе' },
+  { id: 'unassigned', label: 'Без исполнителя' },
   { id: 'confirmation', label: 'Ждут подтверждения' },
   { id: 'done', label: 'Выполненные' },
   { id: 'overdue', label: 'Просроченные' }
 ];
+const QUEUE_FILTERS = [
+  { id: 'queue', label: 'Новые', icon: '📥' },
+  { id: 'my', label: 'Мои', icon: '👤' },
+  { id: 'overdue', label: 'Просроченные', icon: '⚠️' },
+  { id: 'unassigned', label: 'Без исполнителя', icon: '🧭' }
+];
+const SORT_OPTIONS = [
+  { id: 'sla', label: 'SLA: сначала срочные' },
+  { id: 'status', label: 'Статус' },
+  { id: 'date_desc', label: 'Дата: новые сверху' },
+  { id: 'date_asc', label: 'Дата: старые сверху' },
+  { id: 'executor', label: 'Исполнитель' }
+];
+const TABLE_STATUS_ORDER = {
+  new: 1,
+  reopened: 2,
+  accepted: 3,
+  in_progress: 4,
+  waiting_employee_confirmation: 5,
+  done: 6
+};
 const formatDuration = (seconds) => {
   if (seconds === null || seconds === undefined || seconds === '') return '—';
   const safe = Math.max(0, Math.floor(Number(seconds) || 0));
@@ -117,6 +140,8 @@ const Dashboard = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [workflowMessage, setWorkflowMessage] = useState('');
   const [actionBusyId, setActionBusyId] = useState(null);
+  const [openActionMenuId, setOpenActionMenuId] = useState(null);
+  const [sortMode, setSortMode] = useState('sla');
   const [selectedApplication, setSelectedApplication] = useState(null);
   const [applicationEvents, setApplicationEvents] = useState([]);
   const [eventsLoading, setEventsLoading] = useState(false);
@@ -144,7 +169,7 @@ const Dashboard = () => {
     setExportLoading(true);
     try {
       let url = '/applications/export';
-      if (filter !== 'all') url += `?status=${encodeURIComponent(filter)}`;
+      if (filter !== 'all' && !['my', 'unassigned'].includes(filter)) url += `?status=${encodeURIComponent(filter)}`;
       if (fromDate) url += `${url.includes('?') ? '&' : '?'}from=${fromDate}`;
       if (toDate) url += `${url.includes('?') ? '&' : '?'}to=${toDate}`;
       if (searchTerm) url += `${url.includes('?') ? '&' : '?'}search=${encodeURIComponent(searchTerm.trim())}`;
@@ -221,7 +246,17 @@ const Dashboard = () => {
         url += `&search=${encodeURIComponent(searchTerm.trim())}`;
       }
       
-      if (filter !== 'all') url += `&status=${encodeURIComponent(filter)}`;
+      if (filter !== 'all') {
+        if (['my', 'unassigned'].includes(filter)) {
+          url += `&queue=${encodeURIComponent(filter)}`;
+          if (filter === 'my') {
+            url += `&assignee=${encodeURIComponent(user?.name || user?.username || '')}`;
+          }
+        } else {
+          url += `&status=${encodeURIComponent(filter)}`;
+        }
+      }
+      url += `&sort=${encodeURIComponent(sortMode)}`;
       if (dateFilterActive) {
         if (fromDate) url += `&from=${fromDate}`;
         if (toDate) url += `&to=${toDate}`;
@@ -376,7 +411,7 @@ const Dashboard = () => {
 
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, limit, filter, fromDate, toDate, dateFilterActive, searchTerm]);
+  }, [currentPage, limit, filter, fromDate, toDate, dateFilterActive, searchTerm, sortMode]);
 
   useEffect(() => {
     const onVisible = () => {
@@ -567,6 +602,21 @@ const Dashboard = () => {
     return <span className={`status-badge status-${status}`}><span className="status-icon">{meta.icon}</span>{meta.label}</span>;
   };
 
+  const getPrimaryTableAction = (app = {}) => {
+    const status = app.status || (app.fl ? 'done' : 'new');
+    if (['new', 'reopened'].includes(status)) return { label: 'Взять', action: () => openAcceptModal(app) };
+    if (status === 'accepted') return { label: 'Начать', action: () => runWorkflowAction(app, 'start-work') };
+    if (status === 'in_progress') return { label: 'Завершить', action: () => openResolveModal(app) };
+    if (status === 'waiting_employee_confirmation') return { label: 'Проверить', action: () => openApplicationPanel(app) };
+    return { label: 'Открыть', action: () => openApplicationPanel(app) };
+  };
+
+  const runTableAction = (event, app, action) => {
+    event.stopPropagation();
+    setOpenActionMenuId(null);
+    action(app);
+  };
+
   const runWorkflowAction = async (app, action, extraPayload = {}) => {
     const payload = { actor: user?.username || user?.name || 'admin', ...extraPayload };
     if (action === 'accept') {
@@ -679,6 +729,35 @@ const Dashboard = () => {
     { id: 'overdue', label: '⚠️ Просроченные', value: stats.overdue || 0, hint: 'Нарушен SLA', tone: 'danger' }
   ];
 
+  const displayedApplications = useMemo(() => {
+    const sorted = [...applications];
+    sorted.sort((left, right) => {
+      if (sortMode === 'sla') {
+        const severity = { critical: 1, warning: 2, ok: 3 };
+        const leftSla = getSlaState(left);
+        const rightSla = getSlaState(right);
+        const byLevel = (severity[leftSla.level] || 4) - (severity[rightSla.level] || 4);
+        if (byLevel !== 0) return byLevel;
+        return (rightSla.seconds || 0) - (leftSla.seconds || 0);
+      }
+      if (sortMode === 'status') {
+        const leftStatus = left.status || (left.fl ? 'done' : 'new');
+        const rightStatus = right.status || (right.fl ? 'done' : 'new');
+        return (TABLE_STATUS_ORDER[leftStatus] || 99) - (TABLE_STATUS_ORDER[rightStatus] || 99);
+      }
+      if (sortMode === 'date_asc' || sortMode === 'date_desc') {
+        const leftDate = new Date(left.data || left.created_at || 0).getTime() || 0;
+        const rightDate = new Date(right.data || right.created_at || 0).getTime() || 0;
+        return sortMode === 'date_asc' ? leftDate - rightDate : rightDate - leftDate;
+      }
+      if (sortMode === 'executor') {
+        return String(left.executor || 'яяя').localeCompare(String(right.executor || 'яяя'), 'ru');
+      }
+      return 0;
+    });
+    return sorted;
+  }, [applications, sortMode]);
+
   return (
     <div className="dashboard-container">
       {/* Заголовок */}
@@ -731,6 +810,23 @@ const Dashboard = () => {
 
       {/* Фильтры */}
       <div className="filters-section filters-section-compact">
+        <div className="queue-filter-row" aria-label="Очереди заявок">
+          <button type="button" className={filter === 'all' ? 'active' : ''} onClick={clearFilters}>
+            <span>📊</span>
+            Все
+          </button>
+          {QUEUE_FILTERS.map((queue) => (
+            <button
+              key={queue.id}
+              type="button"
+              className={filter === queue.id ? 'active' : ''}
+              onClick={() => setFilterAndResetPage(queue.id)}
+            >
+              <span>{queue.icon}</span>
+              {queue.label}
+            </button>
+          ))}
+        </div>
         <div className="filters-group period-filter-card">
           <div className="filter-card-head">
             <div>
@@ -789,9 +885,9 @@ const Dashboard = () => {
               <h3>
                 <span className="science-icon">📋</span>
                 Список заявок
-                {applications.length > 0 && (
+                {displayedApplications.length > 0 && (
                   <span className="table-count">
-                    ({applications.length} из {filteredStats.total})
+                    ({displayedApplications.length} из {filteredStats.total})
                   </span>
                 )}
               </h3>
@@ -808,6 +904,18 @@ const Dashboard = () => {
                 />
                 {searchTerm && <button type="button" onClick={clearSearch} className="clear-search" title="Очистить поиск">×</button>}
               </div>
+              <label className="page-size-control">
+                <span>Сортировка</span>
+                <select
+                  value={sortMode}
+                  onChange={(e) => {
+                    setSortMode(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                >
+                  {SORT_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+                </select>
+              </label>
               <label className="page-size-control">
                 <span>На странице</span>
                 <select
@@ -842,10 +950,14 @@ const Dashboard = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {applications.length > 0 ? (
-                    applications.map((app) => (
-                      <tr
-                        key={app.id}
+	                  {displayedApplications.length > 0 ? (
+	                    displayedApplications.map((app) => {
+                        const primaryAction = getPrimaryTableAction(app);
+                        const status = app.status || (app.fl ? 'done' : 'new');
+                        const canPauseOverdue = getSlaState(app).level === 'critical' && !getSlaState(app).paused;
+                        return (
+	                      <tr
+	                        key={app.id}
                         className={`${app.fl ? 'row-completed' : `row-${app.status || 'new'}`} row-sla-${getSlaState(app).level} ${selectedApplication?.id === app.id ? 'row-selected' : ''}`}
                         onClick={() => openApplicationPanel(app)}
                       >
@@ -922,12 +1034,44 @@ const Dashboard = () => {
                           })()}
                         </td>
                         <td>{getStatusLabel(app)}</td>
-                        <td className="cell-actions"><div className="workflow-actions">
-                          <button type="button" disabled={actionBusyId === app.id} onClick={(event) => { event.stopPropagation(); openApplicationPanel(app); }}>Открыть</button>
-                          {app.employee_login && <a onClick={(event) => event.stopPropagation()} href={`/employee?dialog=${encodeURIComponent(app.employee_login)}&application=${app.id}`}>Чат</a>}
-                        </div></td>
-                      </tr>
-                    ))
+                        <td className="cell-actions">
+                          <div className="workflow-actions workflow-actions-compact">
+                            <button
+                              type="button"
+                              className="primary-workflow-action"
+                              disabled={actionBusyId === app.id}
+                              onClick={(event) => runTableAction(event, app, () => primaryAction.action())}
+                            >
+                              {actionBusyId === app.id ? '...' : primaryAction.label}
+                            </button>
+                            <div className="row-action-menu-wrap">
+                              <button
+                                type="button"
+                                className="row-action-menu-toggle"
+                                aria-label="Дополнительные действия"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setOpenActionMenuId(openActionMenuId === app.id ? null : app.id);
+                                }}
+                              >
+                                ⋯
+                              </button>
+                              {openActionMenuId === app.id && (
+                                <div className="row-action-menu" onClick={(event) => event.stopPropagation()}>
+                                  <button type="button" onClick={(event) => runTableAction(event, app, openApplicationPanel)}>Открыть карточку</button>
+                                  {app.employee_login && <a href={`/employee?dialog=${encodeURIComponent(app.employee_login)}&application=${app.id}`}>Открыть чат</a>}
+                                  {['new', 'reopened'].includes(status) && <button type="button" onClick={(event) => runTableAction(event, app, openAcceptModal)}>Взять в работу</button>}
+                                  {status === 'accepted' && <button type="button" onClick={(event) => runTableAction(event, app, () => runWorkflowAction(app, 'start-work'))}>Запустить таймер</button>}
+                                  {['accepted', 'in_progress'].includes(status) && <button type="button" onClick={(event) => runTableAction(event, app, openResolveModal)}>Что сделано</button>}
+                                  {canPauseOverdue && <button type="button" className="danger-menu-action" onClick={(event) => runTableAction(event, app, () => runWorkflowAction(app, 'pause-overdue'))}>Остановить просрочку</button>}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+	                      </tr>
+                        );
+                      })
 	                  ) : (
 	                    <tr>
 	                      <td colSpan="7" className="no-data">
