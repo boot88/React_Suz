@@ -43,6 +43,34 @@ const TABLE_STATUS_ORDER = {
   waiting_employee_confirmation: 5,
   done: 6
 };
+const DASHBOARD_COLUMNS_KEY = 'dashboard.visibleColumns.v1';
+const DASHBOARD_COMPACT_KEY = 'dashboard.compactMode.v1';
+const DEFAULT_DASHBOARD_COLUMNS = ['employee', 'request', 'executor', 'created', 'sla', 'status', 'actions'];
+const DASHBOARD_COLUMNS = [
+  { id: 'employee', label: 'Сотрудник' },
+  { id: 'request', label: 'Заявка' },
+  { id: 'executor', label: 'Исполнитель' },
+  { id: 'created', label: 'Создана' },
+  { id: 'sla', label: 'SLA' },
+  { id: 'status', label: 'Статус' },
+  { id: 'actions', label: 'Действия' }
+];
+const SAVED_DASHBOARD_VIEWS = [
+  { id: 'my', label: 'Мои заявки', filter: 'my', sort: 'sla' },
+  { id: 'it', label: 'IT', filter: 'all', sort: 'sla', search: 'IT' },
+  { id: 'urgent', label: 'Срочные', filter: 'overdue', sort: 'sla' },
+  { id: 'today', label: 'Сегодня', filter: 'all', sort: 'date_desc', dateRange: 'today' }
+];
+const readVisibleColumns = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DASHBOARD_COLUMNS_KEY) || '[]');
+    const allowed = new Set(DASHBOARD_COLUMNS.map((column) => column.id));
+    const filtered = Array.isArray(saved) ? saved.filter((column) => allowed.has(column)) : [];
+    return filtered.length > 0 ? filtered : DEFAULT_DASHBOARD_COLUMNS;
+  } catch (error) {
+    return DEFAULT_DASHBOARD_COLUMNS;
+  }
+};
 const formatDuration = (seconds) => {
   if (seconds === null || seconds === undefined || seconds === '') return '—';
   const safe = Math.max(0, Math.floor(Number(seconds) || 0));
@@ -142,6 +170,11 @@ const Dashboard = () => {
   const [actionBusyId, setActionBusyId] = useState(null);
   const [openActionMenuId, setOpenActionMenuId] = useState(null);
   const [sortMode, setSortMode] = useState('sla');
+  const [visibleColumns, setVisibleColumns] = useState(readVisibleColumns);
+  const [compactMode, setCompactMode] = useState(() => localStorage.getItem(DASHBOARD_COMPACT_KEY) === 'true');
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
+  const [bulkExecutor, setBulkExecutor] = useState('');
   const [selectedApplication, setSelectedApplication] = useState(null);
   const [applicationEvents, setApplicationEvents] = useState([]);
   const [eventsLoading, setEventsLoading] = useState(false);
@@ -210,7 +243,7 @@ const Dashboard = () => {
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Заявки');
 
       const date = new Date().toLocaleDateString('ru-RU').replace(/\./g, '-');
-      const fileName = searchTerm 
+      const fileName = searchTerm
         ? `заявки_поиск_${searchTerm}_${date}.xlsx`
         : `все_заявки_${date}.xlsx`;
 
@@ -241,11 +274,11 @@ const Dashboard = () => {
     if (!silent) setLoading(true);
     try {
       let url = `/applications?page=${currentPage}&limit=${limit}`;
-      
+
       if (searchTerm.trim()) {
         url += `&search=${encodeURIComponent(searchTerm.trim())}`;
       }
-      
+
       if (filter !== 'all') {
         if (['my', 'unassigned'].includes(filter)) {
           url += `&queue=${encodeURIComponent(filter)}`;
@@ -482,6 +515,43 @@ const Dashboard = () => {
     setSearchTerm('');
   };
 
+  const isColumnVisible = (columnId) => visibleColumns.includes(columnId);
+
+  const toggleColumn = (columnId) => {
+    setVisibleColumns((current) => {
+      const next = current.includes(columnId)
+        ? current.filter((item) => item !== columnId)
+        : [...current, columnId];
+      const safeNext = next.length > 0 ? next : ['request'];
+      localStorage.setItem(DASHBOARD_COLUMNS_KEY, JSON.stringify(safeNext));
+      return safeNext;
+    });
+  };
+
+  const toggleCompactMode = () => {
+    setCompactMode((current) => {
+      localStorage.setItem(DASHBOARD_COMPACT_KEY, String(!current));
+      return !current;
+    });
+  };
+
+  const applySavedView = (view) => {
+    setFilter(view.filter);
+    setSortMode(view.sort);
+    setSearchTerm(view.search || '');
+    setCurrentPage(1);
+    if (view.dateRange === 'today') {
+      const today = new Date().toISOString().split('T')[0];
+      setFromDate(today);
+      setToDate(today);
+      setDateFilterActive(true);
+    } else {
+      setFromDate('');
+      setToDate('');
+      setDateFilterActive(false);
+    }
+  };
+
   const activeFilterChips = [
     filter !== 'all' ? { key: 'status', label: WORKFLOW_FILTERS.find((item) => item.id === filter)?.label || 'Раздел', onRemove: () => setFilterAndResetPage('all') } : null,
     dateFilterActive && fromDate ? { key: 'from', label: `с ${fromDate}`, onRemove: () => { setFromDate(''); setDateFilterActive(Boolean(toDate)); setCurrentPage(1); } } : null,
@@ -492,14 +562,14 @@ const Dashboard = () => {
   const getVisiblePages = () => {
     const visiblePages = 6;
     const halfVisible = Math.floor(visiblePages / 2);
-    
+
     let startPage = Math.max(1, currentPage - halfVisible);
     let endPage = Math.min(totalPages, startPage + visiblePages - 1);
-    
+
     if (endPage - startPage + 1 < visiblePages) {
       startPage = Math.max(1, endPage - visiblePages + 1);
     }
-    
+
     return Array.from({ length: endPage - startPage + 1 }, (_, i) => startPage + i);
   };
 
@@ -664,6 +734,90 @@ const Dashboard = () => {
     }
   };
 
+  const toggleSelectApplication = (event, appId) => {
+    event.stopPropagation();
+    setSelectedIds((current) => (
+      current.includes(appId) ? current.filter((id) => id !== appId) : [...current, appId]
+    ));
+  };
+
+  const toggleSelectAllVisible = () => {
+    const visibleIds = displayedApplications.map((app) => app.id);
+    setSelectedIds((current) => (
+      visibleIds.every((id) => current.includes(id))
+        ? current.filter((id) => !visibleIds.includes(id))
+        : Array.from(new Set([...current, ...visibleIds]))
+    ));
+  };
+
+  const runBulkAssign = async () => {
+    if (!bulkExecutor.trim() || selectedIds.length === 0) return;
+    setActionBusyId('bulk');
+    try {
+      await Promise.all(selectedIds.map((id) => fetch(`${API_BASE_URL}/applications/${id}/accept`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accepted_by: user?.username || user?.name || 'admin',
+          executor: bulkExecutor.trim(),
+          admin_comment: 'Назначено массовым действием'
+        })
+      })));
+      showToast(`Исполнитель назначен для ${selectedIds.length} заявок`, 'success');
+      setBulkAssignOpen(false);
+      setBulkExecutor('');
+      setSelectedIds([]);
+      fetchApplications();
+      fetchGeneralStats();
+    } catch (error) {
+      showToast('Не удалось назначить исполнителя массово', 'error');
+    } finally {
+      setActionBusyId(null);
+    }
+  };
+
+  const runBulkClose = async () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Закрыть выбранные заявки (${selectedIds.length})?`)) return;
+    setActionBusyId('bulk');
+    try {
+      await Promise.all(selectedIds.map((id) => fetch(`${API_BASE_URL}/applications/${id}/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actor: user?.username || user?.name || 'admin',
+          employee_comment: 'Закрыто массовым действием администратора'
+        })
+      })));
+      showToast(`Закрыто заявок: ${selectedIds.length}`, 'success');
+      setSelectedIds([]);
+      fetchApplications();
+      fetchGeneralStats();
+    } catch (error) {
+      showToast('Не удалось закрыть выбранные заявки', 'error');
+    } finally {
+      setActionBusyId(null);
+    }
+  };
+
+  const exportSelectedApplications = () => {
+    const selectedApplications = displayedApplications.filter((app) => selectedIds.includes(app.id));
+    if (selectedApplications.length === 0) return;
+    const worksheet = XLSX.utils.json_to_sheet(selectedApplications.map((app) => ({
+      ID: app.id,
+      Сотрудник: app.name || '',
+      Кабинет: app.cabinet || '',
+      Телефон: app.N_tel || '',
+      Заявка: app.application || '',
+      Исполнитель: app.executor || '',
+      SLA: getSlaState(app).label,
+      Статус: STATUS_META[app.status]?.label || (app.fl ? 'Выполнено' : 'Новая')
+    })));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Выбранные заявки');
+    XLSX.writeFile(workbook, `selected-applications-${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
   const renderPagination = () => {
     if (totalPages <= 1) return null;
 
@@ -677,7 +831,7 @@ const Dashboard = () => {
         >
           ««
         </button>
-        
+
         <button
           onClick={goToPrevPage}
           disabled={currentPage === 1}
@@ -705,7 +859,7 @@ const Dashboard = () => {
         >
           »
         </button>
-        
+
         <button
           onClick={goToLastPage}
           disabled={currentPage === totalPages}
@@ -810,6 +964,12 @@ const Dashboard = () => {
 
       {/* Фильтры */}
       <div className="filters-section filters-section-compact">
+        <div className="saved-views-row" aria-label="Сохранённые представления">
+          <strong>Представления:</strong>
+          {SAVED_DASHBOARD_VIEWS.map((view) => (
+            <button key={view.id} type="button" onClick={() => applySavedView(view)}>{view.label}</button>
+          ))}
+        </div>
         <div className="queue-filter-row" aria-label="Очереди заявок">
           <button type="button" className={filter === 'all' ? 'active' : ''} onClick={clearFilters}>
             <span>📊</span>
@@ -858,6 +1018,22 @@ const Dashboard = () => {
               </div>
             </details>
           </div>
+        </div>
+        <div className="dashboard-view-tools">
+          <details className="columns-panel">
+            <summary>Колонки</summary>
+            <div className="columns-panel-body">
+              {DASHBOARD_COLUMNS.map((column) => (
+                <label key={column.id}>
+                  <input type="checkbox" checked={isColumnVisible(column.id)} onChange={() => toggleColumn(column.id)} />
+                  {column.label}
+                </label>
+              ))}
+            </div>
+          </details>
+          <button type="button" className={`compact-mode-toggle ${compactMode ? 'active' : ''}`} onClick={toggleCompactMode}>
+            {compactMode ? 'Обычный режим' : 'Компактный режим'}
+          </button>
         </div>
       </div>
 
@@ -936,17 +1112,39 @@ const Dashboard = () => {
           </div>
 
           <div className="table-container">
+            {selectedIds.length > 0 && (
+              <div className="bulk-actions-bar">
+                <strong>Выбрано: {selectedIds.length}</strong>
+                <button type="button" onClick={() => setBulkAssignOpen(true)} disabled={actionBusyId === 'bulk'}>Назначить исполнителя</button>
+                <button type="button" onClick={runBulkClose} disabled={actionBusyId === 'bulk'}>Закрыть</button>
+                <button type="button" onClick={exportSelectedApplications}>Экспортировать выбранные</button>
+                <button type="button" onClick={() => setSelectedIds([])}>Снять выбор</button>
+                {bulkAssignOpen && (
+                  <div className="bulk-assign-box">
+                    <input
+                      type="text"
+                      value={bulkExecutor}
+                      onChange={(event) => setBulkExecutor(event.target.value)}
+                      placeholder="Исполнитель"
+                    />
+                    <button type="button" onClick={runBulkAssign} disabled={!bulkExecutor.trim() || actionBusyId === 'bulk'}>Назначить</button>
+                    <button type="button" onClick={() => setBulkAssignOpen(false)}>Отмена</button>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="table-responsive">
-              <table className="applications-table">
+              <table className={`applications-table ${compactMode ? 'applications-table-compact' : ''}`}>
                 <thead>
                   <tr>
-                    <th>Сотрудник</th>
-                    <th>Заявка</th>
-                    <th>Исполнитель</th>
-                    <th>Создана</th>
-                    <th>SLA</th>
-                    <th>Статус</th>
-                    <th>Действия</th>
+                    <th className="select-column"><input type="checkbox" checked={displayedApplications.length > 0 && displayedApplications.every((app) => selectedIds.includes(app.id))} onChange={toggleSelectAllVisible} aria-label="Выбрать все заявки на странице" /></th>
+                    {isColumnVisible('employee') && <th>Сотрудник</th>}
+                    {isColumnVisible('request') && <th>Заявка</th>}
+                    {isColumnVisible('executor') && <th>Исполнитель</th>}
+                    {isColumnVisible('created') && <th>Создана</th>}
+                    {isColumnVisible('sla') && <th>SLA</th>}
+                    {isColumnVisible('status') && <th>Статус</th>}
+                    {isColumnVisible('actions') && <th>Действия</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -959,17 +1157,20 @@ const Dashboard = () => {
 	                      <tr
 	                        key={app.id}
                         className={`${app.fl ? 'row-completed' : `row-${app.status || 'new'}`} row-sla-${getSlaState(app).level} ${selectedApplication?.id === app.id ? 'row-selected' : ''}`}
-                        onClick={() => openApplicationPanel(app)}
-                      >
-                        <td className="cell-person">
-                          <strong>{app.name || 'Сотрудник'}</strong>
-                          <span>каб. {app.cabinet || '—'}{app.N_tel ? ` · ${app.N_tel}` : ''}</span>
-                        </td>
-						
-                        <td 
-                             className="cell-application" 
-                             data-tooltip={app.application}
-                             onMouseMove={(e) => {
+	                        onClick={() => openApplicationPanel(app)}
+	                      >
+	                        <td className="select-column" onClick={(event) => event.stopPropagation()}>
+                            <input type="checkbox" checked={selectedIds.includes(app.id)} onChange={(event) => toggleSelectApplication(event, app.id)} aria-label={`Выбрать заявку ${app.id}`} />
+                          </td>
+	                        {isColumnVisible('employee') && <td className="cell-person">
+	                          <strong>{app.name || 'Сотрудник'}</strong>
+	                          <span>каб. {app.cabinet || '—'}{app.N_tel ? ` · ${app.N_tel}` : ''}</span>
+	                        </td>}
+
+	                        {isColumnVisible('request') && <td
+	                             className="cell-application"
+	                             data-tooltip={app.application}
+	                             onMouseMove={(e) => {
                                document.documentElement.style.setProperty('--mouse-x', `${e.clientX}px`);
                                document.documentElement.style.setProperty('--mouse-y', `${e.clientY}px`);
                              }}
@@ -980,11 +1181,11 @@ const Dashboard = () => {
                               <span className="meta-badge category-badge">{getCategoryLabel(app.category)}</span>
                               <span className={`meta-badge priority-badge priority-${getPriorityClass(app.priority)}`}>{getPriorityLabel(app.priority)}</span>
                               <span className="meta-badge source-badge">{getApplicationSourceLabel(app)}</span>
-                            </div>
-                          </div>
-                        </td>
+	                            </div>
+	                          </div>
+	                        </td>}
 
-                        <td className="cell-executor">
+                        {isColumnVisible('executor') && <td className="cell-executor">
                           {app.executor ? (
                             <>
                               {app.executor.split('\n').map((name, index, array) => {
@@ -1004,7 +1205,7 @@ const Dashboard = () => {
                                     result.push(<span key={i}>{parts[i]}</span>);
                                   }
                                 }
-                                
+
                                 return (
                                   <span key={index} className="executor-name">
                                     {result}
@@ -1016,13 +1217,13 @@ const Dashboard = () => {
                           ) : (
                             'Не назначен'
                           )}
-                        </td>
-                        
-                        <td className="cell-date cell-created">
+                        </td>}
+
+                        {isColumnVisible('created') && <td className="cell-date cell-created">
                           <strong>{formatCreatedAt(app.data)}</strong>
                           <span>{formatTimeRange(app)}</span>
-                        </td>
-                        <td className="cell-sla">
+                        </td>}
+                        {isColumnVisible('sla') && <td className="cell-sla">
                           {(() => {
                             const sla = getSlaBadge(app);
                             return (
@@ -1032,9 +1233,9 @@ const Dashboard = () => {
                               </span>
                             );
                           })()}
-                        </td>
-                        <td>{getStatusLabel(app)}</td>
-                        <td className="cell-actions">
+                        </td>}
+                        {isColumnVisible('status') && <td>{getStatusLabel(app)}</td>}
+                        {isColumnVisible('actions') && <td className="cell-actions">
                           <div className="workflow-actions workflow-actions-compact">
                             <button
                               type="button"
@@ -1067,16 +1268,16 @@ const Dashboard = () => {
                                 </div>
                               )}
                             </div>
-                          </div>
-                        </td>
+	                          </div>
+                        </td>}
 	                      </tr>
                         );
                       })
 	                  ) : (
 	                    <tr>
-	                      <td colSpan="7" className="no-data">
+		                      <td colSpan={visibleColumns.length + 1} className="no-data">
                         <span className="science-icon">🔍</span>
-                        {searchTerm 
+                        {searchTerm
                           ? `Не найдено заявок по запросу "${searchTerm}"`
                           : 'Нет заявок по данному фильтру'
                         }
@@ -1087,7 +1288,7 @@ const Dashboard = () => {
               </table>
             </div>
           </div>
-          
+
           {/* Пагинация */}
           {renderPagination()}
         </>

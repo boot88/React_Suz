@@ -390,6 +390,30 @@ button:disabled,
   background: #f8fafc;
 }
 
+.select-column {
+  width: 44px;
+  min-width: 44px;
+  text-align: center !important;
+}
+
+.applications-table-compact {
+  font-size: 13px;
+}
+
+.applications-table-compact th,
+.applications-table-compact td {
+  padding: 8px 9px;
+}
+
+.applications-table-compact .application-summary {
+  gap: 4px;
+}
+
+.applications-table-compact .meta-badge,
+.applications-table-compact .sla-badge {
+  padding: 3px 7px;
+}
+
 .applications-table th:last-child,
 .applications-table td:last-child {
   position: sticky;
@@ -890,6 +914,86 @@ button:disabled,
   color: var(--dash-primary-dark);
   box-shadow: 0 10px 22px rgba(37, 99, 235, .10);
   transform: translateY(-1px);
+}
+
+.saved-views-row,
+.dashboard-view-tools,
+.bulk-actions-bar,
+.bulk-assign-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.saved-views-row {
+  margin-bottom: 14px;
+}
+
+.saved-views-row button,
+.compact-mode-toggle,
+.bulk-actions-bar button,
+.columns-panel summary {
+  padding: 8px 12px;
+  border: 1px solid var(--dash-border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--dash-text);
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.compact-mode-toggle.active {
+  border-color: rgba(37, 99, 235, .35);
+  background: #eff6ff;
+  color: var(--dash-primary-dark);
+}
+
+.dashboard-view-tools {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--dash-border);
+}
+
+.columns-panel {
+  position: relative;
+}
+
+.columns-panel-body {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 8px);
+  left: 0;
+  display: grid;
+  gap: 8px;
+  min-width: 190px;
+  padding: 12px;
+  border: 1px solid var(--dash-border);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: var(--dash-shadow);
+}
+
+.columns-panel-body label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+}
+
+.bulk-actions-bar {
+  margin: 0 0 12px;
+  padding: 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 14px;
+  background: #eff6ff;
+}
+
+.bulk-actions-bar input {
+  min-width: 190px;
+  padding: 9px 11px;
+  border: 1px solid var(--dash-border);
+  border-radius: 999px;
 }
 
 .period-filter-card {
