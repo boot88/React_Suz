@@ -1,5 +1,10 @@
 export const ADMIN_CREDENTIALS = [
   {
+    username: 'admin_nioch',
+    password: 'AdminNioch!2026',
+    name: 'Админ'
+  },
+  {
     username: 'admin_nioh_1',
     password: 'NiohAdm!2026',
     name: 'Администратор 1'
@@ -22,9 +27,9 @@ export const ADMIN_CREDENTIALS = [
 ];
 
 export const MANAGER_CREDENTIALS = {
-  username: 'manager_nioh',
-  password: 'MngNioh!2026',
-  name: 'Старший сотрудник'
+  username: 'admin_nioch',
+  password: 'AdminNioch!2026',
+  name: 'Админ'
 };
 
 export const LOCAL_EMPLOYEES_KEY = 'registeredEmployees';
