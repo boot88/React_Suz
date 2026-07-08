@@ -368,6 +368,35 @@ const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
   reader.readAsDataURL(file);
 });
 
+const createImageThumbnailDataUrl = (file, maxSize = 480) => new Promise((resolve) => {
+  if (!String(file?.type || '').startsWith('image/')) {
+    resolve('');
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onerror = () => resolve('');
+  reader.onload = () => {
+    const image = new Image();
+    image.onerror = () => resolve('');
+    image.onload = () => {
+      const ratio = Math.min(1, maxSize / Math.max(image.width || maxSize, image.height || maxSize));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round((image.width || maxSize) * ratio));
+      canvas.height = Math.max(1, Math.round((image.height || maxSize) * ratio));
+      const context = canvas.getContext('2d');
+      if (!context) {
+        resolve('');
+        return;
+      }
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.76));
+    };
+    image.src = String(reader.result || '');
+  };
+  reader.readAsDataURL(file);
+});
+
 
 const normalizeText = (value = '') => String(value || '').toLowerCase().trim();
 
@@ -413,11 +442,12 @@ const dataUrlToBlob = (dataUrl = '') => {
 };
 
 const openAttachmentInNewTab = (file = {}) => {
-  if (!file.dataUrl) return;
+  const sourceUrl = getOriginalAttachmentUrl(file);
+  if (!sourceUrl) return;
   try {
-    const url = file.dataUrl.startsWith('data:') ? URL.createObjectURL(dataUrlToBlob(file.dataUrl)) : file.dataUrl;
+    const url = sourceUrl.startsWith('data:') ? URL.createObjectURL(dataUrlToBlob(sourceUrl)) : sourceUrl;
     window.open(url, '_blank', 'noopener,noreferrer');
-    if (file.dataUrl.startsWith('data:')) {
+    if (sourceUrl.startsWith('data:')) {
       window.setTimeout(() => URL.revokeObjectURL(url), 60000);
     }
   } catch (error) {
@@ -473,7 +503,14 @@ const saveHiddenFeedPosts = (username = 'guest', postIds = []) => {
 
 const isImageAttachment = (file = {}) => String(file.type || '').startsWith('image/');
 const isMediaAttachment = (file = {}) => isImageAttachment(file) || isVideoAttachment(file);
-const getAttachmentUrl = (file = {}) => file.dataUrl || file.url || file.previewUrl || file.thumbnailUrl || '';
+const resolveAttachmentUrl = (url = '') => {
+  if (!url) return '';
+  if (url.startsWith('data:') || url.startsWith('blob:') || /^https?:\/\//i.test(url)) return url;
+  const fileBaseUrl = API_BASE_URL.replace(/\/api\/?$/, '');
+  return `${fileBaseUrl}${url.startsWith('/') ? url : `/${url}`}`;
+};
+const getAttachmentUrl = (file = {}) => resolveAttachmentUrl(file.thumbnailUrl || file.previewUrl || file.url || file.dataUrl || '');
+const getOriginalAttachmentUrl = (file = {}) => resolveAttachmentUrl(file.url || file.dataUrl || file.previewUrl || file.thumbnailUrl || '');
 const getPostShareUrl = (postId = '') => `${window.location.origin}${window.location.pathname}?feedPost=${encodeURIComponent(postId)}`;
 const isPostAuthor = (post = {}, currentUser = {}) => sameLogin(post.author, currentUser?.username || '') || sameLogin(post.login, currentUser?.username || '') || sameLogin(post.sender, currentUser?.username || '');
 
@@ -516,7 +553,7 @@ const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, 
         }}
         aria-label={`Открыть фото ${fileName}`}
       >
-        <img src={file.dataUrl} alt={fileName} />
+        <img src={getAttachmentUrl(file)} alt={fileName} />
         {(metaLabel || statusLabel) && <span className="message-photo-meta">{metaLabel} {statusLabel}</span>}
       </button>
     );
@@ -525,24 +562,24 @@ const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, 
   return (
     <div key={cardKey} className={cardClassName}>
       {isVideo ? (
-        <video className="attachment-video-player" src={file.dataUrl} controls preload="metadata" playsInline>
+        <video className="attachment-video-player" src={getOriginalAttachmentUrl(file)} poster={file.thumbnailUrl ? getAttachmentUrl(file) : undefined} controls preload="metadata" playsInline>
           Ваш браузер не поддерживает просмотр этого видео.
         </video>
       ) : isImage ? (
-        <img src={file.dataUrl} alt={fileName} />
+        <img src={getAttachmentUrl(file)} alt={fileName} />
       ) : (
         <span className="file-icon">{getFileIcon(fileType)}</span>
       )}
       {(variant !== 'message' || !isImage) && <small>{fileName} · {formatFileSize(file?.size)}</small>}
       {variant !== 'message' && (
         <div className="attachment-card-actions">
-          <a href={file.dataUrl} download={fileName}>Скачать</a>
+          <a href={getOriginalAttachmentUrl(file)} download={fileName}>Скачать</a>
           <button type="button" onClick={() => openAttachmentInNewTab(file)}>Открыть</button>
         </div>
       )}
       {variant === 'message' && !isVideo && !isImage && (
         <div className="attachment-card-actions">
-          <a href={file.dataUrl} download={fileName}>Скачать</a>
+          <a href={getOriginalAttachmentUrl(file)} download={fileName}>Скачать</a>
           <button type="button" onClick={() => openAttachmentInNewTab(file)}>Открыть</button>
         </div>
       )}
@@ -1395,6 +1432,30 @@ const EmployeeChat = () => {
     }
   };
 
+
+  const uploadAttachmentFile = async (file, scope = 'chat') => {
+    const dataUrl = await readFileAsDataUrl(file);
+    const thumbnailDataUrl = await createImageThumbnailDataUrl(file);
+    const response = await fetch(`${API_BASE_URL}/chat/uploads`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        scope,
+        name: file.name,
+        type: file.type || 'application/octet-stream',
+        size: file.size,
+        dataUrl,
+        thumbnailDataUrl
+      })
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || 'Не удалось загрузить файл');
+    }
+    const data = await response.json();
+    return data.file;
+  };
+
   const addAttachmentFiles = async (fileList) => {
     const files = Array.from(fileList || []);
     if (!files.length) return;
@@ -1406,13 +1467,7 @@ const EmployeeChat = () => {
     }
 
     try {
-      const preparedFiles = await Promise.all(files.map(async (file) => ({
-        id: createMessageId(),
-        name: file.name,
-        type: file.type || 'application/octet-stream',
-        size: file.size,
-        dataUrl: await readFileAsDataUrl(file)
-      })));
+      const preparedFiles = await Promise.all(files.map((file) => uploadAttachmentFile(file, 'chat')));
       setAttachmentDrafts((prev) => [...prev, ...preparedFiles]);
       setActiveTab('chat');
     } catch {
@@ -1923,7 +1978,7 @@ const EmployeeChat = () => {
   };
 
   const openChatMediaViewer = (message, file, fileIndex) => {
-    if (!file?.dataUrl) return;
+    if (!getOriginalAttachmentUrl(file)) return;
     setMediaViewer({ message, file, fileIndex, scope: 'message' });
     setSelectedMessageId('');
     setMessageReactionExpanded(false);
@@ -2418,13 +2473,7 @@ const EmployeeChat = () => {
       return;
     }
     try {
-      const preparedFiles = await Promise.all(files.map(async (file) => ({
-        id: createMessageId(),
-        name: file.name,
-        type: file.type || 'application/octet-stream',
-        size: file.size,
-        dataUrl: await readFileAsDataUrl(file)
-      })));
+      const preparedFiles = await Promise.all(files.map((file) => uploadAttachmentFile(file, 'feed')));
       setFeedAttachments((prev) => [...prev, ...preparedFiles]);
     } catch {
       notify('Не удалось прикрепить файл.', 'Вложения');
@@ -2994,7 +3043,7 @@ const EmployeeChat = () => {
                           <div key={file.id || `${file.name}-${index}`} className={`attachment-preview media-draft-tile ${mediaFile ? 'is-media' : ''}`}>
                             {mediaFile ? (
                               <button type="button" className="media-draft-thumb" onClick={() => setMediaViewer({ source: 'chat-draft', file, fileIndex: index })}>
-                                {isVideoAttachment(file) ? <video src={file.dataUrl} muted playsInline preload="metadata" /> : <img src={file.dataUrl} alt={file.name} />}
+                                {isVideoAttachment(file) ? <video src={getAttachmentUrl(file)} muted playsInline preload="metadata" /> : <img src={getAttachmentUrl(file)} alt={file.name} />}
                               </button>
                             ) : <span className="media-draft-file-icon">{getFileIcon(file.type)}</span>}
                             <span>{file.name} · {formatFileSize(file.size)}</span>
@@ -3102,7 +3151,7 @@ const EmployeeChat = () => {
                       <div key={file.id || `${file.name}-${index}`} className={`employee-feed-attachment-preview media-draft-tile ${mediaFile ? 'is-media' : ''}`}>
                         {mediaFile ? (
                           <button type="button" className="media-draft-thumb" onClick={() => setMediaViewer({ source: 'feed-draft', file, fileIndex: index })}>
-                            {isVideoAttachment(file) ? <video src={file.dataUrl} muted playsInline preload="metadata" /> : <img src={file.dataUrl} alt={file.name} />}
+                            {isVideoAttachment(file) ? <video src={getAttachmentUrl(file)} muted playsInline preload="metadata" /> : <img src={getAttachmentUrl(file)} alt={file.name} />}
                           </button>
                         ) : <span className="media-draft-file-icon">{getFileIcon(file.type)}</span>}
                         <span>{file.name} · {formatFileSize(file.size)}</span>
@@ -3208,7 +3257,7 @@ const EmployeeChat = () => {
             <details className="photo-viewer-menu">
               <summary aria-label="Действия с фото">⋯</summary>
               <div className="photo-viewer-menu-popover">
-                <a href={getAttachmentUrl(mediaViewer.file)} download={mediaViewer.file.name || 'photo'}>⬇️ Скачать</a>
+                <a href={getOriginalAttachmentUrl(mediaViewer.file)} download={mediaViewer.file.name || 'photo'}>⬇️ Скачать</a>
                 {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={replyToViewedMedia}>↩ Ответить</button>}
                 {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={shareViewedMedia}>➜ Переслать</button>}
                 {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={() => createRequestFromMessage(mediaViewer.message)}>🧾 Создать заявку из фото</button>}
@@ -3224,7 +3273,7 @@ const EmployeeChat = () => {
           <div className="photo-viewer-stage" onMouseDown={(event) => event.stopPropagation()}>
             {hasManyViewerFiles && <button type="button" className="photo-viewer-nav prev" onClick={() => moveMediaViewer(-1)}>‹</button>}
             {isVideoAttachment(mediaViewer.file) ? (
-              <video src={getAttachmentUrl(mediaViewer.file)} controls playsInline poster={mediaViewer.file.posterUrl || mediaViewer.file.thumbnailUrl}>Ваш браузер не поддерживает просмотр видео.</video>
+              <video src={getOriginalAttachmentUrl(mediaViewer.file)} controls playsInline poster={getAttachmentUrl(mediaViewer.file)}>Ваш браузер не поддерживает просмотр видео.</video>
             ) : (
               <img src={getAttachmentUrl(mediaViewer.file)} alt={mediaViewer.file.name || 'Фото'} />
             )}
