@@ -2979,8 +2979,12 @@ const EmployeeChat = () => {
                         </div>
 
                         {isSelected && !isDeleted && (
-                          <div className={`selected-message-menu ${isMine ? 'mine' : ''}`} onClick={(event) => event.stopPropagation()}>
-                            <div className="selected-reaction-row">
+                          <div className={`selected-message-menu message-action-popover ${isMine ? 'mine' : ''}`} onClick={(event) => event.stopPropagation()}>
+                            <div className="message-action-popover-head">
+                              <strong>Действия</strong>
+                              <button type="button" aria-label="Закрыть меню сообщения" onClick={() => { setSelectedMessageId(''); setMessageReactionExpanded(false); }}>×</button>
+                            </div>
+                            <div className="selected-reaction-row compact-reaction-row">
                               {visibleReactions.map((emoji) => {
                                 const active = (message.reactions?.[emoji] || []).includes(user.username);
                                 return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => { toggleReaction(message.id, emoji); setSelectedMessageId(''); setMessageReactionExpanded(false); }}>{emoji}</button>;
@@ -2989,14 +2993,28 @@ const EmployeeChat = () => {
                             </div>
 
                             {!messageReactionExpanded && (
-                              <div className="selected-actions-row"><button type="button" onClick={() => { setMultiSelectMode(true); toggleSelectedMessage(message.id); setSelectedMessageId(''); }}>Выбрать несколько</button>
-                                <button type="button" onClick={() => { setReplyTo(message); setSelectedMessageId(''); }}>↩ Ответить</button>
-                                <button type="button" onClick={() => { copyMessageText(message); setSelectedMessageId(''); }}>Копировать</button>
-                                <button type="button" onClick={() => openForwardMessagePicker(message)}>➜ Переслать</button>
-                                <button type="button" onClick={() => { togglePinned(message.id); setSelectedMessageId(''); }}>{message.pinned ? 'Открепить' : 'Закрепить'}</button>
-                                {canEdit && <button type="button" onClick={() => startInlineEditMessage(message)}>Изменить</button>}<button type="button" onClick={() => createRequestFromMessage(message)}>Создать заявку</button><button type="button" onClick={() => notify('Добавление к существующей заявке будет доступно после выбора заявки', 'Заявка')}>Добавить к заявке</button><button type="button" onClick={() => notify('Задача создана как черновик после подключения задач', 'Задачи')}>Создать задачу</button><button type="button" onClick={() => notify('Назначение исполнителя появится в модуле задач', 'Задачи')}>Назначить исполнителя</button><button type="button" onClick={() => notify('Срок можно будет поставить после подключения задач', 'Задачи')}>Поставить срок</button><button type="button" onClick={() => getMessageAttachments(message).forEach(openAttachmentInNewTab)}>Скачать вложения</button>
-                                {isMine && ['waiting', 'error'].includes(message.deliveryStatus) && <button type="button" onClick={() => retryMessageSend(message)}>Повторить</button>}{canEdit && <button type="button" className="danger-action" onClick={() => { deleteMessage(message.id); setSelectedMessageId(''); }}>✕ Удалить</button>}
-                              </div>
+                              <>
+                                <div className="message-action-grid primary-actions">
+                                  <button type="button" onClick={() => { setReplyTo(message); setSelectedMessageId(''); }}>↩ Ответить</button>
+                                  <button type="button" onClick={() => { copyMessageText(message); setSelectedMessageId(''); }}>Копировать</button>
+                                  <button type="button" onClick={() => openForwardMessagePicker(message)}>➜ Переслать</button>
+                                  <button type="button" onClick={() => { togglePinned(message.id); setSelectedMessageId(''); }}>{message.pinned ? 'Открепить' : 'Закрепить'}</button>
+                                  {canEdit && <button type="button" onClick={() => startInlineEditMessage(message)}>Изменить</button>}
+                                  <button type="button" onClick={() => { setMultiSelectMode(true); toggleSelectedMessage(message.id); setSelectedMessageId(''); }}>Выбрать</button>
+                                </div>
+                                <div className="message-action-grid secondary-actions">
+                                  <button type="button" onClick={() => createRequestFromMessage(message)}>Создать заявку</button>
+                                  <button type="button" onClick={() => notify('Добавление к существующей заявке будет доступно после выбора заявки', 'Заявка')}>Добавить к заявке</button>
+                                  <button type="button" onClick={() => notify('Задача создана как черновик после подключения задач', 'Задачи')}>Создать задачу</button>
+                                  <button type="button" onClick={() => notify('Назначение исполнителя появится в модуле задач', 'Задачи')}>Назначить исполнителя</button>
+                                  <button type="button" onClick={() => notify('Срок можно будет поставить после подключения задач', 'Задачи')}>Поставить срок</button>
+                                  <button type="button" onClick={() => getMessageAttachments(message).forEach(openAttachmentInNewTab)}>Скачать вложения</button>
+                                </div>
+                                <div className="message-action-grid danger-actions">
+                                  {isMine && ['waiting', 'error'].includes(message.deliveryStatus) && <button type="button" onClick={() => retryMessageSend(message)}>Повторить отправку</button>}
+                                  {canEdit && <button type="button" className="danger-action" onClick={() => { deleteMessage(message.id); setSelectedMessageId(''); }}>✕ Удалить</button>}
+                                </div>
+                              </>
                             )}
                           </div>
                         )}
