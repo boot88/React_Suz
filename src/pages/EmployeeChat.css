@@ -1,22 +1,4 @@
-:root {
-  --chat-bg: #f6f8fb;
-  --chat-surface: #ffffff;
-  --chat-surface-2: #eef4ff;
-  --chat-ink: #111827;
-  --chat-muted: #667085;
-  --chat-border: rgba(30, 90, 168, .16);
-  --chat-accent: #1e5aa8;
-  --chat-accent-2: #0ea5e9;
-  --chat-message-mine: #1e5aa8;
-  --chat-message-mine-2: #2563eb;
-  --chat-message-peer: #ffffff;
-  --chat-danger: #dc2626;
-  --chat-success: #168a5a;
-  --chat-shadow: 0 22px 58px rgba(15, 23, 42, .10);
-  --chat-radius-xl: 24px;
-  --chat-radius-lg: 18px;
-  --chat-radius-md: 14px;
-}
+@import "../styles/design-tokens.css";
 .employee-chat-layout,
 .employee-chat-layout * {
   box-sizing: border-box;
@@ -3433,4 +3415,185 @@ button:disabled {
   .photo-viewer-stage {
     padding: 10px 16px 104px;
   }
+}
+
+/* Priority 3: themes, density and text-size controls */
+.employee-chat-layout.text-small {
+  --chat-font-scale: .94;
+}
+
+.employee-chat-layout.text-medium {
+  --chat-font-scale: 1;
+}
+
+.employee-chat-layout.text-large {
+  --chat-font-scale: 1.08;
+}
+
+.employee-chat-layout.density-compact {
+  --chat-density-scale: .82;
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px;
+}
+
+.employee-chat-layout.theme-dark {
+  --chat-bg: #0b1220;
+  --chat-surface: #111827;
+  --chat-surface-2: #172033;
+  --chat-ink: #e5eefb;
+  --chat-muted: #9aa8bd;
+  --chat-border: rgba(148, 163, 184, .24);
+  --chat-accent: #60a5fa;
+  --chat-accent-2: #38bdf8;
+  --chat-message-mine: #2563eb;
+  --chat-message-mine-2: #1d4ed8;
+  --chat-message-peer: #172033;
+  --chat-shadow: 0 24px 70px rgba(0, 0, 0, .38);
+  background:
+    radial-gradient(circle at 8% 8%, rgba(96, 165, 250, .20), transparent 30%),
+    radial-gradient(circle at 90% 12%, rgba(56, 189, 248, .14), transparent 28%),
+    linear-gradient(135deg, #08111f, #0f172a 58%, #111827);
+}
+
+.employee-chat-layout.text-small,
+.employee-chat-layout.text-medium,
+.employee-chat-layout.text-large {
+  font-size: calc(16px * var(--chat-font-scale));
+}
+
+.employee-chat-layout.density-compact .employee-chat-sidebar,
+.employee-chat-layout.density-compact .employee-chat-main {
+  min-height: calc(100vh - 28px);
+  max-height: calc(100vh - 28px);
+  border-radius: 20px;
+}
+
+.employee-chat-layout.density-compact .employee-chat-sidebar,
+.employee-chat-layout.density-compact .employee-chat-main,
+.employee-chat-layout.density-compact .chat-workspace,
+.employee-chat-layout.density-compact .employee-feed-main {
+  padding: calc(12px * var(--chat-density-scale));
+  gap: calc(12px * var(--chat-density-scale));
+}
+
+.employee-chat-layout.density-compact .employee-chat-user,
+.employee-chat-layout.density-compact .message-bubble,
+.employee-chat-layout.density-compact .employee-feed-post,
+.employee-chat-layout.density-compact .composer-wrap {
+  border-radius: 14px;
+}
+
+.employee-chat-layout.density-compact .employee-contact-open,
+.employee-chat-layout.density-compact .message-form textarea,
+.employee-chat-layout.density-compact .employee-chat-tabs button {
+  min-height: 38px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+.chat-appearance-panel {
+  border: 1px solid rgba(30, 90, 168, .12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .72);
+  color: var(--chat-ink);
+  overflow: hidden;
+}
+
+.chat-appearance-panel summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  color: var(--chat-accent);
+  font-weight: 900;
+  list-style: none;
+  cursor: pointer;
+}
+
+.chat-appearance-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-appearance-panel summary::after {
+  content: '▾';
+  color: var(--chat-muted);
+}
+
+.chat-appearance-panel[open] summary::after {
+  transform: rotate(180deg);
+}
+
+.chat-appearance-controls {
+  display: grid;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+
+.chat-appearance-controls label {
+  display: grid;
+  gap: 4px;
+  color: var(--chat-muted);
+  font-size: .78em;
+  font-weight: 850;
+}
+
+.chat-appearance-controls select {
+  width: 100%;
+  border: 1px solid var(--chat-border);
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: var(--chat-surface);
+  color: var(--chat-ink);
+  font-weight: 850;
+}
+
+.employee-chat-layout.theme-dark .employee-chat-sidebar,
+.employee-chat-layout.theme-dark .employee-chat-main,
+.employee-chat-layout.theme-dark .employee-feed-post,
+.employee-chat-layout.theme-dark .composer-wrap,
+.employee-chat-layout.theme-dark .conversation-header,
+.employee-chat-layout.theme-dark .dialog-media-panel,
+.employee-chat-layout.theme-dark .message-action-popover,
+.employee-chat-layout.theme-dark .chat-appearance-panel {
+  background: rgba(17, 24, 39, .90);
+  border-color: var(--chat-border);
+  color: var(--chat-ink);
+  box-shadow: var(--chat-shadow);
+}
+
+.employee-chat-layout.theme-dark .employee-contact-open,
+.employee-chat-layout.theme-dark .employee-chat-tabs button,
+.employee-chat-layout.theme-dark .message-bubble,
+.employee-chat-layout.theme-dark .employee-feed-comments,
+.employee-chat-layout.theme-dark .dialog-media-grid button,
+.employee-chat-layout.theme-dark .message-action-grid button,
+.employee-chat-layout.theme-dark .compact-reaction-row,
+.employee-chat-layout.theme-dark .feed-toolbar input,
+.employee-chat-layout.theme-dark .message-form textarea,
+.employee-chat-layout.theme-dark .chat-appearance-controls select {
+  background: var(--chat-surface-2);
+  border-color: var(--chat-border);
+  color: var(--chat-ink);
+}
+
+.employee-chat-layout.theme-dark .message-row.mine .message-bubble,
+.employee-chat-layout.theme-dark .employee-chat-tabs button.active,
+.employee-chat-layout.theme-dark .employee-chat-user.active .employee-contact-open {
+  background: linear-gradient(135deg, var(--chat-message-mine), var(--chat-message-mine-2));
+  color: #fff;
+}
+
+.employee-chat-layout.theme-dark .message-action-grid button:hover,
+.employee-chat-layout.theme-dark .dialog-media-grid button:hover,
+.employee-chat-layout.theme-dark .employee-chat-tabs button:hover,
+.employee-chat-layout.theme-dark .employee-contact-open:hover {
+  background: rgba(96, 165, 250, .18);
+  border-color: rgba(96, 165, 250, .34);
+  color: #dbeafe;
+}
+
+.employee-chat-layout.theme-dark input::placeholder,
+.employee-chat-layout.theme-dark textarea::placeholder {
+  color: rgba(226, 232, 240, .55);
 }

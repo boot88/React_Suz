@@ -78,6 +78,19 @@ const CHAT_MEDIA_TABS = [
   { id: 'files', label: 'Файлы' },
   { id: 'links', label: 'Ссылки' }
 ];
+const CHAT_THEMES = [
+  { id: 'light', label: 'Светлая' },
+  { id: 'dark', label: 'Тёмная' }
+];
+const CHAT_DENSITIES = [
+  { id: 'regular', label: 'Обычная' },
+  { id: 'compact', label: 'Компактная' }
+];
+const CHAT_TEXT_SIZES = [
+  { id: 'small', label: 'Меньше' },
+  { id: 'medium', label: 'Обычно' },
+  { id: 'large', label: 'Больше' }
+];
 const APPLICATION_STATUS_META = {
   new: { label: 'Новая', hint: 'Ожидает администратора', tone: 'new' },
   accepted: { label: 'Принята', hint: 'Администратор назначил исполнителя', tone: 'accepted' },
@@ -147,10 +160,13 @@ const readChatLocalSettings = (username = 'guest') => {
       pinned: [],
       muted: [],
       favorites: [],
+      uiTheme: 'light',
+      uiDensity: 'regular',
+      uiTextSize: 'medium',
       ...(all?.[username] || {})
     };
   } catch {
-    return { archived: [], hidden: [], pinned: [], muted: [], favorites: [] };
+    return { archived: [], hidden: [], pinned: [], muted: [], favorites: [], uiTheme: 'light', uiDensity: 'regular', uiTextSize: 'medium' };
   }
 };
 
@@ -1722,6 +1738,10 @@ const EmployeeChat = () => {
     });
   };
 
+  const updateChatUiSetting = (key, value) => {
+    updateChatLocalSettings((prev) => ({ ...prev, [key]: value }));
+  };
+
   const clearCurrentDraft = () => {
     if (!currentConversationId) return;
     setDraft('');
@@ -2712,7 +2732,7 @@ const EmployeeChat = () => {
 
   return (
     <div
-      className={`employee-chat-layout ${isDraggingFiles ? 'dragging-files' : ''}`}
+      className={`employee-chat-layout theme-${chatLocalSettings.uiTheme || 'light'} density-${chatLocalSettings.uiDensity || 'regular'} text-${chatLocalSettings.uiTextSize || 'medium'} ${isDraggingFiles ? 'dragging-files' : ''}`}
       onDrop={handleAttachmentDrop}
       onDragOver={handleDragOver}
       onDragEnter={handleDragOver}
@@ -2744,6 +2764,30 @@ const EmployeeChat = () => {
             );
           })}
         </nav>
+
+        <details className="chat-appearance-panel">
+          <summary>Вид интерфейса</summary>
+          <div className="chat-appearance-controls">
+            <label>
+              <span>Тема</span>
+              <select value={chatLocalSettings.uiTheme || 'light'} onChange={(e) => updateChatUiSetting('uiTheme', e.target.value)}>
+                {CHAT_THEMES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Плотность</span>
+              <select value={chatLocalSettings.uiDensity || 'regular'} onChange={(e) => updateChatUiSetting('uiDensity', e.target.value)}>
+                {CHAT_DENSITIES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Текст</span>
+              <select value={chatLocalSettings.uiTextSize || 'medium'} onChange={(e) => updateChatUiSetting('uiTextSize', e.target.value)}>
+                {CHAT_TEXT_SIZES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+              </select>
+            </label>
+          </div>
+        </details>
 
         <div className="employee-contact-panel">
           <label className="field-label">Контакты</label>
