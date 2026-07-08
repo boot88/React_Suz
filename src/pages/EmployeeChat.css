@@ -808,6 +808,59 @@ button:disabled {
   overflow: hidden;
 }
 
+.compact-feed-header {
+  padding: 10px 12px;
+  border-radius: 18px;
+}
+
+.compact-feed-header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.compact-feed-header p {
+  font-size: 13px;
+}
+
+.compact-feed-composer {
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, .24);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .72);
+}
+
+.feed-composer-line {
+  display: grid;
+  grid-template-columns: minmax(145px, 190px) minmax(0, 1fr);
+  gap: 8px;
+  align-items: stretch;
+}
+
+.feed-composer-line select,
+.feed-composer-line textarea {
+  border: 1px solid rgba(148, 163, 184, .35);
+  border-radius: 14px;
+  padding: 9px 12px;
+  background: #fff;
+  color: #0f172a;
+}
+
+.feed-composer-line textarea {
+  min-height: 46px;
+  max-height: 120px;
+  resize: vertical;
+}
+
+.compact-feed-composer .employee-feed-attachment-preview-grid {
+  margin: 0;
+}
+
+.compact-feed-composer .employee-feed-composer-actions {
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .feed-status-warning {
   border: 1px solid rgba(168, 95, 61, .35);
   border-radius: var(--chat-radius-md);
@@ -1051,6 +1104,7 @@ button:disabled {
   .employee-chat-tabs,
   .employee-chat-actions,
   .message-form,
+  .feed-composer-line,
   .form-grid.two,
   .profile-settings-grid,
   .threads-grid,
@@ -2297,6 +2351,56 @@ button:disabled {
 .feed-toolbar {
   justify-content: space-between;
   margin: 14px 0;
+}
+
+.compact-feed-toolbar {
+  position: relative;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(148, 163, 184, .22);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .68);
+}
+
+.compact-feed-toolbar details {
+  position: relative;
+}
+
+.compact-feed-toolbar summary {
+  list-style: none;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: rgba(37, 99, 235, .10);
+  color: #1d4ed8;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.compact-feed-toolbar summary::-webkit-details-marker {
+  display: none;
+}
+
+.compact-feed-toolbar details > div {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: min(520px, 82vw);
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, .25);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, .16);
+}
+
+.compact-refreshing {
+  min-width: 0;
+  padding: 0 4px;
+  color: var(--chat-muted);
+  font-size: 12px;
 }
 
 .feed-toolbar input {

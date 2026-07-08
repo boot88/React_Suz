@@ -343,6 +343,8 @@ const isNetworkFailure = (error) => {
   return message.includes('failed to fetch') || message.includes('networkerror') || message.includes('network error');
 };
 
+const getFriendlyNetworkMessage = (fallback = 'Не удалось выполнить действие') => `${fallback}. Проверьте соединение и попробуйте ещё раз.`;
+
 const fetchJsonWithRetry = async (url, options = {}, { attempts = 4, retryDelay = 450, fallbackMessage = 'Ошибка сети' } = {}) => {
   let lastError = null;
 
@@ -462,6 +464,16 @@ const getFeedAttachments = (post = {}) => {
   if (attachments.length) return attachments;
   return post.attachment ? [post.attachment] : [];
 };
+
+const getFeedPostsSignature = (posts = []) => JSON.stringify((Array.isArray(posts) ? posts : []).map((post) => ({
+  id: post?.id,
+  updatedAt: post?.updatedAt,
+  editedAt: post?.editedAt,
+  deletedAt: post?.deletedAt,
+  comments: Array.isArray(post?.comments) ? post.comments.length : 0,
+  attachments: getFeedAttachments(post).length,
+  reactions: post?.reactions ? Object.values(post.reactions).map((items) => Array.isArray(items) ? items.length : 0).join(',') : ''
+})));
 
 const getVisibleFeedPosts = (posts = []) => (Array.isArray(posts) ? posts.filter((post) => post && !post.deletedAt) : []);
 
@@ -953,27 +965,25 @@ const EmployeeChat = () => {
   const fetchFeed = useCallback(async ({ silent = true } = {}) => {
     const initialLoad = !silent && feedPosts.length === 0;
     if (initialLoad) setFeedLoading(true);
-    else if (silent) setFeedRefreshing(true);
+    else if (!silent) setFeedRefreshing(true);
     try {
       const response = await fetch(`${API_BASE_URL}/chat/feed`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось загрузить ленту');
       const nextPosts = getVisibleFeedPosts(data?.posts);
-      setFeedPosts(nextPosts);
+      setFeedPosts((current) => (getFeedPostsSignature(current) === getFeedPostsSignature(nextPosts) ? current : nextPosts));
       setFeedError('');
     } catch (error) {
-      const message = error.message || 'Не удалось загрузить ленту';
+      const message = isNetworkFailure(error) ? getFriendlyNetworkMessage('Лента временно недоступна') : (error.message || 'Не удалось загрузить ленту');
       console.error('Ошибка загрузки ленты:', error);
-      if (!silent) {
+      if (!silent && feedPosts.length === 0) {
         setFeedError(message);
         notify(message, 'Лента');
         return;
       }
-      // Silent background polling should not leave a scary banner on first page load.
-      // The manual refresh button still shows an inline error through the !silent branch above.
     } finally {
       if (initialLoad) setFeedLoading(false);
-      if (silent) setFeedRefreshing(false);
+      if (!silent) setFeedRefreshing(false);
     }
   }, [feedPosts.length, notify]);
 
@@ -2419,44 +2429,55 @@ const EmployeeChat = () => {
       }
     }
 
+    const previousDraft = feedDraft;
+    const previousAttachments = feedAttachments;
     const optimisticPost = {
       id: createMessageId(),
       author: user?.username || 'employee',
       authorName: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
-      text: feedDraft.trim(),
-      attachment: feedAttachments[0] || null,
-      attachments: feedAttachments,
+      text: previousDraft.trim(),
+      attachment: previousAttachments[0] || null,
+      attachments: previousAttachments,
       category: feedCategory,
       reactions: {},
       comments: [],
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      deliveryStatus: 'sending'
     };
+
+    setFeedPosts((current) => [optimisticPost, ...current.filter((post) => post.id !== optimisticPost.id)]);
+    setFeedDraft('');
+    setFeedAttachments([]);
+    clearSavedFeedDraft(user?.username || 'guest');
 
     try {
       const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(optimisticPost)
-      }, { attempts: 1, fallbackMessage: 'Не удалось опубликовать запись' });
-      setFeedPosts(getVisibleFeedPosts(Array.isArray(data?.posts) ? data.posts : [data.post, ...feedPosts].filter(Boolean)));
+      }, { attempts: 2, fallbackMessage: 'Не удалось опубликовать запись' });
+
+      const serverPosts = Array.isArray(data?.posts) ? getVisibleFeedPosts(data.posts) : null;
+      const serverPost = data?.post ? { ...data.post, deliveryStatus: 'sent' } : null;
+      setFeedPosts((current) => {
+        const nextPosts = serverPosts || current.map((post) => (post.id === optimisticPost.id ? (serverPost || { ...post, deliveryStatus: 'sent' }) : post));
+        return getFeedPostsSignature(current) === getFeedPostsSignature(nextPosts) ? current : nextPosts;
+      });
       window.requestAnimationFrame(() => {
         feedListRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
       });
-      setFeedDraft('');
-      setFeedAttachments([]);
-      clearSavedFeedDraft(user?.username || 'guest');
     } catch (error) {
-      const isNetworkError = isNetworkFailure(error);
-      if (isNetworkError) {
-        setFeedPosts((current) => current.some((post) => post.id === optimisticPost.id) ? current : [optimisticPost, ...current]);
-        setFeedDraft('');
-        setFeedAttachments([]);
-        clearSavedFeedDraft(user?.username || 'guest');
-        window.requestAnimationFrame(() => feedListRef.current?.scrollTo({ top: 0, behavior: 'smooth' }));
+      if (isNetworkFailure(error)) {
+        setFeedPosts((current) => current.map((post) => (
+          post.id === optimisticPost.id ? { ...post, deliveryStatus: 'waiting' } : post
+        )));
         fetchFeed({ silent: true });
         return;
       }
+      setFeedPosts((current) => current.filter((post) => post.id !== optimisticPost.id));
+      setFeedDraft(previousDraft);
+      setFeedAttachments(previousAttachments);
       notify(error.message || 'Не удалось опубликовать запись', 'Лента');
     } finally {
       setIsPublishingFeed(false);
@@ -3136,13 +3157,13 @@ const EmployeeChat = () => {
 
         {activeTab === 'feed' && (
           <section className="employee-feed-section">
-            <header className="employee-feed-header">
-              <div><span className="eyebrow">Общая серверная лента</span><h2>Лента сотрудников</h2><p>Публикации сохраняются на сервере и доступны всем пользователям.</p></div>
+            <header className="employee-feed-header compact-feed-header">
+              <div><h2>Лента сотрудников</h2><p>Объявления, новости и фотоотчёты.</p></div>
               <button type="button" onClick={() => fetchFeed({ silent: false })}>Обновить</button>
             </header>
             {feedError && <div className="feed-status-warning">Лента временно недоступна: {feedError}</div>}
-            <form className="employee-feed-composer" onSubmit={addFeedPost}>
-              <div className="feed-composer-meta"><select value={feedCategory} onChange={(e) => setFeedCategory(e.target.value)}>{FEED_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select><button type="button" onClick={() => { setFeedDraft(''); setFeedAttachments([]); clearSavedFeedDraft(user?.username || 'guest'); }}>Очистить черновик</button></div><textarea rows={4} placeholder="Новость, объявление или рабочая заметка... @ivanov #важно" value={feedDraft} onChange={(e) => setFeedDraft(e.target.value)} />
+            <form className="employee-feed-composer compact-feed-composer" onSubmit={addFeedPost}>
+              <div className="feed-composer-line"><select value={feedCategory} onChange={(e) => setFeedCategory(e.target.value)}>{FEED_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select><textarea rows={2} placeholder="Написать в ленту... @ivanov #важно" value={feedDraft} onChange={(e) => setFeedDraft(e.target.value)} /></div>
               {feedAttachments.length > 0 && (
                 <div className="employee-feed-attachment-preview-grid media-draft-grid">
                   {feedAttachments.map((file, index) => {
@@ -3161,9 +3182,9 @@ const EmployeeChat = () => {
                   })}
                 </div>
               )}
-              <div className="employee-feed-composer-actions"><label>📎 Выбрать несколько фото/видео<input type="file" multiple hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="submit" disabled={isPublishingFeed || (!feedDraft.trim() && feedAttachments.length === 0)}>{isPublishingFeed ? 'Публикуем...' : 'Опубликовать'}</button></div>
+              <div className="employee-feed-composer-actions"><label>📎 Фото/видео<input type="file" multiple hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="button" onClick={() => { setFeedDraft(''); setFeedAttachments([]); clearSavedFeedDraft(user?.username || 'guest'); }}>Очистить</button><button type="submit" disabled={isPublishingFeed || (!feedDraft.trim() && feedAttachments.length === 0)}>{isPublishingFeed ? 'Публикуем...' : 'Опубликовать'}</button></div>
             </form>
-            <div className="feed-toolbar"><input type="search" placeholder="Поиск по ленте, автору, #тегу..." value={feedSearch} onChange={(e) => setFeedSearch(e.target.value)} /><div>{FEED_FILTERS.map((filter) => <button key={filter.id} type="button" className={feedFilter === filter.id ? 'active' : ''} onClick={() => setFeedFilter(filter.id)}>{filter.label}</button>)}</div></div>{feedRefreshing && <div className="feed-refreshing">Обновляем ленту…</div>}
+            <div className="feed-toolbar compact-feed-toolbar"><input type="search" placeholder="Поиск по ленте, автору, #тегу..." value={feedSearch} onChange={(e) => setFeedSearch(e.target.value)} /><details><summary>Фильтры</summary><div>{FEED_FILTERS.map((filter) => <button key={filter.id} type="button" className={feedFilter === filter.id ? 'active' : ''} onClick={() => setFeedFilter(filter.id)}>{filter.label}</button>)}</div></details>{feedRefreshing && <span className="feed-refreshing compact-refreshing">Обновляем…</span>}</div>
             <div className="employee-feed-list" ref={feedListRef} onClick={(event) => { if (event.target === event.currentTarget) { setSelectedFeedPostId(''); setFeedReactionExpanded(false); } }}>
               {feedLoading && <div className="feed-skeleton-list"><div /><div /><div /></div>}
               {!feedLoading && feedError && <button type="button" className="feed-retry" onClick={() => fetchFeed({ silent: false })}>Повторить загрузку</button>}
