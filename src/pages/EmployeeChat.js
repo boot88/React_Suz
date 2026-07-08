@@ -7,6 +7,7 @@ import './EmployeeChat.css';
 const CHAT_READ_STATE_KEY = 'chatReadState';
 const CHAT_DRAFTS_KEY = 'chatDrafts';
 const CHAT_LOCAL_SETTINGS_KEY = 'chatLocalSettings';
+const CHAT_PENDING_MESSAGES_KEY = 'chatPendingMessages';
 const FEED_READ_STATE_KEY = 'employeeFeedReadState';
 const FEED_DRAFT_KEY = 'employeeFeedDraft';
 const FEED_HIDDEN_POSTS_KEY = 'employeeFeedHiddenPosts';
@@ -163,9 +164,42 @@ const saveChatLocalSettings = (username = 'guest', settings = {}) => {
   }
 };
 
+const readPendingMessages = (username = 'guest') => {
+  try {
+    const all = JSON.parse(localStorage.getItem(CHAT_PENDING_MESSAGES_KEY) || '{}');
+    return Array.isArray(all?.[username]) ? all[username] : [];
+  } catch {
+    return [];
+  }
+};
+
+const savePendingMessages = (username = 'guest', messages = []) => {
+  try {
+    const all = JSON.parse(localStorage.getItem(CHAT_PENDING_MESSAGES_KEY) || '{}');
+    all[username] = messages;
+    localStorage.setItem(CHAT_PENDING_MESSAGES_KEY, JSON.stringify(all));
+  } catch {
+    // noop
+  }
+};
+
 const getMessageAttachments = (message = {}) => (message.attachments?.length ? message.attachments : message.attachment ? [message.attachment] : []).filter(Boolean);
 const getMessageMediaAttachments = (message = {}) => getMessageAttachments(message).filter(isMediaAttachment);
 const extractLinks = (text = '') => String(text || '').match(/https?:\/\/\S+/gi) || [];
+const getLinkPreview = (url = '') => {
+  try {
+    const parsed = new URL(url);
+    return {
+      url,
+      domain: parsed.hostname.replace(/^www\./, ''),
+      title: parsed.hostname.replace(/^www\./, ''),
+      description: parsed.pathname && parsed.pathname !== '/' ? parsed.pathname : 'Ссылка из сообщения',
+      favicon: `${parsed.origin}/favicon.ico`
+    };
+  } catch {
+    return null;
+  }
+};
 
 
 
@@ -574,6 +608,7 @@ const EmployeeChat = () => {
   const isAdmin = user?.role === 'admin';
    
   const avatarInputRef = useRef(null); 
+  const messageTextareaRef = useRef(null);
   const profileDirtyRef = useRef(false);
   const profileLoadedForRef = useRef('');
    
@@ -582,6 +617,8 @@ const EmployeeChat = () => {
   const [selectedThreadId, setSelectedThreadId] = useState('');
   const [draft, setDraft] = useState('');
   const [attachmentDrafts, setAttachmentDrafts] = useState([]);
+  const [pendingMessages, setPendingMessages] = useState(() => readPendingMessages(user?.username || 'guest'));
+  const [isOnline, setIsOnline] = useState(() => typeof navigator === 'undefined' ? true : navigator.onLine);
   const [search, setSearch] = useState('');
   const [dialogSearch, setDialogSearch] = useState('');
   const [dialogSearchIndex, setDialogSearchIndex] = useState(0);
@@ -769,6 +806,7 @@ const EmployeeChat = () => {
     setReadState(readReadState(username));
     setChatDrafts(readChatDrafts(username));
     setChatLocalSettings(readChatLocalSettings(username));
+    setPendingMessages(readPendingMessages(username));
     setFeedReadAt(readFeedReadAt(username));
     const savedFeedDraft = readSavedFeedDraft(username);
     setFeedDraft(savedFeedDraft.text);
@@ -1109,8 +1147,23 @@ const EmployeeChat = () => {
         profile.cabinet,
         profile.N_tel
       ].some((value) => normalizeText(value).includes(normalizedSearch));
+    }).sort((a, b) => {
+      const aConversationId = getConversationId(user.username, a.email);
+      const bConversationId = getConversationId(user.username, b.email);
+      const aPinned = (chatLocalSettings.pinned || []).includes(aConversationId);
+      const bPinned = (chatLocalSettings.pinned || []).includes(bConversationId);
+      if (aPinned !== bPinned) return aPinned ? -1 : 1;
+      const aLastReadAt = readState[aConversationId] ? new Date(readState[aConversationId]).getTime() : 0;
+      const bLastReadAt = readState[bConversationId] ? new Date(readState[bConversationId]).getTime() : 0;
+      const aUnread = (threads[aConversationId] || []).filter((message) => message.sender !== user.username && new Date(message.createdAt).getTime() > aLastReadAt).length;
+      const bUnread = (threads[bConversationId] || []).filter((message) => message.sender !== user.username && new Date(message.createdAt).getTime() > bLastReadAt).length;
+      if (aUnread !== bUnread) return bUnread - aUnread;
+      const aLast = getThreadActivityMeta(threads[aConversationId] || []).lastTimestamp || 0;
+      const bLast = getThreadActivityMeta(threads[bConversationId] || []).lastTimestamp || 0;
+      if (aLast !== bLast) return bLast - aLast;
+      return a.email.localeCompare(b.email);
     });
-  }, [chatCandidates, search, contactFilter, readState, threads, user.username, chatLocalSettings.favorites, myApplications, profileForm.department]);
+  }, [chatCandidates, search, contactFilter, readState, threads, user.username, chatLocalSettings.favorites, chatLocalSettings.pinned, myApplications, profileForm.department]);
 
   const unreadByEmail = useMemo(() => {
     const map = {};
@@ -1146,6 +1199,28 @@ const EmployeeChat = () => {
     setChatDrafts(next);
     saveChatDrafts(user?.username || 'guest', next);
   }, [attachmentDrafts, draft]);
+
+  useEffect(() => {
+    savePendingMessages(user?.username || 'guest', pendingMessages);
+  }, [pendingMessages, user?.username]);
+
+  useEffect(() => {
+    const textarea = messageTextareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 220)}px`;
+  }, [draft]);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   useEffect(() => {
     setSelectedMessageId('');
@@ -1248,6 +1323,13 @@ const EmployeeChat = () => {
     localStorage.removeItem(getAvatarKey(user.username));
   };
 
+  const queuePendingMessage = (conversationId, message) => {
+    setPendingMessages((prev) => {
+      if (prev.some((item) => item.message?.id === message.id)) return prev;
+      return [...prev, { conversationId, message: { ...message, deliveryStatus: 'waiting' } }];
+    });
+  };
+
   const handleSend = async (e) => {
     e.preventDefault();
     if (isSendingMessage || (!draft.trim() && attachmentDrafts.length === 0) || !currentConversationId) return;
@@ -1268,7 +1350,7 @@ const EmployeeChat = () => {
       editedAt: null,
       reactions: {},
       pinned: false,
-      deliveryStatus: 'sending',
+      deliveryStatus: isOnline ? 'sending' : 'waiting',
       readAt: null,
       replyTo: replyTo ? { id: replyTo.id, sender: replyTo.sender, text: replyTo.text } : null,
       attachment: attachmentDrafts[0] || null,
@@ -1284,6 +1366,11 @@ const EmployeeChat = () => {
       setDraft('');
       setAttachmentDrafts([]);
       setReplyTo(null);
+      if (!isOnline) {
+        queuePendingMessage(currentConversationId, newMessage);
+        notify('Нет соединения. Сообщение ожидает отправки.', 'Офлайн');
+        return;
+      }
       await persistNewMessage(currentConversationId, { ...newMessage, deliveryStatus: 'sent' });
       setThreads((prev) => ({
         ...prev,
@@ -1292,10 +1379,12 @@ const EmployeeChat = () => {
     } catch (error) {
       const isNetworkError = isNetworkFailure(error);
       if (isNetworkError) {
+        queuePendingMessage(currentConversationId, newMessage);
         setThreads((prev) => ({
           ...prev,
           [currentConversationId]: (prev[currentConversationId] || []).map((item) => (item.id === newMessage.id ? { ...item, deliveryStatus: 'waiting' } : item))
         }));
+        notify('Нет соединения. Сообщение отправится автоматически.', 'Офлайн');
         return;
       }
       setThreads((prev) => ({ ...prev, [currentConversationId]: currentMessages }));
@@ -1341,6 +1430,34 @@ const EmployeeChat = () => {
     event.stopPropagation();
     setIsDraggingFiles(false);
     await addAttachmentFiles(event.dataTransfer?.files);
+  };
+
+  const handleComposerPaste = async (event) => {
+    const files = Array.from(event.clipboardData?.files || []);
+    if (files.length > 0) {
+      event.preventDefault();
+      await addAttachmentFiles(files);
+      notify(files.some((file) => String(file.type || '').startsWith('image/')) ? 'Скриншот прикреплён' : 'Файл прикреплён', 'Вложения');
+    }
+  };
+
+  const handleComposerKeyDown = (event) => {
+    const enterToSend = chatLocalSettings.enterToSend !== false;
+    if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (!enterToSend) return;
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
+  };
+
+  const jumpToMessageDate = (dateValue) => {
+    if (!dateValue) return;
+    const target = currentMessages.find((message) => {
+      const messageDate = new Date(message.createdAt);
+      if (Number.isNaN(messageDate.getTime())) return false;
+      return messageDate.toISOString().slice(0, 10) === dateValue;
+    });
+    if (target) document.querySelector(`[data-message-id="${target.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    else notify('В этот день сообщений нет', 'Календарь');
   };
 
   const handleDragOver = (event) => {
@@ -1580,6 +1697,41 @@ const EmployeeChat = () => {
       if (!isNetworkFailure(error)) notify(error.message || 'Не удалось отправить сообщение', 'Сообщение');
     }
   };
+
+  useEffect(() => {
+    if (!isOnline || pendingMessages.length === 0) return undefined;
+    let cancelled = false;
+    const flushPendingMessages = async () => {
+      const remaining = [];
+      for (const item of pendingMessages) {
+        try {
+          await persistNewMessage(item.conversationId, { ...item.message, deliveryStatus: 'sent' });
+          if (cancelled) return;
+          setThreads((prev) => ({
+            ...prev,
+            [item.conversationId]: (prev[item.conversationId] || []).map((message) => (
+              message.id === item.message.id ? { ...message, deliveryStatus: 'sent' } : message
+            ))
+          }));
+        } catch (error) {
+          if (isNetworkFailure(error)) remaining.push(item);
+          else {
+            setThreads((prev) => ({
+              ...prev,
+              [item.conversationId]: (prev[item.conversationId] || []).map((message) => (
+                message.id === item.message.id ? { ...message, deliveryStatus: 'error' } : message
+              ))
+            }));
+          }
+        }
+      }
+      if (!cancelled) setPendingMessages(remaining);
+    };
+    flushPendingMessages();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOnline, pendingMessages, persistNewMessage]);
 
   const startInlineEditMessage = (message) => {
     setInlineEditMessageId(message.id);
@@ -2564,7 +2716,7 @@ const EmployeeChat = () => {
               const isManagerContact = ['manager', 'admin'].includes((employee.role || '').toLowerCase()) || employee.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
               const profile = employee.profile || {};
               return (
-                <div key={employee.email} className={`employee-chat-user ${selectedEmail === employee.email ? 'active' : ''} ${isManagerContact ? 'manager-priority' : ''} ${(chatLocalSettings.favorites || []).includes(employee.email) ? 'favorite' : ''}`}>
+                <div key={employee.email} className={`employee-chat-user ${selectedEmail === employee.email ? 'active' : ''} ${isManagerContact ? 'manager-priority' : ''} ${(chatLocalSettings.favorites || []).includes(employee.email) ? 'favorite' : ''} ${(chatLocalSettings.pinned || []).includes(getConversationId(user.username, employee.email)) ? 'pinned-dialog' : ''}`}>
                   <button type="button" className="employee-contact-open" onClick={() => setSelectedEmail(employee.email)}>
                     <span className={`status-dot ${isOnline ? 'online' : 'offline'}`} />
                     <span className="employee-chat-user-main">
@@ -2574,7 +2726,7 @@ const EmployeeChat = () => {
                     <span className="employee-chat-user-status">{isManagerContact ? 'admin' : (isOnline ? 'online' : 'offline')}</span>
                     {unreadByEmail[employee.email] > 0 && <span className="employee-chat-user-unread">{unreadByEmail[employee.email]}</span>}
                   </button>
-                  <span className="contact-card-actions"><button type="button" className="profile-open-btn" onClick={() => { openProfileCard(employee.email); setActiveTab('profile'); }}>Профиль</button><button type="button" className="favorite-contact-btn" aria-label="Избранное" onClick={() => toggleLocalListValue('favorites', employee.email)}>{(chatLocalSettings.favorites || []).includes(employee.email) ? '★' : '☆'}</button></span>
+                  <span className="contact-card-actions"><button type="button" className="profile-open-btn" onClick={() => { openProfileCard(employee.email); setActiveTab('profile'); }}>Профиль</button><button type="button" className="favorite-contact-btn" aria-label="Закрепить диалог" onClick={() => toggleLocalListValue('pinned', getConversationId(user.username, employee.email))}>{(chatLocalSettings.pinned || []).includes(getConversationId(user.username, employee.email)) ? '📌' : '📍'}</button><button type="button" className="favorite-contact-btn" aria-label="Избранное" onClick={() => toggleLocalListValue('favorites', employee.email)}>{(chatLocalSettings.favorites || []).includes(employee.email) ? '★' : '☆'}</button></span>
                 </div>
               );
             })}
@@ -2617,12 +2769,13 @@ const EmployeeChat = () => {
                   </div>
                 </header>
 
-                <div className="dialog-filter-row">{CHAT_FILTERS.map((filter) => <button key={filter.id} type="button" className={dialogFilter === filter.id ? 'active' : ''} onClick={() => setDialogFilter(filter.id)}>{filter.label}</button>)}</div>
+	                <div className="dialog-filter-row">{CHAT_FILTERS.map((filter) => <button key={filter.id} type="button" className={dialogFilter === filter.id ? 'active' : ''} onClick={() => setDialogFilter(filter.id)}>{filter.label}</button>)}</div>
+	                <div className="date-jump-row"><label>Перейти к дате <input type="date" onChange={(event) => jumpToMessageDate(event.target.value)} /></label></div>
                 {mediaPanelOpen && <div className="dialog-media-panel"><div className="dialog-media-tabs">{CHAT_MEDIA_TABS.map((tab) => <button key={tab.id} type="button" className={mediaPanelTab === tab.id ? 'active' : ''} onClick={() => setMediaPanelTab(tab.id)}>{tab.label}</button>)}</div><input type="search" placeholder="Поиск по имени файла или ссылке..." value={mediaPanelSearch} onChange={(e) => setMediaPanelSearch(e.target.value)} /><button type="button" onClick={() => notify('Скачивание архива будет доступно после серверного zip-метода', 'Медиа')}>Скачать всё архивом</button><div className="dialog-media-grid">{filteredDialogMediaItems.length === 0 && <small>Ничего не найдено</small>}{filteredDialogMediaItems.map(({ message, file, fileIndex, type }, index) => <button key={`${message.id}-${file.name}-${index}`} type="button" onClick={() => type === 'link' ? window.open(file.dataUrl, '_blank', 'noopener,noreferrer') : isMediaAttachment(file) ? setMediaViewer({ message, file, fileIndex, scope: 'dialog' }) : openAttachmentInNewTab(file)}>{type === 'link' ? <span>🔗 {file.name}</span> : isMediaAttachment(file) ? (isVideoAttachment(file) ? <video src={getAttachmentUrl(file)} muted playsInline /> : <img src={getAttachmentUrl(file)} alt={file.name || 'Медиа'} />) : <span>{getFileIcon(file.type)} {file.name}</span>}<em>{new Date(message.createdAt).toLocaleDateString('ru-RU')}</em></button>)}</div></div>}
 
                 {pinnedMessages.length > 0 && (
                   <div className="pinned-box">
-                    <strong>📌 Закреплённые {pinnedMessageIndex + 1} из {pinnedMessages.length}</strong><div className="pinned-controls"><button type="button" onClick={() => setPinnedMessageIndex((prev) => Math.max(0, prev - 1))}>‹</button><button type="button" onClick={() => setPinnedMessageIndex((prev) => Math.min(pinnedMessages.length - 1, prev + 1))}>›</button></div>{pinnedMessages[pinnedMessageIndex] && <button type="button" onClick={() => document.querySelector(`[data-message-id=\"${pinnedMessages[pinnedMessageIndex].id}\"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>• {pinnedMessages[pinnedMessageIndex].text || (getMessageAttachments(pinnedMessages[pinnedMessageIndex]).some(isImageAttachment) ? '📷 Фото' : '📎 Документ')}</button>}
+                    <strong>📌 Закреплённые {pinnedMessageIndex + 1} из {pinnedMessages.length}</strong><div className="pinned-controls"><button type="button" onClick={() => setPinnedMessageIndex((prev) => Math.max(0, prev - 1))}>‹</button><button type="button" onClick={() => setPinnedMessageIndex((prev) => Math.min(pinnedMessages.length - 1, prev + 1))}>›</button></div>{pinnedMessages[pinnedMessageIndex] && <button type="button" onClick={() => document.querySelector(`[data-message-id="${pinnedMessages[pinnedMessageIndex].id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>• {pinnedMessages[pinnedMessageIndex].text || (getMessageAttachments(pinnedMessages[pinnedMessageIndex]).some(isImageAttachment) ? '📷 Фото' : '📎 Документ')}</button>}
                   </div>
                 )}
 
@@ -2658,6 +2811,7 @@ const EmployeeChat = () => {
                     const isSelected = selectedMessageId === message.id;
                     const visibleReactions = messageReactionExpanded ? REACTION_EMOJIS : REACTION_EMOJIS.slice(0, 7);
                     const messageReactionBadges = REACTION_EMOJIS.filter((emoji) => (message.reactions?.[emoji] || []).length > 0);
+                    const linkPreviews = extractLinks(message.text).map(getLinkPreview).filter(Boolean);
 
                     return (
                       <div key={message.id} data-message-id={message.id} className={`message-row ${isMine ? 'mine' : ''} ${isSelected ? 'selected' : ''} ${selectedMessageIds.includes(message.id) ? 'multi-selected' : ''} ${activeDialogSearchResult?.id === message.id ? 'search-current' : ''}`}>
@@ -2675,8 +2829,18 @@ const EmployeeChat = () => {
                             }
                           }}
                           onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); toggleReaction(message.id, '👍'); }}
-                          onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setSelectedMessageId(message.id); setMessageReactionExpanded(false); }}
-                          onKeyDown={(event) => {
+	                          onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setSelectedMessageId(message.id); setMessageReactionExpanded(false); }}
+	                          onTouchStart={(event) => { event.currentTarget.dataset.touchX = String(event.touches[0]?.clientX || 0); }}
+	                          onTouchEnd={(event) => {
+	                            const startX = Number(event.currentTarget.dataset.touchX || 0);
+	                            const endX = event.changedTouches[0]?.clientX || startX;
+	                            const deltaX = endX - startX;
+	                            if (Math.abs(deltaX) < 70) return;
+	                            event.stopPropagation();
+	                            if (deltaX > 0) setReplyTo(message);
+	                            else openForwardMessagePicker(message);
+	                          }}
+	                          onKeyDown={(event) => {
                             if (event.key !== 'Enter' && event.key !== ' ') return;
                             event.preventDefault();
                             event.stopPropagation();
@@ -2692,12 +2856,24 @@ const EmployeeChat = () => {
                           )}
 
                           {message.forwardedFrom && <div className="forwarded-preview">Переслано от {message.forwardedFrom}</div>}
-                          {message.replyTo && <button type="button" className="reply-preview reply-jump" onClick={(event) => { event.stopPropagation(); document.querySelector(`[data-message-id=\"${message.replyTo.id}\"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>↪ {message.replyTo.sender}: {message.replyTo.text || 'Исходное сообщение удалено'}</button>}
+                          {message.replyTo && <button type="button" className="reply-preview reply-jump" onClick={(event) => { event.stopPropagation(); document.querySelector(`[data-message-id="${message.replyTo.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>↪ {message.replyTo.sender}: {message.replyTo.text || 'Исходное сообщение удалено'}</button>}
                           {isDeleted ? (
                             <div className="message-deleted">Сообщение удалено {message.deletedBy ? `· ${message.deletedBy}` : ''}</div>
                           ) : hasTextContent ? (
                             inlineEditMessageId === message.id ? <div className="inline-message-editor"><textarea value={inlineEditText} onChange={(e) => setInlineEditText(e.target.value)} /><button type="button" onClick={() => saveInlineEditMessage(message)}>Сохранить</button><button type="button" onClick={() => setInlineEditMessageId('')}>Отмена</button></div> : <div className="message-text">{highlightText(message.text)}</div>
                           ) : null}
+
+                          {linkPreviews.length > 0 && !isDeleted && (
+                            <div className="link-preview-list">
+                              {linkPreviews.map((preview) => (
+                                <a key={preview.url} className="link-preview-card" href={preview.url} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
+                                  <img src={preview.favicon} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} />
+                                  <span><strong>{preview.title}</strong><small>{preview.description}</small><em>{preview.domain}</em></span>
+                                  <b>Открыть</b>
+                                </a>
+                              ))}
+                            </div>
+                          )}
 
                           {attachments.length > 0 && (
                             <div className={`message-attachments-grid ${isPhotoCollage ? 'photo-collage' : ''}`}>
@@ -2829,12 +3005,30 @@ const EmployeeChat = () => {
                     </div>
                   )}
 
+                  {pendingMessages.length > 0 && <div className="offline-status">{isOnline ? `Отправляем ожидающие: ${pendingMessages.length}` : `Ожидает отправки: ${pendingMessages.length}`}</div>}
+                  {!isOnline && <div className="offline-status warning">Нет соединения. Сообщения сохраняются локально.</div>}
                   {typingHint && <div className="typing-hint">{typingHint}</div>}{Date.now() < peerTypingUntil && <div className="typing-hint peer-typing">{activeContact?.profile?.full_name || selectedEmail} печатает<span>•••</span></div>}<button type="button" className="clear-chat-draft" onClick={clearCurrentDraft}>Очистить черновик</button>
 
                   <form className="message-form" onSubmit={handleSend}>
-                    <textarea placeholder="Введите сообщение или перетащите файлы сюда... @username" value={draft} onChange={(e) => { setDraft(e.target.value); setPeerTypingUntil(Date.now() + 1800); }} maxLength={2000} rows={1} />
+                    <div className="composer-textarea-box">
+                      <textarea
+                        ref={messageTextareaRef}
+                        placeholder="Введите сообщение или перетащите файлы сюда... @username"
+                        value={draft}
+                        onChange={(e) => { setDraft(e.target.value); setPeerTypingUntil(Date.now() + 1800); }}
+                        onKeyDown={handleComposerKeyDown}
+                        onPaste={handleComposerPaste}
+                        maxLength={2000}
+                        rows={1}
+                      />
+                      <div className="composer-hints">
+                        <label><input type="checkbox" checked={chatLocalSettings.enterToSend !== false} onChange={() => updateChatLocalSettings((prev) => ({ ...prev, enterToSend: prev.enterToSend === false }))} /> Enter отправляет</label>
+                        {draft.length > 1600 && <span className={draft.length > 1900 ? 'limit-warning' : ''}>{draft.length}/2000</span>}
+                        <span>Shift+Enter — новая строка · Ctrl+V — скриншот/файл</span>
+                      </div>
+                    </div>
                     <label className="attach-file-btn">📎 Выбрать несколько фото/видео<input type="file" hidden multiple accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={handleAttachmentChange} /></label>
-                    <button type="submit" disabled={isSendingMessage}>{isSendingMessage ? 'Отправляем...' : 'Отправить'}</button>
+                    <button type="submit" disabled={isSendingMessage}>{isSendingMessage ? 'Отправляем...' : isOnline ? 'Отправить' : 'В очередь'}</button>
                   </form>
                 </div>
               </>
