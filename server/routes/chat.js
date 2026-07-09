@@ -9,7 +9,12 @@ const dataDir = path.join(__dirname, '..', 'data');
 const chatFilePath = path.join(dataDir, 'chatThreads.json');
 const feedFilePath = path.join(dataDir, 'employeeFeed.json');
 const backupDir = path.join(dataDir, 'backups');
+const uploadsDir = path.join(__dirname, '..', 'uploads');
 const MAX_BACKUPS_PER_FILE = 30;
+const MAX_UPLOAD_SIZE = 50 * 1024 * 1024;
+const ALLOWED_UPLOAD_SCOPES = new Set(['chat', 'feed']);
+const ALLOWED_UPLOAD_TYPES = /^(image\/|video\/|application\/pdf$|text\/plain$|application\/msword$|application\/vnd\.openxmlformats-officedocument|application\/vnd\.ms-excel$|application\/zip$)/i;
+const DANGEROUS_EXTENSIONS = new Set(['.exe', '.bat', '.cmd', '.com', '.scr', '.js', '.mjs', '.sh', '.ps1', '.vbs', '.jar']);
 
 let cachedThreads = null;
 let storageReadyPromise = null;
@@ -19,6 +24,87 @@ const streamClients = new Set();
 
 const cloneThreads = (threads) => JSON.parse(JSON.stringify(threads || {}));
 const createId = (prefix = 'item') => `${prefix}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+
+
+const sanitizeFileName = (name = 'file') => {
+  const ext = path.extname(String(name)).toLowerCase();
+  const base = path.basename(String(name), ext)
+    .replace(/[^a-zA-Z0-9а-яА-ЯёЁ._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 80) || 'file';
+  return `${base}${ext}`;
+};
+
+const getDataUrlPayload = (dataUrl = '') => {
+  const match = String(dataUrl).match(/^data:([^;,]+)?(?:;charset=[^;,]+)?;base64,(.+)$/i);
+  if (!match) return null;
+  return { mime: match[1] || 'application/octet-stream', payload: match[2] || '' };
+};
+
+const buildUploadUrl = (scope, fileName) => `/uploads/${scope}/${encodeURIComponent(fileName)}`;
+
+const saveUploadedDataUrl = async ({ scope = 'chat', name = 'file', type = '', size = 0, dataUrl = '', thumbnailDataUrl = '' }) => {
+  const safeScope = ALLOWED_UPLOAD_SCOPES.has(scope) ? scope : 'chat';
+  const parsed = getDataUrlPayload(dataUrl);
+  if (!parsed) {
+    const error = new Error('Неверный формат файла');
+    error.status = 400;
+    throw error;
+  }
+
+  const mime = type || parsed.mime || 'application/octet-stream';
+  if (!ALLOWED_UPLOAD_TYPES.test(mime)) {
+    const error = new Error('Этот тип файла запрещён');
+    error.status = 400;
+    throw error;
+  }
+
+  const safeOriginalName = sanitizeFileName(name);
+  const ext = path.extname(safeOriginalName).toLowerCase();
+  if (DANGEROUS_EXTENSIONS.has(ext)) {
+    const error = new Error('Этот тип файла запрещён');
+    error.status = 400;
+    throw error;
+  }
+
+  const buffer = Buffer.from(parsed.payload, 'base64');
+  if (!buffer.length || buffer.length > MAX_UPLOAD_SIZE || Number(size || buffer.length) > MAX_UPLOAD_SIZE) {
+    const error = new Error(`Файл должен быть не больше ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)} МБ`);
+    error.status = 413;
+    throw error;
+  }
+
+  const uploadDir = path.join(uploadsDir, safeScope);
+  await fs.mkdir(uploadDir, { recursive: true });
+  const storedName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}-${safeOriginalName}`;
+  const filePath = path.join(uploadDir, storedName);
+  await fs.writeFile(filePath, buffer);
+  const url = buildUploadUrl(safeScope, storedName);
+  let thumbnailUrl = url;
+
+  if (String(mime).startsWith('image/') && thumbnailDataUrl) {
+    const thumbnailParsed = getDataUrlPayload(thumbnailDataUrl);
+    if (thumbnailParsed && String(thumbnailParsed.mime || '').startsWith('image/')) {
+      const thumbnailBuffer = Buffer.from(thumbnailParsed.payload, 'base64');
+      if (thumbnailBuffer.length > 0 && thumbnailBuffer.length <= MAX_UPLOAD_SIZE) {
+        const thumbnailName = `thumb-${storedName.replace(/\.[^.]+$/, '')}.jpg`;
+        await fs.writeFile(path.join(uploadDir, thumbnailName), thumbnailBuffer);
+        thumbnailUrl = buildUploadUrl(safeScope, thumbnailName);
+      }
+    }
+  }
+
+  return {
+    id: createId('file'),
+    name: safeOriginalName,
+    type: mime,
+    size: buffer.length,
+    url,
+    thumbnailUrl,
+    originalName: name
+  };
+};
 
 const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const isMeaningfulJson = (value) => (Array.isArray(value) ? value.length > 0 : isPlainObject(value) && Object.keys(value).length > 0);
@@ -201,6 +287,24 @@ router.post('/storage/recover', async (req, res) => {
   } catch (error) {
     console.error('Chat storage recover error:', error);
     res.status(500).json({ message: 'Не удалось восстановить данные' });
+  }
+});
+
+
+router.post('/uploads', async (req, res) => {
+  try {
+    const file = await saveUploadedDataUrl({
+      scope: req.body?.scope,
+      name: req.body?.name,
+      type: req.body?.type,
+      size: req.body?.size,
+      dataUrl: req.body?.dataUrl,
+      thumbnailDataUrl: req.body?.thumbnailDataUrl
+    });
+    res.status(201).json({ file });
+  } catch (error) {
+    console.error('Chat POST /uploads error:', error.message);
+    res.status(error.status || 500).json({ message: error.message || 'Не удалось загрузить файл' });
   }
 });
 

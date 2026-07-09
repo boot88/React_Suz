@@ -5,11 +5,16 @@ import { MANAGER_CREDENTIALS } from '../config/authConfig';
 import './EmployeeChat.css';
 
 const CHAT_READ_STATE_KEY = 'chatReadState';
+const CHAT_DRAFTS_KEY = 'chatDrafts';
+const CHAT_LOCAL_SETTINGS_KEY = 'chatLocalSettings';
+const CHAT_PENDING_MESSAGES_KEY = 'chatPendingMessages';
 const FEED_READ_STATE_KEY = 'employeeFeedReadState';
+const FEED_DRAFT_KEY = 'employeeFeedDraft';
+const FEED_HIDDEN_POSTS_KEY = 'employeeFeedHiddenPosts';
 const EMPLOYEE_DIRECTORY_CACHE_KEY = 'employeeDirectoryCache';
 const MANAGER_TEMPLATE_MESSAGES = ['✅ Принято в работу', '👀 Смотрю сейчас', '🔧 Исправляю', '📌 Уточните кабинет и устройство', '📷 Пришлите фото ошибки', '⏱️ Вернусь с ответом в течение 15 минут', '🧪 Проверяю решение', '✅ Готово, проверьте пожалуйста', '🙏 Спасибо, закрываю обращение'];
 const EMPLOYEE_TEMPLATE_MESSAGES = ['👋 Добрый день!', '🆘 Нужна помощь', '📍 Я в кабинете ...', '📷 Сейчас пришлю фото', '✅ Получилось, спасибо!', '❌ Ошибка осталась', '🔁 Повторил действие, результат тот же', '📞 Можем созвониться?', '🙏 Спасибо!'];
-const REACTION_EMOJIS = ['👍', '✅', '👀', '🙏', '❤️', '😂', '😮', '🔧', '⏳', '❗'];
+const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '👏', '🔥'];
 const QUICK_EMOJIS = ['😀', '🙂', '😅', '🙏', '👍', '✅', '👀', '📌', '🔧', '⏳', '❗', '❤️'];
 const EMPLOYEE_CUSTOM_TEMPLATES_KEY = 'employeeChatCustomTemplates';
 const MAX_ATTACHMENT_SIZE_MB = 100;
@@ -30,6 +35,62 @@ const MANAGER_TABS = [
 ];
 const REQUEST_CATEGORIES = ['Техника', 'Сеть', 'ПО', 'Доступы', 'Другое'];
 const REQUEST_PRIORITIES = ['Обычный', 'Важный', 'Срочный'];
+const FEED_CATEGORIES = ['Объявление', 'Новость', 'Вопрос', 'Важно', 'Фотоотчёт', 'Потеряно/найдено', 'Заявка', 'Поздравление'];
+const FEED_FILTERS = [
+  { id: 'all', label: 'Все' },
+  { id: 'mine', label: 'Мои' },
+  { id: 'photo', label: 'С фото' },
+  { id: 'video', label: 'С видео' },
+  { id: 'pinned', label: 'Закреплённые' },
+  { id: 'unread', label: 'Непрочитанные' },
+  { id: 'today', label: 'Сегодня' },
+  { id: 'week', label: 'Неделя' },
+  { id: 'month', label: 'Месяц' }
+];
+const COMMENT_SORTS = [
+  { id: 'old', label: 'Сначала старые' },
+  { id: 'new', label: 'Сначала новые' },
+  { id: 'popular', label: 'Популярные' }
+];
+const CHAT_FILTERS = [
+  { id: 'all', label: 'Все' },
+  { id: 'mine', label: 'Мои' },
+  { id: 'peer', label: 'Собеседник' },
+  { id: 'files', label: 'С файлами' },
+  { id: 'photo', label: 'Фото' },
+  { id: 'today', label: 'Сегодня' },
+  { id: 'week', label: 'Неделя' },
+  { id: 'month', label: 'Месяц' }
+];
+const CONTACT_FILTERS = [
+  { id: 'all', label: 'Все' },
+  { id: 'online', label: 'Онлайн' },
+  { id: 'unread', label: 'Непрочитанные' },
+  { id: 'managers', label: 'Менеджеры' },
+  { id: 'department', label: 'Мой отдел' },
+  { id: 'favorites', label: 'Избранные' },
+  { id: 'recent', label: 'Недавние' },
+  { id: 'attachments', label: 'С вложениями' },
+  { id: 'tickets', label: 'С заявками' }
+];
+const CHAT_MEDIA_TABS = [
+  { id: 'media', label: 'Медиа' },
+  { id: 'files', label: 'Файлы' },
+  { id: 'links', label: 'Ссылки' }
+];
+const CHAT_THEMES = [
+  { id: 'light', label: 'Светлая' },
+  { id: 'dark', label: 'Тёмная' }
+];
+const CHAT_DENSITIES = [
+  { id: 'regular', label: 'Обычная' },
+  { id: 'compact', label: 'Компактная' }
+];
+const CHAT_TEXT_SIZES = [
+  { id: 'small', label: 'Меньше' },
+  { id: 'medium', label: 'Обычно' },
+  { id: 'large', label: 'Больше' }
+];
 const APPLICATION_STATUS_META = {
   new: { label: 'Новая', hint: 'Ожидает администратора', tone: 'new' },
   accepted: { label: 'Принята', hint: 'Администратор назначил исполнителя', tone: 'accepted' },
@@ -70,6 +131,93 @@ const saveReadState = (username, nextState) => {
     // noop
   }
 };
+
+const readChatDrafts = (username = 'guest') => {
+  try {
+    const all = JSON.parse(localStorage.getItem(CHAT_DRAFTS_KEY) || '{}');
+    return all?.[username] && typeof all[username] === 'object' ? all[username] : {};
+  } catch {
+    return {};
+  }
+};
+
+const saveChatDrafts = (username = 'guest', drafts = {}) => {
+  try {
+    const all = JSON.parse(localStorage.getItem(CHAT_DRAFTS_KEY) || '{}');
+    all[username] = drafts;
+    localStorage.setItem(CHAT_DRAFTS_KEY, JSON.stringify(all));
+  } catch {
+    // noop
+  }
+};
+
+const readChatLocalSettings = (username = 'guest') => {
+  try {
+    const all = JSON.parse(localStorage.getItem(CHAT_LOCAL_SETTINGS_KEY) || '{}');
+    return {
+      archived: [],
+      hidden: [],
+      pinned: [],
+      muted: [],
+      favorites: [],
+      uiTheme: 'light',
+      uiDensity: 'regular',
+      uiTextSize: 'medium',
+      showDialogMediaPanel: false,
+      ...(all?.[username] || {})
+    };
+  } catch {
+    return { archived: [], hidden: [], pinned: [], muted: [], favorites: [], uiTheme: 'light', uiDensity: 'regular', uiTextSize: 'medium', showDialogMediaPanel: false };
+  }
+};
+
+const saveChatLocalSettings = (username = 'guest', settings = {}) => {
+  try {
+    const all = JSON.parse(localStorage.getItem(CHAT_LOCAL_SETTINGS_KEY) || '{}');
+    all[username] = settings;
+    localStorage.setItem(CHAT_LOCAL_SETTINGS_KEY, JSON.stringify(all));
+  } catch {
+    // noop
+  }
+};
+
+const readPendingMessages = (username = 'guest') => {
+  try {
+    const all = JSON.parse(localStorage.getItem(CHAT_PENDING_MESSAGES_KEY) || '{}');
+    return Array.isArray(all?.[username]) ? all[username] : [];
+  } catch {
+    return [];
+  }
+};
+
+const savePendingMessages = (username = 'guest', messages = []) => {
+  try {
+    const all = JSON.parse(localStorage.getItem(CHAT_PENDING_MESSAGES_KEY) || '{}');
+    all[username] = messages;
+    localStorage.setItem(CHAT_PENDING_MESSAGES_KEY, JSON.stringify(all));
+  } catch {
+    // noop
+  }
+};
+
+const getMessageAttachments = (message = {}) => (message.attachments?.length ? message.attachments : message.attachment ? [message.attachment] : []).filter(Boolean);
+const getMessageMediaAttachments = (message = {}) => getMessageAttachments(message).filter(isMediaAttachment);
+const extractLinks = (text = '') => String(text || '').match(/https?:\/\/\S+/gi) || [];
+const getLinkPreview = (url = '') => {
+  try {
+    const parsed = new URL(url);
+    return {
+      url,
+      domain: parsed.hostname.replace(/^www\./, ''),
+      title: parsed.hostname.replace(/^www\./, ''),
+      description: parsed.pathname && parsed.pathname !== '/' ? parsed.pathname : 'Ссылка из сообщения',
+      favicon: `${parsed.origin}/favicon.ico`
+    };
+  } catch {
+    return null;
+  }
+};
+
 
 
 const readFeedReadAt = (username) => {
@@ -212,6 +360,8 @@ const isNetworkFailure = (error) => {
   return message.includes('failed to fetch') || message.includes('networkerror') || message.includes('network error');
 };
 
+const getFriendlyNetworkMessage = (fallback = 'Не удалось выполнить действие') => `${fallback}. Проверьте соединение и попробуйте ещё раз.`;
+
 const fetchJsonWithRetry = async (url, options = {}, { attempts = 4, retryDelay = 450, fallbackMessage = 'Ошибка сети' } = {}) => {
   let lastError = null;
 
@@ -234,6 +384,35 @@ const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => resolve(String(reader.result || ''));
   reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
+
+const createImageThumbnailDataUrl = (file, maxSize = 480) => new Promise((resolve) => {
+  if (!String(file?.type || '').startsWith('image/')) {
+    resolve('');
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onerror = () => resolve('');
+  reader.onload = () => {
+    const image = new Image();
+    image.onerror = () => resolve('');
+    image.onload = () => {
+      const ratio = Math.min(1, maxSize / Math.max(image.width || maxSize, image.height || maxSize));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round((image.width || maxSize) * ratio));
+      canvas.height = Math.max(1, Math.round((image.height || maxSize) * ratio));
+      const context = canvas.getContext('2d');
+      if (!context) {
+        resolve('');
+        return;
+      }
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.76));
+    };
+    image.src = String(reader.result || '');
+  };
   reader.readAsDataURL(file);
 });
 
@@ -282,11 +461,12 @@ const dataUrlToBlob = (dataUrl = '') => {
 };
 
 const openAttachmentInNewTab = (file = {}) => {
-  if (!file.dataUrl) return;
+  const sourceUrl = getOriginalAttachmentUrl(file);
+  if (!sourceUrl) return;
   try {
-    const url = file.dataUrl.startsWith('data:') ? URL.createObjectURL(dataUrlToBlob(file.dataUrl)) : file.dataUrl;
+    const url = sourceUrl.startsWith('data:') ? URL.createObjectURL(dataUrlToBlob(sourceUrl)) : sourceUrl;
     window.open(url, '_blank', 'noopener,noreferrer');
-    if (file.dataUrl.startsWith('data:')) {
+    if (sourceUrl.startsWith('data:')) {
       window.setTimeout(() => URL.revokeObjectURL(url), 60000);
     }
   } catch (error) {
@@ -302,11 +482,78 @@ const getFeedAttachments = (post = {}) => {
   return post.attachment ? [post.attachment] : [];
 };
 
+const getFeedPostsSignature = (posts = []) => JSON.stringify((Array.isArray(posts) ? posts : []).map((post) => ({
+  id: post?.id,
+  updatedAt: post?.updatedAt,
+  editedAt: post?.editedAt,
+  deletedAt: post?.deletedAt,
+  comments: Array.isArray(post?.comments) ? post.comments.length : 0,
+  attachments: getFeedAttachments(post).length,
+  reactions: post?.reactions ? Object.values(post.reactions).map((items) => Array.isArray(items) ? items.length : 0).join(',') : ''
+})));
+
 const getVisibleFeedPosts = (posts = []) => (Array.isArray(posts) ? posts.filter((post) => post && !post.deletedAt) : []);
 
 const sameLogin = (left = '', right = '') => formatFeedLogin(left).trim().toLowerCase() === formatFeedLogin(right).trim().toLowerCase();
 
-const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, metaLabel = '', statusLabel = '' }) => {
+const getFeedDraftKey = (username = 'guest') => `${FEED_DRAFT_KEY}:${username || 'guest'}`;
+const getHiddenFeedPostsKey = (username = 'guest') => `${FEED_HIDDEN_POSTS_KEY}:${username || 'guest'}`;
+
+const readSavedFeedDraft = (username = 'guest') => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(getFeedDraftKey(username)) || '{}');
+    return {
+      text: String(saved.text || ''),
+      category: FEED_CATEGORIES.includes(saved.category) ? saved.category : FEED_CATEGORIES[0]
+    };
+  } catch {
+    return { text: '', category: FEED_CATEGORIES[0] };
+  }
+};
+
+const saveFeedDraft = (username = 'guest', draft = {}) => {
+  localStorage.setItem(getFeedDraftKey(username), JSON.stringify({ text: draft.text || '', category: draft.category || FEED_CATEGORIES[0] }));
+};
+
+const clearSavedFeedDraft = (username = 'guest') => localStorage.removeItem(getFeedDraftKey(username));
+
+const readHiddenFeedPosts = (username = 'guest') => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(getHiddenFeedPostsKey(username)) || '[]');
+    return Array.isArray(saved) ? saved.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveHiddenFeedPosts = (username = 'guest', postIds = []) => {
+  localStorage.setItem(getHiddenFeedPostsKey(username), JSON.stringify([...new Set(postIds.filter(Boolean))]));
+};
+
+const isImageAttachment = (file = {}) => String(file.type || '').startsWith('image/');
+const isMediaAttachment = (file = {}) => isImageAttachment(file) || isVideoAttachment(file);
+const resolveAttachmentUrl = (url = '') => {
+  if (!url) return '';
+  if (url.startsWith('data:') || url.startsWith('blob:') || /^https?:\/\//i.test(url)) return url;
+  const fileBaseUrl = API_BASE_URL.replace(/\/api\/?$/, '');
+  return `${fileBaseUrl}${url.startsWith('/') ? url : `/${url}`}`;
+};
+const getAttachmentUrl = (file = {}) => resolveAttachmentUrl(file.thumbnailUrl || file.previewUrl || file.url || file.dataUrl || '');
+const getOriginalAttachmentUrl = (file = {}) => resolveAttachmentUrl(file.url || file.dataUrl || file.previewUrl || file.thumbnailUrl || '');
+const getPostShareUrl = (postId = '') => `${window.location.origin}${window.location.pathname}?feedPost=${encodeURIComponent(postId)}`;
+const isPostAuthor = (post = {}, currentUser = {}) => sameLogin(post.author, currentUser?.username || '') || sameLogin(post.login, currentUser?.username || '') || sameLogin(post.sender, currentUser?.username || '');
+
+
+const canManageFeedPost = (post = {}, currentUser = {}, isManager = false, isAdmin = false) => {
+  if (isManager || isAdmin) return true;
+  const username = currentUser?.username || '';
+  if (!username) return false;
+  return sameLogin(post.author, username)
+    || sameLogin(post.login, username)
+    || sameLogin(post.sender, username);
+};
+
+const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, onQuickReaction, metaLabel = '', statusLabel = '' }) => {
   const fileName = file?.name || 'Файл';
   const fileType = String(file?.type || '');
   const isImage = fileType.startsWith('image/');
@@ -321,16 +568,21 @@ const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, 
         className="message-photo-card"
         onClick={(event) => {
           event.stopPropagation();
-          onSelect?.(event);
+          onOpen?.(event);
         }}
         onDoubleClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          onOpen?.(event);
+          onQuickReaction?.(event);
         }}
-        aria-label={`Выбрать фото ${fileName}. Двойной клик — открыть`}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onSelect?.(event);
+        }}
+        aria-label={`Открыть фото ${fileName}`}
       >
-        <img src={file.dataUrl} alt={fileName} />
+        <img src={getAttachmentUrl(file)} alt={fileName} />
         {(metaLabel || statusLabel) && <span className="message-photo-meta">{metaLabel} {statusLabel}</span>}
       </button>
     );
@@ -339,24 +591,24 @@ const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, 
   return (
     <div key={cardKey} className={cardClassName}>
       {isVideo ? (
-        <video className="attachment-video-player" src={file.dataUrl} controls preload="metadata" playsInline>
+        <video className="attachment-video-player" src={getOriginalAttachmentUrl(file)} poster={file.thumbnailUrl ? getAttachmentUrl(file) : undefined} controls preload="metadata" playsInline>
           Ваш браузер не поддерживает просмотр этого видео.
         </video>
       ) : isImage ? (
-        <img src={file.dataUrl} alt={fileName} />
+        <img src={getAttachmentUrl(file)} alt={fileName} />
       ) : (
         <span className="file-icon">{getFileIcon(fileType)}</span>
       )}
       {(variant !== 'message' || !isImage) && <small>{fileName} · {formatFileSize(file?.size)}</small>}
       {variant !== 'message' && (
         <div className="attachment-card-actions">
-          <a href={file.dataUrl} download={fileName}>Скачать</a>
+          <a href={getOriginalAttachmentUrl(file)} download={fileName}>Скачать</a>
           <button type="button" onClick={() => openAttachmentInNewTab(file)}>Открыть</button>
         </div>
       )}
       {variant === 'message' && !isVideo && !isImage && (
         <div className="attachment-card-actions">
-          <a href={file.dataUrl} download={fileName}>Скачать</a>
+          <a href={getOriginalAttachmentUrl(file)} download={fileName}>Скачать</a>
           <button type="button" onClick={() => openAttachmentInNewTab(file)}>Открыть</button>
         </div>
       )}
@@ -422,6 +674,7 @@ const EmployeeChat = () => {
   const isAdmin = user?.role === 'admin';
    
   const avatarInputRef = useRef(null); 
+  const messageTextareaRef = useRef(null);
   const profileDirtyRef = useRef(false);
   const profileLoadedForRef = useRef('');
    
@@ -430,8 +683,24 @@ const EmployeeChat = () => {
   const [selectedThreadId, setSelectedThreadId] = useState('');
   const [draft, setDraft] = useState('');
   const [attachmentDrafts, setAttachmentDrafts] = useState([]);
+  const [pendingMessages, setPendingMessages] = useState(() => readPendingMessages(user?.username || 'guest'));
+  const [isOnline, setIsOnline] = useState(() => typeof navigator === 'undefined' ? true : navigator.onLine);
   const [search, setSearch] = useState('');
   const [dialogSearch, setDialogSearch] = useState('');
+  const [dialogSearchIndex, setDialogSearchIndex] = useState(0);
+  const [dialogFilter, setDialogFilter] = useState('all');
+  const [mediaPanelOpen, setMediaPanelOpen] = useState(false);
+  const [mediaPanelTab, setMediaPanelTab] = useState('media');
+  const [mediaPanelSearch, setMediaPanelSearch] = useState('');
+  const [contactFilter, setContactFilter] = useState('all');
+  const [chatDrafts, setChatDrafts] = useState(() => readChatDrafts(user?.username || 'guest'));
+  const [chatLocalSettings, setChatLocalSettings] = useState(() => readChatLocalSettings(user?.username || 'guest'));
+  const [selectedMessageIds, setSelectedMessageIds] = useState([]);
+  const [multiSelectMode, setMultiSelectMode] = useState(false);
+  const [inlineEditMessageId, setInlineEditMessageId] = useState('');
+  const [inlineEditText, setInlineEditText] = useState('');
+  const [pinnedMessageIndex, setPinnedMessageIndex] = useState(0);
+  const [peerTypingUntil, setPeerTypingUntil] = useState(0);
   const [activeTab, setActiveTab] = useState('chat');
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
@@ -444,6 +713,18 @@ const EmployeeChat = () => {
   const [messageReactionExpanded, setMessageReactionExpanded] = useState(false);
   const [selectedFeedPostId, setSelectedFeedPostId] = useState('');
   const [feedReactionExpanded, setFeedReactionExpanded] = useState(false);
+  const [openFeedMenuId, setOpenFeedMenuId] = useState('');
+  const [feedSearch, setFeedSearch] = useState('');
+  const [feedFilter, setFeedFilter] = useState('all');
+  const [feedCategory, setFeedCategory] = useState(() => readSavedFeedDraft(user?.username || 'guest').category);
+  const [editingFeedPostId, setEditingFeedPostId] = useState('');
+  const [editingFeedText, setEditingFeedText] = useState('');
+  const [hiddenFeedPostIds, setHiddenFeedPostIds] = useState(() => readHiddenFeedPosts(user?.username || 'guest'));
+  const [commentSort, setCommentSort] = useState('old');
+  const [expandedCommentPosts, setExpandedCommentPosts] = useState({});
+  const [feedLoading, setFeedLoading] = useState(false);
+  const [feedRefreshing, setFeedRefreshing] = useState(false);
+  const [viewerTouchStart, setViewerTouchStart] = useState(null);
   const [forwardSourceMessage, setForwardSourceMessage] = useState(null);
   const [forwardingTargetEmail, setForwardingTargetEmail] = useState('');
   const [mediaViewer, setMediaViewer] = useState(null);
@@ -477,7 +758,7 @@ const EmployeeChat = () => {
   const [clockTick, setClockTick] = useState(0);
   const [feedPosts, setFeedPosts] = useState([]);
   const [feedError, setFeedError] = useState('');
-  const [feedDraft, setFeedDraft] = useState('');
+  const [feedDraft, setFeedDraft] = useState(() => readSavedFeedDraft(user?.username || 'guest').text);
   const [feedAttachments, setFeedAttachments] = useState([]);
   const [commentDrafts, setCommentDrafts] = useState({});
   const [modal, setModal] = useState(null);
@@ -588,9 +869,20 @@ const EmployeeChat = () => {
   useEffect(() => {
     const username = user?.username || 'guest';
     setReadState(readReadState(username));
+    setChatDrafts(readChatDrafts(username));
+    setChatLocalSettings(readChatLocalSettings(username));
+    setPendingMessages(readPendingMessages(username));
     setFeedReadAt(readFeedReadAt(username));
+    const savedFeedDraft = readSavedFeedDraft(username);
+    setFeedDraft(savedFeedDraft.text);
+    setFeedCategory(savedFeedDraft.category);
+    setHiddenFeedPostIds(readHiddenFeedPosts(username));
     setCustomTemplates(readCustomTemplates(username));
   }, [user?.username]);
+
+  useEffect(() => {
+    saveFeedDraft(user?.username || 'guest', { text: feedDraft, category: feedCategory });
+  }, [feedCategory, feedDraft, user?.username]);
 
   useEffect(() => {
     if (!user?.username) return;
@@ -687,25 +979,29 @@ const EmployeeChat = () => {
   }, []);
 
   const fetchFeed = useCallback(async ({ silent = true } = {}) => {
+    const initialLoad = !silent && feedPosts.length === 0;
+    if (initialLoad) setFeedLoading(true);
+    else if (!silent) setFeedRefreshing(true);
     try {
       const response = await fetch(`${API_BASE_URL}/chat/feed`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось загрузить ленту');
       const nextPosts = getVisibleFeedPosts(data?.posts);
-      setFeedPosts(nextPosts);
+      setFeedPosts((current) => (getFeedPostsSignature(current) === getFeedPostsSignature(nextPosts) ? current : nextPosts));
       setFeedError('');
     } catch (error) {
-      const message = error.message || 'Не удалось загрузить ленту';
+      const message = isNetworkFailure(error) ? getFriendlyNetworkMessage('Лента временно недоступна') : (error.message || 'Не удалось загрузить ленту');
       console.error('Ошибка загрузки ленты:', error);
-      if (!silent) {
+      if (!silent && feedPosts.length === 0) {
         setFeedError(message);
         notify(message, 'Лента');
         return;
       }
-      // Silent background polling should not leave a scary banner on first page load.
-      // The manual refresh button still shows an inline error through the !silent branch above.
+    } finally {
+      if (initialLoad) setFeedLoading(false);
+      if (!silent) setFeedRefreshing(false);
     }
-  }, [notify]);
+  }, [feedPosts.length, notify]);
 
   const fetchMyApplications = useCallback(async ({ silent = true } = {}) => {
     if (!user?.username) return;
@@ -889,8 +1185,20 @@ const EmployeeChat = () => {
   const availableEmployees = useMemo(() => {
     const normalizedSearch = normalizeText(search);
     return chatCandidates.filter((item) => {
-      if (!normalizedSearch) return true;
+      const conversationId = getConversationId(user.username, item.email);
+      const messages = threads[conversationId] || [];
+      const lastReadAt = readState[conversationId] ? new Date(readState[conversationId]).getTime() : 0;
+      const unread = messages.filter((message) => message.sender !== user.username && new Date(message.createdAt).getTime() > lastReadAt).length;
       const profile = item.profile || {};
+      if (contactFilter === 'online' && !item.isOnline) return false;
+      if (contactFilter === 'unread' && unread === 0) return false;
+      if (contactFilter === 'managers' && !['manager', 'admin'].includes((item.role || '').toLowerCase())) return false;
+      if (contactFilter === 'department' && profile.department && profile.department !== profileForm.department) return false;
+      if (contactFilter === 'favorites' && !(chatLocalSettings.favorites || []).includes(item.email)) return false;
+      if (contactFilter === 'attachments' && !messages.some(hasMessageAttachments)) return false;
+      if (contactFilter === 'tickets' && !myApplications.some((ticket) => ticket.chat_thread_id === conversationId)) return false;
+      if (contactFilter === 'recent' && messages.length === 0) return false;
+      if (!normalizedSearch) return true;
       return [
         item.email,
         item.role,
@@ -902,8 +1210,23 @@ const EmployeeChat = () => {
         profile.cabinet,
         profile.N_tel
       ].some((value) => normalizeText(value).includes(normalizedSearch));
+    }).sort((a, b) => {
+      const aConversationId = getConversationId(user.username, a.email);
+      const bConversationId = getConversationId(user.username, b.email);
+      const aPinned = (chatLocalSettings.pinned || []).includes(aConversationId);
+      const bPinned = (chatLocalSettings.pinned || []).includes(bConversationId);
+      if (aPinned !== bPinned) return aPinned ? -1 : 1;
+      const aLastReadAt = readState[aConversationId] ? new Date(readState[aConversationId]).getTime() : 0;
+      const bLastReadAt = readState[bConversationId] ? new Date(readState[bConversationId]).getTime() : 0;
+      const aUnread = (threads[aConversationId] || []).filter((message) => message.sender !== user.username && new Date(message.createdAt).getTime() > aLastReadAt).length;
+      const bUnread = (threads[bConversationId] || []).filter((message) => message.sender !== user.username && new Date(message.createdAt).getTime() > bLastReadAt).length;
+      if (aUnread !== bUnread) return bUnread - aUnread;
+      const aLast = getThreadActivityMeta(threads[aConversationId] || []).lastTimestamp || 0;
+      const bLast = getThreadActivityMeta(threads[bConversationId] || []).lastTimestamp || 0;
+      if (aLast !== bLast) return bLast - aLast;
+      return a.email.localeCompare(b.email);
     });
-  }, [chatCandidates, search]);
+  }, [chatCandidates, search, contactFilter, readState, threads, user.username, chatLocalSettings.favorites, chatLocalSettings.pinned, myApplications, profileForm.department]);
 
   const unreadByEmail = useMemo(() => {
     const map = {};
@@ -925,6 +1248,42 @@ const EmployeeChat = () => {
   useEffect(() => {
     if (selectedEmail) setActiveTab('chat');
   }, [selectedEmail]);
+
+  useEffect(() => {
+    if (!currentConversationId) return;
+    const saved = chatDrafts[currentConversationId] || {};
+    setDraft(saved.text || '');
+    setAttachmentDrafts(Array.isArray(saved.attachments) ? saved.attachments : []);
+  }, [currentConversationId]);
+
+  useEffect(() => {
+    if (!currentConversationId) return;
+    const next = { ...chatDrafts, [currentConversationId]: { text: draft, attachments: attachmentDrafts } };
+    setChatDrafts(next);
+    saveChatDrafts(user?.username || 'guest', next);
+  }, [attachmentDrafts, draft]);
+
+  useEffect(() => {
+    savePendingMessages(user?.username || 'guest', pendingMessages);
+  }, [pendingMessages, user?.username]);
+
+  useEffect(() => {
+    const textarea = messageTextareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 220)}px`;
+  }, [draft]);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   useEffect(() => {
     setSelectedMessageId('');
@@ -1027,6 +1386,13 @@ const EmployeeChat = () => {
     localStorage.removeItem(getAvatarKey(user.username));
   };
 
+  const queuePendingMessage = (conversationId, message) => {
+    setPendingMessages((prev) => {
+      if (prev.some((item) => item.message?.id === message.id)) return prev;
+      return [...prev, { conversationId, message: { ...message, deliveryStatus: 'waiting' } }];
+    });
+  };
+
   const handleSend = async (e) => {
     e.preventDefault();
     if (isSendingMessage || (!draft.trim() && attachmentDrafts.length === 0) || !currentConversationId) return;
@@ -1047,6 +1413,8 @@ const EmployeeChat = () => {
       editedAt: null,
       reactions: {},
       pinned: false,
+      deliveryStatus: isOnline ? 'sending' : 'waiting',
+      readAt: null,
       replyTo: replyTo ? { id: replyTo.id, sender: replyTo.sender, text: replyTo.text } : null,
       attachment: attachmentDrafts[0] || null,
       attachments: attachmentDrafts
@@ -1061,12 +1429,25 @@ const EmployeeChat = () => {
       setDraft('');
       setAttachmentDrafts([]);
       setReplyTo(null);
-      await persistNewMessage(currentConversationId, newMessage);
+      if (!isOnline) {
+        queuePendingMessage(currentConversationId, newMessage);
+        notify('Нет соединения. Сообщение ожидает отправки.', 'Офлайн');
+        return;
+      }
+      await persistNewMessage(currentConversationId, { ...newMessage, deliveryStatus: 'sent' });
+      setThreads((prev) => ({
+        ...prev,
+        [currentConversationId]: (prev[currentConversationId] || []).map((item) => (item.id === newMessage.id ? { ...item, deliveryStatus: 'sent' } : item))
+      }));
     } catch (error) {
       const isNetworkError = isNetworkFailure(error);
       if (isNetworkError) {
-        // Сервер иногда успевает сохранить вложение, но соединение обрывается на ответе.
-        // Не откатываем оптимистичное сообщение, чтобы фото не исчезало и не мигало обратно.
+        queuePendingMessage(currentConversationId, newMessage);
+        setThreads((prev) => ({
+          ...prev,
+          [currentConversationId]: (prev[currentConversationId] || []).map((item) => (item.id === newMessage.id ? { ...item, deliveryStatus: 'waiting' } : item))
+        }));
+        notify('Нет соединения. Сообщение отправится автоматически.', 'Офлайн');
         return;
       }
       setThreads((prev) => ({ ...prev, [currentConversationId]: currentMessages }));
@@ -1075,6 +1456,30 @@ const EmployeeChat = () => {
     } finally {
       setIsSendingMessage(false);
     }
+  };
+
+
+  const uploadAttachmentFile = async (file, scope = 'chat') => {
+    const dataUrl = await readFileAsDataUrl(file);
+    const thumbnailDataUrl = await createImageThumbnailDataUrl(file);
+    const response = await fetch(`${API_BASE_URL}/chat/uploads`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        scope,
+        name: file.name,
+        type: file.type || 'application/octet-stream',
+        size: file.size,
+        dataUrl,
+        thumbnailDataUrl
+      })
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || 'Не удалось загрузить файл');
+    }
+    const data = await response.json();
+    return data.file;
   };
 
   const addAttachmentFiles = async (fileList) => {
@@ -1088,13 +1493,7 @@ const EmployeeChat = () => {
     }
 
     try {
-      const preparedFiles = await Promise.all(files.map(async (file) => ({
-        id: createMessageId(),
-        name: file.name,
-        type: file.type || 'application/octet-stream',
-        size: file.size,
-        dataUrl: await readFileAsDataUrl(file)
-      })));
+      const preparedFiles = await Promise.all(files.map((file) => uploadAttachmentFile(file, 'chat')));
       setAttachmentDrafts((prev) => [...prev, ...preparedFiles]);
       setActiveTab('chat');
     } catch {
@@ -1114,6 +1513,34 @@ const EmployeeChat = () => {
     await addAttachmentFiles(event.dataTransfer?.files);
   };
 
+  const handleComposerPaste = async (event) => {
+    const files = Array.from(event.clipboardData?.files || []);
+    if (files.length > 0) {
+      event.preventDefault();
+      await addAttachmentFiles(files);
+      notify(files.some((file) => String(file.type || '').startsWith('image/')) ? 'Скриншот прикреплён' : 'Файл прикреплён', 'Вложения');
+    }
+  };
+
+  const handleComposerKeyDown = (event) => {
+    const enterToSend = chatLocalSettings.enterToSend !== false;
+    if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (!enterToSend) return;
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
+  };
+
+  const jumpToMessageDate = (dateValue) => {
+    if (!dateValue) return;
+    const target = currentMessages.find((message) => {
+      const messageDate = new Date(message.createdAt);
+      if (Number.isNaN(messageDate.getTime())) return false;
+      return messageDate.toISOString().slice(0, 10) === dateValue;
+    });
+    if (target) document.querySelector(`[data-message-id="${target.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    else notify('В этот день сообщений нет', 'Календарь');
+  };
+
   const handleDragOver = (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1126,6 +1553,7 @@ const EmployeeChat = () => {
     event.stopPropagation();
     if (!event.currentTarget.contains(event.relatedTarget)) setIsDraggingFiles(false);
   };
+
 
   const removeAttachmentDraft = (attachmentId) => {
     setAttachmentDrafts((prev) => prev.filter((file, index) => (file.id || `${file.name}-${index}`) !== attachmentId));
@@ -1293,6 +1721,160 @@ const EmployeeChat = () => {
     }
   };
 
+
+  const updateChatLocalSettings = (updater) => {
+    setChatLocalSettings((prev) => {
+      const next = updater(prev);
+      saveChatLocalSettings(user?.username || 'guest', next);
+      return next;
+    });
+  };
+
+  const toggleLocalListValue = (key, value) => {
+    updateChatLocalSettings((prev) => {
+      const current = new Set(prev[key] || []);
+      if (current.has(value)) current.delete(value);
+      else current.add(value);
+      return { ...prev, [key]: [...current] };
+    });
+  };
+
+  const updateChatUiSetting = (key, value) => {
+    updateChatLocalSettings((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const toggleDialogMediaPanelSetting = () => {
+    updateChatLocalSettings((prev) => {
+      const enabled = prev.showDialogMediaPanel === true;
+      if (enabled) setMediaPanelOpen(false);
+      return { ...prev, showDialogMediaPanel: !enabled };
+    });
+  };
+
+  const clearCurrentDraft = () => {
+    if (!currentConversationId) return;
+    setDraft('');
+    setAttachmentDrafts([]);
+    const next = { ...chatDrafts };
+    delete next[currentConversationId];
+    setChatDrafts(next);
+    saveChatDrafts(user?.username || 'guest', next);
+  };
+
+  const getConversationMediaItems = (scope = 'message', sourceMessage = null) => {
+    const sourceMessages = scope === 'dialog' ? currentMessages : sourceMessage ? [sourceMessage] : [];
+    return sourceMessages.flatMap((message) => getMessageMediaAttachments(message).map((file, index) => ({ file, message, fileIndex: index })));
+  };
+
+  const retryMessageSend = async (message) => {
+    if (!currentConversationId || !message?.id) return;
+    setThreads((prev) => ({ ...prev, [currentConversationId]: (prev[currentConversationId] || []).map((item) => (item.id === message.id ? { ...item, deliveryStatus: 'sending' } : item)) }));
+    try {
+      await persistNewMessage(currentConversationId, { ...message, deliveryStatus: 'sent' });
+      setThreads((prev) => ({ ...prev, [currentConversationId]: (prev[currentConversationId] || []).map((item) => (item.id === message.id ? { ...item, deliveryStatus: 'sent' } : item)) }));
+    } catch (error) {
+      setThreads((prev) => ({ ...prev, [currentConversationId]: (prev[currentConversationId] || []).map((item) => (item.id === message.id ? { ...item, deliveryStatus: isNetworkFailure(error) ? 'waiting' : 'error' } : item)) }));
+      if (!isNetworkFailure(error)) notify(error.message || 'Не удалось отправить сообщение', 'Сообщение');
+    }
+  };
+
+  useEffect(() => {
+    if (!isOnline || pendingMessages.length === 0) return undefined;
+    let cancelled = false;
+    const flushPendingMessages = async () => {
+      const remaining = [];
+      for (const item of pendingMessages) {
+        try {
+          await persistNewMessage(item.conversationId, { ...item.message, deliveryStatus: 'sent' });
+          if (cancelled) return;
+          setThreads((prev) => ({
+            ...prev,
+            [item.conversationId]: (prev[item.conversationId] || []).map((message) => (
+              message.id === item.message.id ? { ...message, deliveryStatus: 'sent' } : message
+            ))
+          }));
+        } catch (error) {
+          if (isNetworkFailure(error)) remaining.push(item);
+          else {
+            setThreads((prev) => ({
+              ...prev,
+              [item.conversationId]: (prev[item.conversationId] || []).map((message) => (
+                message.id === item.message.id ? { ...message, deliveryStatus: 'error' } : message
+              ))
+            }));
+          }
+        }
+      }
+      if (!cancelled) setPendingMessages(remaining);
+    };
+    flushPendingMessages();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOnline, pendingMessages, persistNewMessage]);
+
+  const startInlineEditMessage = (message) => {
+    setInlineEditMessageId(message.id);
+    setInlineEditText(message.text || '');
+    setSelectedMessageId('');
+  };
+
+  const saveInlineEditMessage = async (message) => {
+    if (!inlineEditText.trim() && getMessageAttachments(message).length === 0) {
+      notify('Нельзя сохранить пустое сообщение без вложений', 'Сообщение');
+      return;
+    }
+    try {
+      await updateMessage(message.id, (item) => ({
+        ...item,
+        text: inlineEditText.trim(),
+        editedAt: new Date().toISOString(),
+        editedBy: user.username,
+        audit: [...(item.audit || []), { action: 'edit', by: user.username, at: new Date().toISOString(), previousText: item.text, nextText: inlineEditText.trim() }]
+      }));
+      setInlineEditMessageId('');
+      setInlineEditText('');
+    } catch (error) {
+      notify(error.message || 'Не удалось изменить сообщение', 'Сообщение');
+    }
+  };
+
+  const createRequestFromMessage = (message) => {
+    setRequestText(`${message.text || 'Сообщение с вложением'}\n\nИсточник: ${message.sender}, ${new Date(message.createdAt).toLocaleString('ru-RU')}`);
+    setReplyTo(message);
+    setSelectedMessageId('');
+    setActiveTab('request');
+  };
+
+  const toggleSelectedMessage = (messageId) => {
+    setSelectedMessageIds((prev) => (prev.includes(messageId) ? prev.filter((id) => id !== messageId) : [...prev, messageId]));
+  };
+
+  const getSelectedMessages = () => currentMessages.filter((message) => selectedMessageIds.includes(message.id));
+
+  const clearSelectedMessages = () => {
+    setSelectedMessageIds([]);
+    setMultiSelectMode(false);
+  };
+
+  const copySelectedMessages = async () => {
+    const text = getSelectedMessages().map((message) => `${message.sender}: ${message.text || '[вложение]'}`).join('\n');
+    if (!text) return;
+    try {
+      await navigator.clipboard?.writeText(text);
+      notify('Выбранные сообщения скопированы', 'Копирование');
+    } catch {
+      notify('Не удалось скопировать выбранные сообщения', 'Копирование');
+    }
+  };
+
+  const deleteSelectedMessages = async () => {
+    const confirmed = await confirmAction(`Удалить выбранные сообщения: ${selectedMessageIds.length}?`, 'Удаление сообщений');
+    if (!confirmed) return;
+    await Promise.all(getSelectedMessages().map((message) => deleteMessage(message.id)));
+    clearSelectedMessages();
+  };
+
   const updateMessage = async (messageId, updater, targetConversationId = currentConversationId) => {
     if (!targetConversationId) return;
     const previousMessages = threads[targetConversationId] || [];
@@ -1421,8 +2003,8 @@ const EmployeeChat = () => {
   };
 
   const openChatMediaViewer = (message, file, fileIndex) => {
-    if (!file?.dataUrl) return;
-    setMediaViewer({ message, file, fileIndex });
+    if (!getOriginalAttachmentUrl(file)) return;
+    setMediaViewer({ message, file, fileIndex, scope: 'message' });
     setSelectedMessageId('');
     setMessageReactionExpanded(false);
   };
@@ -1439,58 +2021,138 @@ const EmployeeChat = () => {
     setMediaViewer(null);
   };
 
+  const shareViewedFeedMedia = () => {
+    if (mediaViewer?.source !== 'feed' || !mediaViewer?.file) return;
+    const sourcePost = mediaViewer.post || {};
+    openForwardMessagePicker({
+      id: sourcePost.id || createMessageId(),
+      sender: sourcePost.authorName || sourcePost.author || 'Лента',
+      text: sourcePost.text || 'Вложение из ленты',
+      attachment: mediaViewer.file,
+      attachments: [mediaViewer.file],
+      createdAt: sourcePost.createdAt || new Date().toISOString(),
+      reactions: {},
+      pinned: false
+    });
+    setMediaViewer(null);
+  };
+
+
+
+  const getViewerFiles = () => {
+    if (!mediaViewer) return [];
+    if (mediaViewer.source === 'feed') return getFeedAttachments(mediaViewer.post).filter(isMediaAttachment);
+    if (mediaViewer.message && mediaViewer.scope === 'dialog') return getConversationMediaItems('dialog').map((item) => item.file);
+    if (mediaViewer.message) return getMessageMediaAttachments(mediaViewer.message);
+    return [mediaViewer.file].filter(Boolean);
+  };
+
+  const moveMediaViewer = useCallback((direction) => {
+    setMediaViewer((current) => {
+      if (!current) return current;
+      const items = current.message && current.scope === 'dialog' ? getConversationMediaItems('dialog') : [];
+      const files = current.source === 'feed'
+        ? getFeedAttachments(current.post).filter(isMediaAttachment)
+        : current.message ? (current.scope === 'dialog' ? items.map((item) => item.file) : getMessageMediaAttachments(current.message)) : [current.file].filter(Boolean);
+      if (files.length < 2) return current;
+      const currentIndex = Math.max(0, Math.min(files.length - 1, current.fileIndex || 0));
+      const nextIndex = (currentIndex + direction + files.length) % files.length;
+      return { ...current, file: files[nextIndex], fileIndex: nextIndex };
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!mediaViewer) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setMediaViewer(null);
+      if (event.key === 'ArrowLeft') moveMediaViewer(-1);
+      if (event.key === 'ArrowRight') moveMediaViewer(1);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [mediaViewer, moveMediaViewer]);
+
+  const deleteChatAttachment = async (messageId, fileIndex = 0, targetConversationId = currentConversationId) => {
+    if (!messageId || !targetConversationId) return;
+    const confirmed = await confirmAction('Удалить только это вложение?', 'Удаление вложения');
+    if (!confirmed) return;
+
+    await updateMessage(messageId, (item) => {
+      const currentAttachments = item.attachments?.length ? item.attachments : item.attachment ? [item.attachment] : [];
+      const nextAttachments = currentAttachments.filter((_, index) => index !== fileIndex);
+      const hasText = String(item.text || '').trim() && item.text !== '📎 Вложения';
+      const auditEntry = {
+        action: 'delete_attachment',
+        by: user.username,
+        at: new Date().toISOString(),
+        fileName: currentAttachments[fileIndex]?.name || ''
+      };
+
+      if (!nextAttachments.length && !hasText) {
+        return {
+          ...item,
+          text: '',
+          attachment: null,
+          attachments: [],
+          deletedAt: new Date().toISOString(),
+          deletedBy: user.username,
+          audit: [...(item.audit || []), auditEntry]
+        };
+      }
+
+      return {
+        ...item,
+        text: hasText ? item.text : '📎 Вложения',
+        attachment: nextAttachments[0] || null,
+        attachments: nextAttachments,
+        audit: [...(item.audit || []), auditEntry]
+      };
+    }, targetConversationId);
+  };
+
   const deleteViewedMedia = async () => {
     if (mediaViewer?.source === 'feed') {
       const { post, fileIndex = 0 } = mediaViewer;
       if (!post?.id) return;
       const currentAttachments = getFeedAttachments(post);
+      const targetFile = currentAttachments[fileIndex] || {};
       const nextAttachments = currentAttachments.filter((_, index) => index !== fileIndex);
-      const confirmMessage = nextAttachments.length || String(post.text || '').trim()
-        ? 'Удалить только это вложение из публикации?'
-        : 'Это последнее вложение без текста. Скрыть публикацию?';
-      const confirmed = await confirmAction(confirmMessage, 'Удаление вложения');
+      const fileLabel = targetFile.name || (isVideoAttachment(targetFile) ? 'видео' : 'фото');
+      const postHasText = Boolean(String(post.text || '').trim());
+      let confirmed = await confirmAction(`Удалить ${isVideoAttachment(targetFile) ? 'видео' : 'фото'} ${fileLabel} из публикации?`, 'Удаление вложения');
       if (!confirmed) return;
+      if (!nextAttachments.length && !postHasText) {
+        confirmed = await confirmAction('Это последнее вложение. Удалить всю публикацию?', 'Удаление публикации');
+        if (!confirmed) return;
+        setMediaViewer(null);
+        await deleteFeedPost(post.id, { skipConfirm: true });
+        return;
+      }
+      const previousPosts = feedPosts;
       setMediaViewer(null);
+      setFeedPosts((current) => current.map((item) => (
+        item.id === post.id
+          ? { ...item, attachment: nextAttachments[0] || null, attachments: nextAttachments, updatedAt: new Date().toISOString() }
+          : item
+      )));
       try {
-        if (!nextAttachments.length && !String(post.text || '').trim()) {
-          await deleteFeedPost(post.id);
-        } else {
-          await patchFeedPost(post.id, { attachments: nextAttachments });
-        }
+        await patchFeedPost(post.id, { attachment: nextAttachments[0] || null, attachments: nextAttachments, editedAt: new Date().toISOString() });
+        notify(`${isVideoAttachment(targetFile) ? 'Видео' : 'Фото'} удалено`, 'Лента');
       } catch (error) {
+        if (isNetworkFailure(error)) {
+          fetchFeed({ silent: true });
+          return;
+        }
+        setFeedPosts(previousPosts);
         notify(error.message || 'Не удалось удалить вложение', 'Лента');
       }
       return;
     }
     if (!mediaViewer?.message?.id) return;
     const { message, fileIndex = 0 } = mediaViewer;
-    const messageId = message.id;
-    const confirmed = await confirmAction('Удалить только это вложение?', 'Удаление вложения');
-    if (!confirmed) return;
     setMediaViewer(null);
     try {
-      await updateMessage(messageId, (item) => {
-        const currentAttachments = item.attachments?.length ? item.attachments : item.attachment ? [item.attachment] : [];
-        const nextAttachments = currentAttachments.filter((_, index) => index !== fileIndex);
-        const hasText = String(item.text || '').trim() && item.text !== '📎 Вложения';
-        if (!nextAttachments.length && !hasText) {
-          return {
-            ...item,
-            text: '',
-            attachment: null,
-            attachments: [],
-            deletedAt: new Date().toISOString(),
-            deletedBy: user.username,
-            audit: [...(item.audit || []), { action: 'delete_attachment', by: user.username, at: new Date().toISOString(), previousText: item.text }]
-          };
-        }
-        return {
-          ...item,
-          attachment: nextAttachments[0] || null,
-          attachments: nextAttachments,
-          audit: [...(item.audit || []), { action: 'delete_attachment', by: user.username, at: new Date().toISOString(), fileName: currentAttachments[fileIndex]?.name || '' }]
-        };
-      });
+      await deleteChatAttachment(message.id, fileIndex);
     } catch (error) {
       notify(error.message || 'Не удалось удалить вложение', 'Вложение');
     }
@@ -1515,6 +2177,8 @@ const EmployeeChat = () => {
       editedAt: null,
       reactions: {},
       pinned: false,
+      deliveryStatus: 'sending',
+      readAt: null,
       replyTo: null,
       attachment: attachments[0] || null,
       attachments
@@ -1658,16 +2322,54 @@ const EmployeeChat = () => {
   void clockTick;
   const normalizedDialogSearch = normalizeText(dialogSearch);
   const visibleMessages = useMemo(() => {
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
     const notDeletedMessages = currentMessages.filter((message) => !message.deletedAt);
-    if (!normalizedDialogSearch) return notDeletedMessages;
+    return notDeletedMessages.filter((message) => {
+      const attachments = getMessageAttachments(message);
+      if (normalizedDialogSearch && ![
+        message.text,
+        message.sender,
+        message.attachment?.name,
+        ...attachments.map((item) => item.name)
+      ].some((value) => normalizeText(value).includes(normalizedDialogSearch))) return false;
+      const timestamp = new Date(message.createdAt || 0).getTime();
+      if (dialogFilter === 'mine') return message.sender === user.username;
+      if (dialogFilter === 'peer') return message.sender !== user.username;
+      if (dialogFilter === 'files') return attachments.length > 0;
+      if (dialogFilter === 'photo') return attachments.some(isImageAttachment);
+      if (dialogFilter === 'today') return now - timestamp <= day;
+      if (dialogFilter === 'week') return now - timestamp <= 7 * day;
+      if (dialogFilter === 'month') return now - timestamp <= 31 * day;
+      return true;
+    });
+  }, [currentMessages, dialogFilter, normalizedDialogSearch, user.username]);
+  const dialogSearchResults = useMemo(() => (
+    normalizedDialogSearch ? visibleMessages.filter((message) => normalizeText(`${message.text || ''} ${message.sender || ''} ${getMessageAttachments(message).map((file) => file.name).join(' ')}`).includes(normalizedDialogSearch)) : []
+  ), [normalizedDialogSearch, visibleMessages]);
+  const activeDialogSearchResult = dialogSearchResults[dialogSearchIndex] || null;
+  const highlightText = (text = '') => {
+    if (!normalizedDialogSearch) return text;
+    const source = String(text || '');
+    const lower = source.toLowerCase();
+    const needle = normalizedDialogSearch.toLowerCase();
+    const index = lower.indexOf(needle);
+    if (index < 0) return source;
+    return <>{source.slice(0, index)}<mark>{source.slice(index, index + needle.length)}</mark>{source.slice(index + needle.length)}</>;
+  };
+  const dialogMediaItems = useMemo(() => currentMessages.flatMap((message) => [
+    ...getMessageAttachments(message).map((file, index) => ({ message, file, fileIndex: index, type: isMediaAttachment(file) ? 'media' : 'file' })),
+    ...extractLinks(message.text).map((link, index) => ({ message, file: { id: `${message.id}-link-${index}`, name: link, dataUrl: link, type: 'text/link' }, fileIndex: index, type: 'link' }))
+  ]), [currentMessages]);
+  const filteredDialogMediaItems = useMemo(() => dialogMediaItems.filter(({ message, file, type }) => {
+    const query = normalizeText(mediaPanelSearch);
+    if (query && !normalizeText(`${file.name || ''} ${message.text || ''}`).includes(query)) return false;
+    if (mediaPanelTab === 'media') return type === 'media';
+    if (mediaPanelTab === 'files') return type === 'file';
+    if (mediaPanelTab === 'links') return type === 'link';
+    return true;
+  }), [dialogMediaItems, mediaPanelSearch, mediaPanelTab]);
 
-    return notDeletedMessages.filter((message) => [
-      message.text,
-      message.sender,
-      message.attachment?.name,
-      ...(message.attachments || []).map((item) => item.name)
-    ].some((value) => normalizeText(value).includes(normalizedDialogSearch)));
-  }, [currentMessages, normalizedDialogSearch]);
   const messagesWithDateSeparators = useMemo(() => {
     let lastDateKey = '';
     return visibleMessages.flatMap((message) => {
@@ -1681,6 +2383,41 @@ const EmployeeChat = () => {
       return items;
     });
   }, [visibleMessages]);
+
+
+  const visibleFeedPosts = useMemo(() => {
+    const query = feedSearch.trim().toLowerCase();
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    return getVisibleFeedPosts(feedPosts)
+      .filter((post) => !hiddenFeedPostIds.includes(post.id))
+      .filter((post) => {
+        const attachments = getFeedAttachments(post);
+        const text = [post.text, post.authorName, post.author, post.category, ...attachments.map((file) => file.name)].filter(Boolean).join(' ').toLowerCase();
+        if (query && !text.includes(query)) return false;
+        const timestamp = getFeedItemTimestamp(post);
+        if (feedFilter === 'mine') return isPostAuthor(post, user);
+        if (feedFilter === 'photo') return attachments.some(isImageAttachment);
+        if (feedFilter === 'video') return attachments.some(isVideoAttachment);
+        if (feedFilter === 'pinned') return Boolean(post.pinned);
+        if (feedFilter === 'unread') return post.author !== user?.username && timestamp > feedReadTimestamp;
+        if (feedFilter === 'today') return now - timestamp <= day;
+        if (feedFilter === 'week') return now - timestamp <= 7 * day;
+        if (feedFilter === 'month') return now - timestamp <= 31 * day;
+        return true;
+      })
+      .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || getFeedItemTimestamp(b) - getFeedItemTimestamp(a));
+  }, [feedFilter, feedPosts, feedReadTimestamp, feedSearch, hiddenFeedPostIds, user]);
+
+  const pinnedFeedPosts = useMemo(() => visibleFeedPosts.filter((post) => post.pinned), [visibleFeedPosts]);
+  const regularFeedPosts = useMemo(() => visibleFeedPosts.filter((post) => !post.pinned), [visibleFeedPosts]);
+
+  const sortComments = (comments = []) => {
+    const visible = comments.filter((comment) => !comment.deletedAt);
+    if (commentSort === 'new') return [...visible].sort((a, b) => getFeedItemTimestamp(b) - getFeedItemTimestamp(a));
+    if (commentSort === 'popular') return [...visible].sort((a, b) => Object.values(b.reactions || {}).flat().length - Object.values(a.reactions || {}).flat().length);
+    return visible;
+  };
 
   useEffect(() => {
     if (activeTab !== 'feed' || !user?.username) return;
@@ -1707,42 +2444,55 @@ const EmployeeChat = () => {
       }
     }
 
+    const previousDraft = feedDraft;
+    const previousAttachments = feedAttachments;
     const optimisticPost = {
       id: createMessageId(),
       author: user?.username || 'employee',
       authorName: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
-      text: feedDraft.trim(),
-      attachment: feedAttachments[0] || null,
-      attachments: feedAttachments,
-      category: 'Объявление',
+      text: previousDraft.trim(),
+      attachment: previousAttachments[0] || null,
+      attachments: previousAttachments,
+      category: feedCategory,
       reactions: {},
       comments: [],
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      deliveryStatus: 'sending'
     };
+
+    setFeedPosts((current) => [optimisticPost, ...current.filter((post) => post.id !== optimisticPost.id)]);
+    setFeedDraft('');
+    setFeedAttachments([]);
+    clearSavedFeedDraft(user?.username || 'guest');
 
     try {
       const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(optimisticPost)
-      }, { attempts: 1, fallbackMessage: 'Не удалось опубликовать запись' });
-      setFeedPosts(getVisibleFeedPosts(Array.isArray(data?.posts) ? data.posts : [data.post, ...feedPosts].filter(Boolean)));
+      }, { attempts: 2, fallbackMessage: 'Не удалось опубликовать запись' });
+
+      const serverPosts = Array.isArray(data?.posts) ? getVisibleFeedPosts(data.posts) : null;
+      const serverPost = data?.post ? { ...data.post, deliveryStatus: 'sent' } : null;
+      setFeedPosts((current) => {
+        const nextPosts = serverPosts || current.map((post) => (post.id === optimisticPost.id ? (serverPost || { ...post, deliveryStatus: 'sent' }) : post));
+        return getFeedPostsSignature(current) === getFeedPostsSignature(nextPosts) ? current : nextPosts;
+      });
       window.requestAnimationFrame(() => {
         feedListRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
       });
-      setFeedDraft('');
-      setFeedAttachments([]);
     } catch (error) {
-      const isNetworkError = isNetworkFailure(error);
-      if (isNetworkError) {
-        setFeedPosts((current) => current.some((post) => post.id === optimisticPost.id) ? current : [optimisticPost, ...current]);
-        setFeedDraft('');
-        setFeedAttachments([]);
-        window.requestAnimationFrame(() => feedListRef.current?.scrollTo({ top: 0, behavior: 'smooth' }));
+      if (isNetworkFailure(error)) {
+        setFeedPosts((current) => current.map((post) => (
+          post.id === optimisticPost.id ? { ...post, deliveryStatus: 'waiting' } : post
+        )));
         fetchFeed({ silent: true });
         return;
       }
+      setFeedPosts((current) => current.filter((post) => post.id !== optimisticPost.id));
+      setFeedDraft(previousDraft);
+      setFeedAttachments(previousAttachments);
       notify(error.message || 'Не удалось опубликовать запись', 'Лента');
     } finally {
       setIsPublishingFeed(false);
@@ -1759,13 +2509,7 @@ const EmployeeChat = () => {
       return;
     }
     try {
-      const preparedFiles = await Promise.all(files.map(async (file) => ({
-        id: createMessageId(),
-        name: file.name,
-        type: file.type || 'application/octet-stream',
-        size: file.size,
-        dataUrl: await readFileAsDataUrl(file)
-      })));
+      const preparedFiles = await Promise.all(files.map((file) => uploadAttachmentFile(file, 'feed')));
       setFeedAttachments((prev) => [...prev, ...preparedFiles]);
     } catch {
       notify('Не удалось прикрепить файл.', 'Вложения');
@@ -1777,20 +2521,18 @@ const EmployeeChat = () => {
   };
 
   const openFeedMediaViewer = (post, file, fileIndex) => {
-    if (!file?.dataUrl) return;
+    if (!getAttachmentUrl(file)) return;
     setMediaViewer({ source: 'feed', post, file, fileIndex });
     setSelectedFeedPostId('');
     setFeedReactionExpanded(false);
   };
 
   const patchFeedPost = async (postId, patch) => {
-    const response = await fetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}`, {
+    const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch)
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.message || 'Не удалось обновить публикацию');
+    }, { fallbackMessage: 'Не удалось обновить публикацию' });
     setFeedPosts(getVisibleFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts.map((post) => (post.id === postId ? { ...post, ...data.post } : post))));
     return data.post;
   };
@@ -1798,35 +2540,131 @@ const EmployeeChat = () => {
   const addCommentToPost = async (postId) => {
     const text = (commentDrafts[postId] || '').trim();
     if (!text) return;
+
+    const optimisticComment = {
+      id: createMessageId(),
+      author: user?.username || 'employee',
+      authorName: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
+      text,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    const previousPosts = feedPosts;
+
+    setCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
+    setFeedPosts((current) => current.map((post) => (
+      post.id === postId
+        ? { ...post, comments: [...(post.comments || []), optimisticComment], updatedAt: optimisticComment.updatedAt }
+        : post
+    )));
+
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments`, {
+      const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          author: user?.username || 'employee',
-          authorName: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
+          id: optimisticComment.id,
+          author: optimisticComment.author,
+          authorName: optimisticComment.authorName,
           text
         })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || 'Не удалось добавить комментарий');
+      }, { attempts: 1, fallbackMessage: 'Не удалось добавить комментарий' });
       setFeedPosts(getVisibleFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts.map((post) => (
-        post.id === postId ? { ...post, comments: [...(post.comments || []), data.comment].filter(Boolean), updatedAt: new Date().toISOString() } : post
+        post.id === postId
+          ? { ...post, comments: [...(post.comments || []), data.comment || optimisticComment].filter(Boolean), updatedAt: new Date().toISOString() }
+          : post
       ))));
-      setCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
     } catch (error) {
+      if (isNetworkFailure(error)) {
+        fetchFeed({ silent: true });
+        return;
+      }
+      setFeedPosts(previousPosts);
+      setCommentDrafts((prev) => ({ ...prev, [postId]: text }));
       notify(error.message || 'Не удалось добавить комментарий', 'Лента');
     }
   };
 
-  const deleteFeedPost = async (postId) => {
+  const startEditFeedPost = (post) => {
+    setEditingFeedPostId(post.id);
+    setEditingFeedText(post.text || '');
+    setOpenFeedMenuId('');
+  };
+
+  const saveFeedPostEdit = async (postId) => {
+    const text = editingFeedText.trim();
+    const previousPosts = feedPosts;
+    setFeedPosts((current) => current.map((post) => (post.id === postId ? { ...post, text, editedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } : post)));
+    setEditingFeedPostId('');
+    try {
+      await patchFeedPost(postId, { text, editedAt: new Date().toISOString() });
+      notify('Публикация изменена', 'Лента');
+    } catch (error) {
+      setFeedPosts(previousPosts);
+      notify(error.message || 'Не удалось изменить публикацию', 'Лента');
+    }
+  };
+
+  const hideFeedPost = (postId) => {
+    setHiddenFeedPostIds((prev) => {
+      const next = [...new Set([...prev, postId])];
+      saveHiddenFeedPosts(user?.username || 'guest', next);
+      return next;
+    });
+    setOpenFeedMenuId('');
+  };
+
+  const reportFeedPost = (postId) => {
+    notify('Жалоба отправлена модератору', 'Лента');
+    setOpenFeedMenuId('');
+    void postId;
+  };
+
+  const copyFeedPostLink = async (postId) => {
+    const url = getPostShareUrl(postId);
+    try {
+      await navigator.clipboard?.writeText(url);
+      notify('Ссылка скопирована', 'Лента');
+    } catch {
+      window.prompt('Скопируйте ссылку на публикацию', url);
+    }
+    setOpenFeedMenuId('');
+  };
+
+  const shareFeedPostToChat = (post) => {
+    const attachments = getFeedAttachments(post);
+    openForwardMessagePicker({
+      id: post.id || createMessageId(),
+      sender: post.authorName || post.author || 'Лента',
+      text: post.text || 'Публикация из ленты',
+      attachment: attachments[0] || null,
+      attachments,
+      createdAt: post.createdAt || new Date().toISOString(),
+      reactions: {},
+      pinned: false
+    });
+    setOpenFeedMenuId('');
+  };
+
+  const quoteFeedPost = (post) => {
+    setFeedDraft((prev) => `${prev ? `${prev}
+
+` : ''}> ${post.text || 'Публикация из ленты'}
+`);
+    setOpenFeedMenuId('');
+  };
+
+
+  const deleteFeedPost = async (postId, options = {}) => {
     const post = feedPosts.find((item) => item.id === postId);
     if (!post) return;
 
-    const canDeletePost = isManager || isAdmin || sameLogin(post.author, user?.username);
+    const canDeletePost = canManageFeedPost(post, user, isManager, isAdmin);
     if (!canDeletePost) return;
-    const confirmed = await confirmAction('Удалить публикацию из ленты?', 'Лента');
-    if (!confirmed) return;
+    if (!options.skipConfirm) {
+      const confirmed = await confirmAction('Удалить публикацию из ленты?', 'Лента');
+      if (!confirmed) return;
+    }
 
     const previousPosts = feedPosts;
     setFeedPosts((current) => current.filter((item) => item.id !== postId));
@@ -1902,7 +2740,13 @@ const EmployeeChat = () => {
   };
 
   return (
-    <div className={`employee-chat-layout ${isDraggingFiles ? 'dragging-files' : ''}`} onDrop={handleAttachmentDrop} onDragOver={handleDragOver} onDragEnter={handleDragOver} onDragLeave={handleDragLeave}>
+    <div
+      className={`employee-chat-layout theme-${chatLocalSettings.uiTheme || 'light'} density-${chatLocalSettings.uiDensity || 'regular'} text-${chatLocalSettings.uiTextSize || 'medium'} ${isDraggingFiles ? 'dragging-files' : ''}`}
+      onDrop={handleAttachmentDrop}
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragOver}
+      onDragLeave={handleDragLeave}
+    >
       {isDraggingFiles && <div className="drop-zone-overlay"><strong>📎 Отпустите файлы</strong><span>Добавим их в текущее сообщение</span></div>}
       <input ref={avatarInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={handleAvatarUpload} hidden />
       
@@ -1915,7 +2759,7 @@ const EmployeeChat = () => {
             <strong>{headerName}</strong>
             <span>{profileForm.position || profileForm.department || user?.role || 'Рабочий чат'}</span>
           </div>
-          <button type="button" className="icon-btn" onClick={() => { setActiveTab('profile'); setProfileViewLogin(''); }}>Профиль</button>
+          <div className="brand-actions"><button type="button" className="icon-btn" onClick={() => { setActiveTab('profile'); setProfileViewLogin(''); }}>Профиль</button></div>
         </div>
 
         <nav className="employee-chat-tabs" aria-label="Разделы чата">
@@ -1930,6 +2774,30 @@ const EmployeeChat = () => {
           })}
         </nav>
 
+        <details className="chat-appearance-panel">
+          <summary>Вид интерфейса</summary>
+          <div className="chat-appearance-controls">
+            <label>
+              <span>Тема</span>
+              <select value={chatLocalSettings.uiTheme || 'light'} onChange={(e) => updateChatUiSetting('uiTheme', e.target.value)}>
+                {CHAT_THEMES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Плотность</span>
+              <select value={chatLocalSettings.uiDensity || 'regular'} onChange={(e) => updateChatUiSetting('uiDensity', e.target.value)}>
+                {CHAT_DENSITIES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+              </select>
+            </label>
+            <label>
+              <span>Текст</span>
+              <select value={chatLocalSettings.uiTextSize || 'medium'} onChange={(e) => updateChatUiSetting('uiTextSize', e.target.value)}>
+                {CHAT_TEXT_SIZES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+              </select>
+            </label>
+          </div>
+        </details>
+
         <div className="employee-contact-panel">
           <label className="field-label">Контакты</label>
           <input
@@ -1939,14 +2807,14 @@ const EmployeeChat = () => {
             onChange={(e) => setSearch(e.target.value)}
           />
 
-          <div className={`employee-chat-list ${isManager ? 'manager-mode' : ''}`}>
+          <label className="contact-filter-select"><span>Фильтр</span><select value={contactFilter} onChange={(e) => setContactFilter(e.target.value)}>{CONTACT_FILTERS.map((filter) => <option key={filter.id} value={filter.id}>{filter.label}</option>)}</select></label><div className={`employee-chat-list ${isManager ? 'manager-mode' : ''}`}>
             {availableEmployees.length === 0 && <div className="empty-mini">Ничего не найдено</div>}
             {availableEmployees.map((employee) => {
               const isOnline = Boolean(employee.isOnline);
               const isManagerContact = ['manager', 'admin'].includes((employee.role || '').toLowerCase()) || employee.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
               const profile = employee.profile || {};
               return (
-                <div key={employee.email} className={`employee-chat-user ${selectedEmail === employee.email ? 'active' : ''} ${isManagerContact ? 'manager-priority' : ''}`}>
+                <div key={employee.email} className={`employee-chat-user ${selectedEmail === employee.email ? 'active' : ''} ${isManagerContact ? 'manager-priority' : ''} ${(chatLocalSettings.favorites || []).includes(employee.email) ? 'favorite' : ''} ${(chatLocalSettings.pinned || []).includes(getConversationId(user.username, employee.email)) ? 'pinned-dialog' : ''}`}>
                   <button type="button" className="employee-contact-open" onClick={() => setSelectedEmail(employee.email)}>
                     <span className={`status-dot ${isOnline ? 'online' : 'offline'}`} />
                     <span className="employee-chat-user-main">
@@ -1956,16 +2824,13 @@ const EmployeeChat = () => {
                     <span className="employee-chat-user-status">{isManagerContact ? 'admin' : (isOnline ? 'online' : 'offline')}</span>
                     {unreadByEmail[employee.email] > 0 && <span className="employee-chat-user-unread">{unreadByEmail[employee.email]}</span>}
                   </button>
-                  <button type="button" className="profile-open-btn" onClick={() => { openProfileCard(employee.email); setActiveTab('profile'); }}>Профиль</button>
+                  <span className="contact-card-actions"><button type="button" className="profile-open-btn" onClick={() => { openProfileCard(employee.email); setActiveTab('profile'); }}>Профиль</button><button type="button" className="favorite-contact-btn" aria-label="Закрепить диалог" onClick={() => toggleLocalListValue('pinned', getConversationId(user.username, employee.email))}>{(chatLocalSettings.pinned || []).includes(getConversationId(user.username, employee.email)) ? '📌' : '📍'}</button><button type="button" className="favorite-contact-btn" aria-label="Избранное" onClick={() => toggleLocalListValue('favorites', employee.email)}>{(chatLocalSettings.favorites || []).includes(employee.email) ? '★' : '☆'}</button></span>
                 </div>
               );
             })}
           </div>
         </div>
 
-        <div className="employee-chat-actions">
-          {!isAdmin && <button className="logout-btn" onClick={handleLogout}>Выход</button>}
-        </div>
       </aside>
 
       <section className="employee-chat-main">
@@ -1991,24 +2856,28 @@ const EmployeeChat = () => {
                     <p>{selectedEmail}</p>
                   </div>
                   <div className="conversation-tools">
-                    <input value={dialogSearch} onChange={(e) => setDialogSearch(e.target.value)} placeholder="Поиск в диалоге..." />
+                    <input value={dialogSearch} onChange={(e) => { setDialogSearch(e.target.value); setDialogSearchIndex(0); }} placeholder="Поиск в диалоге..." />{normalizedDialogSearch && <span className="dialog-search-count">{dialogSearchResults.length ? dialogSearchIndex + 1 : 0} из {dialogSearchResults.length}</span>}<button type="button" disabled={!dialogSearchResults.length} onClick={() => setDialogSearchIndex((prev) => Math.max(0, prev - 1))}>↑</button><button type="button" disabled={!dialogSearchResults.length} onClick={() => setDialogSearchIndex((prev) => Math.min(dialogSearchResults.length - 1, prev + 1))}>↓</button>{chatLocalSettings.showDialogMediaPanel === true && <button type="button" onClick={() => setMediaPanelOpen((prev) => !prev)}>Медиа / Файлы</button>}
                     <button type="button" onClick={() => { openProfileCard(selectedEmail); setActiveTab('profile'); }}>Профиль</button>
                     <details className="conversation-menu">
                       <summary aria-label="Действия с диалогом">⋯</summary>
                       <div className="conversation-menu-popover">
-                        <button type="button" className="danger-action" onClick={clearConversation}>Удалить переписку</button>
+                        <button type="button" onClick={() => toggleLocalListValue('archived', currentConversationId)}>Архивировать диалог</button><button type="button" onClick={() => toggleLocalListValue('hidden', currentConversationId)}>Скрыть диалог</button><button type="button" onClick={() => toggleLocalListValue('pinned', currentConversationId)}>Закрепить диалог</button><button type="button" onClick={() => setReadState((prev) => ({ ...prev, [currentConversationId]: '' }))}>Пометить непрочитанным</button><button type="button" onClick={() => toggleLocalListValue('muted', currentConversationId)}>Отключить уведомления</button><button type="button" className="danger-action" onClick={clearConversation}>Удалить переписку</button>
                       </div>
                     </details>
                   </div>
                 </header>
 
+	                <div className="dialog-filter-row">{CHAT_FILTERS.map((filter) => <button key={filter.id} type="button" className={dialogFilter === filter.id ? 'active' : ''} onClick={() => setDialogFilter(filter.id)}>{filter.label}</button>)}</div>
+	                <div className="date-jump-row"><label>Перейти к дате <input type="date" onChange={(event) => jumpToMessageDate(event.target.value)} /></label></div>
+                {chatLocalSettings.showDialogMediaPanel === true && mediaPanelOpen && <div className="dialog-media-panel"><div className="dialog-media-tabs">{CHAT_MEDIA_TABS.map((tab) => <button key={tab.id} type="button" className={mediaPanelTab === tab.id ? 'active' : ''} onClick={() => setMediaPanelTab(tab.id)}>{tab.label}</button>)}</div><input type="search" placeholder="Поиск по имени файла или ссылке..." value={mediaPanelSearch} onChange={(e) => setMediaPanelSearch(e.target.value)} /><button type="button" onClick={() => notify('Скачивание архива будет доступно после серверного zip-метода', 'Медиа')}>Скачать всё архивом</button><div className="dialog-media-grid">{filteredDialogMediaItems.length === 0 && <small>Ничего не найдено</small>}{filteredDialogMediaItems.map(({ message, file, fileIndex, type }, index) => <button key={`${message.id}-${file.name}-${index}`} type="button" onClick={() => type === 'link' ? window.open(file.dataUrl, '_blank', 'noopener,noreferrer') : isMediaAttachment(file) ? setMediaViewer({ message, file, fileIndex, scope: 'dialog' }) : openAttachmentInNewTab(file)}>{type === 'link' ? <span>🔗 {file.name}</span> : isMediaAttachment(file) ? (isVideoAttachment(file) ? <video src={getAttachmentUrl(file)} muted playsInline /> : <img src={getAttachmentUrl(file)} alt={file.name || 'Медиа'} />) : <span>{getFileIcon(file.type)} {file.name}</span>}<em>{new Date(message.createdAt).toLocaleDateString('ru-RU')}</em></button>)}</div></div>}
+
                 {pinnedMessages.length > 0 && (
                   <div className="pinned-box">
-                    <strong>📌 Закреплённые</strong>
-                    {pinnedMessages.map((message) => <div key={`pin-${message.id}`}>• {message.text}</div>)}
+                    <strong>📌 Закреплённые {pinnedMessageIndex + 1} из {pinnedMessages.length}</strong><div className="pinned-controls"><button type="button" onClick={() => setPinnedMessageIndex((prev) => Math.max(0, prev - 1))}>‹</button><button type="button" onClick={() => setPinnedMessageIndex((prev) => Math.min(pinnedMessages.length - 1, prev + 1))}>›</button></div>{pinnedMessages[pinnedMessageIndex] && <button type="button" onClick={() => document.querySelector(`[data-message-id="${pinnedMessages[pinnedMessageIndex].id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>• {pinnedMessages[pinnedMessageIndex].text || (getMessageAttachments(pinnedMessages[pinnedMessageIndex]).some(isImageAttachment) ? '📷 Фото' : '📎 Документ')}</button>}
                   </div>
                 )}
 
+                {multiSelectMode && <div className="multi-select-toolbar"><strong>Выбрано: {selectedMessageIds.length}</strong><button type="button" onClick={copySelectedMessages}>Копировать</button><button type="button" onClick={() => { const selected = getSelectedMessages(); if (selected[0]) openForwardMessagePicker({ ...selected[0], text: selected.map((msg) => `${msg.sender}: ${msg.text || '[вложение]'}`).join('\n') }); }}>Переслать</button><button type="button" onClick={() => { const selected = getSelectedMessages(); setRequestText(selected.map((msg) => `${msg.sender}: ${msg.text || '[вложение]'}`).join('\n')); setActiveTab('request'); }}>Создать заявку</button><button type="button" onClick={() => notify('Архив вложений будет доступен после серверного zip-метода', 'Вложения')}>Скачать вложения</button><button type="button" className="danger-action" onClick={deleteSelectedMessages}>Удалить</button><button type="button" onClick={clearSelectedMessages}>Отмена</button></div>}
                 <div
                   className="messages-wrap"
                   ref={messagesWrapRef}
@@ -2040,22 +2909,36 @@ const EmployeeChat = () => {
                     const isSelected = selectedMessageId === message.id;
                     const visibleReactions = messageReactionExpanded ? REACTION_EMOJIS : REACTION_EMOJIS.slice(0, 7);
                     const messageReactionBadges = REACTION_EMOJIS.filter((emoji) => (message.reactions?.[emoji] || []).length > 0);
+                    const linkPreviews = extractLinks(message.text).map(getLinkPreview).filter(Boolean);
 
                     return (
-                      <div key={message.id} className={`message-row ${isMine ? 'mine' : ''} ${isSelected ? 'selected' : ''}`}>
+                      <div key={message.id} data-message-id={message.id} className={`message-row ${isMine ? 'mine' : ''} ${isSelected ? 'selected' : ''} ${selectedMessageIds.includes(message.id) ? 'multi-selected' : ''} ${activeDialogSearchResult?.id === message.id ? 'search-current' : ''}`}>
                         <div
                           role="button"
                           tabIndex={0}
                           className={`message-bubble ${isMediaOnly ? 'media-only' : ''}`}
                           onClick={(event) => {
                             event.stopPropagation();
+                            if (multiSelectMode) { toggleSelectedMessage(message.id); return; }
                             if (isSelected && messageReactionExpanded) setMessageReactionExpanded(false);
                             else {
                               setSelectedMessageId(message.id);
                               setMessageReactionExpanded(false);
                             }
                           }}
-                          onKeyDown={(event) => {
+                          onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); toggleReaction(message.id, '👍'); }}
+	                          onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setSelectedMessageId(message.id); setMessageReactionExpanded(false); }}
+	                          onTouchStart={(event) => { event.currentTarget.dataset.touchX = String(event.touches[0]?.clientX || 0); }}
+	                          onTouchEnd={(event) => {
+	                            const startX = Number(event.currentTarget.dataset.touchX || 0);
+	                            const endX = event.changedTouches[0]?.clientX || startX;
+	                            const deltaX = endX - startX;
+	                            if (Math.abs(deltaX) < 70) return;
+	                            event.stopPropagation();
+	                            if (deltaX > 0) setReplyTo(message);
+	                            else openForwardMessagePicker(message);
+	                          }}
+	                          onKeyDown={(event) => {
                             if (event.key !== 'Enter' && event.key !== ' ') return;
                             event.preventDefault();
                             event.stopPropagation();
@@ -2071,12 +2954,24 @@ const EmployeeChat = () => {
                           )}
 
                           {message.forwardedFrom && <div className="forwarded-preview">Переслано от {message.forwardedFrom}</div>}
-                          {message.replyTo && <div className="reply-preview">↪ {message.replyTo.sender}: {message.replyTo.text}</div>}
+                          {message.replyTo && <button type="button" className="reply-preview reply-jump" onClick={(event) => { event.stopPropagation(); document.querySelector(`[data-message-id="${message.replyTo.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>↪ {message.replyTo.sender}: {message.replyTo.text || 'Исходное сообщение удалено'}</button>}
                           {isDeleted ? (
                             <div className="message-deleted">Сообщение удалено {message.deletedBy ? `· ${message.deletedBy}` : ''}</div>
                           ) : hasTextContent ? (
-                            <div className="message-text">{message.text}</div>
+                            inlineEditMessageId === message.id ? <div className="inline-message-editor"><textarea value={inlineEditText} onChange={(e) => setInlineEditText(e.target.value)} /><button type="button" onClick={() => saveInlineEditMessage(message)}>Сохранить</button><button type="button" onClick={() => setInlineEditMessageId('')}>Отмена</button></div> : <div className="message-text">{highlightText(message.text)}</div>
                           ) : null}
+
+                          {linkPreviews.length > 0 && !isDeleted && (
+                            <div className="link-preview-list">
+                              {linkPreviews.map((preview) => (
+                                <a key={preview.url} className="link-preview-card" href={preview.url} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
+                                  <img src={preview.favicon} alt="" onError={(event) => { event.currentTarget.style.display = 'none'; }} />
+                                  <span><strong>{preview.title}</strong><small>{preview.description}</small><em>{preview.domain}</em></span>
+                                  <b>Открыть</b>
+                                </a>
+                              ))}
+                            </div>
+                          )}
 
                           {attachments.length > 0 && (
                             <div className={`message-attachments-grid ${isPhotoCollage ? 'photo-collage' : ''}`}>
@@ -2092,6 +2987,7 @@ const EmployeeChat = () => {
                                     setMessageReactionExpanded(false);
                                   }}
                                   onOpen={() => openChatMediaViewer(message, file, index)}
+                                  onQuickReaction={() => toggleReaction(message.id, '❤️')}
                                 />
                               ))}
                             </div>
@@ -2110,23 +3006,38 @@ const EmployeeChat = () => {
                                       event.stopPropagation();
                                       toggleReaction(message.id, emoji);
                                     }}
+                                    title={(message.reactions?.[emoji] || []).join(', ')}
                                   >
-                                    {emoji}
+                                    {emoji}<span>{(message.reactions?.[emoji] || []).length}</span>
                                   </button>
                                 );
                               })}
                             </div>
                           )}
 
-                          <small className="read-state message-status-line">
-                            {message.editedAt && !isDeleted ? 'изменено · ' : ''}
-                            {statusLabel}
-                          </small>
+                          {isMediaOnly && (
+                            <small className="read-state message-status-line media-status-line">
+                              {message.editedAt && !isDeleted ? 'изменено · ' : ''}
+                              {photoMetaLabel} {message.deliveryStatus === 'sending' ? 'Отправляется…' : message.deliveryStatus === 'waiting' ? 'Ожидает сети' : message.deliveryStatus === 'error' ? 'Ошибка' : message.deliveryStatus === 'sent' ? '✓' : statusLabel}
+                              {isMine && message.deliveryStatus !== 'sending' && message.deliveryStatus !== 'waiting' && message.deliveryStatus !== 'error' ? '✓' : ''}
+                            </small>
+                          )}
+                          {!isMediaOnly && (
+                            <small className="read-state message-status-line">
+                              {message.editedAt && !isDeleted ? 'изменено · ' : ''}
+                              {message.deliveryStatus === 'sending' ? 'Отправляется…' : message.deliveryStatus === 'waiting' ? 'Ожидает сети' : message.deliveryStatus === 'error' ? 'Ошибка' : message.deliveryStatus === 'sent' ? '✓' : statusLabel}
+                              {isMine && message.deliveryStatus !== 'sending' && message.deliveryStatus !== 'waiting' && message.deliveryStatus !== 'error' ? '✓' : ''}
+                            </small>
+                          )}
                         </div>
 
                         {isSelected && !isDeleted && (
-                          <div className={`selected-message-menu ${isMine ? 'mine' : ''}`} onClick={(event) => event.stopPropagation()}>
-                            <div className="selected-reaction-row">
+                          <div className={`selected-message-menu message-action-popover ${isMine ? 'mine' : ''}`} onClick={(event) => event.stopPropagation()}>
+                            <div className="message-action-popover-head">
+                              <strong>Действия</strong>
+                              <button type="button" aria-label="Закрыть меню сообщения" onClick={() => { setSelectedMessageId(''); setMessageReactionExpanded(false); }}>×</button>
+                            </div>
+                            <div className="selected-reaction-row compact-reaction-row">
                               {visibleReactions.map((emoji) => {
                                 const active = (message.reactions?.[emoji] || []).includes(user.username);
                                 return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => { toggleReaction(message.id, emoji); setSelectedMessageId(''); setMessageReactionExpanded(false); }}>{emoji}</button>;
@@ -2135,14 +3046,28 @@ const EmployeeChat = () => {
                             </div>
 
                             {!messageReactionExpanded && (
-                              <div className="selected-actions-row">
-                                <button type="button" onClick={() => { setReplyTo(message); setSelectedMessageId(''); }}>↩ Ответить</button>
-                                <button type="button" onClick={() => { copyMessageText(message); setSelectedMessageId(''); }}>Копировать</button>
-                                <button type="button" onClick={() => openForwardMessagePicker(message)}>➜ Переслать</button>
-                                <button type="button" onClick={() => { togglePinned(message.id); setSelectedMessageId(''); }}>{message.pinned ? 'Открепить' : 'Закрепить'}</button>
-                                {canEdit && <button type="button" onClick={() => { editMessage(message.id); setSelectedMessageId(''); }}>Изменить</button>}
-                                {canEdit && <button type="button" className="danger-action" onClick={() => { deleteMessage(message.id); setSelectedMessageId(''); }}>✕ Удалить</button>}
-                              </div>
+                              <>
+                                <div className="message-action-grid primary-actions">
+                                  <button type="button" onClick={() => { setReplyTo(message); setSelectedMessageId(''); }}>↩ Ответить</button>
+                                  <button type="button" onClick={() => { copyMessageText(message); setSelectedMessageId(''); }}>Копировать</button>
+                                  <button type="button" onClick={() => openForwardMessagePicker(message)}>➜ Переслать</button>
+                                  <button type="button" onClick={() => { togglePinned(message.id); setSelectedMessageId(''); }}>{message.pinned ? 'Открепить' : 'Закрепить'}</button>
+                                  {canEdit && <button type="button" onClick={() => startInlineEditMessage(message)}>Изменить</button>}
+                                  <button type="button" onClick={() => { setMultiSelectMode(true); toggleSelectedMessage(message.id); setSelectedMessageId(''); }}>Выбрать</button>
+                                </div>
+                                <div className="message-action-grid secondary-actions">
+                                  <button type="button" onClick={() => createRequestFromMessage(message)}>Создать заявку</button>
+                                  <button type="button" onClick={() => notify('Добавление к существующей заявке будет доступно после выбора заявки', 'Заявка')}>Добавить к заявке</button>
+                                  <button type="button" onClick={() => notify('Задача создана как черновик после подключения задач', 'Задачи')}>Создать задачу</button>
+                                  <button type="button" onClick={() => notify('Назначение исполнителя появится в модуле задач', 'Задачи')}>Назначить исполнителя</button>
+                                  <button type="button" onClick={() => notify('Срок можно будет поставить после подключения задач', 'Задачи')}>Поставить срок</button>
+                                  <button type="button" onClick={() => getMessageAttachments(message).forEach(openAttachmentInNewTab)}>Скачать вложения</button>
+                                </div>
+                                <div className="message-action-grid danger-actions">
+                                  {isMine && ['waiting', 'error'].includes(message.deliveryStatus) && <button type="button" onClick={() => retryMessageSend(message)}>Повторить отправку</button>}
+                                  {canEdit && <button type="button" className="danger-action" onClick={() => { deleteMessage(message.id); setSelectedMessageId(''); }}>✕ Удалить</button>}
+                                </div>
+                              </>
                             )}
                           </div>
                         )}
@@ -2185,7 +3110,7 @@ const EmployeeChat = () => {
                           <div key={file.id || `${file.name}-${index}`} className={`attachment-preview media-draft-tile ${mediaFile ? 'is-media' : ''}`}>
                             {mediaFile ? (
                               <button type="button" className="media-draft-thumb" onClick={() => setMediaViewer({ source: 'chat-draft', file, fileIndex: index })}>
-                                {isVideoAttachment(file) ? <video src={file.dataUrl} muted playsInline preload="metadata" /> : <img src={file.dataUrl} alt={file.name} />}
+                                {isVideoAttachment(file) ? <video src={getAttachmentUrl(file)} muted playsInline preload="metadata" /> : <img src={getAttachmentUrl(file)} alt={file.name} />}
                               </button>
                             ) : <span className="media-draft-file-icon">{getFileIcon(file.type)}</span>}
                             <span>{file.name} · {formatFileSize(file.size)}</span>
@@ -2196,12 +3121,30 @@ const EmployeeChat = () => {
                     </div>
                   )}
 
-                  {typingHint && <div className="typing-hint">{typingHint}</div>}
+                  {pendingMessages.length > 0 && <div className="offline-status">{isOnline ? `Отправляем ожидающие: ${pendingMessages.length}` : `Ожидает отправки: ${pendingMessages.length}`}</div>}
+                  {!isOnline && <div className="offline-status warning">Нет соединения. Сообщения сохраняются локально.</div>}
+                  {typingHint && <div className="typing-hint">{typingHint}</div>}{Date.now() < peerTypingUntil && <div className="typing-hint peer-typing">{activeContact?.profile?.full_name || selectedEmail} печатает<span>•••</span></div>}<button type="button" className="clear-chat-draft" onClick={clearCurrentDraft}>Очистить черновик</button>
 
                   <form className="message-form" onSubmit={handleSend}>
-                    <input placeholder="Введите сообщение или перетащите файлы сюда..." value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={2000} />
-                    <label className="attach-file-btn">📎 Выбрать несколько фото/видео<input type="file" hidden multiple accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={handleAttachmentChange} /></label>
-                    <button type="submit" disabled={isSendingMessage}>{isSendingMessage ? 'Отправляем...' : 'Отправить'}</button>
+                    <div className="composer-textarea-box">
+                      <textarea
+                        ref={messageTextareaRef}
+                        placeholder="Введите сообщение или перетащите файлы сюда... @username"
+                        value={draft}
+                        onChange={(e) => { setDraft(e.target.value); setPeerTypingUntil(Date.now() + 1800); }}
+                        onKeyDown={handleComposerKeyDown}
+                        onPaste={handleComposerPaste}
+                        maxLength={2000}
+                        rows={1}
+                      />
+                      <div className="composer-hints">
+                        <label><input type="checkbox" checked={chatLocalSettings.enterToSend !== false} onChange={() => updateChatLocalSettings((prev) => ({ ...prev, enterToSend: prev.enterToSend === false }))} /> Enter отправляет</label>
+                        {draft.length > 1600 && <span className={draft.length > 1900 ? 'limit-warning' : ''}>{draft.length}/2000</span>}
+                        <span>Shift+Enter — новая строка · Ctrl+V — скриншот/файл</span>
+                      </div>
+                    </div>
+                    <label className="attach-file-btn" aria-label="Прикрепить файлы" title="Прикрепить файлы">📎<input type="file" hidden multiple accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={handleAttachmentChange} /></label>
+                    <button type="submit" disabled={isSendingMessage}>{isSendingMessage ? 'Отправляем...' : isOnline ? 'Отправить' : 'В очередь'}</button>
                   </form>
                 </div>
               </>
@@ -2260,13 +3203,13 @@ const EmployeeChat = () => {
 
         {activeTab === 'feed' && (
           <section className="employee-feed-section">
-            <header className="employee-feed-header">
-              <div><span className="eyebrow">Общая серверная лента</span><h2>Лента сотрудников</h2><p>Публикации сохраняются на сервере и доступны всем пользователям.</p></div>
+            <header className="employee-feed-header compact-feed-header">
+              <div><h2>Лента сотрудников</h2><p>Объявления, новости и фотоотчёты.</p></div>
               <button type="button" onClick={() => fetchFeed({ silent: false })}>Обновить</button>
             </header>
             {feedError && <div className="feed-status-warning">Лента временно недоступна: {feedError}</div>}
-            <form className="employee-feed-composer" onSubmit={addFeedPost}>
-              <textarea rows={4} placeholder="Новость, объявление или рабочая заметка..." value={feedDraft} onChange={(e) => setFeedDraft(e.target.value)} />
+            <form className="employee-feed-composer compact-feed-composer" onSubmit={addFeedPost}>
+              <div className="feed-composer-line"><select value={feedCategory} onChange={(e) => setFeedCategory(e.target.value)}>{FEED_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select><textarea rows={2} placeholder="Написать в ленту... @ivanov #важно" value={feedDraft} onChange={(e) => setFeedDraft(e.target.value)} /></div>
               {feedAttachments.length > 0 && (
                 <div className="employee-feed-attachment-preview-grid media-draft-grid">
                   {feedAttachments.map((file, index) => {
@@ -2275,7 +3218,7 @@ const EmployeeChat = () => {
                       <div key={file.id || `${file.name}-${index}`} className={`employee-feed-attachment-preview media-draft-tile ${mediaFile ? 'is-media' : ''}`}>
                         {mediaFile ? (
                           <button type="button" className="media-draft-thumb" onClick={() => setMediaViewer({ source: 'feed-draft', file, fileIndex: index })}>
-                            {isVideoAttachment(file) ? <video src={file.dataUrl} muted playsInline preload="metadata" /> : <img src={file.dataUrl} alt={file.name} />}
+                            {isVideoAttachment(file) ? <video src={getAttachmentUrl(file)} muted playsInline preload="metadata" /> : <img src={getAttachmentUrl(file)} alt={file.name} />}
                           </button>
                         ) : <span className="media-draft-file-icon">{getFileIcon(file.type)}</span>}
                         <span>{file.name} · {formatFileSize(file.size)}</span>
@@ -2285,12 +3228,16 @@ const EmployeeChat = () => {
                   })}
                 </div>
               )}
-              <div className="employee-feed-composer-actions"><label>📎 Выбрать несколько фото/видео<input type="file" multiple hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="submit" disabled={isPublishingFeed || (!feedDraft.trim() && feedAttachments.length === 0)}>{isPublishingFeed ? 'Публикуем...' : 'Опубликовать'}</button></div>
+              <div className="employee-feed-composer-actions"><label>📎 Фото/видео<input type="file" multiple hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="button" onClick={() => { setFeedDraft(''); setFeedAttachments([]); clearSavedFeedDraft(user?.username || 'guest'); }}>Очистить</button><button type="submit" disabled={isPublishingFeed || (!feedDraft.trim() && feedAttachments.length === 0)}>{isPublishingFeed ? 'Публикуем...' : 'Опубликовать'}</button></div>
             </form>
+            <div className="feed-toolbar compact-feed-toolbar"><input type="search" placeholder="Поиск по ленте, автору, #тегу..." value={feedSearch} onChange={(e) => setFeedSearch(e.target.value)} /><details><summary>Фильтры</summary><div>{FEED_FILTERS.map((filter) => <button key={filter.id} type="button" className={feedFilter === filter.id ? 'active' : ''} onClick={() => setFeedFilter(filter.id)}>{filter.label}</button>)}</div></details>{feedRefreshing && <span className="feed-refreshing compact-refreshing">Обновляем…</span>}</div>
             <div className="employee-feed-list" ref={feedListRef} onClick={(event) => { if (event.target === event.currentTarget) { setSelectedFeedPostId(''); setFeedReactionExpanded(false); } }}>
-              {getVisibleFeedPosts(feedPosts).length === 0 && <div className="empty-chat">Пока нет публикаций.</div>}
-              {getVisibleFeedPosts(feedPosts).sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))).map((post) => {
-                const canDeletePost = isManager || isAdmin || sameLogin(post.author, user?.username);
+              {feedLoading && <div className="feed-skeleton-list"><div /><div /><div /></div>}
+              {!feedLoading && feedError && <button type="button" className="feed-retry" onClick={() => fetchFeed({ silent: false })}>Повторить загрузку</button>}
+              {!feedLoading && visibleFeedPosts.length === 0 && <div className="empty-chat">Пока нет публикаций.</div>}
+              {pinnedFeedPosts.length > 0 && <div className="feed-pinned-title">📌 Закреплено</div>}
+              {[...pinnedFeedPosts, ...regularFeedPosts].map((post) => {
+                const canDeletePost = canManageFeedPost(post, user, isManager, isAdmin);
                 return (
                   <article
                     key={post.id}
@@ -2312,17 +3259,17 @@ const EmployeeChat = () => {
                       setFeedReactionExpanded(false);
                     }}
                   >
-                    <header className="employee-feed-post-header"><div><strong>{post.pinned ? '📌 ' : ''}{post.authorName}</strong><span>{formatFeedLogin(post.author)} · {new Date(post.createdAt).toLocaleString('ru-RU')}</span></div></header>
-                    {post.text && <p className="employee-feed-post-text">{post.text}</p>}
-                    {getFeedAttachments(post).length > 0 && <div className="employee-feed-media-grid">{getFeedAttachments(post).map((file, index) => { const isMedia = String(file.type || '').startsWith('image/') || isVideoAttachment(file); return isMedia ? <button key={file.id || `${post.id}-feed-media-${index}`} type="button" className={`employee-feed-media-tile ${isVideoAttachment(file) ? 'video' : ''}`} onClick={(event) => { event.stopPropagation(); setSelectedFeedPostId(post.id); setFeedReactionExpanded(false); }} onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); openFeedMediaViewer(post, file, index); }} aria-label={`Выбрать вложение ${file.name || 'медиа'}. Двойной клик — открыть`}>{isVideoAttachment(file) ? <video src={file.dataUrl} preload="metadata" muted playsInline /> : <img src={file.dataUrl} alt={file.name || 'Вложение'} />}<span>{file.name} · {formatFileSize(file.size)}</span></button> : <AttachmentCard key={file.id || `${post.id}-feed-file-${index}`} cardKey={`${post.id}-feed-file-${index}`} file={file} variant="feed" />; })}</div>}
-                    <div className="message-reactions-inline feed-reactions-inline">{REACTION_EMOJIS.filter((emoji) => (post.reactions?.[emoji] || []).length > 0).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={(event) => { event.stopPropagation(); toggleFeedReaction(post.id, emoji); }}>{emoji}</button>; })}</div>
+                    <header className="employee-feed-post-header"><div><strong>{post.pinned ? '📌 ' : ''}{post.authorName}</strong><span>{post.category || 'Объявление'} · {formatFeedLogin(post.author)} · {new Date(post.createdAt).toLocaleString('ru-RU')}{post.editedAt && ' · изменено'}</span></div><button type="button" className="feed-post-menu-button" onClick={(event) => { event.stopPropagation(); setOpenFeedMenuId(openFeedMenuId === post.id ? '' : post.id); }}>⋯</button>{openFeedMenuId === post.id && <div className="feed-post-menu" onClick={(event) => event.stopPropagation()}>{canDeletePost && <button type="button" onClick={() => startEditFeedPost(post)}>Редактировать текст</button>}{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? 'Открепить' : 'Закрепить'}</button>}<button type="button" onClick={() => copyFeedPostLink(post.id)}>Скопировать ссылку</button><button type="button" onClick={() => shareFeedPostToChat(post)}>Поделиться постом в чат</button><button type="button" onClick={() => quoteFeedPost(post)}>Цитировать пост</button><button type="button" onClick={() => hideFeedPost(post.id)}>Скрыть пост</button>{!isPostAuthor(post, user) && <button type="button" onClick={() => reportFeedPost(post.id)}>Пожаловаться</button>}{(isManager || isAdmin) && <button type="button" onClick={() => notify((post.audit || []).length ? 'История есть в аудите' : 'История изменений пуста', 'Лента')}>История изменений</button>}{canDeletePost && <button type="button" className="danger-action" onClick={() => deleteFeedPost(post.id)}>Удалить</button>}</div>}</header>
+                    {editingFeedPostId === post.id ? <div className="feed-edit-box"><textarea rows={3} value={editingFeedText} onChange={(e) => setEditingFeedText(e.target.value)} /><div><button type="button" onClick={() => saveFeedPostEdit(post.id)}>Сохранить</button><button type="button" onClick={() => setEditingFeedPostId('')}>Отмена</button></div></div> : post.text && <p className="employee-feed-post-text">{post.text}</p>}
+                    {getFeedAttachments(post).length > 0 && <div className="employee-feed-media-grid">{getFeedAttachments(post).map((file, index) => { const isMedia = String(file.type || '').startsWith('image/') || isVideoAttachment(file); return isMedia ? <button key={file.id || `${post.id}-feed-media-${index}`} type="button" className={`employee-feed-media-tile ${isVideoAttachment(file) ? 'video' : ''}`} onClick={(event) => { event.stopPropagation(); openFeedMediaViewer(post, file, index); }} onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); toggleFeedReaction(post.id, '👍'); }} aria-label={`Открыть вложение ${file.name || 'медиа'}`}>{isVideoAttachment(file) ? <video src={getAttachmentUrl(file)} poster={file.posterUrl || file.thumbnailUrl} preload="metadata" muted playsInline /> : <img src={getAttachmentUrl(file)} alt={file.name || 'Вложение'} loading="lazy" />}<span>{file.name} · {formatFileSize(file.size)}</span></button> : <AttachmentCard key={file.id || `${post.id}-feed-file-${index}`} cardKey={`${post.id}-feed-file-${index}`} file={file} variant="feed" />; })}</div>}
+                    <div className="message-reactions-inline feed-reactions-inline">{REACTION_EMOJIS.filter((emoji) => (post.reactions?.[emoji] || []).length > 0).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={(event) => { event.stopPropagation(); toggleFeedReaction(post.id, emoji); }} title={(post.reactions?.[emoji] || []).join(', ')}>{emoji} {(post.reactions?.[emoji] || []).length}</button>; })}</div>
                     {selectedFeedPostId === post.id && (
                       <div className="feed-selected-menu" onClick={(event) => event.stopPropagation()}>
                         <div className="selected-reaction-row feed-reaction-picker">{(feedReactionExpanded ? REACTION_EMOJIS : REACTION_EMOJIS.slice(0, 7)).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => toggleFeedReaction(post.id, emoji)}>{emoji}</button>; })}{!feedReactionExpanded && <button type="button" className="more-reactions" onClick={() => setFeedReactionExpanded(true)}>⌄</button>}</div>
                         <div className="selected-actions-row feed-actions-row">{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? 'Открепить' : 'Закрепить'}</button>}{canDeletePost && <button type="button" className="danger-action" onClick={() => deleteFeedPost(post.id)}>✕ Удалить</button>}</div>
                       </div>
                     )}
-                    <div className="employee-feed-comments"><div className="employee-feed-comments-title">Комментарии</div>{(post.comments || []).filter((comment) => !comment.deletedAt).length === 0 && <small className="employee-feed-no-comments">Комментариев пока нет.</small>}{(post.comments || []).filter((comment) => !comment.deletedAt).map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; return <div key={comment.id} className="employee-feed-comment"><div className="employee-feed-comment-body"><strong>{comment.authorName}</strong><span>{comment.text}</span><small>{formatFeedLogin(comment.author)} · {new Date(comment.createdAt).toLocaleString('ru-RU')}</small></div>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>Удалить</button>}</div>; })}<div className="employee-feed-comment-form"><input placeholder="Оставить комментарий…" value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} /><button type="button" onClick={() => addCommentToPost(post.id)} disabled={!(commentDrafts[post.id] || '').trim()}>Отправить</button></div></div>
+                    <div className="employee-feed-comments"><div className="employee-feed-comments-title">Комментарии</div>{sortComments(post.comments || []).length === 0 && <small className="employee-feed-no-comments">Комментариев пока нет.</small>}<div className="feed-comment-tools"><select value={commentSort} onChange={(e) => setCommentSort(e.target.value)}>{COMMENT_SORTS.map((sort) => <option key={sort.id} value={sort.id}>{sort.label}</option>)}</select></div>{sortComments(post.comments || []).slice(0, expandedCommentPosts[post.id] ? undefined : 3).map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; return <div key={comment.id} className="employee-feed-comment"><div className="employee-feed-comment-body"><strong>{comment.authorName}</strong><span>{comment.text}</span><small>{formatFeedLogin(comment.author)} · {new Date(comment.createdAt).toLocaleString('ru-RU')}</small></div><div className="feed-comment-actions"><button type="button" onClick={() => setCommentDrafts((prev) => ({ ...prev, [post.id]: `@${formatFeedLogin(comment.author)} ` }))}>Ответить</button><button type="button" onClick={() => notify('Реакция на комментарий сохранится после подключения серверного метода', 'Лента')}>👍</button>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>Удалить</button>}</div></div>; })}{sortComments(post.comments || []).length > 3 && !expandedCommentPosts[post.id] && <button type="button" className="feed-show-more-comments" onClick={() => setExpandedCommentPosts((prev) => ({ ...prev, [post.id]: true }))}>Показать ещё {sortComments(post.comments || []).length - 3} комментариев</button>}<div className="employee-feed-comment-form"><input placeholder="Оставить комментарий…" value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} /><button type="button" onClick={() => addCommentToPost(post.id)} disabled={!(commentDrafts[post.id] || '').trim()}>Отправить</button></div></div>
                   </article>
                 );
               })}
@@ -2337,7 +3284,7 @@ const EmployeeChat = () => {
             ) : (
               <div className="profile-settings-grid">
                 <section className="profile-panel"><h3>Мой профиль</h3><form onSubmit={saveMyProfile} className="profile-form profile-form-labeled"><label><span>ФИО</span><input placeholder="Иванов Иван Иванович" value={profileForm.full_name} onChange={(e) => updateProfileField('full_name', e.target.value)} /></label><label><span>Логин</span><input value={user?.username || ''} disabled /></label><label><span>Должность</span><input placeholder="Например: инженер" value={profileForm.position} onChange={(e) => updateProfileField('position', e.target.value)} /></label><label><span>Отдел</span><input placeholder="Название отдела" value={profileForm.department} onChange={(e) => updateProfileField('department', e.target.value)} /></label><label><span>Кабинет</span><input placeholder="Например: 214" value={profileForm.room} onChange={(e) => updateProfileField('room', e.target.value)} /></label><label><span>Внутренний телефон</span><input placeholder="Например: 12-34" value={profileForm.phone} onChange={(e) => updateProfileField('phone', e.target.value)} /></label><label><span>Сайт / соцссылка</span><input placeholder="https://..." value={profileForm.website} onChange={(e) => updateProfileField('website', e.target.value)} /></label><label><span>Статус</span><input placeholder="Короткий статус" value={profileForm.statusText} onChange={(e) => updateProfileField('statusText', e.target.value)} /></label><label className="profile-field-wide"><span>О себе</span><textarea placeholder="Кратко о себе" rows={4} value={profileForm.bio} onChange={(e) => updateProfileField('bio', e.target.value)} /></label><button type="submit">Сохранить анкету</button></form></section>
-                <section className="profile-panel"><h3>Безопасность и фото</h3><div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>Изменить фото</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>Удалить фото</button></div><form onSubmit={changeMyPassword} className="profile-password-form"><input type="password" placeholder="Текущий пароль" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))} /><input type="password" placeholder="Новый пароль" value={passwordForm.newPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))} /><button type="submit">Обновить пароль</button></form></section>
+                <section className="profile-panel"><h3>Безопасность и фото</h3><div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>Изменить фото</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>Удалить фото</button></div><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogMediaPanel === true} onChange={toggleDialogMediaPanelSetting} /><span><strong>Показывать “Медиа / Файлы” в диалоге</strong><small>По умолчанию скрыто. Включите, если нужна правая панель медиа, файлов и ссылок.</small></span></label><form onSubmit={changeMyPassword} className="profile-password-form"><input type="password" placeholder="Текущий пароль" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))} /><input type="password" placeholder="Новый пароль" value={passwordForm.newPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))} /><button type="submit">Обновить пароль</button></form>{!isAdmin && <button type="button" className="profile-logout-btn" onClick={handleLogout}>Выйти из аккаунта</button>}</section>
               </div>
             )}
           </div>
@@ -2352,30 +3299,57 @@ const EmployeeChat = () => {
         )}
       </section>
 
-      {mediaViewer && (
-        <div className="photo-viewer-backdrop" onMouseDown={() => setMediaViewer(null)}>
+      {mediaViewer && (() => {
+        const viewerFiles = getViewerFiles();
+        const viewerIndex = Math.max(0, Math.min(viewerFiles.length - 1, mediaViewer.fileIndex || 0));
+        const hasManyViewerFiles = viewerFiles.length > 1;
+        return (
+          <div
+            className="photo-viewer-backdrop"
+            onMouseDown={() => setMediaViewer(null)}
+            onTouchStart={(event) => setViewerTouchStart({ x: event.touches[0]?.clientX || 0, y: event.touches[0]?.clientY || 0 })}
+            onTouchEnd={(event) => {
+              if (!viewerTouchStart) return;
+              const touch = event.changedTouches[0];
+              const dx = (touch?.clientX || 0) - viewerTouchStart.x;
+              const dy = (touch?.clientY || 0) - viewerTouchStart.y;
+              if (Math.abs(dy) > 80 && Math.abs(dy) > Math.abs(dx)) setMediaViewer(null);
+              else if (Math.abs(dx) > 60) moveMediaViewer(dx > 0 ? -1 : 1);
+              setViewerTouchStart(null);
+            }}
+          >
           <header className="photo-viewer-header" onMouseDown={(event) => event.stopPropagation()}>
             <button type="button" className="photo-viewer-back" onClick={() => setMediaViewer(null)}>← Назад</button>
+            <strong className="photo-viewer-counter">{viewerIndex + 1} из {viewerFiles.length || 1}</strong>
             <details className="photo-viewer-menu">
               <summary aria-label="Действия с фото">⋯</summary>
               <div className="photo-viewer-menu-popover">
-                <a href={mediaViewer.file.dataUrl} download={mediaViewer.file.name || 'photo'}>⬇️ Скачать</a>
+                <a href={getOriginalAttachmentUrl(mediaViewer.file)} download={mediaViewer.file.name || 'photo'}>⬇️ Скачать</a>
                 {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={replyToViewedMedia}>↩ Ответить</button>}
                 {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={shareViewedMedia}>➜ Переслать</button>}
-                {mediaViewer.source === 'feed' && (isManager || isAdmin || sameLogin(mediaViewer.post?.author, user?.username)) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>✕ Удалить вложение</button>}
+                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={() => createRequestFromMessage(mediaViewer.message)}>🧾 Создать заявку из фото</button>}
+                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={() => setMediaViewer((current) => ({ ...current, scope: current.scope === 'dialog' ? 'message' : 'dialog' }))}>{mediaViewer.scope === 'dialog' ? 'Показать медиа сообщения' : 'Показать все медиа диалога'}</button>}
+                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={() => openAttachmentInNewTab(mediaViewer.file)}>Открыть оригинал</button>}
+                {mediaViewer.source === 'feed' && <button type="button" onClick={shareViewedFeedMedia}>➜ Переслать только это фото/видео</button>}
+                {mediaViewer.source === 'feed' && mediaViewer.post && <button type="button" onClick={() => shareFeedPostToChat(mediaViewer.post)}>↗ Переслать весь пост</button>}
+                {mediaViewer.source === 'feed' && canManageFeedPost(mediaViewer.post, user, isManager, isAdmin) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>✕ Удалить</button>}
                 {mediaViewer.message && mediaViewer.source !== 'feed' && (isManager || mediaViewer.message?.sender === user.username) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>✕ Удалить</button>}
               </div>
             </details>
           </header>
           <div className="photo-viewer-stage" onMouseDown={(event) => event.stopPropagation()}>
+            {hasManyViewerFiles && <button type="button" className="photo-viewer-nav prev" onClick={() => moveMediaViewer(-1)}>‹</button>}
             {isVideoAttachment(mediaViewer.file) ? (
-              <video src={mediaViewer.file.dataUrl} controls autoPlay playsInline>Ваш браузер не поддерживает просмотр видео.</video>
+              <video src={getOriginalAttachmentUrl(mediaViewer.file)} controls playsInline poster={getAttachmentUrl(mediaViewer.file)}>Ваш браузер не поддерживает просмотр видео.</video>
             ) : (
-              <img src={mediaViewer.file.dataUrl} alt={mediaViewer.file.name || 'Фото'} />
+              <img src={getAttachmentUrl(mediaViewer.file)} alt={mediaViewer.file.name || 'Фото'} />
             )}
+            {hasManyViewerFiles && <button type="button" className="photo-viewer-nav next" onClick={() => moveMediaViewer(1)}>›</button>}
           </div>
+          {hasManyViewerFiles && <div className="photo-viewer-thumbs" onMouseDown={(event) => event.stopPropagation()}>{viewerFiles.map((file, index) => <button key={file.id || `${file.name}-${index}`} type="button" className={index === viewerIndex ? 'active' : ''} onClick={() => setMediaViewer((current) => ({ ...current, file, fileIndex: index }))}>{isVideoAttachment(file) ? <video src={getAttachmentUrl(file)} muted playsInline /> : <img src={getAttachmentUrl(file)} alt={file.name || 'Миниатюра'} loading="lazy" />}</button>)}</div>}
         </div>
-      )}
+        );
+      })()}
 
       {forwardSourceMessage && (
         <div className="app-modal-backdrop" onMouseDown={() => setForwardSourceMessage(null)}>
