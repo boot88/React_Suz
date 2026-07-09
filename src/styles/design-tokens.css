@@ -1,0 +1,26 @@
+:root {
+  --chat-bg: #f6f8fb;
+  --chat-surface: #ffffff;
+  --chat-surface-2: #eef4ff;
+  --chat-ink: #111827;
+  --chat-muted: #667085;
+  --chat-border: rgba(30, 90, 168, .16);
+  --chat-accent: #1e5aa8;
+  --chat-accent-2: #0ea5e9;
+  --chat-message-mine: #1e5aa8;
+  --chat-message-mine-2: #2563eb;
+  --chat-message-peer: #ffffff;
+  --chat-danger: #dc2626;
+  --chat-success: #168a5a;
+  --chat-shadow: 0 22px 58px rgba(15, 23, 42, .10);
+  --chat-radius-xl: 24px;
+  --chat-radius-lg: 18px;
+  --chat-radius-md: 14px;
+  --chat-space-xs: 4px;
+  --chat-space-sm: 8px;
+  --chat-space-md: 12px;
+  --chat-space-lg: 16px;
+  --chat-space-xl: 22px;
+  --chat-font-scale: 1;
+  --chat-density-scale: 1;
+}
