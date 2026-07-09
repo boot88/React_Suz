@@ -45,6 +45,10 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '150mb' })); // Увеличиваем лимит для изображений и видео-вложений
 app.use(express.urlencoded({ extended: true, limit: '150mb' }));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
+  maxAge: process.env.NODE_ENV === 'production' ? '7d' : 0,
+  fallthrough: false
+}));
 
 app.use('/api/employees', employeeRoutes);
 app.use('/api/auth', authRoutes);
@@ -557,7 +561,7 @@ app.get('/api/applications', async (req, res) => {
   const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit) || 10));
   const offset = (page - 1) * limit;
 
-  const { status, from, to, search, employee_login } = req.query; // Добавлен параметр search
+  const { status, from, to, search, employee_login, queue, assignee, sort } = req.query; // Добавлен параметр search
   const statusGroups = {
     done: ['done'],
     pending: ['new', 'accepted', 'in_progress', 'waiting_employee_confirmation', 'reopened'],
@@ -610,7 +614,25 @@ app.get('/api/applications', async (req, res) => {
     queryParams.push(employee_login.trim().toLowerCase());
   }
 
+  if (queue === 'unassigned') {
+    whereClause.push("COALESCE(`fl`, 0) = 0 AND COALESCE(NULLIF(TRIM(`executor`), ''), NULLIF(TRIM(`accepted_by`), '')) IS NULL");
+  }
+
+  if (queue === 'my' && assignee && assignee.trim()) {
+    const normalizedAssignee = assignee.trim().toLowerCase();
+    whereClause.push('(LOWER(COALESCE(`executor`, \'\')) LIKE ? OR LOWER(COALESCE(`accepted_by`, \'\')) = ?)');
+    queryParams.push(`%${normalizedAssignee}%`, normalizedAssignee);
+  }
+
   const whereSql = whereClause.length > 0 ? 'WHERE ' + whereClause.join(' AND ') : '';
+  const sortSqlMap = {
+    status: 'ORDER BY FIELD(`status`, \'new\', \'reopened\', \'accepted\', \'in_progress\', \'waiting_employee_confirmation\', \'done\'), `data` DESC',
+    date_asc: 'ORDER BY `data` ASC, `id` ASC',
+    date_desc: 'ORDER BY `data` DESC, `id` DESC',
+    executor: 'ORDER BY COALESCE(NULLIF(TRIM(`executor`), \'\'), \'яяя\') ASC, `data` DESC',
+    sla: `ORDER BY CASE WHEN ${APPLICATION_OVERDUE_SQL} THEN 0 WHEN \`status\` IN ('new', 'reopened') THEN 1 WHEN \`status\` IN ('accepted', 'in_progress') THEN 2 ELSE 3 END ASC, \`data\` DESC`
+  };
+  const orderSql = sortSqlMap[sort] || sortSqlMap.date_desc;
 
   try {
     await ensureApplicationWorkflowSchema();
@@ -645,10 +667,10 @@ app.get('/api/applications', async (req, res) => {
 
     // Запрос заявок с пагинацией
     const applicationsQuery = `
-      SELECT ${APPLICATION_WORKFLOW_COLUMNS}
-      FROM application
-      ${whereSql}
-      ORDER BY \`data\` DESC
+	      SELECT ${APPLICATION_WORKFLOW_COLUMNS}
+	      FROM application
+	      ${whereSql}
+      ${orderSql}
       LIMIT ? OFFSET ?
     `;
 
