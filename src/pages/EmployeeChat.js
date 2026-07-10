@@ -692,6 +692,7 @@ const EmployeeChat = () => {
   const [dialogSearchIndex, setDialogSearchIndex] = useState(0);
   const [dialogFilter, setDialogFilter] = useState('all');
   const [mediaPanelOpen, setMediaPanelOpen] = useState(false);
+  const [conversationMenuOpen, setConversationMenuOpen] = useState(false);
   const [mediaPanelTab, setMediaPanelTab] = useState('media');
   const [mediaPanelSearch, setMediaPanelSearch] = useState('');
   const [contactFilter, setContactFilter] = useState('all');
@@ -2840,6 +2841,7 @@ const EmployeeChat = () => {
           <div
             className="chat-workspace"
             onClick={() => {
+              setConversationMenuOpen(false);
               if (selectedMessageId && messageReactionExpanded) setMessageReactionExpanded(false);
               else if (selectedMessageId) setSelectedMessageId('');
             }}
@@ -2859,10 +2861,10 @@ const EmployeeChat = () => {
                   </div>
                   <div className="conversation-tools">
                     <input value={dialogSearch} onChange={(e) => { setDialogSearch(e.target.value); setDialogSearchIndex(0); }} placeholder="Поиск в диалоге..." />{normalizedDialogSearch && <span className="dialog-search-count">{dialogSearchResults.length ? dialogSearchIndex + 1 : 0} из {dialogSearchResults.length}</span>}<button type="button" disabled={!dialogSearchResults.length} onClick={() => setDialogSearchIndex((prev) => Math.max(0, prev - 1))}>↑</button><button type="button" disabled={!dialogSearchResults.length} onClick={() => setDialogSearchIndex((prev) => Math.min(dialogSearchResults.length - 1, prev + 1))}>↓</button>{chatLocalSettings.showDialogMediaPanel === true && <button type="button" onClick={() => setMediaPanelOpen((prev) => !prev)}>Медиа / Файлы</button>}
-                    <details className="conversation-menu">
-                      <summary aria-label="Действия с диалогом">⋯</summary>
+                    <details className="conversation-menu" open={conversationMenuOpen} onClick={(event) => event.stopPropagation()}>
+                      <summary aria-label="Действия с диалогом" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setConversationMenuOpen((prev) => !prev); }}>⋯</summary>
                       <div className="conversation-menu-popover">
-                        <button type="button" onClick={() => toggleLocalListValue('archived', currentConversationId)}>Архивировать диалог</button><button type="button" onClick={() => toggleLocalListValue('hidden', currentConversationId)}>Скрыть диалог</button><button type="button" onClick={() => toggleLocalListValue('pinned', currentConversationId)}>Закрепить диалог</button><button type="button" onClick={() => setReadState((prev) => ({ ...prev, [currentConversationId]: '' }))}>Пометить непрочитанным</button><button type="button" onClick={() => toggleLocalListValue('muted', currentConversationId)}>Отключить уведомления</button><button type="button" className="danger-action" onClick={clearConversation}>Удалить переписку</button>
+                        <button type="button" onClick={() => { toggleLocalListValue('archived', currentConversationId); setConversationMenuOpen(false); }}>Архивировать диалог</button><button type="button" onClick={() => { toggleLocalListValue('hidden', currentConversationId); setConversationMenuOpen(false); }}>Скрыть диалог</button><button type="button" onClick={() => { toggleLocalListValue('pinned', currentConversationId); setConversationMenuOpen(false); }}>Закрепить диалог</button><button type="button" onClick={() => { setReadState((prev) => ({ ...prev, [currentConversationId]: '' })); setConversationMenuOpen(false); }}>Пометить непрочитанным</button><button type="button" onClick={() => { toggleLocalListValue('muted', currentConversationId); setConversationMenuOpen(false); }}>Отключить уведомления</button><button type="button" onClick={() => { clearCurrentDraft(); setConversationMenuOpen(false); }}>Очистить черновик</button><button type="button" className="danger-action" onClick={() => { clearConversation(); setConversationMenuOpen(false); }}>Удалить переписку</button>
                       </div>
                     </details>
                   </div>
@@ -3124,7 +3126,7 @@ const EmployeeChat = () => {
 
                   {pendingMessages.length > 0 && <div className="offline-status">{isOnline ? `Отправляем ожидающие: ${pendingMessages.length}` : `Ожидает отправки: ${pendingMessages.length}`}</div>}
                   {!isOnline && <div className="offline-status warning">Нет соединения. Сообщения сохраняются локально.</div>}
-                  {typingHint && <div className="typing-hint">{typingHint}</div>}{Date.now() < peerTypingUntil && <div className="typing-hint peer-typing">{activeContact?.profile?.full_name || selectedEmail} печатает<span>•••</span></div>}<button type="button" className="clear-chat-draft" onClick={clearCurrentDraft}>Очистить черновик</button>
+                  {typingHint && <div className="typing-hint">{typingHint}</div>}{Date.now() < peerTypingUntil && <div className="typing-hint peer-typing">{activeContact?.profile?.full_name || selectedEmail} печатает<span>•••</span></div>}
 
                   <form className="message-form" onSubmit={handleSend}>
                     <div className="composer-textarea-box">
