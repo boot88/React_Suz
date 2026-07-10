@@ -3737,3 +3737,61 @@ button:disabled {
   grid-column: 1 / -1;
   width: 100%;
 }
+
+.composer-input-shell {
+  position: relative;
+  display: grid;
+  align-items: center;
+}
+
+.composer-input-shell textarea {
+  width: 100%;
+  padding-left: 48px;
+}
+
+.composer-emoji-btn {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  z-index: 2;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--chat-accent);
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.composer-emoji-btn:hover,
+.composer-emoji-btn:focus-visible {
+  background: rgba(30, 90, 168, .10);
+  transform: translateY(-50%) scale(1.04);
+}
+
+.composer-emoji-btn {
+  transform: translateY(-50%);
+}
+
+.composer-emoji-picker {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 10px);
+  z-index: 40;
+  width: min(280px, calc(100vw - 48px));
+  padding: 10px;
+  background: rgba(255, 255, 255, .98);
+  box-shadow: 0 20px 48px rgba(15, 23, 42, .18);
+}
+
+.employee-chat-layout.theme-dark .composer-emoji-picker {
+  background: var(--chat-surface-2);
+}
+
+.composer-emoji-btn:hover,
+.composer-emoji-btn:focus-visible {
+  transform: translateY(-50%) scale(1.04);
+}

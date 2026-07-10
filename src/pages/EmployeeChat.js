@@ -161,6 +161,7 @@ const readChatLocalSettings = (username = 'guest') => {
       uiTheme: 'light',
       uiDensity: 'regular',
       uiTextSize: 'medium',
+      showChatTemplates: false,
       showDialogMediaPanel: false,
       showDialogFilters: false,
       showDialogDateJump: false,
@@ -169,7 +170,7 @@ const readChatLocalSettings = (username = 'guest') => {
       ...(all?.[username] || {})
     };
   } catch {
-    return { archived: [], hidden: [], pinned: [], muted: [], favorites: [], uiTheme: 'light', uiDensity: 'regular', uiTextSize: 'medium', showDialogMediaPanel: false, showDialogFilters: false, showDialogDateJump: false, showFeedCategorySelect: false, showFeedFilters: false };
+    return { archived: [], hidden: [], pinned: [], muted: [], favorites: [], uiTheme: 'light', uiDensity: 'regular', uiTextSize: 'medium', showChatTemplates: false, showDialogMediaPanel: false, showDialogFilters: false, showDialogDateJump: false, showFeedCategorySelect: false, showFeedFilters: false };
   }
 };
 
@@ -3065,28 +3066,24 @@ const EmployeeChat = () => {
                 </div>
 
                 <div className="composer-wrap" onDrop={handleAttachmentDrop} onDragOver={handleDragOver} onDragEnter={handleDragOver}>
-                  <details className="template-toolbar template-menu">
-                    <summary>Шаблоны и смайлы</summary>
-                    <div className="template-menu-panel">
-                      <div className="template-row">
-                        {templateMessages.map((template) => (
-                          <span key={template} className="template-chip-wrap">
-                            <button type="button" onClick={() => appendToDraft(template)}>{template}</button>
-                            {customTemplates.includes(template) && <button type="button" className="template-remove" onClick={() => removeCustomTemplate(template)}>×</button>}
-                          </span>
-                        ))}
-                      </div>
-                      <div className="composer-extra-actions">
-                        <button type="button" onClick={addCustomTemplate}>+ Мой шаблон</button>
-                        <button type="button" onClick={() => setIsEmojiOpen((prev) => !prev)}>😊 Смайлы</button>
-                      </div>
-                      {isEmojiOpen && (
-                        <div className="emoji-picker">
-                          {QUICK_EMOJIS.map((emoji) => <button key={emoji} type="button" onClick={() => appendToDraft(emoji)}>{emoji}</button>)}
+                  {chatLocalSettings.showChatTemplates === true && (
+                    <details className="template-toolbar template-menu">
+                      <summary>Шаблоны</summary>
+                      <div className="template-menu-panel">
+                        <div className="template-row">
+                          {templateMessages.map((template) => (
+                            <span key={template} className="template-chip-wrap">
+                              <button type="button" onClick={() => appendToDraft(template)}>{template}</button>
+                              {customTemplates.includes(template) && <button type="button" className="template-remove" onClick={() => removeCustomTemplate(template)}>×</button>}
+                            </span>
+                          ))}
                         </div>
-                      )}
-                    </div>
-                  </details>
+                        <div className="composer-extra-actions">
+                          <button type="button" onClick={addCustomTemplate}>+ Мой шаблон</button>
+                        </div>
+                      </div>
+                    </details>
+                  )}
 
                   {replyTo && <div className="reply-preview active-reply">Ответ на: {replyTo.sender}: {replyTo.text}<button type="button" onClick={() => setReplyTo(null)}>×</button></div>}
 
@@ -3115,16 +3112,24 @@ const EmployeeChat = () => {
 
                   <form className="message-form" onSubmit={handleSend}>
                     <div className="composer-textarea-box">
-                      <textarea
-                        ref={messageTextareaRef}
-                        placeholder="Введите сообщение или перетащите файлы сюда... @username"
-                        value={draft}
-                        onChange={(e) => { setDraft(e.target.value); setPeerTypingUntil(Date.now() + 1800); }}
-                        onKeyDown={handleComposerKeyDown}
-                        onPaste={handleComposerPaste}
-                        maxLength={2000}
-                        rows={1}
-                      />
+                      <div className="composer-input-shell">
+                        <button type="button" className="composer-emoji-btn" aria-label="Выбрать смайлик" onClick={() => setIsEmojiOpen((prev) => !prev)}>😊</button>
+                        {isEmojiOpen && (
+                          <div className="emoji-picker composer-emoji-picker">
+                            {QUICK_EMOJIS.map((emoji) => <button key={emoji} type="button" onClick={() => { appendToDraft(emoji); setIsEmojiOpen(false); }}>{emoji}</button>)}
+                          </div>
+                        )}
+                        <textarea
+                          ref={messageTextareaRef}
+                          placeholder="Введите сообщение или перетащите файлы сюда... @username"
+                          value={draft}
+                          onChange={(e) => { setDraft(e.target.value); setPeerTypingUntil(Date.now() + 1800); }}
+                          onKeyDown={handleComposerKeyDown}
+                          onPaste={handleComposerPaste}
+                          maxLength={2000}
+                          rows={1}
+                        />
+                      </div>
                       <div className="composer-hints">
                         <label><input type="checkbox" checked={chatLocalSettings.enterToSend !== false} onChange={() => updateChatLocalSettings((prev) => ({ ...prev, enterToSend: prev.enterToSend === false }))} /> Enter отправляет</label>
                         {draft.length > 1600 && <span className={draft.length > 1900 ? 'limit-warning' : ''}>{draft.length}/2000</span>}
@@ -3272,7 +3277,7 @@ const EmployeeChat = () => {
             ) : (
               <div className="profile-settings-grid">
                 <section className="profile-panel"><h3>Мой профиль</h3><form onSubmit={saveMyProfile} className="profile-form profile-form-labeled"><label><span>ФИО</span><input placeholder="Иванов Иван Иванович" value={profileForm.full_name} onChange={(e) => updateProfileField('full_name', e.target.value)} /></label><label><span>Логин</span><input value={user?.username || ''} disabled /></label><label><span>Должность</span><input placeholder="Например: инженер" value={profileForm.position} onChange={(e) => updateProfileField('position', e.target.value)} /></label><label><span>Отдел</span><input placeholder="Название отдела" value={profileForm.department} onChange={(e) => updateProfileField('department', e.target.value)} /></label><label><span>Кабинет</span><input placeholder="Например: 214" value={profileForm.room} onChange={(e) => updateProfileField('room', e.target.value)} /></label><label><span>Внутренний телефон</span><input placeholder="Например: 12-34" value={profileForm.phone} onChange={(e) => updateProfileField('phone', e.target.value)} /></label><label><span>Сайт / соцссылка</span><input placeholder="https://..." value={profileForm.website} onChange={(e) => updateProfileField('website', e.target.value)} /></label><label><span>Статус</span><input placeholder="Короткий статус" value={profileForm.statusText} onChange={(e) => updateProfileField('statusText', e.target.value)} /></label><label className="profile-field-wide"><span>О себе</span><textarea placeholder="Кратко о себе" rows={4} value={profileForm.bio} onChange={(e) => updateProfileField('bio', e.target.value)} /></label><button type="submit">Сохранить анкету</button></form></section>
-                <section className="profile-panel"><h3>Безопасность и фото</h3><div className="profile-appearance-settings"><h4>Вид интерфейса</h4><div className="chat-appearance-controls profile-appearance-controls"><label><span>Тема</span><select value={chatLocalSettings.uiTheme || 'light'} onChange={(e) => updateChatUiSetting('uiTheme', e.target.value)}>{CHAT_THEMES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>Плотность</span><select value={chatLocalSettings.uiDensity || 'regular'} onChange={(e) => updateChatUiSetting('uiDensity', e.target.value)}>{CHAT_DENSITIES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>Текст</span><select value={chatLocalSettings.uiTextSize || 'medium'} onChange={(e) => updateChatUiSetting('uiTextSize', e.target.value)}>{CHAT_TEXT_SIZES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label></div></div><div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>Изменить фото</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>Удалить фото</button></div><div className="profile-chat-tools"><strong>Дополнительные инструменты диалога</strong><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogMediaPanel === true} onChange={() => toggleDialogToolSetting('showDialogMediaPanel')} /><span><strong>Показывать “Медиа / Файлы” в диалоге</strong><small>По умолчанию скрыто. Включите, если нужна правая панель медиа, файлов и ссылок.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogDateJump === true} onChange={() => toggleDialogToolSetting('showDialogDateJump')} /><span><strong>Показывать “Перейти к дате”</strong><small>По умолчанию скрыто, чтобы верх чата был компактнее.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogFilters === true} onChange={() => toggleDialogToolSetting('showDialogFilters')} /><span><strong>Показывать фильтры сообщений</strong><small>Все, мои, собеседник, с файлами, фото, сегодня, неделя и месяц.</small></span></label></div><div className="profile-chat-tools"><strong>Дополнительные инструменты ленты</strong><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showFeedCategorySelect === true} onChange={() => toggleFeedToolSetting('showFeedCategorySelect')} /><span><strong>Показывать выбор категории публикации</strong><small>Объявление, новость, вопрос, поздравление и другие категории. По умолчанию скрыто.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showFeedFilters === true} onChange={() => toggleFeedToolSetting('showFeedFilters')} /><span><strong>Показывать фильтры ленты</strong><small>Кнопка фильтров справа от поиска по ленте. По умолчанию скрыто.</small></span></label></div><form onSubmit={changeMyPassword} className="profile-password-form"><input type="password" placeholder="Текущий пароль" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))} /><input type="password" placeholder="Новый пароль" value={passwordForm.newPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))} /><button type="submit">Обновить пароль</button></form>{!isAdmin && <button type="button" className="profile-logout-btn" onClick={handleLogout}>Выйти из аккаунта</button>}</section>
+                <section className="profile-panel"><h3>Безопасность и фото</h3><div className="profile-appearance-settings"><h4>Вид интерфейса</h4><div className="chat-appearance-controls profile-appearance-controls"><label><span>Тема</span><select value={chatLocalSettings.uiTheme || 'light'} onChange={(e) => updateChatUiSetting('uiTheme', e.target.value)}>{CHAT_THEMES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>Плотность</span><select value={chatLocalSettings.uiDensity || 'regular'} onChange={(e) => updateChatUiSetting('uiDensity', e.target.value)}>{CHAT_DENSITIES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>Текст</span><select value={chatLocalSettings.uiTextSize || 'medium'} onChange={(e) => updateChatUiSetting('uiTextSize', e.target.value)}>{CHAT_TEXT_SIZES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label></div></div><div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>Изменить фото</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>Удалить фото</button></div><div className="profile-chat-tools"><strong>Дополнительные инструменты диалога</strong><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showChatTemplates === true} onChange={() => toggleDialogToolSetting('showChatTemplates')} /><span><strong>Показывать шаблоны сообщений</strong><small>По умолчанию скрыто. Включите, если нужны быстрые текстовые шаблоны.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogMediaPanel === true} onChange={() => toggleDialogToolSetting('showDialogMediaPanel')} /><span><strong>Показывать “Медиа / Файлы” в диалоге</strong><small>По умолчанию скрыто. Включите, если нужна правая панель медиа, файлов и ссылок.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogDateJump === true} onChange={() => toggleDialogToolSetting('showDialogDateJump')} /><span><strong>Показывать “Перейти к дате”</strong><small>По умолчанию скрыто, чтобы верх чата был компактнее.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogFilters === true} onChange={() => toggleDialogToolSetting('showDialogFilters')} /><span><strong>Показывать фильтры сообщений</strong><small>Все, мои, собеседник, с файлами, фото, сегодня, неделя и месяц.</small></span></label></div><div className="profile-chat-tools"><strong>Дополнительные инструменты ленты</strong><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showFeedCategorySelect === true} onChange={() => toggleFeedToolSetting('showFeedCategorySelect')} /><span><strong>Показывать выбор категории публикации</strong><small>Объявление, новость, вопрос, поздравление и другие категории. По умолчанию скрыто.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showFeedFilters === true} onChange={() => toggleFeedToolSetting('showFeedFilters')} /><span><strong>Показывать фильтры ленты</strong><small>Кнопка фильтров справа от поиска по ленте. По умолчанию скрыто.</small></span></label></div><form onSubmit={changeMyPassword} className="profile-password-form"><input type="password" placeholder="Текущий пароль" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))} /><input type="password" placeholder="Новый пароль" value={passwordForm.newPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))} /><button type="submit">Обновить пароль</button></form>{!isAdmin && <button type="button" className="profile-logout-btn" onClick={handleLogout}>Выйти из аккаунта</button>}</section>
               </div>
             )}
           </div>
