@@ -2887,7 +2887,9 @@ const EmployeeChat = () => {
                     const attachments = !isDeleted && message.attachments?.length ? message.attachments : !isDeleted && message.attachment ? [message.attachment] : [];
                     const hasTextContent = !isDeleted && String(message.text || '').trim() && message.text !== '📎 Вложения';
                     const photoMetaLabel = new Date(message.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-                    const statusLabel = isMine ? '✓' : '';
+                    const statusLabel = isMine ? '✓✓' : '';
+                    const messageTimeLabel = new Date(message.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                    const deliveryLabel = message.deliveryStatus === 'sending' ? 'Отправляется…' : message.deliveryStatus === 'waiting' ? 'Ожидает сети' : message.deliveryStatus === 'error' ? 'Ошибка' : statusLabel;
                     const isPhotoCollage = attachments.length > 1 && attachments.every((file) => String(file?.type || '').startsWith('image/'));
                     const isMediaOnly = attachments.length > 0
                       && !hasTextContent
@@ -2935,13 +2937,6 @@ const EmployeeChat = () => {
                             setMessageReactionExpanded(false);
                           }}
                         >
-                          {!isMediaOnly && (
-                            <div className="message-meta">
-                              <span>{isMine ? 'Вы' : message.sender}</span>
-                              <span>{new Date(message.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
-                            </div>
-                          )}
-
                           {message.forwardedFrom && <div className="forwarded-preview">Переслано от {message.forwardedFrom}</div>}
                           {message.replyTo && <button type="button" className="reply-preview reply-jump" onClick={(event) => { event.stopPropagation(); document.querySelector(`[data-message-id="${message.replyTo.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>↪ {message.replyTo.sender}: {message.replyTo.text || 'Исходное сообщение удалено'}</button>}
                           {isDeleted ? (
@@ -3004,18 +2999,11 @@ const EmployeeChat = () => {
                             </div>
                           )}
 
-                          {isMediaOnly && (
-                            <small className="read-state message-status-line media-status-line">
-                              {message.editedAt && !isDeleted ? 'изменено · ' : ''}
-                              {photoMetaLabel} {message.deliveryStatus === 'sending' ? 'Отправляется…' : message.deliveryStatus === 'waiting' ? 'Ожидает сети' : message.deliveryStatus === 'error' ? 'Ошибка' : message.deliveryStatus === 'sent' ? '✓' : statusLabel}
-                              {isMine && message.deliveryStatus !== 'sending' && message.deliveryStatus !== 'waiting' && message.deliveryStatus !== 'error' ? '✓' : ''}
-                            </small>
-                          )}
                           {!isMediaOnly && (
                             <small className="read-state message-status-line">
-                              {message.editedAt && !isDeleted ? 'изменено · ' : ''}
-                              {message.deliveryStatus === 'sending' ? 'Отправляется…' : message.deliveryStatus === 'waiting' ? 'Ожидает сети' : message.deliveryStatus === 'error' ? 'Ошибка' : message.deliveryStatus === 'sent' ? '✓' : statusLabel}
-                              {isMine && message.deliveryStatus !== 'sending' && message.deliveryStatus !== 'waiting' && message.deliveryStatus !== 'error' ? '✓' : ''}
+                              {message.editedAt && !isDeleted ? <span>изменено</span> : null}
+                              <span>{messageTimeLabel}</span>
+                              {isMine && deliveryLabel && <span className={`message-checks ${['sending', 'waiting', 'error'].includes(message.deliveryStatus) ? 'textual' : ''}`}>{deliveryLabel}</span>}
                             </small>
                           )}
                         </div>
