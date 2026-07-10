@@ -3911,3 +3911,35 @@ button:disabled {
   transform: none !important;
   transition: none !important;
 }
+
+.message-form {
+  align-items: center;
+}
+
+.message-form .attach-file-btn,
+.message-form button[type="submit"] {
+  align-self: center;
+}
+
+.message-form textarea {
+  overflow: hidden;
+  scrollbar-width: none;
+}
+
+.message-form textarea::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.composer-emoji-btn,
+.composer-emoji-btn:hover,
+.composer-emoji-btn:focus,
+.composer-emoji-btn:focus-visible,
+.composer-emoji-btn:active {
+  top: 50%;
+  width: 42px;
+  height: 42px;
+  color: #8b96a8 !important;
+  font-size: 27px;
+  transform: translateY(-50%) !important;
+}
