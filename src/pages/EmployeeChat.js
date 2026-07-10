@@ -715,6 +715,7 @@ const EmployeeChat = () => {
   
   const [replyTo, setReplyTo] = useState(null);
   const [selectedMessageId, setSelectedMessageId] = useState('');
+  const [selectedMessageMenuPlacement, setSelectedMessageMenuPlacement] = useState('above');
   const [messageReactionExpanded, setMessageReactionExpanded] = useState(false);
   const [selectedFeedPostId, setSelectedFeedPostId] = useState('');
   const [feedReactionExpanded, setFeedReactionExpanded] = useState(false);
@@ -1859,6 +1860,23 @@ const EmployeeChat = () => {
     setActiveTab('request');
   };
 
+
+  const getMessageMenuPlacement = (event) => {
+    const rowElement = event?.currentTarget?.closest?.('.message-row') || event?.target?.closest?.('.message-row');
+    const wrapElement = messagesWrapRef.current;
+    if (!rowElement || !wrapElement) return 'above';
+    const rowRect = rowElement.getBoundingClientRect();
+    const wrapRect = wrapElement.getBoundingClientRect();
+    const spaceAbove = rowRect.top - wrapRect.top;
+    return spaceAbove < 220 ? 'below' : 'above';
+  };
+
+  const openSelectedMessageMenu = (messageId, event) => {
+    setSelectedMessageMenuPlacement(getMessageMenuPlacement(event));
+    setSelectedMessageId(messageId);
+    setMessageReactionExpanded(false);
+  };
+
   const toggleSelectedMessage = (messageId) => {
     setSelectedMessageIds((prev) => (prev.includes(messageId) ? prev.filter((id) => id !== messageId) : [...prev, messageId]));
   };
@@ -2915,12 +2933,11 @@ const EmployeeChat = () => {
                             if (multiSelectMode) { toggleSelectedMessage(message.id); return; }
                             if (isSelected && messageReactionExpanded) setMessageReactionExpanded(false);
                             else {
-                              setSelectedMessageId(message.id);
-                              setMessageReactionExpanded(false);
+                              openSelectedMessageMenu(message.id, event);
                             }
                           }}
                           onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); toggleReaction(message.id, '👍'); }}
-	                          onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setSelectedMessageId(message.id); setMessageReactionExpanded(false); }}
+	                          onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); openSelectedMessageMenu(message.id, event); }}
 	                          onTouchStart={(event) => { event.currentTarget.dataset.touchX = String(event.touches[0]?.clientX || 0); }}
 	                          onTouchEnd={(event) => {
 	                            const startX = Number(event.currentTarget.dataset.touchX || 0);
@@ -2935,8 +2952,7 @@ const EmployeeChat = () => {
                             if (event.key !== 'Enter' && event.key !== ' ') return;
                             event.preventDefault();
                             event.stopPropagation();
-                            setSelectedMessageId(message.id);
-                            setMessageReactionExpanded(false);
+                            openSelectedMessageMenu(message.id, event);
                           }}
                         >
                           {message.forwardedFrom && <div className="forwarded-preview">Переслано от {message.forwardedFrom}</div>}
@@ -2968,9 +2984,8 @@ const EmployeeChat = () => {
                                   file={file}
                                   metaLabel={photoMetaLabel}
                                   statusLabel={photoStatusLabel}
-                                  onSelect={() => {
-                                    setSelectedMessageId(message.id);
-                                    setMessageReactionExpanded(false);
+                                  onSelect={(event) => {
+                                    openSelectedMessageMenu(message.id, event);
                                   }}
                                   onOpen={() => openChatMediaViewer(message, file, index)}
                                   onQuickReaction={() => toggleReaction(message.id, '❤️')}
@@ -3011,11 +3026,7 @@ const EmployeeChat = () => {
                         </div>
 
                         {isSelected && !isDeleted && (
-                          <div className={`selected-message-menu message-action-popover ${isMine ? 'mine' : ''}`} onClick={(event) => event.stopPropagation()}>
-                            <div className="message-action-popover-head">
-                              <strong>Действия</strong>
-                              {!messageReactionExpanded && <button type="button" aria-label="Закрыть меню сообщения" onClick={() => { setSelectedMessageId(''); setMessageReactionExpanded(false); }}>×</button>}
-                            </div>
+                          <div className={`selected-message-menu message-action-popover ${isMine ? 'mine' : ''} ${selectedMessageMenuPlacement === 'below' ? 'open-below' : ''}`} onClick={(event) => event.stopPropagation()}>
                             <div className="selected-reaction-row compact-reaction-row">
                               {visibleReactions.map((emoji) => {
                                 const active = (message.reactions?.[emoji] || []).includes(user.username);

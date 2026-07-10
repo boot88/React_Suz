@@ -3979,3 +3979,17 @@ button:disabled {
 .compact-message-actions .danger-action .message-action-icon {
   color: #94a3b8;
 }
+
+.message-action-popover {
+  z-index: 120;
+}
+
+.message-action-popover.open-below {
+  top: calc(100% + 8px);
+  bottom: auto;
+}
+
+.message-bubble.media-only .message-action-popover.open-below {
+  top: calc(100% + 10px);
+  bottom: auto;
+}
