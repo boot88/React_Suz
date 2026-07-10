@@ -3943,3 +3943,19 @@ button:disabled {
   font-size: 27px;
   transform: translateY(-50%) !important;
 }
+
+.message-form .attach-file-btn,
+.message-form button[type="submit"] {
+  align-self: start;
+  margin-top: 0;
+}
+
+.composer-emoji-btn,
+.composer-emoji-btn:hover,
+.composer-emoji-btn:focus,
+.composer-emoji-btn:focus-visible,
+.composer-emoji-btn:active {
+  top: auto;
+  bottom: 5px;
+  transform: none !important;
+}
