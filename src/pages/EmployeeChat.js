@@ -2888,6 +2888,7 @@ const EmployeeChat = () => {
                     const hasTextContent = !isDeleted && String(message.text || '').trim() && message.text !== '📎 Вложения';
                     const photoMetaLabel = new Date(message.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
                     const statusLabel = isMine ? '✓✓' : '';
+                    const photoStatusLabel = isMine ? '✓' : '';
                     const messageTimeLabel = new Date(message.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
                     const deliveryLabel = message.deliveryStatus === 'sending' ? 'Отправляется…' : message.deliveryStatus === 'waiting' ? 'Ожидает сети' : message.deliveryStatus === 'error' ? 'Ошибка' : statusLabel;
                     const isPhotoCollage = attachments.length > 1 && attachments.every((file) => String(file?.type || '').startsWith('image/'));
@@ -2965,7 +2966,7 @@ const EmployeeChat = () => {
                                   cardKey={`${message.id}-file-${index}`}
                                   file={file}
                                   metaLabel={photoMetaLabel}
-                                  statusLabel={statusLabel}
+                                  statusLabel={photoStatusLabel}
                                   onSelect={() => {
                                     setSelectedMessageId(message.id);
                                     setMessageReactionExpanded(false);
@@ -3101,7 +3102,7 @@ const EmployeeChat = () => {
                   <form className="message-form" onSubmit={handleSend}>
                     <div className="composer-textarea-box">
                       <div className="composer-input-shell">
-                        <button type="button" className="composer-emoji-btn" aria-label="Выбрать смайлик" onClick={() => setIsEmojiOpen((prev) => !prev)}>😊</button>
+                        <button type="button" className="composer-emoji-btn" aria-label="Выбрать смайлик" onClick={() => setIsEmojiOpen((prev) => !prev)}>☺</button>
                         {isEmojiOpen && (
                           <div className="emoji-picker composer-emoji-picker">
                             {QUICK_EMOJIS.map((emoji) => <button key={emoji} type="button" onClick={() => { appendToDraft(emoji); setIsEmojiOpen(false); }}>{emoji}</button>)}
