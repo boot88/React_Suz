@@ -3728,3 +3728,12 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 }
+
+.feed-composer-line.without-category {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.feed-composer-line.without-category textarea {
+  grid-column: 1 / -1;
+  width: 100%;
+}

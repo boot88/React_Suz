@@ -3197,7 +3197,7 @@ const EmployeeChat = () => {
             </header>
             {feedError && <div className="feed-status-warning">Лента временно недоступна: {feedError}</div>}
             <form className="employee-feed-composer compact-feed-composer" onSubmit={addFeedPost}>
-              <div className="feed-composer-line">{chatLocalSettings.showFeedCategorySelect === true && <select value={feedCategory} onChange={(e) => setFeedCategory(e.target.value)}>{FEED_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select>}<textarea rows={2} placeholder="Написать в ленту... @ivanov #важно" value={feedDraft} onChange={(e) => setFeedDraft(e.target.value)} /></div>
+              <div className={`feed-composer-line ${chatLocalSettings.showFeedCategorySelect === true ? 'has-category' : 'without-category'}`}>{chatLocalSettings.showFeedCategorySelect === true && <select value={feedCategory} onChange={(e) => setFeedCategory(e.target.value)}>{FEED_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select>}<textarea rows={2} placeholder="Написать в ленту... @ivanov #важно" value={feedDraft} onChange={(e) => setFeedDraft(e.target.value)} /></div>
               {feedAttachments.length > 0 && (
                 <div className="employee-feed-attachment-preview-grid media-draft-grid">
                   {feedAttachments.map((file, index) => {
