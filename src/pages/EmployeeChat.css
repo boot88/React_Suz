@@ -3686,3 +3686,45 @@ button:disabled {
   outline: 3px solid rgba(30, 90, 168, .25);
   outline-offset: 2px;
 }
+
+.employee-chat-tabs {
+  grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
+}
+
+.employee-chat-tabs button {
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.profile-appearance-settings {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid rgba(30, 90, 168, .14);
+  border-radius: 16px;
+  background: rgba(30, 90, 168, .06);
+}
+
+.profile-appearance-settings h4 {
+  margin: 0;
+  color: var(--chat-accent);
+  font-size: .95em;
+}
+
+.profile-appearance-controls {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 0;
+}
+
+.employee-chat-layout.theme-dark .profile-appearance-settings {
+  background: rgba(96, 165, 250, .12);
+  border-color: rgba(96, 165, 250, .22);
+}
+
+@media (max-width: 720px) {
+  .profile-appearance-controls {
+    grid-template-columns: 1fr;
+  }
+}
