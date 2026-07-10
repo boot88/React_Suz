@@ -164,10 +164,12 @@ const readChatLocalSettings = (username = 'guest') => {
       uiDensity: 'regular',
       uiTextSize: 'medium',
       showDialogMediaPanel: false,
+      showDialogFilters: false,
+      showDialogDateJump: false,
       ...(all?.[username] || {})
     };
   } catch {
-    return { archived: [], hidden: [], pinned: [], muted: [], favorites: [], uiTheme: 'light', uiDensity: 'regular', uiTextSize: 'medium', showDialogMediaPanel: false };
+    return { archived: [], hidden: [], pinned: [], muted: [], favorites: [], uiTheme: 'light', uiDensity: 'regular', uiTextSize: 'medium', showDialogMediaPanel: false, showDialogFilters: false, showDialogDateJump: false };
   }
 };
 
@@ -1743,11 +1745,11 @@ const EmployeeChat = () => {
     updateChatLocalSettings((prev) => ({ ...prev, [key]: value }));
   };
 
-  const toggleDialogMediaPanelSetting = () => {
+  const toggleDialogToolSetting = (key) => {
     updateChatLocalSettings((prev) => {
-      const enabled = prev.showDialogMediaPanel === true;
-      if (enabled) setMediaPanelOpen(false);
-      return { ...prev, showDialogMediaPanel: !enabled };
+      const enabled = prev[key] === true;
+      if (key === 'showDialogMediaPanel' && enabled) setMediaPanelOpen(false);
+      return { ...prev, [key]: !enabled };
     });
   };
 
@@ -2866,8 +2868,8 @@ const EmployeeChat = () => {
                   </div>
                 </header>
 
-	                <div className="dialog-filter-row">{CHAT_FILTERS.map((filter) => <button key={filter.id} type="button" className={dialogFilter === filter.id ? 'active' : ''} onClick={() => setDialogFilter(filter.id)}>{filter.label}</button>)}</div>
-	                <div className="date-jump-row"><label>Перейти к дате <input type="date" onChange={(event) => jumpToMessageDate(event.target.value)} /></label></div>
+	                {chatLocalSettings.showDialogFilters === true && <div className="dialog-filter-row">{CHAT_FILTERS.map((filter) => <button key={filter.id} type="button" className={dialogFilter === filter.id ? 'active' : ''} onClick={() => setDialogFilter(filter.id)}>{filter.label}</button>)}</div>}
+	                {chatLocalSettings.showDialogDateJump === true && <div className="date-jump-row"><label>Перейти к дате <input type="date" onChange={(event) => jumpToMessageDate(event.target.value)} /></label></div>}
                 {chatLocalSettings.showDialogMediaPanel === true && mediaPanelOpen && <div className="dialog-media-panel"><div className="dialog-media-tabs">{CHAT_MEDIA_TABS.map((tab) => <button key={tab.id} type="button" className={mediaPanelTab === tab.id ? 'active' : ''} onClick={() => setMediaPanelTab(tab.id)}>{tab.label}</button>)}</div><input type="search" placeholder="Поиск по имени файла или ссылке..." value={mediaPanelSearch} onChange={(e) => setMediaPanelSearch(e.target.value)} /><button type="button" onClick={() => notify('Скачивание архива будет доступно после серверного zip-метода', 'Медиа')}>Скачать всё архивом</button><div className="dialog-media-grid">{filteredDialogMediaItems.length === 0 && <small>Ничего не найдено</small>}{filteredDialogMediaItems.map(({ message, file, fileIndex, type }, index) => <button key={`${message.id}-${file.name}-${index}`} type="button" onClick={() => type === 'link' ? window.open(file.dataUrl, '_blank', 'noopener,noreferrer') : isMediaAttachment(file) ? setMediaViewer({ message, file, fileIndex, scope: 'dialog' }) : openAttachmentInNewTab(file)}>{type === 'link' ? <span>🔗 {file.name}</span> : isMediaAttachment(file) ? (isVideoAttachment(file) ? <video src={getAttachmentUrl(file)} muted playsInline /> : <img src={getAttachmentUrl(file)} alt={file.name || 'Медиа'} />) : <span>{getFileIcon(file.type)} {file.name}</span>}<em>{new Date(message.createdAt).toLocaleDateString('ru-RU')}</em></button>)}</div></div>}
 
                 {pinnedMessages.length > 0 && (
@@ -3283,7 +3285,7 @@ const EmployeeChat = () => {
             ) : (
               <div className="profile-settings-grid">
                 <section className="profile-panel"><h3>Мой профиль</h3><form onSubmit={saveMyProfile} className="profile-form profile-form-labeled"><label><span>ФИО</span><input placeholder="Иванов Иван Иванович" value={profileForm.full_name} onChange={(e) => updateProfileField('full_name', e.target.value)} /></label><label><span>Логин</span><input value={user?.username || ''} disabled /></label><label><span>Должность</span><input placeholder="Например: инженер" value={profileForm.position} onChange={(e) => updateProfileField('position', e.target.value)} /></label><label><span>Отдел</span><input placeholder="Название отдела" value={profileForm.department} onChange={(e) => updateProfileField('department', e.target.value)} /></label><label><span>Кабинет</span><input placeholder="Например: 214" value={profileForm.room} onChange={(e) => updateProfileField('room', e.target.value)} /></label><label><span>Внутренний телефон</span><input placeholder="Например: 12-34" value={profileForm.phone} onChange={(e) => updateProfileField('phone', e.target.value)} /></label><label><span>Сайт / соцссылка</span><input placeholder="https://..." value={profileForm.website} onChange={(e) => updateProfileField('website', e.target.value)} /></label><label><span>Статус</span><input placeholder="Короткий статус" value={profileForm.statusText} onChange={(e) => updateProfileField('statusText', e.target.value)} /></label><label className="profile-field-wide"><span>О себе</span><textarea placeholder="Кратко о себе" rows={4} value={profileForm.bio} onChange={(e) => updateProfileField('bio', e.target.value)} /></label><button type="submit">Сохранить анкету</button></form></section>
-                <section className="profile-panel"><h3>Безопасность и фото</h3><div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>Изменить фото</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>Удалить фото</button></div><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogMediaPanel === true} onChange={toggleDialogMediaPanelSetting} /><span><strong>Показывать “Медиа / Файлы” в диалоге</strong><small>По умолчанию скрыто. Включите, если нужна правая панель медиа, файлов и ссылок.</small></span></label><form onSubmit={changeMyPassword} className="profile-password-form"><input type="password" placeholder="Текущий пароль" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))} /><input type="password" placeholder="Новый пароль" value={passwordForm.newPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))} /><button type="submit">Обновить пароль</button></form>{!isAdmin && <button type="button" className="profile-logout-btn" onClick={handleLogout}>Выйти из аккаунта</button>}</section>
+                <section className="profile-panel"><h3>Безопасность и фото</h3><div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>Изменить фото</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>Удалить фото</button></div><div className="profile-chat-tools"><strong>Дополнительные инструменты диалога</strong><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogMediaPanel === true} onChange={() => toggleDialogToolSetting('showDialogMediaPanel')} /><span><strong>Показывать “Медиа / Файлы” в диалоге</strong><small>По умолчанию скрыто. Включите, если нужна правая панель медиа, файлов и ссылок.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogDateJump === true} onChange={() => toggleDialogToolSetting('showDialogDateJump')} /><span><strong>Показывать “Перейти к дате”</strong><small>По умолчанию скрыто, чтобы верх чата был компактнее.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogFilters === true} onChange={() => toggleDialogToolSetting('showDialogFilters')} /><span><strong>Показывать фильтры сообщений</strong><small>Все, мои, собеседник, с файлами, фото, сегодня, неделя и месяц.</small></span></label></div><form onSubmit={changeMyPassword} className="profile-password-form"><input type="password" placeholder="Текущий пароль" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))} /><input type="password" placeholder="Новый пароль" value={passwordForm.newPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))} /><button type="submit">Обновить пароль</button></form>{!isAdmin && <button type="button" className="profile-logout-btn" onClick={handleLogout}>Выйти из аккаунта</button>}</section>
               </div>
             )}
           </div>
