@@ -3959,3 +3959,23 @@ button:disabled {
   bottom: 5px;
   transform: none !important;
 }
+
+.compact-message-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.message-action-icon {
+  width: 18px;
+  min-width: 18px;
+  display: inline-flex;
+  justify-content: center;
+  color: #94a3b8;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.compact-message-actions .danger-action .message-action-icon {
+  color: #94a3b8;
+}
