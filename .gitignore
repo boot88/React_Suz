@@ -27,3 +27,7 @@ yarn-error.log*
 
 # Heroku
 *.env
+# Runtime chat/feed uploads and JSON storage
+/server/uploads
+/server/data/backups
+/server/data/*.tmp
