@@ -3993,3 +3993,58 @@ button:disabled {
   top: calc(100% + 10px);
   bottom: auto;
 }
+
+.message-action-popover {
+  width: min(300px, calc(100vw - 44px));
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.message-action-popover .compact-reaction-row {
+  margin: 0 0 10px;
+  padding: 8px;
+  border: 1px solid rgba(30, 90, 168, .12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .98);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, .16);
+}
+
+.message-action-popover .compact-message-actions,
+.message-action-popover .secondary-actions,
+.message-action-popover .danger-actions {
+  grid-template-columns: 1fr;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid rgba(30, 90, 168, .12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .98);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, .16);
+}
+
+.message-action-popover .secondary-actions,
+.message-action-popover .danger-actions {
+  margin-top: 8px;
+}
+
+.message-action-popover .compact-message-actions button,
+.message-action-popover .secondary-actions button,
+.message-action-popover .danger-actions button {
+  min-height: 42px;
+  width: 100%;
+  justify-content: flex-start;
+  border-color: transparent;
+  border-radius: 12px;
+  background: transparent;
+  font-size: 13px;
+}
+
+.employee-chat-layout.theme-dark .message-action-popover .compact-reaction-row,
+.employee-chat-layout.theme-dark .message-action-popover .compact-message-actions,
+.employee-chat-layout.theme-dark .message-action-popover .secondary-actions,
+.employee-chat-layout.theme-dark .message-action-popover .danger-actions {
+  background: rgba(17, 24, 39, .96);
+  border-color: var(--chat-border);
+}
