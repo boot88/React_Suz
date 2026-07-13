@@ -4061,3 +4061,39 @@ button:disabled {
   object-fit: contain;
   background: #050816;
 }
+
+.employee-chat-tabs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.profile-form-labeled {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.profile-form-labeled label {
+  gap: 6px;
+  color: var(--chat-ink);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.profile-form-labeled label span {
+  color: var(--chat-muted);
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+.profile-form-labeled input,
+.profile-form-labeled textarea {
+  min-height: 44px;
+  background: rgba(255, 255, 255, .86);
+  font: inherit;
+}
+
+.profile-form-labeled button[type="submit"] {
+  justify-self: start;
+  min-width: 180px;
+}

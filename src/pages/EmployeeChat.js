@@ -22,9 +22,9 @@ const MAX_ATTACHMENT_SIZE_MB = 100;
 const MAX_ATTACHMENT_SIZE = MAX_ATTACHMENT_SIZE_MB * 1024 * 1024;
 const VIDEO_EXTENSION_PATTERN = /\.(mp4|webm|ogg|ogv|mov|m4v|avi|mkv)$/i;
 const EMPLOYEE_TABS = [
+  { id: 'feed', label: 'Лента' },
   { id: 'chat', label: 'Чат' },
-  { id: 'request', label: 'Заявка' },
-  { id: 'feed', label: 'Лента' }
+  { id: 'request', label: 'Заявка' }
 ];
 const MANAGER_TABS = [
   { id: 'chat', label: 'Чат' },
