@@ -1868,7 +1868,10 @@ const EmployeeChat = () => {
     const rowRect = rowElement.getBoundingClientRect();
     const wrapRect = wrapElement.getBoundingClientRect();
     const spaceAbove = rowRect.top - wrapRect.top;
-    return spaceAbove < 220 ? 'below' : 'above';
+    const spaceBelow = wrapRect.bottom - rowRect.bottom;
+    const estimatedMenuHeight = 420;
+    if (spaceAbove < estimatedMenuHeight) return 'below';
+    return spaceBelow < estimatedMenuHeight ? 'above' : 'below';
   };
 
   const openSelectedMessageMenu = (messageId, event) => {
