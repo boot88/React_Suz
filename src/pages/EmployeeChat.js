@@ -3009,7 +3009,7 @@ const EmployeeChat = () => {
                                     }}
                                     title={(message.reactions?.[emoji] || []).join(', ')}
                                   >
-                                    {emoji}<span>{(message.reactions?.[emoji] || []).length}</span>
+                                    {emoji}
                                   </button>
                                 );
                               })}
