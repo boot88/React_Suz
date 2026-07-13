@@ -603,7 +603,10 @@ const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, 
           controls
           preload="metadata"
           playsInline
-          onClick={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpen?.(event);
+          }}
           onMouseDown={(event) => event.stopPropagation()}
           onDoubleClick={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.stopPropagation()}
