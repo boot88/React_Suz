@@ -3348,16 +3348,12 @@ const EmployeeChat = () => {
             <details className="photo-viewer-menu">
               <summary aria-label="Действия с фото">⋯</summary>
               <div className="photo-viewer-menu-popover">
-                <a href={getOriginalAttachmentUrl(mediaViewer.file)} download={mediaViewer.file.name || 'photo'}>⬇️ Скачать</a>
-                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={replyToViewedMedia}>↩ Ответить</button>}
-                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={shareViewedMedia}>➜ Переслать</button>}
-                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={() => createRequestFromMessage(mediaViewer.message)}>🧾 Создать заявку из фото</button>}
-                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={() => setMediaViewer((current) => ({ ...current, scope: current.scope === 'dialog' ? 'message' : 'dialog' }))}>{mediaViewer.scope === 'dialog' ? 'Показать медиа сообщения' : 'Показать все медиа диалога'}</button>}
-                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={() => openAttachmentInNewTab(mediaViewer.file)}>Открыть оригинал</button>}
-                {mediaViewer.source === 'feed' && <button type="button" onClick={shareViewedFeedMedia}>➜ Переслать только это фото/видео</button>}
-                {mediaViewer.source === 'feed' && mediaViewer.post && <button type="button" onClick={() => shareFeedPostToChat(mediaViewer.post)}>↗ Переслать весь пост</button>}
-                {mediaViewer.source === 'feed' && canManageFeedPost(mediaViewer.post, user, isManager, isAdmin) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>✕ Удалить</button>}
-                {mediaViewer.message && mediaViewer.source !== 'feed' && (isManager || mediaViewer.message?.sender === user.username) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>✕ Удалить</button>}
+                <a href={getOriginalAttachmentUrl(mediaViewer.file)} download={mediaViewer.file.name || 'photo'}>Сохранить</a>
+                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={replyToViewedMedia}>Ответить</button>}
+                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={shareViewedMedia}>Поделиться</button>}
+                {mediaViewer.source === 'feed' && <button type="button" onClick={shareViewedFeedMedia}>Поделиться</button>}
+                {mediaViewer.source === 'feed' && canManageFeedPost(mediaViewer.post, user, isManager, isAdmin) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>Удалить</button>}
+                {mediaViewer.message && mediaViewer.source !== 'feed' && (isManager || mediaViewer.message?.sender === user.username) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>Удалить</button>}
               </div>
             </details>
           </header>
@@ -3366,7 +3362,7 @@ const EmployeeChat = () => {
             {isVideoAttachment(mediaViewer.file) ? (
               <video src={getOriginalAttachmentUrl(mediaViewer.file)} controls playsInline poster={getAttachmentUrl(mediaViewer.file)}>Ваш браузер не поддерживает просмотр видео.</video>
             ) : (
-              <img src={getAttachmentUrl(mediaViewer.file)} alt={mediaViewer.file.name || 'Фото'} />
+              <img src={getOriginalAttachmentUrl(mediaViewer.file)} alt={mediaViewer.file.name || 'Фото'} />
             )}
             {hasManyViewerFiles && <button type="button" className="photo-viewer-nav next" onClick={() => moveMediaViewer(1)}>›</button>}
           </div>
