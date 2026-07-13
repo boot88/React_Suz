@@ -4048,3 +4048,11 @@ button:disabled {
   background: rgba(17, 24, 39, .96);
   border-color: var(--chat-border);
 }
+
+.message-action-popover.floating,
+.message-action-popover.floating.mine {
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  z-index: 1000;
+}

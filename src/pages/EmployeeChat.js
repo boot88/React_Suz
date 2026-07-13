@@ -716,6 +716,7 @@ const EmployeeChat = () => {
   const [replyTo, setReplyTo] = useState(null);
   const [selectedMessageId, setSelectedMessageId] = useState('');
   const [selectedMessageMenuPlacement, setSelectedMessageMenuPlacement] = useState('above');
+  const [selectedMessageMenuStyle, setSelectedMessageMenuStyle] = useState({});
   const [messageReactionExpanded, setMessageReactionExpanded] = useState(false);
   const [selectedFeedPostId, setSelectedFeedPostId] = useState('');
   const [feedReactionExpanded, setFeedReactionExpanded] = useState(false);
@@ -1872,9 +1873,31 @@ const EmployeeChat = () => {
     return spaceBelow >= estimatedMenuHeight ? 'below' : 'above';
   };
 
+  const getMessageMenuStyle = (event, placement) => {
+    const rowElement = event?.currentTarget?.closest?.('.message-row') || event?.target?.closest?.('.message-row');
+    const bubbleElement = rowElement?.querySelector?.('.message-bubble') || rowElement;
+    const wrapElement = messagesWrapRef.current;
+    if (!bubbleElement || !wrapElement) return {};
+    const bubbleRect = bubbleElement.getBoundingClientRect();
+    const wrapRect = wrapElement.getBoundingClientRect();
+    const menuWidth = 300;
+    const menuHeight = 340;
+    const edgeGap = 10;
+    const rawTop = placement === 'below' ? bubbleRect.bottom + 8 : bubbleRect.top - menuHeight - 8;
+    const minTop = wrapRect.top + edgeGap;
+    const maxTop = Math.max(minTop, wrapRect.bottom - menuHeight - edgeGap);
+    const top = Math.min(Math.max(rawTop, minTop), maxTop);
+    const rawLeft = rowElement?.classList?.contains('mine') ? bubbleRect.right - menuWidth : bubbleRect.left;
+    const minLeft = wrapRect.left + edgeGap;
+    const maxLeft = Math.max(minLeft, wrapRect.right - menuWidth - edgeGap);
+    const left = Math.min(Math.max(rawLeft, minLeft), maxLeft);
+    return { top: `${Math.round(top)}px`, left: `${Math.round(left)}px` };
+  };
+
   const openSelectedMessageMenu = (messageId, event) => {
     const placement = getMessageMenuPlacement(event);
     setSelectedMessageMenuPlacement(placement);
+    setSelectedMessageMenuStyle(getMessageMenuStyle(event, placement));
     setSelectedMessageId(messageId);
     setMessageReactionExpanded(false);
   };
@@ -3028,7 +3051,7 @@ const EmployeeChat = () => {
                         </div>
 
                         {isSelected && !isDeleted && (
-                          <div className={`selected-message-menu message-action-popover ${isMine ? 'mine' : ''} ${selectedMessageMenuPlacement === 'below' ? 'open-below' : ''}`} onClick={(event) => event.stopPropagation()}>
+                          <div className={`selected-message-menu message-action-popover floating ${isMine ? 'mine' : ''} ${selectedMessageMenuPlacement === 'below' ? 'open-below' : ''}`} style={selectedMessageMenuStyle} onClick={(event) => event.stopPropagation()}>
                             <div className="selected-reaction-row compact-reaction-row">
                               {visibleReactions.map((emoji) => {
                                 const active = (message.reactions?.[emoji] || []).includes(user.username);
