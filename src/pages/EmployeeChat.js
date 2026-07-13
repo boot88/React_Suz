@@ -1870,14 +1870,33 @@ const EmployeeChat = () => {
     const spaceAbove = rowRect.top - wrapRect.top;
     const spaceBelow = wrapRect.bottom - rowRect.bottom;
     const estimatedMenuHeight = 420;
-    if (spaceAbove < estimatedMenuHeight) return 'below';
-    return spaceBelow < estimatedMenuHeight ? 'above' : 'below';
+    if (spaceBelow >= estimatedMenuHeight) return 'below';
+    if (spaceAbove >= estimatedMenuHeight) return 'above';
+    return 'below';
+  };
+
+  const keepMessageMenuInView = (rowElement, placement) => {
+    const wrapElement = messagesWrapRef.current;
+    if (!rowElement || !wrapElement) return;
+    window.requestAnimationFrame(() => {
+      const rowRect = rowElement.getBoundingClientRect();
+      const wrapRect = wrapElement.getBoundingClientRect();
+      const estimatedMenuHeight = 420;
+      const overflow = placement === 'below'
+        ? rowRect.bottom + estimatedMenuHeight - wrapRect.bottom
+        : wrapRect.top - (rowRect.top - estimatedMenuHeight);
+      if (overflow <= 0) return;
+      wrapElement.scrollTop += placement === 'below' ? overflow + 18 : -(overflow + 18);
+    });
   };
 
   const openSelectedMessageMenu = (messageId, event) => {
-    setSelectedMessageMenuPlacement(getMessageMenuPlacement(event));
+    const rowElement = event?.currentTarget?.closest?.('.message-row') || event?.target?.closest?.('.message-row');
+    const placement = getMessageMenuPlacement(event);
+    setSelectedMessageMenuPlacement(placement);
     setSelectedMessageId(messageId);
     setMessageReactionExpanded(false);
+    keepMessageMenuInView(rowElement, placement);
   };
 
   const toggleSelectedMessage = (messageId) => {
