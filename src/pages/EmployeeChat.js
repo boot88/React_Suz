@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { MANAGER_CREDENTIALS } from '../config/authConfig';
@@ -3050,7 +3051,7 @@ const EmployeeChat = () => {
                           )}
                         </div>
 
-                        {isSelected && !isDeleted && (
+                        {isSelected && !isDeleted && typeof document !== 'undefined' && createPortal((
                           <div className={`selected-message-menu message-action-popover floating ${isMine ? 'mine' : ''} ${selectedMessageMenuPlacement === 'below' ? 'open-below' : ''}`} style={selectedMessageMenuStyle} onClick={(event) => event.stopPropagation()}>
                             <div className="selected-reaction-row compact-reaction-row">
                               {visibleReactions.map((emoji) => {
@@ -3089,7 +3090,7 @@ const EmployeeChat = () => {
                               </>
                             )}
                           </div>
-                        )}
+                        ), document.body)}
                       </div>
                     );
                   })}
