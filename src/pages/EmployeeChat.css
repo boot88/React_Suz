@@ -4056,3 +4056,8 @@ button:disabled {
   bottom: auto;
   z-index: 1000;
 }
+
+.employee-feed-media-tile.video video {
+  object-fit: contain;
+  background: #050816;
+}
