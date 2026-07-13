@@ -596,7 +596,18 @@ const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, 
   return (
     <div key={cardKey} className={cardClassName}>
       {isVideo ? (
-        <video className="attachment-video-player" src={getOriginalAttachmentUrl(file)} poster={file.thumbnailUrl ? getAttachmentUrl(file) : undefined} controls preload="metadata" playsInline>
+        <video
+          className="attachment-video-player"
+          src={getOriginalAttachmentUrl(file)}
+          poster={file.thumbnailUrl ? getAttachmentUrl(file) : undefined}
+          controls
+          preload="metadata"
+          playsInline
+          onClick={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.stopPropagation()}
+        >
           Ваш браузер не поддерживает просмотр этого видео.
         </video>
       ) : isImage ? (
