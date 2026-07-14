@@ -2503,6 +2503,20 @@ const EmployeeChat = () => {
     return visible;
   };
 
+  const getEmployeeAvatar = useCallback((login = '', ...candidates) => {
+    const normalizedLogin = formatFeedLogin(login);
+    const directAvatar = candidates.find((value) => typeof value === 'string' && value.trim());
+    if (directAvatar) return directAvatar;
+
+    if (sameLogin(normalizedLogin, user?.username || '')) return avatarUrl || '';
+
+    const cachedProfile = normalizedLogin ? readProfileDraft(normalizedLogin) : {};
+    if (cachedProfile.avatar) return cachedProfile.avatar;
+
+    const directoryProfile = directoryEmployees.find((employee) => sameLogin(employee.login, normalizedLogin)) || {};
+    return directoryProfile.avatar || directoryProfile.photo || directoryProfile.photo_url || '';
+  }, [avatarUrl, directoryEmployees, user?.username]);
+
   useEffect(() => {
     if (activeTab !== 'feed' || !user?.username) return;
     const latestTimestamp = getFeedLatestTimestamp(feedPosts);
@@ -3296,6 +3310,7 @@ const EmployeeChat = () => {
                 const authorName = post.authorName || authorProfile.full_name || authorLogin || 'Сотрудник';
                 const authorMeta = [post.category || 'Объявление', authorProfile.position || authorProfile.department || (authorLogin ? `@${authorLogin}` : ''), new Date(post.createdAt).toLocaleString('ru-RU')].filter(Boolean).join(' · ');
                 const authorInitial = String(authorName || authorLogin || '?').slice(0, 1).toUpperCase();
+                const authorAvatar = getEmployeeAvatar(authorLogin, post.avatar, post.authorAvatar, post.authorPhoto, post.author_photo, authorProfile.avatar);
                 const sortedPostComments = sortComments(post.comments || []);
                 const previewComments = expandedCommentPosts[post.id]
                   ? sortedPostComments
@@ -3323,7 +3338,7 @@ const EmployeeChat = () => {
                     }}
                   >
                     <header className="employee-feed-post-header vk-feed-post-header">
-                      <div className="feed-avatar"><span>{authorInitial}</span></div>
+                      <div className="feed-avatar">{authorAvatar ? <img src={authorAvatar} alt={authorName} /> : <span>{authorInitial}</span>}</div>
                       <div className="feed-post-author-block">
                         <strong>{post.pinned && <span className="feed-pinned-badge">📌</span>}{authorName}</strong>
                         <span>{authorMeta}{post.editedAt && ' · изменено'}</span>
@@ -3343,7 +3358,7 @@ const EmployeeChat = () => {
                     <div className="employee-feed-comments">
                       <div className="employee-feed-comments-title">Комментарии</div>
                       {sortedPostComments.length === 0 && <small className="employee-feed-no-comments">Комментариев пока нет.</small>}
-                      {previewComments.map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; const commentInitial = String(comment.authorName || comment.author || '?').slice(0, 1).toUpperCase(); return <div key={comment.id} className="employee-feed-comment"><div className="feed-avatar comment-avatar"><span>{commentInitial}</span></div><div className="employee-feed-comment-body"><strong>{comment.authorName}</strong><span>{comment.text}</span><small>{formatFeedLogin(comment.author)} · {new Date(comment.createdAt).toLocaleString('ru-RU')}</small><div className="feed-comment-actions"><button type="button" onClick={() => setCommentDrafts((prev) => ({ ...prev, [post.id]: `@${formatFeedLogin(comment.author)} ` }))}>Ответить</button><button type="button" onClick={() => notify('Реакция на комментарий сохранится после подключения серверного метода', 'Лента')}>👍</button>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>Удалить</button>}</div></div></div>; })}
+                      {previewComments.map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; const commentInitial = String(comment.authorName || comment.author || '?').slice(0, 1).toUpperCase(); const commentAvatar = getEmployeeAvatar(comment.author, comment.avatar, comment.authorAvatar, comment.authorPhoto, comment.author_photo); return <div key={comment.id} className="employee-feed-comment"><div className="feed-avatar comment-avatar">{commentAvatar ? <img src={commentAvatar} alt={comment.authorName || comment.author || 'Комментарий'} /> : <span>{commentInitial}</span>}</div><div className="employee-feed-comment-body"><strong>{comment.authorName}</strong><span>{comment.text}</span><small>{formatFeedLogin(comment.author)} · {new Date(comment.createdAt).toLocaleString('ru-RU')}</small><div className="feed-comment-actions"><button type="button" onClick={() => setCommentDrafts((prev) => ({ ...prev, [post.id]: `@${formatFeedLogin(comment.author)} ` }))}>Ответить</button><button type="button" onClick={() => notify('Реакция на комментарий сохранится после подключения серверного метода', 'Лента')}>👍</button>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>Удалить</button>}</div></div></div>; })}
                       {hiddenCommentsCount > 0 && !expandedCommentPosts[post.id] && <button type="button" className="feed-show-more-comments" onClick={() => setExpandedCommentPosts((prev) => ({ ...prev, [post.id]: true }))}>Показать все комментарии ({sortedPostComments.length})</button>}
                       <div className="employee-feed-comment-form"><div className="feed-avatar comment-avatar feed-avatar-current">{avatarUrl ? <img src={avatarUrl} alt="Мой аватар" /> : <span>{String(profileForm.full_name || user?.name || user?.username || '?').slice(0, 1).toUpperCase()}</span>}</div><input placeholder="Написать комментарий…" value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} />{(commentDrafts[post.id] || '').trim() && <button type="button" onClick={() => addCommentToPost(post.id)}>Отправить</button>}</div>
                     </div>
