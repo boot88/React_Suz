@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import './Dashboard.css';
 import { API_BASE_URL } from '../utils/apiConfig';
@@ -15,11 +15,62 @@ const STATUS_META = {
 const WORKFLOW_FILTERS = [
   { id: 'all', label: 'Все' },
   { id: 'queue', label: 'Новые' },
+  { id: 'my', label: 'Мои' },
   { id: 'active', label: 'В работе' },
+  { id: 'unassigned', label: 'Без исполнителя' },
   { id: 'confirmation', label: 'Ждут подтверждения' },
   { id: 'done', label: 'Выполненные' },
   { id: 'overdue', label: 'Просроченные' }
 ];
+const QUEUE_FILTERS = [
+  { id: 'queue', label: 'Новые', icon: '📥' },
+  { id: 'my', label: 'Мои', icon: '👤' },
+  { id: 'overdue', label: 'Просроченные', icon: '⚠️' },
+  { id: 'unassigned', label: 'Без исполнителя', icon: '🧭' }
+];
+const SORT_OPTIONS = [
+  { id: 'sla', label: 'SLA: сначала срочные' },
+  { id: 'status', label: 'Статус' },
+  { id: 'date_desc', label: 'Дата: новые сверху' },
+  { id: 'date_asc', label: 'Дата: старые сверху' },
+  { id: 'executor', label: 'Исполнитель' }
+];
+const TABLE_STATUS_ORDER = {
+  new: 1,
+  reopened: 2,
+  accepted: 3,
+  in_progress: 4,
+  waiting_employee_confirmation: 5,
+  done: 6
+};
+const DASHBOARD_COLUMNS_KEY = 'dashboard.visibleColumns.v1';
+const DASHBOARD_COMPACT_KEY = 'dashboard.compactMode.v1';
+const DEFAULT_DASHBOARD_COLUMNS = ['employee', 'request', 'executor', 'created', 'sla', 'status', 'actions'];
+const DASHBOARD_COLUMNS = [
+  { id: 'employee', label: 'Сотрудник' },
+  { id: 'request', label: 'Заявка' },
+  { id: 'executor', label: 'Исполнитель' },
+  { id: 'created', label: 'Создана' },
+  { id: 'sla', label: 'SLA' },
+  { id: 'status', label: 'Статус' },
+  { id: 'actions', label: 'Действия' }
+];
+const SAVED_DASHBOARD_VIEWS = [
+  { id: 'my', label: 'Мои заявки', filter: 'my', sort: 'sla' },
+  { id: 'it', label: 'IT', filter: 'all', sort: 'sla', search: 'IT' },
+  { id: 'urgent', label: 'Срочные', filter: 'overdue', sort: 'sla' },
+  { id: 'today', label: 'Сегодня', filter: 'all', sort: 'date_desc', dateRange: 'today' }
+];
+const readVisibleColumns = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DASHBOARD_COLUMNS_KEY) || '[]');
+    const allowed = new Set(DASHBOARD_COLUMNS.map((column) => column.id));
+    const filtered = Array.isArray(saved) ? saved.filter((column) => allowed.has(column)) : [];
+    return filtered.length > 0 ? filtered : DEFAULT_DASHBOARD_COLUMNS;
+  } catch (error) {
+    return DEFAULT_DASHBOARD_COLUMNS;
+  }
+};
 const formatDuration = (seconds) => {
   if (seconds === null || seconds === undefined || seconds === '') return '—';
   const safe = Math.max(0, Math.floor(Number(seconds) || 0));
@@ -117,6 +168,13 @@ const Dashboard = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [workflowMessage, setWorkflowMessage] = useState('');
   const [actionBusyId, setActionBusyId] = useState(null);
+  const [openActionMenuId, setOpenActionMenuId] = useState(null);
+  const [sortMode, setSortMode] = useState('sla');
+  const [visibleColumns, setVisibleColumns] = useState(readVisibleColumns);
+  const [compactMode, setCompactMode] = useState(() => localStorage.getItem(DASHBOARD_COMPACT_KEY) === 'true');
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
+  const [bulkExecutor, setBulkExecutor] = useState('');
   const [selectedApplication, setSelectedApplication] = useState(null);
   const [applicationEvents, setApplicationEvents] = useState([]);
   const [eventsLoading, setEventsLoading] = useState(false);
@@ -144,7 +202,7 @@ const Dashboard = () => {
     setExportLoading(true);
     try {
       let url = '/applications/export';
-      if (filter !== 'all') url += `?status=${encodeURIComponent(filter)}`;
+      if (filter !== 'all' && !['my', 'unassigned'].includes(filter)) url += `?status=${encodeURIComponent(filter)}`;
       if (fromDate) url += `${url.includes('?') ? '&' : '?'}from=${fromDate}`;
       if (toDate) url += `${url.includes('?') ? '&' : '?'}to=${toDate}`;
       if (searchTerm) url += `${url.includes('?') ? '&' : '?'}search=${encodeURIComponent(searchTerm.trim())}`;
@@ -185,7 +243,7 @@ const Dashboard = () => {
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Заявки');
 
       const date = new Date().toLocaleDateString('ru-RU').replace(/\./g, '-');
-      const fileName = searchTerm 
+      const fileName = searchTerm
         ? `заявки_поиск_${searchTerm}_${date}.xlsx`
         : `все_заявки_${date}.xlsx`;
 
@@ -216,12 +274,22 @@ const Dashboard = () => {
     if (!silent) setLoading(true);
     try {
       let url = `/applications?page=${currentPage}&limit=${limit}`;
-      
+
       if (searchTerm.trim()) {
         url += `&search=${encodeURIComponent(searchTerm.trim())}`;
       }
-      
-      if (filter !== 'all') url += `&status=${encodeURIComponent(filter)}`;
+
+      if (filter !== 'all') {
+        if (['my', 'unassigned'].includes(filter)) {
+          url += `&queue=${encodeURIComponent(filter)}`;
+          if (filter === 'my') {
+            url += `&assignee=${encodeURIComponent(user?.name || user?.username || '')}`;
+          }
+        } else {
+          url += `&status=${encodeURIComponent(filter)}`;
+        }
+      }
+      url += `&sort=${encodeURIComponent(sortMode)}`;
       if (dateFilterActive) {
         if (fromDate) url += `&from=${fromDate}`;
         if (toDate) url += `&to=${toDate}`;
@@ -376,7 +444,7 @@ const Dashboard = () => {
 
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, limit, filter, fromDate, toDate, dateFilterActive, searchTerm]);
+  }, [currentPage, limit, filter, fromDate, toDate, dateFilterActive, searchTerm, sortMode]);
 
   useEffect(() => {
     const onVisible = () => {
@@ -447,6 +515,43 @@ const Dashboard = () => {
     setSearchTerm('');
   };
 
+  const isColumnVisible = (columnId) => visibleColumns.includes(columnId);
+
+  const toggleColumn = (columnId) => {
+    setVisibleColumns((current) => {
+      const next = current.includes(columnId)
+        ? current.filter((item) => item !== columnId)
+        : [...current, columnId];
+      const safeNext = next.length > 0 ? next : ['request'];
+      localStorage.setItem(DASHBOARD_COLUMNS_KEY, JSON.stringify(safeNext));
+      return safeNext;
+    });
+  };
+
+  const toggleCompactMode = () => {
+    setCompactMode((current) => {
+      localStorage.setItem(DASHBOARD_COMPACT_KEY, String(!current));
+      return !current;
+    });
+  };
+
+  const applySavedView = (view) => {
+    setFilter(view.filter);
+    setSortMode(view.sort);
+    setSearchTerm(view.search || '');
+    setCurrentPage(1);
+    if (view.dateRange === 'today') {
+      const today = new Date().toISOString().split('T')[0];
+      setFromDate(today);
+      setToDate(today);
+      setDateFilterActive(true);
+    } else {
+      setFromDate('');
+      setToDate('');
+      setDateFilterActive(false);
+    }
+  };
+
   const activeFilterChips = [
     filter !== 'all' ? { key: 'status', label: WORKFLOW_FILTERS.find((item) => item.id === filter)?.label || 'Раздел', onRemove: () => setFilterAndResetPage('all') } : null,
     dateFilterActive && fromDate ? { key: 'from', label: `с ${fromDate}`, onRemove: () => { setFromDate(''); setDateFilterActive(Boolean(toDate)); setCurrentPage(1); } } : null,
@@ -457,14 +562,14 @@ const Dashboard = () => {
   const getVisiblePages = () => {
     const visiblePages = 6;
     const halfVisible = Math.floor(visiblePages / 2);
-    
+
     let startPage = Math.max(1, currentPage - halfVisible);
     let endPage = Math.min(totalPages, startPage + visiblePages - 1);
-    
+
     if (endPage - startPage + 1 < visiblePages) {
       startPage = Math.max(1, endPage - visiblePages + 1);
     }
-    
+
     return Array.from({ length: endPage - startPage + 1 }, (_, i) => startPage + i);
   };
 
@@ -487,12 +592,16 @@ const Dashboard = () => {
     });
   };
 
-  const formatShortDate = (dateString) => {
-    if (!dateString) return '—';
-    return new Date(dateString).toLocaleDateString('ru-RU', {
+  const formatCreatedAt = (dateString) => {
+    if (!dateString) return 'Ручная подача · дата —';
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return 'Ручная подача · дата —';
+    return date.toLocaleString('ru-RU', {
       day: '2-digit',
       month: '2-digit',
-      year: '2-digit'
+      year: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
     });
   };
 
@@ -521,10 +630,39 @@ const Dashboard = () => {
     return rest ? `${hours} ч ${rest} мин` : `${hours} ч`;
   };
 
-  const getTableTimers = (app = {}) => {
+  const getApplicationSourceLabel = (app = {}) => {
+    if (app.source === 'chat' || app.employee_login) return 'Из чата';
+    if (app.source === 'employee') return 'От сотрудника';
+    return 'Ручная подача';
+  };
+
+  const getPriorityLabel = (priority) => {
+    const value = String(priority || '').trim().toLowerCase();
+    if (['high', 'urgent', 'срочно', 'высокий', 'critical'].includes(value)) return 'Срочно';
+    if (['low', 'низкий'].includes(value)) return 'Низкий';
+    if (['medium', 'normal', 'обычный', 'средний'].includes(value)) return 'Обычный';
+    return priority || 'Обычный';
+  };
+
+  const getPriorityClass = (priority) => {
+    const value = String(priority || '').trim().toLowerCase();
+    if (['high', 'urgent', 'срочно', 'высокий', 'critical'].includes(value)) return 'high';
+    if (['low', 'низкий'].includes(value)) return 'low';
+    return 'normal';
+  };
+
+  const getCategoryLabel = (category) => String(category || '').trim() || 'Без категории';
+
+  const getSlaBadge = (app = {}) => {
+    const sla = getSlaState(app);
+    const status = app.status || (app.fl ? 'done' : 'new');
+    if (app.fl || status === 'done') {
+      return { ...sla, title: 'SLA закрыта', value: 'готово' };
+    }
     return {
-      waitingSeconds: getWaitingSeconds(app),
-      workSeconds: getWorkSeconds(app)
+      ...sla,
+      title: sla.label,
+      value: formatCompactDuration(sla.seconds)
     };
   };
 
@@ -532,6 +670,21 @@ const Dashboard = () => {
     const status = app.status || (app.fl ? 'done' : 'new');
     const meta = STATUS_META[status] || STATUS_META.new;
     return <span className={`status-badge status-${status}`}><span className="status-icon">{meta.icon}</span>{meta.label}</span>;
+  };
+
+  const getPrimaryTableAction = (app = {}) => {
+    const status = app.status || (app.fl ? 'done' : 'new');
+    if (['new', 'reopened'].includes(status)) return { label: 'Взять', action: () => openAcceptModal(app) };
+    if (status === 'accepted') return { label: 'Начать', action: () => runWorkflowAction(app, 'start-work') };
+    if (status === 'in_progress') return { label: 'Завершить', action: () => openResolveModal(app) };
+    if (status === 'waiting_employee_confirmation') return { label: 'Проверить', action: () => openApplicationPanel(app) };
+    return { label: 'Открыть', action: () => openApplicationPanel(app) };
+  };
+
+  const runTableAction = (event, app, action) => {
+    event.stopPropagation();
+    setOpenActionMenuId(null);
+    action(app);
   };
 
   const runWorkflowAction = async (app, action, extraPayload = {}) => {
@@ -581,6 +734,90 @@ const Dashboard = () => {
     }
   };
 
+  const toggleSelectApplication = (event, appId) => {
+    event.stopPropagation();
+    setSelectedIds((current) => (
+      current.includes(appId) ? current.filter((id) => id !== appId) : [...current, appId]
+    ));
+  };
+
+  const toggleSelectAllVisible = () => {
+    const visibleIds = displayedApplications.map((app) => app.id);
+    setSelectedIds((current) => (
+      visibleIds.every((id) => current.includes(id))
+        ? current.filter((id) => !visibleIds.includes(id))
+        : Array.from(new Set([...current, ...visibleIds]))
+    ));
+  };
+
+  const runBulkAssign = async () => {
+    if (!bulkExecutor.trim() || selectedIds.length === 0) return;
+    setActionBusyId('bulk');
+    try {
+      await Promise.all(selectedIds.map((id) => fetch(`${API_BASE_URL}/applications/${id}/accept`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accepted_by: user?.username || user?.name || 'admin',
+          executor: bulkExecutor.trim(),
+          admin_comment: 'Назначено массовым действием'
+        })
+      })));
+      showToast(`Исполнитель назначен для ${selectedIds.length} заявок`, 'success');
+      setBulkAssignOpen(false);
+      setBulkExecutor('');
+      setSelectedIds([]);
+      fetchApplications();
+      fetchGeneralStats();
+    } catch (error) {
+      showToast('Не удалось назначить исполнителя массово', 'error');
+    } finally {
+      setActionBusyId(null);
+    }
+  };
+
+  const runBulkClose = async () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Закрыть выбранные заявки (${selectedIds.length})?`)) return;
+    setActionBusyId('bulk');
+    try {
+      await Promise.all(selectedIds.map((id) => fetch(`${API_BASE_URL}/applications/${id}/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actor: user?.username || user?.name || 'admin',
+          employee_comment: 'Закрыто массовым действием администратора'
+        })
+      })));
+      showToast(`Закрыто заявок: ${selectedIds.length}`, 'success');
+      setSelectedIds([]);
+      fetchApplications();
+      fetchGeneralStats();
+    } catch (error) {
+      showToast('Не удалось закрыть выбранные заявки', 'error');
+    } finally {
+      setActionBusyId(null);
+    }
+  };
+
+  const exportSelectedApplications = () => {
+    const selectedApplications = displayedApplications.filter((app) => selectedIds.includes(app.id));
+    if (selectedApplications.length === 0) return;
+    const worksheet = XLSX.utils.json_to_sheet(selectedApplications.map((app) => ({
+      ID: app.id,
+      Сотрудник: app.name || '',
+      Кабинет: app.cabinet || '',
+      Телефон: app.N_tel || '',
+      Заявка: app.application || '',
+      Исполнитель: app.executor || '',
+      SLA: getSlaState(app).label,
+      Статус: STATUS_META[app.status]?.label || (app.fl ? 'Выполнено' : 'Новая')
+    })));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Выбранные заявки');
+    XLSX.writeFile(workbook, `selected-applications-${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
   const renderPagination = () => {
     if (totalPages <= 1) return null;
 
@@ -594,7 +831,7 @@ const Dashboard = () => {
         >
           ««
         </button>
-        
+
         <button
           onClick={goToPrevPage}
           disabled={currentPage === 1}
@@ -622,7 +859,7 @@ const Dashboard = () => {
         >
           »
         </button>
-        
+
         <button
           onClick={goToLastPage}
           disabled={currentPage === totalPages}
@@ -645,6 +882,35 @@ const Dashboard = () => {
     { id: 'confirmation', label: '👤 Ждут подтверждения', value: stats.confirmation || 0, hint: 'Нужно подтверждение сотрудника' },
     { id: 'overdue', label: '⚠️ Просроченные', value: stats.overdue || 0, hint: 'Нарушен SLA', tone: 'danger' }
   ];
+
+  const displayedApplications = useMemo(() => {
+    const sorted = [...applications];
+    sorted.sort((left, right) => {
+      if (sortMode === 'sla') {
+        const severity = { critical: 1, warning: 2, ok: 3 };
+        const leftSla = getSlaState(left);
+        const rightSla = getSlaState(right);
+        const byLevel = (severity[leftSla.level] || 4) - (severity[rightSla.level] || 4);
+        if (byLevel !== 0) return byLevel;
+        return (rightSla.seconds || 0) - (leftSla.seconds || 0);
+      }
+      if (sortMode === 'status') {
+        const leftStatus = left.status || (left.fl ? 'done' : 'new');
+        const rightStatus = right.status || (right.fl ? 'done' : 'new');
+        return (TABLE_STATUS_ORDER[leftStatus] || 99) - (TABLE_STATUS_ORDER[rightStatus] || 99);
+      }
+      if (sortMode === 'date_asc' || sortMode === 'date_desc') {
+        const leftDate = new Date(left.data || left.created_at || 0).getTime() || 0;
+        const rightDate = new Date(right.data || right.created_at || 0).getTime() || 0;
+        return sortMode === 'date_asc' ? leftDate - rightDate : rightDate - leftDate;
+      }
+      if (sortMode === 'executor') {
+        return String(left.executor || 'яяя').localeCompare(String(right.executor || 'яяя'), 'ru');
+      }
+      return 0;
+    });
+    return sorted;
+  }, [applications, sortMode]);
 
   return (
     <div className="dashboard-container">
@@ -698,6 +964,29 @@ const Dashboard = () => {
 
       {/* Фильтры */}
       <div className="filters-section filters-section-compact">
+        <div className="saved-views-row" aria-label="Сохранённые представления">
+          <strong>Представления:</strong>
+          {SAVED_DASHBOARD_VIEWS.map((view) => (
+            <button key={view.id} type="button" onClick={() => applySavedView(view)}>{view.label}</button>
+          ))}
+        </div>
+        <div className="queue-filter-row" aria-label="Очереди заявок">
+          <button type="button" className={filter === 'all' ? 'active' : ''} onClick={clearFilters}>
+            <span>📊</span>
+            Все
+          </button>
+          {QUEUE_FILTERS.map((queue) => (
+            <button
+              key={queue.id}
+              type="button"
+              className={filter === queue.id ? 'active' : ''}
+              onClick={() => setFilterAndResetPage(queue.id)}
+            >
+              <span>{queue.icon}</span>
+              {queue.label}
+            </button>
+          ))}
+        </div>
         <div className="filters-group period-filter-card">
           <div className="filter-card-head">
             <div>
@@ -730,6 +1019,22 @@ const Dashboard = () => {
             </details>
           </div>
         </div>
+        <div className="dashboard-view-tools">
+          <details className="columns-panel">
+            <summary>Колонки</summary>
+            <div className="columns-panel-body">
+              {DASHBOARD_COLUMNS.map((column) => (
+                <label key={column.id}>
+                  <input type="checkbox" checked={isColumnVisible(column.id)} onChange={() => toggleColumn(column.id)} />
+                  {column.label}
+                </label>
+              ))}
+            </div>
+          </details>
+          <button type="button" className={`compact-mode-toggle ${compactMode ? 'active' : ''}`} onClick={toggleCompactMode}>
+            {compactMode ? 'Обычный режим' : 'Компактный режим'}
+          </button>
+        </div>
       </div>
 
       {activeFilterChips.length > 0 && (
@@ -756,9 +1061,9 @@ const Dashboard = () => {
               <h3>
                 <span className="science-icon">📋</span>
                 Список заявок
-                {applications.length > 0 && (
+                {displayedApplications.length > 0 && (
                   <span className="table-count">
-                    ({applications.length} из {filteredStats.total})
+                    ({displayedApplications.length} из {filteredStats.total})
                   </span>
                 )}
               </h3>
@@ -775,6 +1080,18 @@ const Dashboard = () => {
                 />
                 {searchTerm && <button type="button" onClick={clearSearch} className="clear-search" title="Очистить поиск">×</button>}
               </div>
+              <label className="page-size-control">
+                <span>Сортировка</span>
+                <select
+                  value={sortMode}
+                  onChange={(e) => {
+                    setSortMode(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                >
+                  {SORT_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+                </select>
+              </label>
               <label className="page-size-control">
                 <span>На странице</span>
                 <select
@@ -795,45 +1112,80 @@ const Dashboard = () => {
           </div>
 
           <div className="table-container">
+            {selectedIds.length > 0 && (
+              <div className="bulk-actions-bar">
+                <strong>Выбрано: {selectedIds.length}</strong>
+                <button type="button" onClick={() => setBulkAssignOpen(true)} disabled={actionBusyId === 'bulk'}>Назначить исполнителя</button>
+                <button type="button" onClick={runBulkClose} disabled={actionBusyId === 'bulk'}>Закрыть</button>
+                <button type="button" onClick={exportSelectedApplications}>Экспортировать выбранные</button>
+                <button type="button" onClick={() => setSelectedIds([])}>Снять выбор</button>
+                {bulkAssignOpen && (
+                  <div className="bulk-assign-box">
+                    <input
+                      type="text"
+                      value={bulkExecutor}
+                      onChange={(event) => setBulkExecutor(event.target.value)}
+                      placeholder="Исполнитель"
+                    />
+                    <button type="button" onClick={runBulkAssign} disabled={!bulkExecutor.trim() || actionBusyId === 'bulk'}>Назначить</button>
+                    <button type="button" onClick={() => setBulkAssignOpen(false)}>Отмена</button>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="table-responsive">
-              <table className="applications-table">
+              <table className={`applications-table ${compactMode ? 'applications-table-compact' : ''}`}>
                 <thead>
                   <tr>
-                    <th>Сотрудник</th>
-                    <th>Заявка</th>
-                    <th>Исполнитель</th>
-                    <th>Дата</th>
-                    <th>Время</th>
-                    <th>Таймер</th>
-                    <th>Статус</th>
-                    <th>Действия</th>
+                    <th className="select-column"><input type="checkbox" checked={displayedApplications.length > 0 && displayedApplications.every((app) => selectedIds.includes(app.id))} onChange={toggleSelectAllVisible} aria-label="Выбрать все заявки на странице" /></th>
+                    {isColumnVisible('employee') && <th>Сотрудник</th>}
+                    {isColumnVisible('request') && <th>Заявка</th>}
+                    {isColumnVisible('executor') && <th>Исполнитель</th>}
+                    {isColumnVisible('created') && <th>Создана</th>}
+                    {isColumnVisible('sla') && <th>SLA</th>}
+                    {isColumnVisible('status') && <th>Статус</th>}
+                    {isColumnVisible('actions') && <th>Действия</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {applications.length > 0 ? (
-                    applications.map((app) => (
-                      <tr
-                        key={app.id}
+	                  {displayedApplications.length > 0 ? (
+	                    displayedApplications.map((app) => {
+                        const primaryAction = getPrimaryTableAction(app);
+                        const status = app.status || (app.fl ? 'done' : 'new');
+                        const canPauseOverdue = getSlaState(app).level === 'critical' && !getSlaState(app).paused;
+                        return (
+	                      <tr
+	                        key={app.id}
                         className={`${app.fl ? 'row-completed' : `row-${app.status || 'new'}`} row-sla-${getSlaState(app).level} ${selectedApplication?.id === app.id ? 'row-selected' : ''}`}
-                        onClick={() => openApplicationPanel(app)}
-                      >
-                        <td className="cell-person">
-                          <strong>{app.name || 'Сотрудник'}</strong>
-                          <span>каб. {app.cabinet || '—'}{app.N_tel ? ` · ${app.N_tel}` : ''}</span>
-                        </td>
-						
-                        <td 
-                             className="cell-application" 
-                             data-tooltip={app.application}
-                             onMouseMove={(e) => {
+	                        onClick={() => openApplicationPanel(app)}
+	                      >
+	                        <td className="select-column" onClick={(event) => event.stopPropagation()}>
+                            <input type="checkbox" checked={selectedIds.includes(app.id)} onChange={(event) => toggleSelectApplication(event, app.id)} aria-label={`Выбрать заявку ${app.id}`} />
+                          </td>
+	                        {isColumnVisible('employee') && <td className="cell-person">
+	                          <strong>{app.name || 'Сотрудник'}</strong>
+	                          <span>каб. {app.cabinet || '—'}{app.N_tel ? ` · ${app.N_tel}` : ''}</span>
+	                        </td>}
+
+	                        {isColumnVisible('request') && <td
+	                             className="cell-application"
+	                             data-tooltip={app.application}
+	                             onMouseMove={(e) => {
                                document.documentElement.style.setProperty('--mouse-x', `${e.clientX}px`);
                                document.documentElement.style.setProperty('--mouse-y', `${e.clientY}px`);
                              }}
                         >
-                             {app.application}
-                        </td>
+                          <div className="application-summary">
+                            <strong>#{app.id || '—'} · {app.application || 'Без описания'}</strong>
+                            <div className="application-badges">
+                              <span className="meta-badge category-badge">{getCategoryLabel(app.category)}</span>
+                              <span className={`meta-badge priority-badge priority-${getPriorityClass(app.priority)}`}>{getPriorityLabel(app.priority)}</span>
+                              <span className="meta-badge source-badge">{getApplicationSourceLabel(app)}</span>
+	                            </div>
+	                          </div>
+	                        </td>}
 
-                        <td className="cell-executor">
+                        {isColumnVisible('executor') && <td className="cell-executor">
                           {app.executor ? (
                             <>
                               {app.executor.split('\n').map((name, index, array) => {
@@ -853,7 +1205,7 @@ const Dashboard = () => {
                                     result.push(<span key={i}>{parts[i]}</span>);
                                   }
                                 }
-                                
+
                                 return (
                                   <span key={index} className="executor-name">
                                     {result}
@@ -865,34 +1217,67 @@ const Dashboard = () => {
                           ) : (
                             'Не назначен'
                           )}
-                        </td>
-                        
-                        <td className="cell-date">{formatShortDate(app.data)}</td>
-                        <td className="cell-date cell-time-range">{formatTimeRange(app)}</td>
-                        <td className="cell-timers">
+                        </td>}
+
+                        {isColumnVisible('created') && <td className="cell-date cell-created">
+                          <strong>{formatCreatedAt(app.data)}</strong>
+                          <span>{formatTimeRange(app)}</span>
+                        </td>}
+                        {isColumnVisible('sla') && <td className="cell-sla">
                           {(() => {
-                            const { waitingSeconds, workSeconds } = getTableTimers(app);
+                            const sla = getSlaBadge(app);
                             return (
-                              <>
-                                {waitingSeconds != null && <div>Ожидание: {formatCompactDuration(waitingSeconds)}</div>}
-                                <div>Работа: {formatCompactDuration(getDisplayWorkSeconds(app) ?? workSeconds)}</div>
-                              </>
+                              <span className={`sla-badge sla-badge-${sla.level}`} title={sla.title}>
+                                <strong>{sla.value}</strong>
+                                <small>{sla.title}</small>
+                              </span>
                             );
                           })()}
-                          {app.sla_paused_at && <small>Таймер остановлен</small>}
-                        </td>
-                        <td>{getStatusLabel(app)}</td>
-                        <td className="cell-actions"><div className="workflow-actions">
-                          <button type="button" disabled={actionBusyId === app.id} onClick={(event) => { event.stopPropagation(); openApplicationPanel(app); }}>Открыть</button>
-                          {app.employee_login && <a onClick={(event) => event.stopPropagation()} href={`/employee?dialog=${encodeURIComponent(app.employee_login)}&application=${app.id}`}>Чат</a>}
-                        </div></td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan="8" className="no-data">
+                        </td>}
+                        {isColumnVisible('status') && <td>{getStatusLabel(app)}</td>}
+                        {isColumnVisible('actions') && <td className="cell-actions">
+                          <div className="workflow-actions workflow-actions-compact">
+                            <button
+                              type="button"
+                              className="primary-workflow-action"
+                              disabled={actionBusyId === app.id}
+                              onClick={(event) => runTableAction(event, app, () => primaryAction.action())}
+                            >
+                              {actionBusyId === app.id ? '...' : primaryAction.label}
+                            </button>
+                            <div className="row-action-menu-wrap">
+                              <button
+                                type="button"
+                                className="row-action-menu-toggle"
+                                aria-label="Дополнительные действия"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setOpenActionMenuId(openActionMenuId === app.id ? null : app.id);
+                                }}
+                              >
+                                ⋯
+                              </button>
+                              {openActionMenuId === app.id && (
+                                <div className="row-action-menu" onClick={(event) => event.stopPropagation()}>
+                                  <button type="button" onClick={(event) => runTableAction(event, app, openApplicationPanel)}>Открыть карточку</button>
+                                  {app.employee_login && <a href={`/employee?dialog=${encodeURIComponent(app.employee_login)}&application=${app.id}`}>Открыть чат</a>}
+                                  {['new', 'reopened'].includes(status) && <button type="button" onClick={(event) => runTableAction(event, app, openAcceptModal)}>Взять в работу</button>}
+                                  {status === 'accepted' && <button type="button" onClick={(event) => runTableAction(event, app, () => runWorkflowAction(app, 'start-work'))}>Запустить таймер</button>}
+                                  {['accepted', 'in_progress'].includes(status) && <button type="button" onClick={(event) => runTableAction(event, app, openResolveModal)}>Что сделано</button>}
+                                  {canPauseOverdue && <button type="button" className="danger-menu-action" onClick={(event) => runTableAction(event, app, () => runWorkflowAction(app, 'pause-overdue'))}>Остановить просрочку</button>}
+                                </div>
+                              )}
+                            </div>
+	                          </div>
+                        </td>}
+	                      </tr>
+                        );
+                      })
+	                  ) : (
+	                    <tr>
+		                      <td colSpan={visibleColumns.length + 1} className="no-data">
                         <span className="science-icon">🔍</span>
-                        {searchTerm 
+                        {searchTerm
                           ? `Не найдено заявок по запросу "${searchTerm}"`
                           : 'Нет заявок по данному фильтру'
                         }
@@ -903,7 +1288,7 @@ const Dashboard = () => {
               </table>
             </div>
           </div>
-          
+
           {/* Пагинация */}
           {renderPagination()}
         </>
@@ -931,6 +1316,8 @@ const Dashboard = () => {
             <div><strong>Приоритет</strong><span>{selectedApplication.priority || 'Обычный'}</span></div>
             <div><strong>Источник</strong><span>{selectedApplication.source || 'admin'}</span></div>
             <div><strong>Исполнитель</strong><span>{selectedApplication.executor || 'Не назначен'}</span></div>
+            <div><strong>Создана</strong><span>{formatCreatedAt(selectedApplication.data)}</span></div>
+            <div><strong>Рабочий интервал</strong><span>{formatTimeRange(selectedApplication)}</span></div>
             {getWaitingSeconds(selectedApplication) != null && <div><strong>Ожидание</strong><span>{formatDuration(getWaitingSeconds(selectedApplication))}</span></div>}
             <div><strong>Работа</strong><span>{formatDuration(getDisplayWorkSeconds(selectedApplication))}</span></div>
           </div>
