@@ -914,6 +914,23 @@ const EmployeeChat = () => {
   }, [feedCategory, feedDraft, user?.username]);
 
   useEffect(() => {
+    if (!openFeedMenuId || typeof document === 'undefined') return undefined;
+
+    const closeFeedMenuOnOutsideClick = (event) => {
+      const target = event.target;
+      if (target?.closest?.('.feed-post-menu, .feed-post-menu-button')) return;
+      setOpenFeedMenuId('');
+    };
+
+    document.addEventListener('mousedown', closeFeedMenuOnOutsideClick);
+    document.addEventListener('touchstart', closeFeedMenuOnOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', closeFeedMenuOnOutsideClick);
+      document.removeEventListener('touchstart', closeFeedMenuOnOutsideClick);
+    };
+  }, [openFeedMenuId]);
+
+  useEffect(() => {
     if (!user?.username) return;
     const cachedAvatar = localStorage.getItem(getAvatarKey(user.username)) || '';
     if (cachedAvatar) {
@@ -3273,7 +3290,7 @@ const EmployeeChat = () => {
                   })}
                 </div>
               )}
-              <div className="employee-feed-composer-actions"><label>📎 Фото/видео<input type="file" multiple hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="button" onClick={() => { setFeedDraft(''); setFeedAttachments([]); clearSavedFeedDraft(user?.username || 'guest'); }}>Очистить</button><button type="submit" disabled={isPublishingFeed || (!feedDraft.trim() && feedAttachments.length === 0)}>{isPublishingFeed ? 'Публикуем...' : 'Опубликовать'}</button></div>
+              <div className="employee-feed-composer-actions"><label>📎 Фото/видео<input type="file" multiple hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="submit" disabled={isPublishingFeed || (!feedDraft.trim() && feedAttachments.length === 0)}>{isPublishingFeed ? 'Публикуем...' : 'Опубликовать'}</button></div>
             </form>
             <div className="feed-toolbar compact-feed-toolbar"><input type="search" placeholder="Поиск по ленте, автору, #тегу..." value={feedSearch} onChange={(e) => setFeedSearch(e.target.value)} />{chatLocalSettings.showFeedFilters === true && <details><summary>Фильтры</summary><div>{FEED_FILTERS.map((filter) => <button key={filter.id} type="button" className={feedFilter === filter.id ? 'active' : ''} onClick={() => setFeedFilter(filter.id)}>{filter.label}</button>)}</div></details>}{feedRefreshing && <span className="feed-refreshing compact-refreshing">Обновляем…</span>}</div>
             <div className="employee-feed-list" ref={feedListRef} onClick={(event) => { if (event.target === event.currentTarget) { setSelectedFeedPostId(''); setFeedReactionExpanded(false); } }}>
@@ -3311,7 +3328,7 @@ const EmployeeChat = () => {
                     {selectedFeedPostId === post.id && (
                       <div className="feed-selected-menu" onClick={(event) => event.stopPropagation()}>
                         <div className="selected-reaction-row feed-reaction-picker">{(feedReactionExpanded ? REACTION_EMOJIS : REACTION_EMOJIS.slice(0, 7)).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => toggleFeedReaction(post.id, emoji)}>{emoji}</button>; })}{!feedReactionExpanded && <button type="button" className="more-reactions" onClick={() => setFeedReactionExpanded(true)}>⌄</button>}</div>
-                        <div className="selected-actions-row feed-actions-row">{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? 'Открепить' : 'Закрепить'}</button>}{canDeletePost && <button type="button" className="danger-action" onClick={() => deleteFeedPost(post.id)}>✕ Удалить</button>}</div>
+                        <div className="selected-actions-row feed-actions-row">{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? 'Открепить' : 'Закрепить'}</button>}</div>
                       </div>
                     )}
                     <div className="employee-feed-comments"><div className="employee-feed-comments-title">Комментарии</div>{sortComments(post.comments || []).length === 0 && <small className="employee-feed-no-comments">Комментариев пока нет.</small>}<div className="feed-comment-tools"><select value={commentSort} onChange={(e) => setCommentSort(e.target.value)}>{COMMENT_SORTS.map((sort) => <option key={sort.id} value={sort.id}>{sort.label}</option>)}</select></div>{sortComments(post.comments || []).slice(0, expandedCommentPosts[post.id] ? undefined : 3).map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; return <div key={comment.id} className="employee-feed-comment"><div className="employee-feed-comment-body"><strong>{comment.authorName}</strong><span>{comment.text}</span><small>{formatFeedLogin(comment.author)} · {new Date(comment.createdAt).toLocaleString('ru-RU')}</small></div><div className="feed-comment-actions"><button type="button" onClick={() => setCommentDrafts((prev) => ({ ...prev, [post.id]: `@${formatFeedLogin(comment.author)} ` }))}>Ответить</button><button type="button" onClick={() => notify('Реакция на комментарий сохранится после подключения серверного метода', 'Лента')}>👍</button>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>Удалить</button>}</div></div>; })}{sortComments(post.comments || []).length > 3 && !expandedCommentPosts[post.id] && <button type="button" className="feed-show-more-comments" onClick={() => setExpandedCommentPosts((prev) => ({ ...prev, [post.id]: true }))}>Показать ещё {sortComments(post.comments || []).length - 3} комментариев</button>}<div className="employee-feed-comment-form"><input placeholder="Оставить комментарий…" value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} /><button type="button" onClick={() => addCommentToPost(post.id)} disabled={!(commentDrafts[post.id] || '').trim()}>Отправить</button></div></div>
