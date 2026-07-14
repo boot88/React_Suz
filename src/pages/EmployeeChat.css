@@ -4097,3 +4097,51 @@ button:disabled {
   justify-self: start;
   min-width: 180px;
 }
+
+.sticky-feed-search {
+  position: sticky;
+  top: 0;
+  z-index: 25;
+  flex: 0 0 auto;
+  margin: 0;
+  background: rgba(248, 250, 252, .92);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, .08);
+}
+
+.sticky-feed-search input {
+  min-height: 42px;
+  border-radius: 999px;
+  background: #fff;
+}
+
+.employee-feed-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.feed-composer-post {
+  gap: 12px;
+  border-color: rgba(37, 99, 235, .14);
+}
+
+.feed-composer-post:hover {
+  border-color: rgba(37, 99, 235, .18);
+}
+
+.feed-composer-post-header {
+  margin-bottom: 0;
+  border: 0;
+  background: transparent;
+  padding: 0 2px 4px;
+}
+
+.vk-feed-composer {
+  border: 0;
+  border-top: 1px solid rgba(148, 163, 184, .22);
+  border-radius: 0;
+  background: transparent;
+  padding: 12px 0 0;
+}

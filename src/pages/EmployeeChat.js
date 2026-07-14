@@ -35,17 +35,6 @@ const MANAGER_TABS = [
 const REQUEST_CATEGORIES = ['Техника', 'Сеть', 'ПО', 'Доступы', 'Другое'];
 const REQUEST_PRIORITIES = ['Обычный', 'Важный', 'Срочный'];
 const FEED_CATEGORIES = ['Объявление', 'Новость', 'Вопрос', 'Важно', 'Фотоотчёт', 'Потеряно/найдено', 'Заявка', 'Поздравление'];
-const FEED_FILTERS = [
-  { id: 'all', label: 'Все' },
-  { id: 'mine', label: 'Мои' },
-  { id: 'photo', label: 'С фото' },
-  { id: 'video', label: 'С видео' },
-  { id: 'pinned', label: 'Закреплённые' },
-  { id: 'unread', label: 'Непрочитанные' },
-  { id: 'today', label: 'Сегодня' },
-  { id: 'week', label: 'Неделя' },
-  { id: 'month', label: 'Месяц' }
-];
 const COMMENT_SORTS = [
   { id: 'old', label: 'Сначала старые' },
   { id: 'new', label: 'Сначала новые' },
@@ -3265,35 +3254,37 @@ const EmployeeChat = () => {
 
         {activeTab === 'feed' && (
           <section className="employee-feed-section">
-            <header className="employee-feed-header compact-feed-header">
-              <div><h2>Лента сотрудников</h2><p>Объявления, новости и фотоотчёты.</p></div>
-              <button type="button" onClick={() => fetchFeed({ silent: false })}>Обновить</button>
-            </header>
-            {feedError && <div className="feed-status-warning">Лента временно недоступна: {feedError}</div>}
-            <form className="employee-feed-composer compact-feed-composer" onSubmit={addFeedPost}>
-              <div className={`feed-composer-line ${chatLocalSettings.showFeedCategorySelect === true ? 'has-category' : 'without-category'}`}>{chatLocalSettings.showFeedCategorySelect === true && <select value={feedCategory} onChange={(e) => setFeedCategory(e.target.value)}>{FEED_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select>}<textarea rows={2} placeholder="Написать в ленту... @ivanov #важно" value={feedDraft} onChange={(e) => setFeedDraft(e.target.value)} /></div>
-              {feedAttachments.length > 0 && (
-                <div className="employee-feed-attachment-preview-grid media-draft-grid">
-                  {feedAttachments.map((file, index) => {
-                    const mediaFile = String(file.type || '').startsWith('image/') || isVideoAttachment(file);
-                    return (
-                      <div key={file.id || `${file.name}-${index}`} className={`employee-feed-attachment-preview media-draft-tile ${mediaFile ? 'is-media' : ''}`}>
-                        {mediaFile ? (
-                          <button type="button" className="media-draft-thumb" onClick={() => setMediaViewer({ source: 'feed-draft', file, fileIndex: index })}>
-                            {isVideoAttachment(file) ? <video src={getAttachmentUrl(file)} muted playsInline preload="metadata" /> : <img src={getAttachmentUrl(file)} alt={file.name} />}
-                          </button>
-                        ) : <span className="media-draft-file-icon">{getFileIcon(file.type)}</span>}
-                        <span>{file.name} · {formatFileSize(file.size)}</span>
-                        <button type="button" className="media-draft-remove" onClick={() => removeFeedAttachment(file.id || `${file.name}-${index}`)}>×</button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              <div className="employee-feed-composer-actions"><label>📎 Фото/видео<input type="file" multiple hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="submit" disabled={isPublishingFeed || (!feedDraft.trim() && feedAttachments.length === 0)}>{isPublishingFeed ? 'Публикуем...' : 'Опубликовать'}</button></div>
-            </form>
-            <div className="feed-toolbar compact-feed-toolbar"><input type="search" placeholder="Поиск по ленте, автору, #тегу..." value={feedSearch} onChange={(e) => setFeedSearch(e.target.value)} />{chatLocalSettings.showFeedFilters === true && <details><summary>Фильтры</summary><div>{FEED_FILTERS.map((filter) => <button key={filter.id} type="button" className={feedFilter === filter.id ? 'active' : ''} onClick={() => setFeedFilter(filter.id)}>{filter.label}</button>)}</div></details>}{feedRefreshing && <span className="feed-refreshing compact-refreshing">Обновляем…</span>}</div>
+            <div className="feed-toolbar compact-feed-toolbar sticky-feed-search"><input type="search" placeholder="Поиск по ленте" value={feedSearch} onChange={(e) => setFeedSearch(e.target.value)} /></div>
             <div className="employee-feed-list" ref={feedListRef} onClick={(event) => { if (event.target === event.currentTarget) { setSelectedFeedPostId(''); setFeedReactionExpanded(false); } }}>
+              <article className="employee-feed-post feed-composer-post">
+                <header className="employee-feed-header compact-feed-header feed-composer-post-header">
+                  <div><h2>Лента сотрудников</h2><p>Объявления, новости и фотоотчёты.</p></div>
+                  <button type="button" onClick={() => fetchFeed({ silent: false })}>{feedRefreshing ? 'Обновляем…' : 'Обновить'}</button>
+                </header>
+                {feedError && <div className="feed-status-warning">Лента временно недоступна: {feedError}</div>}
+                <form className="employee-feed-composer compact-feed-composer vk-feed-composer" onSubmit={addFeedPost}>
+                  <div className={`feed-composer-line ${chatLocalSettings.showFeedCategorySelect === true ? 'has-category' : 'without-category'}`}>{chatLocalSettings.showFeedCategorySelect === true && <select value={feedCategory} onChange={(e) => setFeedCategory(e.target.value)}>{FEED_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select>}<textarea rows={2} placeholder="Что у вас нового?" value={feedDraft} onChange={(e) => setFeedDraft(e.target.value)} /></div>
+                  {feedAttachments.length > 0 && (
+                    <div className="employee-feed-attachment-preview-grid media-draft-grid">
+                      {feedAttachments.map((file, index) => {
+                        const mediaFile = String(file.type || '').startsWith('image/') || isVideoAttachment(file);
+                        return (
+                          <div key={file.id || `${file.name}-${index}`} className={`employee-feed-attachment-preview media-draft-tile ${mediaFile ? 'is-media' : ''}`}>
+                            {mediaFile ? (
+                              <button type="button" className="media-draft-thumb" onClick={() => setMediaViewer({ source: 'feed-draft', file, fileIndex: index })}>
+                                {isVideoAttachment(file) ? <video src={getAttachmentUrl(file)} muted playsInline preload="metadata" /> : <img src={getAttachmentUrl(file)} alt={file.name} />}
+                              </button>
+                            ) : <span className="media-draft-file-icon">{getFileIcon(file.type)}</span>}
+                            <span>{file.name} · {formatFileSize(file.size)}</span>
+                            <button type="button" className="media-draft-remove" onClick={() => removeFeedAttachment(file.id || `${file.name}-${index}`)}>×</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div className="employee-feed-composer-actions"><label>📎 Фото/видео<input type="file" multiple hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="submit" disabled={isPublishingFeed || (!feedDraft.trim() && feedAttachments.length === 0)}>{isPublishingFeed ? 'Публикуем...' : 'Опубликовать'}</button></div>
+                </form>
+              </article>
               {feedLoading && <div className="feed-skeleton-list"><div /><div /><div /></div>}
               {!feedLoading && feedError && <button type="button" className="feed-retry" onClick={() => fetchFeed({ silent: false })}>Повторить загрузку</button>}
               {!feedLoading && visibleFeedPosts.length === 0 && <div className="empty-chat">Пока нет публикаций.</div>}
