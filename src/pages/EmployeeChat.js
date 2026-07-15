@@ -983,6 +983,24 @@ const EmployeeChat = () => {
   }, [openFeedMenuId]);
 
   useEffect(() => {
+    if (!selectedFeedPostId || typeof document === 'undefined') return undefined;
+
+    const closeFeedReactionsOnOutsideClick = (event) => {
+      const target = event.target;
+      if (target?.closest?.('.employee-feed-post, .feed-selected-menu')) return;
+      setSelectedFeedPostId('');
+      setFeedReactionExpanded(false);
+    };
+
+    document.addEventListener('mousedown', closeFeedReactionsOnOutsideClick);
+    document.addEventListener('touchstart', closeFeedReactionsOnOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', closeFeedReactionsOnOutsideClick);
+      document.removeEventListener('touchstart', closeFeedReactionsOnOutsideClick);
+    };
+  }, [selectedFeedPostId]);
+
+  useEffect(() => {
     if (!user?.username) return;
     const cachedAvatar = localStorage.getItem(getAvatarKey(user.username)) || '';
     if (cachedAvatar) {
