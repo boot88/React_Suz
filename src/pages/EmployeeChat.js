@@ -3331,6 +3331,20 @@ const EmployeeChat = () => {
                 {requestStatus.ticketId && <span>Номер: #{requestStatus.ticketId}</span>}
               </div>
             )}
+            <section className="request-support-card" aria-label="Контакты технической поддержки">
+              <div>
+                <span className="eyebrow">Техническая поддержка</span>
+                <h3>Отдел программно-технического обеспечения средств вычислительной техники</h3>
+                <p>По всем вопросам работы компьютеров, программ, доступа к сервисам и другой техники обращайтесь в техподдержку. Чтобы обращение не потерялось и быстрее попало в работу, заявки лучше отправлять через форму на сайте ниже.</p>
+              </div>
+              <div className="request-support-contact">
+                <strong>Повисок Евгений Вячеславович</strong>
+                <span>Ведущий специалист</span>
+                <a href="tel:1380">Внутренний телефон: 1-380</a>
+                <a href="mailto:povisok@nioch.nsc.ru">povisok@nioch.nsc.ru</a>
+                <a href="tel:+79130080146">Мобильный: 8-913-008-01-46</a>
+              </div>
+            </section>
             <form className="employee-request-box" onSubmit={submitRequest}>
               <div className="form-grid two">
                 <label>Категория<select value={requestCategory} onChange={(e) => setRequestCategory(e.target.value)}>{REQUEST_CATEGORIES.map((item) => <option key={item}>{item}</option>)}</select></label>

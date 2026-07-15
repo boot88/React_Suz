@@ -4514,3 +4514,63 @@ button:disabled {
 .profile-link-avatar {
   padding: 0;
 }
+
+.request-support-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, .56fr);
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid rgba(37, 99, 235, .18);
+  border-radius: 22px;
+  background: linear-gradient(135deg, rgba(37, 99, 235, .09), rgba(14, 165, 233, .08)), #fff;
+  box-shadow: 0 14px 32px rgba(15, 23, 42, .06);
+}
+
+.request-support-card h3 {
+  margin: 4px 0 8px;
+  color: #0f172a;
+  font-size: 19px;
+  line-height: 1.25;
+}
+
+.request-support-card p {
+  margin: 0;
+  color: #475569;
+  line-height: 1.55;
+}
+
+.request-support-contact {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  padding: 12px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, .78);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, .18);
+}
+
+.request-support-contact strong {
+  color: #0f172a;
+  font-size: 16px;
+}
+
+.request-support-contact span {
+  color: #64748b;
+  font-weight: 800;
+}
+
+.request-support-contact a {
+  color: #1d4ed8;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.request-support-contact a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 760px) {
+  .request-support-card {
+    grid-template-columns: 1fr;
+  }
+}
