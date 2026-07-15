@@ -4460,3 +4460,57 @@ button:disabled {
     grid-template-columns: 36px minmax(0, 1fr) auto;
   }
 }
+
+.profile-link-avatar,
+.profile-link-name,
+.comment-author-link,
+.message-author-link {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.profile-link-avatar:hover,
+.profile-link-name:hover strong,
+.comment-author-link:hover,
+.message-author-link:hover span:last-child {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.profile-link-name {
+  display: grid;
+  gap: 3px;
+  padding: 0;
+}
+
+.comment-author-link {
+  justify-self: start;
+  padding: 0;
+  color: #0f172a;
+  font-weight: 900;
+}
+
+.message-author-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  margin-bottom: 6px;
+  padding: 0;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.message-row.mine .message-author-link {
+  align-self: flex-end;
+  color: #1d4ed8;
+}
+
+.profile-link-avatar {
+  padding: 0;
+}
