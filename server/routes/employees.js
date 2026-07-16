@@ -61,13 +61,17 @@ const fetchPhoneBookHtml = async (start = 0) => {
 };
 
 const extractTableRows = (html = '') => {
+  const tableMatch = String(html).match(/<table[^>]*id=[\"']cardnList[\"'][^>]*>[\s\S]*?<\/table>/i);
+  const tableHtml = tableMatch ? tableMatch[0] : String(html);
+  const bodyMatch = tableHtml.match(/<tbody[^>]*>[\s\S]*?<\/tbody>/i);
+  const rowsHtml = bodyMatch ? bodyMatch[0] : tableHtml;
   const rows = [];
-  const rowMatches = String(html).match(/<tr[\s\S]*?<\/tr>/gi) || [];
+  const rowMatches = rowsHtml.match(/<tr[^>]*>[\s\S]*?<\/tr>/gi) || [];
 
   for (const rowHtml of rowMatches) {
-    const cellMatches = rowHtml.match(/<t[dh][^>]*>[\s\S]*?<\/t[dh]>/gi) || [];
-    const cells = cellMatches.map(normalizeValue).filter((cell) => cell.length > 0);
-    if (cells.length >= 3 && !cells.some((cell) => /^(фио|ф\.и\.о\.|должность|отдел|телефон)$/i.test(cell))) {
+    const cellMatches = rowHtml.match(/<td[^>]*>[\s\S]*?<\/td>/gi) || [];
+    const cells = cellMatches.map(normalizeValue);
+    if (cells.length >= 7 && cells[0] && !/^сотрудники$/i.test(cells[0])) {
       rows.push(cells);
     }
   }
@@ -81,11 +85,6 @@ const pickEmail = (cells) => {
   return email ? email[0] : '';
 };
 
-const pickPhone = (cells) => {
-  const phoneCell = cells.find((cell) => /(?:^|\s)(?:\d{2,4}[-\s]?\d{0,4}|\d{3,})(?:\s|$)/.test(cell) && !/@/.test(cell));
-  return phoneCell || '';
-};
-
 const rowToEmployee = (cells) => {
   const normalizedCells = cells.map(normalizeValue);
   const email = pickEmail(normalizedCells);
@@ -95,8 +94,8 @@ const rowToEmployee = (cells) => {
     position: normalizedCells[1] || '',
     department: normalizedCells[2] || '',
     room: normalizedCells[3] || '',
-    internal_phone: normalizedCells[4] || pickPhone(normalizedCells.slice(3)) || '',
-    email: normalizedCells[5] || email || ''
+    internal_phone: normalizedCells[5] || '',
+    email: normalizedCells[6] && normalizedCells[6] !== '""' ? normalizedCells[6] : email
   };
 };
 
@@ -208,10 +207,14 @@ const syncEmployees = async (employees) => {
   let inserted = 0;
   let updated = 0;
   let deactivated = 0;
+  let previousActive = 0;
+  let activeAfter = 0;
 
   try {
     await connection.beginTransaction();
-    await connection.execute('UPDATE phone_book SET is_active = 0');
+    const [activeBeforeRows] = await connection.execute('SELECT COUNT(*) AS count FROM phone_book WHERE is_active = 1');
+    previousActive = Number(activeBeforeRows?.[0]?.count || 0);
+    await connection.execute('UPDATE phone_book SET is_active = 0 WHERE is_active = 1');
 
     for (const employee of employees) {
       const [result] = await connection.execute(
@@ -243,11 +246,12 @@ const syncEmployees = async (employees) => {
       else updated += 1;
     }
 
-    const [deactivatedRows] = await connection.execute('SELECT COUNT(*) AS count FROM phone_book WHERE is_active = 0');
-    deactivated = Number(deactivatedRows?.[0]?.count || 0);
+    const [activeAfterRows] = await connection.execute('SELECT COUNT(*) AS count FROM phone_book WHERE is_active = 1');
+    activeAfter = Number(activeAfterRows?.[0]?.count || 0);
+    deactivated = Math.max(0, previousActive - activeAfter);
 
     await connection.commit();
-    return { inserted, updated, deactivated, updatedAt: now.toISOString() };
+    return { inserted, updated, deactivated, previousActive, activeAfter, updatedAt: now.toISOString() };
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -314,7 +318,8 @@ router.post('/sync', async (req, res) => {
         error: `Из источника получено слишком мало записей: ${employees.length}. Проверьте формат страницы или доступ к справочнику.`,
         parsed: employees.length,
         sourceUrl: PHONE_BOOK_URL,
-        pages
+        pages,
+        records: employees
       });
     }
 
@@ -325,6 +330,7 @@ router.post('/sync', async (req, res) => {
       sourceUrl: PHONE_BOOK_URL,
       parsed: employees.length,
       pages,
+      records: employees,
       ...stats
     });
   } catch (error) {

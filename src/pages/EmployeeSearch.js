@@ -13,6 +13,7 @@ const EmployeeSearch = () => {
   const [syncLoading, setSyncLoading] = useState(false);
   const [error, setError] = useState('');
   const [syncMessage, setSyncMessage] = useState('');
+  const [syncRecords, setSyncRecords] = useState([]);
 
   const searchFields = [
     { value: 'full_name', label: 'ФИО' },
@@ -52,6 +53,7 @@ const EmployeeSearch = () => {
     setLoading(true);
     setError('');
     setSyncMessage('');
+    setSyncRecords([]);
 
     try {
       const data = await searchEmployees(actualSearchField, actualSearchTerm);
@@ -70,18 +72,21 @@ const EmployeeSearch = () => {
     setResults([]);
     setError('');
     setSyncMessage('');
+    setSyncRecords([]);
   };
 
   const handleSync = async () => {
     setSyncLoading(true);
     setError('');
     setSyncMessage('');
+    setSyncRecords([]);
 
     try {
       const data = await syncEmployees();
       setSyncMessage(
-        `Справочник обновлён: найдено ${data.parsed}, добавлено ${data.inserted}, обновлено ${data.updated}, скрыто ${data.deactivated}.`
+        `Справочник обновлён: найдено ${data.parsed}, добавлено ${data.inserted}, обновлено ${data.updated}, скрыто ${data.deactivated} ранее активных записей, которых нет в текущем источнике.`
       );
+      setSyncRecords(Array.isArray(data.records) ? data.records : []);
       await loadDepartments();
     } catch (err) {
       setError(err.message || 'Ошибка при обновлении справочника сотрудников');
@@ -192,6 +197,42 @@ const EmployeeSearch = () => {
       {syncMessage && (
         <div className="sync-message">
           {syncMessage}
+        </div>
+      )}
+
+      {syncRecords.length > 0 && (
+        <div className="sync-records-container">
+          <h3>Записи, взятые из внешнего справочника: {syncRecords.length}</h3>
+          <p>
+            Поле «Телефон» ниже — это колонка «Телефон вн.» из источника.
+            «Скрыто» означает: запись была активной в локальной базе, но не встретилась в текущей выгрузке.
+          </p>
+          <div className="table-container">
+            <table className="results-table sync-records-table">
+              <thead>
+                <tr>
+                  <th>ФИО</th>
+                  <th>Должность</th>
+                  <th>Отдел</th>
+                  <th>Кабинет</th>
+                  <th>Телефон вн.</th>
+                  <th>Email</th>
+                </tr>
+              </thead>
+              <tbody>
+                {syncRecords.map((employee) => (
+                  <tr key={employee.source_key || `${employee.full_name}-${employee.department}-${employee.room}`}>
+                    <td>{employee.full_name}</td>
+                    <td>{employee.position}</td>
+                    <td>{employee.department}</td>
+                    <td>{employee.room}</td>
+                    <td>{employee.internal_phone}</td>
+                    <td>{employee.email || <span className="no-data">-</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

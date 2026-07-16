@@ -173,11 +173,18 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.results-container {
+.results-container,
+.sync-records-container {
   margin-top: 20px;
 }
 
-.results-container h3 {
+.sync-records-container > p {
+  color: #52616b;
+  margin: -5px 0 15px;
+}
+
+.results-container h3,
+.sync-records-container h3 {
   color: #2c3e50;
   margin-bottom: 15px;
   font-size: 18px;
@@ -197,6 +204,10 @@
   width: 100%;
   border-collapse: collapse;
   min-width: 800px;
+}
+
+.sync-records-table {
+  min-width: 1000px;
 }
 
 .results-table th {
