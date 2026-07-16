@@ -94,7 +94,8 @@
 }
 
 .search-button,
-.clear-button {
+.clear-button,
+.sync-button {
   padding: 14px 24px;
   border: none;
   border-radius: 8px;
@@ -133,6 +134,33 @@
 .clear-button:hover {
   background: #7f8c8d;
   transform: translateY(-2px);
+}
+
+.sync-button {
+  background: linear-gradient(135deg, #16a085, #1abc9c);
+  color: white;
+}
+
+.sync-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #138d75, #16a085);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(22, 160, 133, 0.3);
+}
+
+.sync-button:disabled {
+  background: #bdc3c7;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.sync-message {
+  background: #e8f8f5;
+  color: #117a65;
+  padding: 16px 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  border-left: 4px solid #16a085;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .error-message {
@@ -231,17 +259,18 @@
     padding: 20px;
     width: 100%;
   }
-  
+
   .search-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .form-buttons {
     flex-direction: column;
   }
-  
+
   .search-button,
-  .clear-button {
+  .clear-button,
+  .sync-button {
     width: 100%;
   }
 }
@@ -250,15 +279,15 @@
   .employee-search-container {
     padding: 15px;
   }
-  
+
   .search-form {
     padding: 20px;
   }
-  
+
   .results-table {
     font-size: 12px;
   }
-  
+
   .results-table th,
   .results-table td {
     padding: 12px 8px;
@@ -269,7 +298,7 @@
   .employee-search-header h1 {
     font-size: 24px;
   }
-  
+
   .employee-search-header p {
     font-size: 14px;
   }
@@ -283,7 +312,7 @@
   left: 0;
   width: 100%;
   height: 100%;
-  background-image: 
+  background-image:
     radial-gradient(circle at 10% 20%, rgba(142, 68, 173, 0.05) 0%, transparent 20%),
     radial-gradient(circle at 90% 70%, rgba(52, 152, 219, 0.05) 0%, transparent 20%),
     radial-gradient(circle at 50% 40%, rgba(46, 204, 113, 0.05) 0%, transparent 20%);

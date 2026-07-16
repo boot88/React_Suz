@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { searchEmployees, getDepartments } from '../services/employeeService';
+import React, { useState, useEffect, useCallback } from 'react';
+import { searchEmployees, getDepartments, syncEmployees } from '../services/employeeService';
 import './EmployeeSearch.css'; // Импортируем CSS файл
 //import { API_BASE_URL } from '../config';
 
@@ -10,7 +10,9 @@ const EmployeeSearch = () => {
   const [results, setResults] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [syncLoading, setSyncLoading] = useState(false);
   const [error, setError] = useState('');
+  const [syncMessage, setSyncMessage] = useState('');
 
   const searchFields = [
     { value: 'full_name', label: 'ФИО' },
@@ -21,23 +23,23 @@ const EmployeeSearch = () => {
     { value: 'email', label: 'Email' }
   ];
 
+  const loadDepartments = useCallback(async () => {
+    try {
+      const depts = await getDepartments();
+      setDepartments(depts);
+    } catch (err) {
+      console.error('Ошибка загрузки отделов:', err);
+    }
+  }, []);
+
   // Загружаем отделы при монтировании компонента
   useEffect(() => {
-    const loadDepartments = async () => {
-      try {
-        const depts = await getDepartments();
-        setDepartments(depts);
-      } catch (err) {
-        console.error('Ошибка загрузки отделов:', err);
-      }
-    };
-
     loadDepartments();
-  }, []);
+  }, [loadDepartments]);
 
   const handleSearch = async (e) => {
     e.preventDefault();
-    
+
     // Если выбран фильтр по отделу, используем его
     const actualSearchField = departmentFilter ? 'department' : searchField;
     const actualSearchTerm = departmentFilter || searchTerm;
@@ -49,6 +51,7 @@ const EmployeeSearch = () => {
 
     setLoading(true);
     setError('');
+    setSyncMessage('');
 
     try {
       const data = await searchEmployees(actualSearchField, actualSearchTerm);
@@ -66,6 +69,26 @@ const EmployeeSearch = () => {
     setDepartmentFilter('');
     setResults([]);
     setError('');
+    setSyncMessage('');
+  };
+
+  const handleSync = async () => {
+    setSyncLoading(true);
+    setError('');
+    setSyncMessage('');
+
+    try {
+      const data = await syncEmployees();
+      setSyncMessage(
+        `Справочник обновлён: найдено ${data.parsed}, добавлено ${data.inserted}, обновлено ${data.updated}, скрыто ${data.deactivated}.`
+      );
+      await loadDepartments();
+    } catch (err) {
+      setError(err.message || 'Ошибка при обновлении справочника сотрудников');
+      console.error('Sync error:', err);
+    } finally {
+      setSyncLoading(false);
+    }
   };
 
   return (
@@ -74,7 +97,7 @@ const EmployeeSearch = () => {
         <h1>🔍 Поиск сотрудников</h1>
         <p>Институт органической химии - База данных сотрудников</p>
       </div>
-      
+
       <form onSubmit={handleSearch} className="search-form">
         <div className="search-grid">
           {/* Поле поиска */}
@@ -147,6 +170,15 @@ const EmployeeSearch = () => {
             >
               🗑️ Очистить
             </button>
+
+            <button
+              type="button"
+              onClick={handleSync}
+              disabled={syncLoading}
+              className="sync-button"
+            >
+              {syncLoading ? '⏳ Обновляем...' : '🔄 Обновить справочник'}
+            </button>
           </div>
         </div>
       </form>
@@ -154,6 +186,12 @@ const EmployeeSearch = () => {
       {error && (
         <div className="error-message">
           {error}
+        </div>
+      )}
+
+      {syncMessage && (
+        <div className="sync-message">
+          {syncMessage}
         </div>
       )}
 
@@ -182,7 +220,7 @@ const EmployeeSearch = () => {
                     <td>{employee.internal_phone}</td>
                     <td>
                       {employee.email ? (
-                        <a 
+                        <a
                           href={`mailto:${employee.email}`}
                           className="email-link"
                         >
