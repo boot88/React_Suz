@@ -117,14 +117,42 @@ const parsePhoneBookEmployees = (html = '') => {
 };
 
 
+const extractPaginationStarts = (html = '') => {
+  const starts = new Set([0]);
+  const startMatches = String(html).matchAll(/(?:[?&]|&amp;)start=(\d+)/gi);
+
+  for (const match of startMatches) {
+    starts.add(Number(match[1]));
+  }
+
+  return [...starts]
+    .filter((start) => Number.isFinite(start) && start >= 0)
+    .sort((a, b) => a - b);
+};
+
+const buildPhoneBookStarts = (firstPageHtml = '') => {
+  const paginationStarts = extractPaginationStarts(firstPageHtml);
+  const maxStartFromPage = paginationStarts.length > 0 ? Math.max(...paginationStarts) : 0;
+  const maxStartFromLimit = (PHONE_BOOK_MAX_PAGES - 1) * PHONE_BOOK_PAGE_SIZE;
+  const maxStart = Math.min(maxStartFromPage || maxStartFromLimit, maxStartFromLimit);
+  const starts = [];
+
+  for (let start = 0; start <= maxStart; start += PHONE_BOOK_PAGE_SIZE) {
+    starts.push(start);
+  }
+
+  return starts;
+};
+
 const fetchAllPhoneBookEmployees = async () => {
   const employees = [];
   const seen = new Set();
   const pages = [];
+  const firstPageHtml = await fetchPhoneBookHtml(0);
+  const starts = buildPhoneBookStarts(firstPageHtml);
 
-  for (let page = 0; page < PHONE_BOOK_MAX_PAGES; page += 1) {
-    const start = page * PHONE_BOOK_PAGE_SIZE;
-    const html = await fetchPhoneBookHtml(start);
+  for (const start of starts) {
+    const html = start === 0 ? firstPageHtml : await fetchPhoneBookHtml(start);
     const pageEmployees = parsePhoneBookEmployees(html);
     let addedFromPage = 0;
 
@@ -136,13 +164,9 @@ const fetchAllPhoneBookEmployees = async () => {
     }
 
     pages.push({ start, parsed: pageEmployees.length, added: addedFromPage });
-
-    if (pageEmployees.length === 0) break;
-    if (page > 0 && addedFromPage === 0) break;
-    if (pageEmployees.length < PHONE_BOOK_PAGE_SIZE) break;
   }
 
-  return { employees, pages };
+  return { employees, pages, expectedPages: starts.length, lastStart: starts[starts.length - 1] || 0 };
 };
 
 const ensurePhoneBookSchema = async () => {
@@ -311,7 +335,7 @@ router.post('/sync', async (req, res) => {
   try {
     await ensurePhoneBookSchema();
 
-    const { employees, pages } = await fetchAllPhoneBookEmployees();
+    const { employees, pages, expectedPages, lastStart } = await fetchAllPhoneBookEmployees();
 
     if (employees.length < MIN_SYNC_EMPLOYEES) {
       return res.status(422).json({
@@ -319,6 +343,8 @@ router.post('/sync', async (req, res) => {
         parsed: employees.length,
         sourceUrl: PHONE_BOOK_URL,
         pages,
+        expectedPages,
+        lastStart,
         records: employees
       });
     }
@@ -330,6 +356,8 @@ router.post('/sync', async (req, res) => {
       sourceUrl: PHONE_BOOK_URL,
       parsed: employees.length,
       pages,
+      expectedPages,
+      lastStart,
       records: employees,
       ...stats
     });

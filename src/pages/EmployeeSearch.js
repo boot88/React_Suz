@@ -83,8 +83,9 @@ const EmployeeSearch = () => {
 
     try {
       const data = await syncEmployees();
+      const loadedPages = Array.isArray(data.pages) ? data.pages.length : 0;
       setSyncMessage(
-        `Справочник обновлён: найдено ${data.parsed}, добавлено ${data.inserted}, обновлено ${data.updated}, скрыто ${data.deactivated} ранее активных записей, которых нет в текущем источнике.`
+        `Справочник обновлён: найдено ${data.parsed}, страниц обработано ${loadedPages}/${data.expectedPages || loadedPages} (последний start=${data.lastStart ?? '—'}), добавлено ${data.inserted}, обновлено ${data.updated}, скрыто ${data.deactivated} ранее активных записей, которых нет в текущем источнике.`
       );
       setSyncRecords(Array.isArray(data.records) ? data.records : []);
       await loadDepartments();
