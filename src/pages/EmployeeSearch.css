@@ -210,6 +210,18 @@
   min-width: 1000px;
 }
 
+.sync-updates-table {
+  min-width: 900px;
+}
+
+.sync-field-change + .sync-field-change {
+  margin-top: 6px;
+}
+
+.sync-field-change strong {
+  color: #2c3e50;
+}
+
 .results-table th {
   background: linear-gradient(to bottom, #f8f9fa, #e9ecef);
   padding: 16px;

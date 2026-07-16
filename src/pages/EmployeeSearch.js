@@ -13,7 +13,7 @@ const EmployeeSearch = () => {
   const [syncLoading, setSyncLoading] = useState(false);
   const [error, setError] = useState('');
   const [syncMessage, setSyncMessage] = useState('');
-  const [syncRecords, setSyncRecords] = useState([]);
+  const [syncChanges, setSyncChanges] = useState(null);
 
   const searchFields = [
     { value: 'full_name', label: 'ФИО' },
@@ -53,7 +53,7 @@ const EmployeeSearch = () => {
     setLoading(true);
     setError('');
     setSyncMessage('');
-    setSyncRecords([]);
+    setSyncChanges(null);
 
     try {
       const data = await searchEmployees(actualSearchField, actualSearchTerm);
@@ -72,14 +72,14 @@ const EmployeeSearch = () => {
     setResults([]);
     setError('');
     setSyncMessage('');
-    setSyncRecords([]);
+    setSyncChanges(null);
   };
 
   const handleSync = async () => {
     setSyncLoading(true);
     setError('');
     setSyncMessage('');
-    setSyncRecords([]);
+    setSyncChanges(null);
 
     try {
       const data = await syncEmployees();
@@ -87,7 +87,7 @@ const EmployeeSearch = () => {
       setSyncMessage(
         `Справочник обновлён: найдено ${data.parsed}, страниц обработано ${loadedPages}/${data.expectedPages || loadedPages} (последний start=${data.lastStart ?? '—'}), добавлено ${data.inserted}, обновлено ${data.updated}, скрыто ${data.deactivated} ранее активных записей, которых нет в текущем источнике.`
       );
-      setSyncRecords(Array.isArray(data.records) ? data.records : []);
+      setSyncChanges(data.changes || null);
       await loadDepartments();
     } catch (err) {
       setError(err.message || 'Ошибка при обновлении справочника сотрудников');
@@ -96,6 +96,39 @@ const EmployeeSearch = () => {
       setSyncLoading(false);
     }
   };
+
+
+  const renderEmployeeCells = (employee = {}) => (
+    <>
+      <td>{employee.full_name}</td>
+      <td>{employee.position}</td>
+      <td>{employee.department}</td>
+      <td>{employee.room}</td>
+      <td>{employee.internal_phone}</td>
+      <td>{employee.email || <span className="no-data">-</span>}</td>
+    </>
+  );
+
+  const renderChangeSection = (title, changeGroup, renderRows) => {
+    if (!changeGroup || changeGroup.count === 0) return null;
+
+    return (
+      <div className="sync-records-container">
+        <h3>{title}: {changeGroup.count}</h3>
+        {changeGroup.count > changeGroup.items.length && (
+          <p>Показаны первые {changeGroup.items.length} из {changeGroup.count}.</p>
+        )}
+        <div className="table-container">
+          {renderRows(changeGroup.items || [])}
+        </div>
+      </div>
+    );
+  };
+
+  const hasSyncChanges = Boolean(
+    syncChanges
+    && (syncChanges.inserted?.count || syncChanges.updated?.count || syncChanges.deactivated?.count)
+  );
 
   return (
     <div className="employee-search-container">
@@ -201,14 +234,9 @@ const EmployeeSearch = () => {
         </div>
       )}
 
-      {syncRecords.length > 0 && (
-        <div className="sync-records-container">
-          <h3>Записи, взятые из внешнего справочника: {syncRecords.length}</h3>
-          <p>
-            Поле «Телефон» ниже — это колонка «Телефон вн.» из источника.
-            «Скрыто» означает: запись была активной в локальной базе, но не встретилась в текущей выгрузке.
-          </p>
-          <div className="table-container">
+      {hasSyncChanges && (
+        <div className="sync-changes-summary">
+          {renderChangeSection('Новые сотрудники/записи', syncChanges.inserted, (items) => (
             <table className="results-table sync-records-table">
               <thead>
                 <tr>
@@ -221,19 +249,63 @@ const EmployeeSearch = () => {
                 </tr>
               </thead>
               <tbody>
-                {syncRecords.map((employee) => (
+                {items.map((employee) => (
                   <tr key={employee.source_key || `${employee.full_name}-${employee.department}-${employee.room}`}>
-                    <td>{employee.full_name}</td>
-                    <td>{employee.position}</td>
-                    <td>{employee.department}</td>
-                    <td>{employee.room}</td>
-                    <td>{employee.internal_phone}</td>
-                    <td>{employee.email || <span className="no-data">-</span>}</td>
+                    {renderEmployeeCells(employee)}
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
+          ))}
+
+          {renderChangeSection('Скрыты/ушли из текущего справочника', syncChanges.deactivated, (items) => (
+            <table className="results-table sync-records-table">
+              <thead>
+                <tr>
+                  <th>ФИО</th>
+                  <th>Должность</th>
+                  <th>Отдел</th>
+                  <th>Кабинет</th>
+                  <th>Телефон вн.</th>
+                  <th>Email</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((employee) => (
+                  <tr key={employee.source_key || `${employee.full_name}-${employee.department}-${employee.room}`}>
+                    {renderEmployeeCells(employee)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ))}
+
+          {renderChangeSection('Изменённые записи', syncChanges.updated, (items) => (
+            <table className="results-table sync-updates-table">
+              <thead>
+                <tr>
+                  <th>ФИО</th>
+                  <th>Отдел</th>
+                  <th>Что изменилось</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item) => (
+                  <tr key={item.after?.source_key || `${item.after?.full_name}-${item.after?.department}`}>
+                    <td>{item.after?.full_name}</td>
+                    <td>{item.after?.department}</td>
+                    <td>
+                      {(item.changes || []).map((change) => (
+                        <div key={change.field} className="sync-field-change">
+                          <strong>{change.label}:</strong> {change.oldValue || '—'} → {change.newValue || '—'}
+                        </div>
+                      ))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ))}
         </div>
       )}
 

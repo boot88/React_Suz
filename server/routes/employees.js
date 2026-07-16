@@ -6,7 +6,8 @@ const pool = require('../config/database');
 const PHONE_BOOK_URL = process.env.PHONE_BOOK_URL || 'http://web3.nioch.nsc.ru/nioch/index.php/ru/kontakty/telefonnyj-spravochnik';
 const MIN_SYNC_EMPLOYEES = Number(process.env.EMPLOYEE_SYNC_MIN_ROWS || 50);
 const PHONE_BOOK_PAGE_SIZE = Number(process.env.PHONE_BOOK_PAGE_SIZE || 20);
-const PHONE_BOOK_MAX_PAGES = Number(process.env.PHONE_BOOK_MAX_PAGES || 60);
+const PHONE_BOOK_MAX_PAGES = Number(process.env.PHONE_BOOK_MAX_PAGES || 25);
+const SYNC_CHANGE_PREVIEW_LIMIT = Number(process.env.EMPLOYEE_SYNC_CHANGE_PREVIEW_LIMIT || 5);
 
 const decodeHtmlEntities = (value = '') => String(value)
   .replace(/&nbsp;/gi, ' ')
@@ -29,12 +30,16 @@ const normalizeValue = (value = '') => cleanText(value).replace(/^[-–—]+$/, 
 
 const normalizeSourceKeyPart = (value = '') => normalizeValue(value).toLowerCase().replace(/\s+/g, ' ');
 
-const createSourceKey = (employee) => [
-  employee.email || '',
+const createEmployeeIdentity = (employee) => [
   employee.full_name || '',
-  employee.department || '',
+  employee.department || ''
+].map(normalizeSourceKeyPart).filter(Boolean).join('|');
+
+const createSourceKey = (employee) => createEmployeeIdentity(employee) || [
+  employee.full_name || '',
   employee.room || '',
-  employee.internal_phone || ''
+  employee.internal_phone || '',
+  employee.email || ''
 ].map(normalizeSourceKeyPart).filter(Boolean).join('|');
 
 const buildPhoneBookPageUrl = (start = 0) => {
@@ -117,42 +122,14 @@ const parsePhoneBookEmployees = (html = '') => {
 };
 
 
-const extractPaginationStarts = (html = '') => {
-  const starts = new Set([0]);
-  const startMatches = String(html).matchAll(/(?:[?&]|&amp;)start=(\d+)/gi);
-
-  for (const match of startMatches) {
-    starts.add(Number(match[1]));
-  }
-
-  return [...starts]
-    .filter((start) => Number.isFinite(start) && start >= 0)
-    .sort((a, b) => a - b);
-};
-
-const buildPhoneBookStarts = (firstPageHtml = '') => {
-  const paginationStarts = extractPaginationStarts(firstPageHtml);
-  const maxStartFromPage = paginationStarts.length > 0 ? Math.max(...paginationStarts) : 0;
-  const maxStartFromLimit = (PHONE_BOOK_MAX_PAGES - 1) * PHONE_BOOK_PAGE_SIZE;
-  const maxStart = Math.min(maxStartFromPage || maxStartFromLimit, maxStartFromLimit);
-  const starts = [];
-
-  for (let start = 0; start <= maxStart; start += PHONE_BOOK_PAGE_SIZE) {
-    starts.push(start);
-  }
-
-  return starts;
-};
-
 const fetchAllPhoneBookEmployees = async () => {
   const employees = [];
   const seen = new Set();
   const pages = [];
-  const firstPageHtml = await fetchPhoneBookHtml(0);
-  const starts = buildPhoneBookStarts(firstPageHtml);
 
-  for (const start of starts) {
-    const html = start === 0 ? firstPageHtml : await fetchPhoneBookHtml(start);
+  for (let page = 0; page < PHONE_BOOK_MAX_PAGES; page += 1) {
+    const start = page * PHONE_BOOK_PAGE_SIZE;
+    const html = await fetchPhoneBookHtml(start);
     const pageEmployees = parsePhoneBookEmployees(html);
     let addedFromPage = 0;
 
@@ -164,9 +141,16 @@ const fetchAllPhoneBookEmployees = async () => {
     }
 
     pages.push({ start, parsed: pageEmployees.length, added: addedFromPage });
+
+    if (pageEmployees.length === 0) break;
   }
 
-  return { employees, pages, expectedPages: starts.length, lastStart: starts[starts.length - 1] || 0 };
+  return {
+    employees,
+    pages,
+    expectedPages: PHONE_BOOK_MAX_PAGES,
+    lastStart: pages[pages.length - 1]?.start || 0
+  };
 };
 
 const ensurePhoneBookSchema = async () => {
@@ -225,23 +209,75 @@ const ensurePhoneBookSchema = async () => {
   }
 };
 
+
+const EMPLOYEE_SYNC_FIELDS = [
+  ['full_name', 'ФИО'],
+  ['position', 'Должность'],
+  ['department', 'Отдел'],
+  ['room', 'Кабинет'],
+  ['internal_phone', 'Телефон вн.'],
+  ['email', 'Email']
+];
+
+const serializeEmployee = (employee = {}) => ({
+  source_key: employee.source_key || '',
+  full_name: employee.full_name || '',
+  position: employee.position || '',
+  department: employee.department || '',
+  room: employee.room || '',
+  internal_phone: employee.internal_phone || '',
+  email: employee.email || ''
+});
+
+const getEmployeeChanges = (before = {}, after = {}) => EMPLOYEE_SYNC_FIELDS.reduce((changes, [field, label]) => {
+  const oldValue = normalizeValue(before[field] || '');
+  const newValue = normalizeValue(after[field] || '');
+  if (oldValue !== newValue) changes.push({ field, label, oldValue, newValue });
+  return changes;
+}, []);
+
+const createChangeSummary = (items) => ({
+  count: items.length,
+  items: items.slice(0, SYNC_CHANGE_PREVIEW_LIMIT)
+});
+
 const syncEmployees = async (employees) => {
   const connection = await pool.getConnection();
   const now = new Date();
-  let inserted = 0;
-  let updated = 0;
-  let deactivated = 0;
+  const insertedItems = [];
+  const updatedItems = [];
+  const deactivatedItems = [];
   let previousActive = 0;
   let activeAfter = 0;
 
   try {
     await connection.beginTransaction();
-    const [activeBeforeRows] = await connection.execute('SELECT COUNT(*) AS count FROM phone_book WHERE is_active = 1');
-    previousActive = Number(activeBeforeRows?.[0]?.count || 0);
-    await connection.execute('UPDATE phone_book SET is_active = 0 WHERE is_active = 1');
 
-    for (const employee of employees) {
-      const [result] = await connection.execute(
+    const [activeRows] = await connection.execute('SELECT * FROM phone_book WHERE is_active = 1');
+    previousActive = activeRows.length;
+    const activeBySourceKey = new Map();
+    const activeByIdentity = new Map();
+
+    for (const row of activeRows) {
+      const serialized = serializeEmployee(row);
+      if (serialized.source_key) activeBySourceKey.set(serialized.source_key, serialized);
+      const identity = createEmployeeIdentity(serialized);
+      if (identity && !activeByIdentity.has(identity)) activeByIdentity.set(identity, serialized);
+    }
+
+    await connection.execute('UPDATE phone_book SET is_active = 0 WHERE is_active = 1');
+    const seenActiveSourceKeys = new Set();
+
+    for (const parsedEmployee of employees) {
+      const identity = createEmployeeIdentity(parsedEmployee);
+      const existingEmployee = activeBySourceKey.get(parsedEmployee.source_key) || activeByIdentity.get(identity) || null;
+      const dbSourceKey = existingEmployee?.source_key || parsedEmployee.source_key;
+      const employee = { ...parsedEmployee, source_key: dbSourceKey };
+      const changes = existingEmployee ? getEmployeeChanges(existingEmployee, employee) : [];
+
+      if (existingEmployee) seenActiveSourceKeys.add(existingEmployee.source_key);
+
+      await connection.execute(
         `INSERT INTO phone_book
           (source_key, full_name, position, department, room, internal_phone, email, is_active, last_seen_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
@@ -266,16 +302,35 @@ const syncEmployees = async (employees) => {
         ]
       );
 
-      if (result.affectedRows === 1) inserted += 1;
-      else updated += 1;
+      if (!existingEmployee) {
+        insertedItems.push(serializeEmployee(employee));
+      } else if (changes.length > 0) {
+        updatedItems.push({ before: existingEmployee, after: serializeEmployee(employee), changes });
+      }
+    }
+
+    for (const row of activeRows) {
+      const serialized = serializeEmployee(row);
+      if (!seenActiveSourceKeys.has(serialized.source_key)) deactivatedItems.push(serialized);
     }
 
     const [activeAfterRows] = await connection.execute('SELECT COUNT(*) AS count FROM phone_book WHERE is_active = 1');
     activeAfter = Number(activeAfterRows?.[0]?.count || 0);
-    deactivated = Math.max(0, previousActive - activeAfter);
 
     await connection.commit();
-    return { inserted, updated, deactivated, previousActive, activeAfter, updatedAt: now.toISOString() };
+    return {
+      inserted: insertedItems.length,
+      updated: updatedItems.length,
+      deactivated: deactivatedItems.length,
+      previousActive,
+      activeAfter,
+      updatedAt: now.toISOString(),
+      changes: {
+        inserted: createChangeSummary(insertedItems),
+        updated: createChangeSummary(updatedItems),
+        deactivated: createChangeSummary(deactivatedItems)
+      }
+    };
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -344,8 +399,7 @@ router.post('/sync', async (req, res) => {
         sourceUrl: PHONE_BOOK_URL,
         pages,
         expectedPages,
-        lastStart,
-        records: employees
+        lastStart
       });
     }
 
@@ -358,7 +412,6 @@ router.post('/sync', async (req, res) => {
       pages,
       expectedPages,
       lastStart,
-      records: employees,
       ...stats
     });
   } catch (error) {
