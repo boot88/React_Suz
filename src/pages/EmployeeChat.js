@@ -15,7 +15,7 @@ const FEED_HIDDEN_POSTS_KEY = 'employeeFeedHiddenPosts';
 const EMPLOYEE_DIRECTORY_CACHE_KEY = 'employeeDirectoryCache';
 const MANAGER_TEMPLATE_MESSAGES = ['✅ Принято в работу', '👀 Смотрю сейчас', '🔧 Исправляю', '📌 Уточните кабинет и устройство', '📷 Пришлите фото ошибки', '⏱️ Вернусь с ответом в течение 15 минут', '🧪 Проверяю решение', '✅ Готово, проверьте пожалуйста', '🙏 Спасибо, закрываю обращение'];
 const EMPLOYEE_TEMPLATE_MESSAGES = ['👋 Добрый день!', '🆘 Нужна помощь', '📍 Я в кабинете ...', '📷 Сейчас пришлю фото', '✅ Получилось, спасибо!', '❌ Ошибка осталась', '🔁 Повторил действие, результат тот же', '📞 Можем созвониться?', '🙏 Спасибо!'];
-const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '👏', '🔥'];
+const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '👏', '🔥', '🙏', '🎉', '🤩', '👌', '💯', '💪', '🤝', '✨', '👀'];
 const QUICK_EMOJIS = ['😀', '🙂', '😅', '🙏', '👍', '✅', '👀', '📌', '🔧', '⏳', '❗', '❤️'];
 const EMPLOYEE_CUSTOM_TEMPLATES_KEY = 'employeeChatCustomTemplates';
 const MAX_ATTACHMENT_SIZE_MB = 100;
@@ -35,22 +35,6 @@ const MANAGER_TABS = [
 const REQUEST_CATEGORIES = ['Техника', 'Сеть', 'ПО', 'Доступы', 'Другое'];
 const REQUEST_PRIORITIES = ['Обычный', 'Важный', 'Срочный'];
 const FEED_CATEGORIES = ['Объявление', 'Новость', 'Вопрос', 'Важно', 'Фотоотчёт', 'Потеряно/найдено', 'Заявка', 'Поздравление'];
-const FEED_FILTERS = [
-  { id: 'all', label: 'Все' },
-  { id: 'mine', label: 'Мои' },
-  { id: 'photo', label: 'С фото' },
-  { id: 'video', label: 'С видео' },
-  { id: 'pinned', label: 'Закреплённые' },
-  { id: 'unread', label: 'Непрочитанные' },
-  { id: 'today', label: 'Сегодня' },
-  { id: 'week', label: 'Неделя' },
-  { id: 'month', label: 'Месяц' }
-];
-const COMMENT_SORTS = [
-  { id: 'old', label: 'Сначала старые' },
-  { id: 'new', label: 'Сначала новые' },
-  { id: 'popular', label: 'Популярные' }
-];
 const CHAT_FILTERS = [
   { id: 'all', label: 'Все' },
   { id: 'mine', label: 'Мои' },
@@ -421,6 +405,72 @@ const createImageThumbnailDataUrl = (file, maxSize = 480) => new Promise((resolv
   reader.readAsDataURL(file);
 });
 
+const createVideoThumbnailDataUrl = (file, maxSize = 640) => new Promise((resolve) => {
+  if (!isVideoAttachment(file)) {
+    resolve('');
+    return;
+  }
+
+  const video = document.createElement('video');
+  const objectUrl = URL.createObjectURL(file);
+  let settled = false;
+  const cleanup = () => {
+    URL.revokeObjectURL(objectUrl);
+  };
+  const finish = (value = '') => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    resolve(value);
+  };
+
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = 'metadata';
+  video.onloadedmetadata = () => {
+    try {
+      video.currentTime = Math.min(0.25, Math.max(0, (video.duration || 1) / 20));
+    } catch {
+      finish('');
+    }
+  };
+  video.onseeked = () => {
+    const width = video.videoWidth || maxSize;
+    const height = video.videoHeight || maxSize;
+    const ratio = Math.min(1, maxSize / Math.max(width, height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(width * ratio));
+    canvas.height = Math.max(1, Math.round(height * ratio));
+    const context = canvas.getContext('2d');
+    if (!context) {
+      finish('');
+      return;
+    }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    finish(canvas.toDataURL('image/jpeg', 0.78));
+  };
+  video.onerror = () => finish('');
+  window.setTimeout(() => finish(''), 3500);
+  video.src = objectUrl;
+});
+
+const createAttachmentThumbnailDataUrl = async (file) => {
+  if (String(file?.type || '').startsWith('image/')) return createImageThumbnailDataUrl(file);
+  if (isVideoAttachment(file)) return createVideoThumbnailDataUrl(file);
+  return '';
+};
+
+const nudgeVideoToFirstFrame = (event) => {
+  const video = event.currentTarget;
+  if (!video || video.dataset.firstFrameReady === '1') return;
+  video.dataset.firstFrameReady = '1';
+  try {
+    if ((video.currentTime || 0) < 0.05) video.currentTime = Math.min(0.25, Math.max(0, (video.duration || 1) / 20));
+  } catch {
+    // noop: some browsers restrict seeking before metadata is fully ready
+  }
+};
+
 
 const normalizeText = (value = '') => String(value || '').toLowerCase().trim();
 
@@ -545,6 +595,7 @@ const resolveAttachmentUrl = (url = '') => {
 };
 const getAttachmentUrl = (file = {}) => resolveAttachmentUrl(file.thumbnailUrl || file.previewUrl || file.url || file.dataUrl || '');
 const getOriginalAttachmentUrl = (file = {}) => resolveAttachmentUrl(file.url || file.dataUrl || file.previewUrl || file.thumbnailUrl || '');
+const getVideoPosterUrl = (file = {}) => resolveAttachmentUrl(file.posterUrl || file.thumbnailUrl || file.previewUrl || '');
 const getPostShareUrl = (postId = '') => `${window.location.origin}${window.location.pathname}?feedPost=${encodeURIComponent(postId)}`;
 const isPostAuthor = (post = {}, currentUser = {}) => sameLogin(post.author, currentUser?.username || '') || sameLogin(post.login, currentUser?.username || '') || sameLogin(post.sender, currentUser?.username || '');
 
@@ -606,10 +657,11 @@ const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, 
         <video
           className="attachment-video-player"
           src={getOriginalAttachmentUrl(file)}
-          poster={file.thumbnailUrl ? getAttachmentUrl(file) : undefined}
+          poster={getVideoPosterUrl(file) || getAttachmentUrl(file)}
           controls
           preload="metadata"
           playsInline
+          onLoadedMetadata={nudgeVideoToFirstFrame}
           onClick={(event) => {
             event.stopPropagation();
             onOpen?.(event);
@@ -749,7 +801,7 @@ const EmployeeChat = () => {
   const [editingFeedPostId, setEditingFeedPostId] = useState('');
   const [editingFeedText, setEditingFeedText] = useState('');
   const [hiddenFeedPostIds, setHiddenFeedPostIds] = useState(() => readHiddenFeedPosts(user?.username || 'guest'));
-  const [commentSort, setCommentSort] = useState('old');
+  const commentSort = 'old';
   const [expandedCommentPosts, setExpandedCommentPosts] = useState({});
   const [feedLoading, setFeedLoading] = useState(false);
   const [feedRefreshing, setFeedRefreshing] = useState(false);
@@ -912,6 +964,41 @@ const EmployeeChat = () => {
   useEffect(() => {
     saveFeedDraft(user?.username || 'guest', { text: feedDraft, category: feedCategory });
   }, [feedCategory, feedDraft, user?.username]);
+
+  useEffect(() => {
+    if (!openFeedMenuId || typeof document === 'undefined') return undefined;
+
+    const closeFeedMenuOnOutsideClick = (event) => {
+      const target = event.target;
+      if (target?.closest?.('.feed-post-menu, .feed-post-menu-button')) return;
+      setOpenFeedMenuId('');
+    };
+
+    document.addEventListener('mousedown', closeFeedMenuOnOutsideClick);
+    document.addEventListener('touchstart', closeFeedMenuOnOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', closeFeedMenuOnOutsideClick);
+      document.removeEventListener('touchstart', closeFeedMenuOnOutsideClick);
+    };
+  }, [openFeedMenuId]);
+
+  useEffect(() => {
+    if (!selectedFeedPostId || typeof document === 'undefined') return undefined;
+
+    const closeFeedReactionsOnOutsideClick = (event) => {
+      const target = event.target;
+      if (target?.closest?.('.employee-feed-post, .feed-selected-menu')) return;
+      setSelectedFeedPostId('');
+      setFeedReactionExpanded(false);
+    };
+
+    document.addEventListener('mousedown', closeFeedReactionsOnOutsideClick);
+    document.addEventListener('touchstart', closeFeedReactionsOnOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', closeFeedReactionsOnOutsideClick);
+      document.removeEventListener('touchstart', closeFeedReactionsOnOutsideClick);
+    };
+  }, [selectedFeedPostId]);
 
   useEffect(() => {
     if (!user?.username) return;
@@ -1490,7 +1577,7 @@ const EmployeeChat = () => {
 
   const uploadAttachmentFile = async (file, scope = 'chat') => {
     const dataUrl = await readFileAsDataUrl(file);
-    const thumbnailDataUrl = await createImageThumbnailDataUrl(file);
+    const thumbnailDataUrl = await createAttachmentThumbnailDataUrl(file);
     const response = await fetch(`${API_BASE_URL}/chat/uploads`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1657,6 +1744,14 @@ const EmployeeChat = () => {
     } catch (error) {
       notify(error.message || 'Не удалось открыть профиль сотрудника', 'Профиль');
     }
+  };
+
+  const openEmployeeProfile = (login, event) => {
+    event?.stopPropagation?.();
+    const normalizedLogin = formatFeedLogin(login);
+    if (!normalizedLogin) return;
+    setActiveTab('profile');
+    openProfileCard(normalizedLogin);
   };
 
   const submitRequest = async (event) => {
@@ -2497,6 +2592,20 @@ const EmployeeChat = () => {
     return visible;
   };
 
+  const getEmployeeAvatar = useCallback((login = '', ...candidates) => {
+    const normalizedLogin = formatFeedLogin(login);
+    const directAvatar = candidates.find((value) => typeof value === 'string' && value.trim());
+    if (directAvatar) return directAvatar;
+
+    if (sameLogin(normalizedLogin, user?.username || '')) return avatarUrl || '';
+
+    const cachedProfile = normalizedLogin ? readProfileDraft(normalizedLogin) : {};
+    if (cachedProfile.avatar) return cachedProfile.avatar;
+
+    const directoryProfile = directoryEmployees.find((employee) => sameLogin(employee.login, normalizedLogin)) || {};
+    return directoryProfile.avatar || directoryProfile.photo || directoryProfile.photo_url || '';
+  }, [avatarUrl, directoryEmployees, user?.username]);
+
   useEffect(() => {
     if (activeTab !== 'feed' || !user?.username) return;
     const latestTimestamp = getFeedLatestTimestamp(feedPosts);
@@ -2924,7 +3033,7 @@ const EmployeeChat = () => {
 
 	                {chatLocalSettings.showDialogFilters === true && <div className="dialog-filter-row">{CHAT_FILTERS.map((filter) => <button key={filter.id} type="button" className={dialogFilter === filter.id ? 'active' : ''} onClick={() => setDialogFilter(filter.id)}>{filter.label}</button>)}</div>}
 	                {chatLocalSettings.showDialogDateJump === true && <div className="date-jump-row"><label>Перейти к дате <input type="date" onChange={(event) => jumpToMessageDate(event.target.value)} /></label></div>}
-                {chatLocalSettings.showDialogMediaPanel === true && mediaPanelOpen && <div className="dialog-media-panel"><div className="dialog-media-tabs">{CHAT_MEDIA_TABS.map((tab) => <button key={tab.id} type="button" className={mediaPanelTab === tab.id ? 'active' : ''} onClick={() => setMediaPanelTab(tab.id)}>{tab.label}</button>)}</div><input type="search" placeholder="Поиск по имени файла или ссылке..." value={mediaPanelSearch} onChange={(e) => setMediaPanelSearch(e.target.value)} /><button type="button" onClick={() => notify('Скачивание архива будет доступно после серверного zip-метода', 'Медиа')}>Скачать всё архивом</button><div className="dialog-media-grid">{filteredDialogMediaItems.length === 0 && <small>Ничего не найдено</small>}{filteredDialogMediaItems.map(({ message, file, fileIndex, type }, index) => <button key={`${message.id}-${file.name}-${index}`} type="button" onClick={() => type === 'link' ? window.open(file.dataUrl, '_blank', 'noopener,noreferrer') : isMediaAttachment(file) ? setMediaViewer({ message, file, fileIndex, scope: 'dialog' }) : openAttachmentInNewTab(file)}>{type === 'link' ? <span>🔗 {file.name}</span> : isMediaAttachment(file) ? (isVideoAttachment(file) ? <video src={getAttachmentUrl(file)} muted playsInline /> : <img src={getAttachmentUrl(file)} alt={file.name || 'Медиа'} />) : <span>{getFileIcon(file.type)} {file.name}</span>}<em>{new Date(message.createdAt).toLocaleDateString('ru-RU')}</em></button>)}</div></div>}
+                {chatLocalSettings.showDialogMediaPanel === true && mediaPanelOpen && <div className="dialog-media-panel"><div className="dialog-media-tabs">{CHAT_MEDIA_TABS.map((tab) => <button key={tab.id} type="button" className={mediaPanelTab === tab.id ? 'active' : ''} onClick={() => setMediaPanelTab(tab.id)}>{tab.label}</button>)}</div><input type="search" placeholder="Поиск по имени файла или ссылке..." value={mediaPanelSearch} onChange={(e) => setMediaPanelSearch(e.target.value)} /><button type="button" onClick={() => notify('Скачивание архива будет доступно после серверного zip-метода', 'Медиа')}>Скачать всё архивом</button><div className="dialog-media-grid">{filteredDialogMediaItems.length === 0 && <small>Ничего не найдено</small>}{filteredDialogMediaItems.map(({ message, file, fileIndex, type }, index) => <button key={`${message.id}-${file.name}-${index}`} type="button" onClick={() => type === 'link' ? window.open(file.dataUrl, '_blank', 'noopener,noreferrer') : isMediaAttachment(file) ? setMediaViewer({ message, file, fileIndex, scope: 'dialog' }) : openAttachmentInNewTab(file)}>{type === 'link' ? <span>🔗 {file.name}</span> : isMediaAttachment(file) ? (isVideoAttachment(file) ? <video src={getOriginalAttachmentUrl(file)} poster={getVideoPosterUrl(file) || getAttachmentUrl(file)} muted playsInline preload="metadata" onLoadedMetadata={nudgeVideoToFirstFrame} /> : <img src={getAttachmentUrl(file)} alt={file.name || 'Медиа'} />) : <span>{getFileIcon(file.type)} {file.name}</span>}<em>{new Date(message.createdAt).toLocaleDateString('ru-RU')}</em></button>)}</div></div>}
 
                 {pinnedMessages.length > 0 && (
                   <div className="pinned-box">
@@ -2968,6 +3077,12 @@ const EmployeeChat = () => {
                     const visibleReactions = messageReactionExpanded ? REACTION_EMOJIS : REACTION_EMOJIS.slice(0, 7);
                     const messageReactionBadges = REACTION_EMOJIS.filter((emoji) => (message.reactions?.[emoji] || []).length > 0);
                     const linkPreviews = extractLinks(message.text).map(getLinkPreview).filter(Boolean);
+                    const messageSenderLogin = formatFeedLogin(message.sender);
+                    const messageSenderProfile = directoryEmployees.find((employee) => sameLogin(employee.login, messageSenderLogin)) || {};
+                    const messageSenderName = isMine
+                      ? (profileForm.full_name || user?.name || user.username)
+                      : (messageSenderProfile.full_name || message.sender);
+                    const messageSenderAvatar = getEmployeeAvatar(messageSenderLogin, message.avatar, message.senderAvatar, message.senderPhoto, messageSenderProfile.avatar);
 
                     return (
                       <div key={message.id} data-message-id={message.id} className={`message-row ${isMine ? 'mine' : ''} ${isSelected ? 'selected' : ''} ${selectedMessageIds.includes(message.id) ? 'multi-selected' : ''} ${activeDialogSearchResult?.id === message.id ? 'search-current' : ''}`}>
@@ -3002,6 +3117,12 @@ const EmployeeChat = () => {
                             openSelectedMessageMenu(message.id, event);
                           }}
                         >
+                          {!isDeleted && messageSenderLogin && (
+                            <button type="button" className="message-author-link" onClick={(event) => openEmployeeProfile(messageSenderLogin, event)}>
+                              <span className="feed-avatar comment-avatar">{messageSenderAvatar ? <img src={messageSenderAvatar} alt={messageSenderName} /> : <span>{String(messageSenderName || messageSenderLogin || '?').slice(0, 1).toUpperCase()}</span>}</span>
+                              <span>{messageSenderName}</span>
+                            </button>
+                          )}
                           {message.forwardedFrom && <div className="forwarded-preview">Переслано от {message.forwardedFrom}</div>}
                           {message.replyTo && <button type="button" className="reply-preview reply-jump" onClick={(event) => { event.stopPropagation(); document.querySelector(`[data-message-id="${message.replyTo.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>↪ {message.replyTo.sender}: {message.replyTo.text || 'Исходное сообщение удалено'}</button>}
                           {isDeleted ? (
@@ -3147,7 +3268,7 @@ const EmployeeChat = () => {
                           <div key={file.id || `${file.name}-${index}`} className={`attachment-preview media-draft-tile ${mediaFile ? 'is-media' : ''}`}>
                             {mediaFile ? (
                               <button type="button" className="media-draft-thumb" onClick={() => setMediaViewer({ source: 'chat-draft', file, fileIndex: index })}>
-                                {isVideoAttachment(file) ? <video src={getAttachmentUrl(file)} muted playsInline preload="metadata" /> : <img src={getAttachmentUrl(file)} alt={file.name} />}
+                                {isVideoAttachment(file) ? <video src={getOriginalAttachmentUrl(file)} poster={getVideoPosterUrl(file) || getAttachmentUrl(file)} muted playsInline preload="metadata" onLoadedMetadata={nudgeVideoToFirstFrame} /> : <img src={getAttachmentUrl(file)} alt={file.name} />}
                               </button>
                             ) : <span className="media-draft-file-icon">{getFileIcon(file.type)}</span>}
                             <span>{file.name} · {formatFileSize(file.size)}</span>
@@ -3210,6 +3331,20 @@ const EmployeeChat = () => {
                 {requestStatus.ticketId && <span>Номер: #{requestStatus.ticketId}</span>}
               </div>
             )}
+            <section className="request-support-card" aria-label="Контакты технической поддержки">
+              <div>
+                <span className="eyebrow">Техническая поддержка</span>
+                <h3>Отдел программно-технического обеспечения средств вычислительной техники</h3>
+                <p>По всем вопросам работы компьютеров, программ, доступа к сервисам и другой техники обращайтесь в техподдержку. Чтобы обращение не потерялось и быстрее попало в работу, заявки лучше отправлять через форму на сайте ниже.</p>
+              </div>
+              <div className="request-support-contact">
+                <strong>Повисок Евгений Вячеславович</strong>
+                <span>Ведущий специалист</span>
+                <a href="tel:1380">Внутренний телефон: 1-380</a>
+                <a href="mailto:povisok@nioch.nsc.ru">povisok@nioch.nsc.ru</a>
+                <a href="tel:+79130080146">Мобильный: 8-913-008-01-46</a>
+              </div>
+            </section>
             <form className="employee-request-box" onSubmit={submitRequest}>
               <div className="form-grid two">
                 <label>Категория<select value={requestCategory} onChange={(e) => setRequestCategory(e.target.value)}>{REQUEST_CATEGORIES.map((item) => <option key={item}>{item}</option>)}</select></label>
@@ -3248,45 +3383,58 @@ const EmployeeChat = () => {
 
         {activeTab === 'feed' && (
           <section className="employee-feed-section">
-            <header className="employee-feed-header compact-feed-header">
-              <div><h2>Лента сотрудников</h2><p>Объявления, новости и фотоотчёты.</p></div>
-              <button type="button" onClick={() => fetchFeed({ silent: false })}>Обновить</button>
-            </header>
-            {feedError && <div className="feed-status-warning">Лента временно недоступна: {feedError}</div>}
-            <form className="employee-feed-composer compact-feed-composer" onSubmit={addFeedPost}>
-              <div className={`feed-composer-line ${chatLocalSettings.showFeedCategorySelect === true ? 'has-category' : 'without-category'}`}>{chatLocalSettings.showFeedCategorySelect === true && <select value={feedCategory} onChange={(e) => setFeedCategory(e.target.value)}>{FEED_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select>}<textarea rows={2} placeholder="Написать в ленту... @ivanov #важно" value={feedDraft} onChange={(e) => setFeedDraft(e.target.value)} /></div>
-              {feedAttachments.length > 0 && (
-                <div className="employee-feed-attachment-preview-grid media-draft-grid">
-                  {feedAttachments.map((file, index) => {
-                    const mediaFile = String(file.type || '').startsWith('image/') || isVideoAttachment(file);
-                    return (
-                      <div key={file.id || `${file.name}-${index}`} className={`employee-feed-attachment-preview media-draft-tile ${mediaFile ? 'is-media' : ''}`}>
-                        {mediaFile ? (
-                          <button type="button" className="media-draft-thumb" onClick={() => setMediaViewer({ source: 'feed-draft', file, fileIndex: index })}>
-                            {isVideoAttachment(file) ? <video src={getAttachmentUrl(file)} muted playsInline preload="metadata" /> : <img src={getAttachmentUrl(file)} alt={file.name} />}
-                          </button>
-                        ) : <span className="media-draft-file-icon">{getFileIcon(file.type)}</span>}
-                        <span>{file.name} · {formatFileSize(file.size)}</span>
-                        <button type="button" className="media-draft-remove" onClick={() => removeFeedAttachment(file.id || `${file.name}-${index}`)}>×</button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              <div className="employee-feed-composer-actions"><label>📎 Фото/видео<input type="file" multiple hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="button" onClick={() => { setFeedDraft(''); setFeedAttachments([]); clearSavedFeedDraft(user?.username || 'guest'); }}>Очистить</button><button type="submit" disabled={isPublishingFeed || (!feedDraft.trim() && feedAttachments.length === 0)}>{isPublishingFeed ? 'Публикуем...' : 'Опубликовать'}</button></div>
-            </form>
-            <div className="feed-toolbar compact-feed-toolbar"><input type="search" placeholder="Поиск по ленте, автору, #тегу..." value={feedSearch} onChange={(e) => setFeedSearch(e.target.value)} />{chatLocalSettings.showFeedFilters === true && <details><summary>Фильтры</summary><div>{FEED_FILTERS.map((filter) => <button key={filter.id} type="button" className={feedFilter === filter.id ? 'active' : ''} onClick={() => setFeedFilter(filter.id)}>{filter.label}</button>)}</div></details>}{feedRefreshing && <span className="feed-refreshing compact-refreshing">Обновляем…</span>}</div>
+            <div className="feed-toolbar compact-feed-toolbar sticky-feed-search"><div className="feed-search-shell"><span className="feed-search-icon">🔍</span><input type="search" placeholder="Поиск по ленте" value={feedSearch} onChange={(e) => setFeedSearch(e.target.value)} />{feedSearch && <button type="button" className="feed-search-clear" onClick={() => setFeedSearch('')} aria-label="Очистить поиск">×</button>}</div></div>
             <div className="employee-feed-list" ref={feedListRef} onClick={(event) => { if (event.target === event.currentTarget) { setSelectedFeedPostId(''); setFeedReactionExpanded(false); } }}>
+              <article className="employee-feed-post feed-composer-post">
+                <header className="employee-feed-header compact-feed-header feed-composer-post-header">
+                  <div><h2>Лента сотрудников</h2><p>Объявления, новости и фотоотчёты.</p></div>
+                  <button type="button" onClick={() => fetchFeed({ silent: false })}>{feedRefreshing ? 'Обновляем…' : 'Обновить'}</button>
+                </header>
+                {feedError && <div className="feed-status-warning">Лента временно недоступна: {feedError}</div>}
+                <form className="employee-feed-composer compact-feed-composer vk-feed-composer" onSubmit={addFeedPost}>
+                  <div className="feed-composer-body"><div className="feed-avatar feed-avatar-current">{avatarUrl ? <img src={avatarUrl} alt="Мой аватар" /> : <span>{String(profileForm.full_name || user?.name || user?.username || '?').slice(0, 1).toUpperCase()}</span>}</div><div className={`feed-composer-line ${chatLocalSettings.showFeedCategorySelect === true ? 'has-category' : 'without-category'}`}>{chatLocalSettings.showFeedCategorySelect === true && <select value={feedCategory} onChange={(e) => setFeedCategory(e.target.value)}>{FEED_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select>}<textarea rows={2} placeholder="Что у вас нового?" value={feedDraft} onChange={(e) => setFeedDraft(e.target.value)} /></div></div>
+                  {feedAttachments.length > 0 && (
+                    <div className="employee-feed-attachment-preview-grid media-draft-grid">
+                      {feedAttachments.map((file, index) => {
+                        const mediaFile = String(file.type || '').startsWith('image/') || isVideoAttachment(file);
+                        return (
+                          <div key={file.id || `${file.name}-${index}`} className={`employee-feed-attachment-preview media-draft-tile ${mediaFile ? 'is-media' : ''}`}>
+                            {mediaFile ? (
+                              <button type="button" className="media-draft-thumb" onClick={() => setMediaViewer({ source: 'feed-draft', file, fileIndex: index })}>
+                                {isVideoAttachment(file) ? <video src={getOriginalAttachmentUrl(file)} poster={getVideoPosterUrl(file) || getAttachmentUrl(file)} muted playsInline preload="metadata" onLoadedMetadata={nudgeVideoToFirstFrame} /> : <img src={getAttachmentUrl(file)} alt={file.name} />}
+                              </button>
+                            ) : <span className="media-draft-file-icon">{getFileIcon(file.type)}</span>}
+                            <span>{file.name} · {formatFileSize(file.size)}</span>
+                            <button type="button" className="media-draft-remove" onClick={() => removeFeedAttachment(file.id || `${file.name}-${index}`)}>×</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div className="employee-feed-composer-actions"><label>📎 Фото/видео<input type="file" multiple hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="submit" disabled={isPublishingFeed || (!feedDraft.trim() && feedAttachments.length === 0)}>{isPublishingFeed ? 'Публикуем...' : 'Опубликовать'}</button></div>
+                </form>
+              </article>
               {feedLoading && <div className="feed-skeleton-list"><div /><div /><div /></div>}
               {!feedLoading && feedError && <button type="button" className="feed-retry" onClick={() => fetchFeed({ silent: false })}>Повторить загрузку</button>}
-              {!feedLoading && visibleFeedPosts.length === 0 && <div className="empty-chat">Пока нет публикаций.</div>}
+              {!feedLoading && visibleFeedPosts.length === 0 && <div className="feed-empty-card"><strong>{feedSearch.trim() ? 'Ничего не найдено' : 'Пока нет публикаций'}</strong><span>{feedSearch.trim() ? 'Попробуйте другой запрос' : 'Будьте первым, кто поделится новостью, фото или объявлением.'}</span></div>}
               {pinnedFeedPosts.length > 0 && <div className="feed-pinned-title">📌 Закреплено</div>}
               {[...pinnedFeedPosts, ...regularFeedPosts].map((post) => {
                 const canDeletePost = canManageFeedPost(post, user, isManager, isAdmin);
+                const authorLogin = formatFeedLogin(post.author);
+                const authorProfile = directoryEmployees.find((employee) => sameLogin(employee.login, authorLogin)) || {};
+                const authorName = post.authorName || authorProfile.full_name || authorLogin || 'Сотрудник';
+                const authorMeta = [post.category || 'Объявление', authorProfile.position || authorProfile.department || (authorLogin ? `@${authorLogin}` : ''), new Date(post.createdAt).toLocaleString('ru-RU')].filter(Boolean).join(' · ');
+                const authorInitial = String(authorName || authorLogin || '?').slice(0, 1).toUpperCase();
+                const authorAvatar = getEmployeeAvatar(authorLogin, post.avatar, post.authorAvatar, post.authorPhoto, post.author_photo, authorProfile.avatar);
+                const sortedPostComments = sortComments(post.comments || []);
+                const previewComments = expandedCommentPosts[post.id]
+                  ? sortedPostComments
+                  : (commentSort === 'old' ? sortedPostComments.slice(-2) : sortedPostComments.slice(0, 2));
+                const hiddenCommentsCount = Math.max(0, sortedPostComments.length - previewComments.length);
                 return (
                   <article
                     key={post.id}
-                    className={`employee-feed-post ${selectedFeedPostId === post.id ? 'selected' : ''}`}
+                    className={`employee-feed-post ${post.pinned ? 'pinned-feed-post' : ''} ${selectedFeedPostId === post.id ? 'selected' : ''}`}
                     role="button"
                     tabIndex={0}
                     onClick={(event) => {
@@ -3304,17 +3452,31 @@ const EmployeeChat = () => {
                       setFeedReactionExpanded(false);
                     }}
                   >
-                    <header className="employee-feed-post-header"><div><strong>{post.pinned ? '📌 ' : ''}{post.authorName}</strong><span>{post.category || 'Объявление'} · {formatFeedLogin(post.author)} · {new Date(post.createdAt).toLocaleString('ru-RU')}{post.editedAt && ' · изменено'}</span></div><button type="button" className="feed-post-menu-button" onClick={(event) => { event.stopPropagation(); setOpenFeedMenuId(openFeedMenuId === post.id ? '' : post.id); }}>⋯</button>{openFeedMenuId === post.id && <div className="feed-post-menu" onClick={(event) => event.stopPropagation()}>{canDeletePost && <button type="button" onClick={() => startEditFeedPost(post)}>Редактировать текст</button>}{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? 'Открепить' : 'Закрепить'}</button>}<button type="button" onClick={() => copyFeedPostLink(post.id)}>Скопировать ссылку</button><button type="button" onClick={() => shareFeedPostToChat(post)}>Поделиться постом в чат</button><button type="button" onClick={() => quoteFeedPost(post)}>Цитировать пост</button><button type="button" onClick={() => hideFeedPost(post.id)}>Скрыть пост</button>{!isPostAuthor(post, user) && <button type="button" onClick={() => reportFeedPost(post.id)}>Пожаловаться</button>}{(isManager || isAdmin) && <button type="button" onClick={() => notify((post.audit || []).length ? 'История есть в аудите' : 'История изменений пуста', 'Лента')}>История изменений</button>}{canDeletePost && <button type="button" className="danger-action" onClick={() => deleteFeedPost(post.id)}>Удалить</button>}</div>}</header>
+                    <header className="employee-feed-post-header vk-feed-post-header">
+                      <button type="button" className="feed-avatar profile-link-avatar" onClick={(event) => openEmployeeProfile(authorLogin, event)}>{authorAvatar ? <img src={authorAvatar} alt={authorName} /> : <span>{authorInitial}</span>}</button>
+                      <button type="button" className="feed-post-author-block profile-link-name" onClick={(event) => openEmployeeProfile(authorLogin, event)}>
+                        <strong>{post.pinned && <span className="feed-pinned-badge">📌</span>}{authorName}</strong>
+                        <span>{authorMeta}{post.editedAt && ' · изменено'}</span>
+                      </button>
+                      <button type="button" className="feed-post-menu-button" onClick={(event) => { event.stopPropagation(); setOpenFeedMenuId(openFeedMenuId === post.id ? '' : post.id); }}>⋯</button>
+                      {openFeedMenuId === post.id && <div className="feed-post-menu" onClick={(event) => event.stopPropagation()}>{canDeletePost && <button type="button" onClick={() => startEditFeedPost(post)}>Редактировать текст</button>}{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? 'Открепить' : 'Закрепить'}</button>}<button type="button" onClick={() => copyFeedPostLink(post.id)}>Скопировать ссылку</button><button type="button" onClick={() => shareFeedPostToChat(post)}>Поделиться постом в чат</button><button type="button" onClick={() => quoteFeedPost(post)}>Цитировать пост</button><button type="button" onClick={() => hideFeedPost(post.id)}>Скрыть пост</button>{!isPostAuthor(post, user) && <button type="button" onClick={() => reportFeedPost(post.id)}>Пожаловаться</button>}{(isManager || isAdmin) && <button type="button" onClick={() => notify((post.audit || []).length ? 'История есть в аудите' : 'История изменений пуста', 'Лента')}>История изменений</button>}{canDeletePost && <button type="button" className="danger-action" onClick={() => deleteFeedPost(post.id)}>Удалить</button>}</div>}
+                    </header>
                     {editingFeedPostId === post.id ? <div className="feed-edit-box"><textarea rows={3} value={editingFeedText} onChange={(e) => setEditingFeedText(e.target.value)} /><div><button type="button" onClick={() => saveFeedPostEdit(post.id)}>Сохранить</button><button type="button" onClick={() => setEditingFeedPostId('')}>Отмена</button></div></div> : post.text && <p className="employee-feed-post-text">{post.text}</p>}
-                    {getFeedAttachments(post).length > 0 && <div className="employee-feed-media-grid">{getFeedAttachments(post).map((file, index) => { const isMedia = String(file.type || '').startsWith('image/') || isVideoAttachment(file); return isMedia ? <button key={file.id || `${post.id}-feed-media-${index}`} type="button" className={`employee-feed-media-tile ${isVideoAttachment(file) ? 'video' : ''}`} onClick={(event) => { event.stopPropagation(); openFeedMediaViewer(post, file, index); }} onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); toggleFeedReaction(post.id, '👍'); }} aria-label={`Открыть вложение ${file.name || 'медиа'}`}>{isVideoAttachment(file) ? <video src={getOriginalAttachmentUrl(file)} poster={resolveAttachmentUrl(file.posterUrl || file.thumbnailUrl || file.previewUrl || '') || undefined} preload="metadata" muted playsInline /> : <img src={getAttachmentUrl(file)} alt={file.name || 'Вложение'} loading="lazy" />}<span>{file.name} · {formatFileSize(file.size)}</span></button> : <AttachmentCard key={file.id || `${post.id}-feed-file-${index}`} cardKey={`${post.id}-feed-file-${index}`} file={file} variant="feed" />; })}</div>}
+                    {getFeedAttachments(post).length > 0 && <div className="employee-feed-media-grid">{getFeedAttachments(post).map((file, index) => { const isMedia = String(file.type || '').startsWith('image/') || isVideoAttachment(file); return isMedia ? <button key={file.id || `${post.id}-feed-media-${index}`} type="button" className={`employee-feed-media-tile ${isVideoAttachment(file) ? 'video' : ''}`} onClick={(event) => { event.stopPropagation(); openFeedMediaViewer(post, file, index); }} onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); toggleFeedReaction(post.id, '👍'); }} aria-label={`Открыть вложение ${file.name || 'медиа'}`}>{isVideoAttachment(file) ? <video src={getOriginalAttachmentUrl(file)} poster={getVideoPosterUrl(file) || getAttachmentUrl(file)} preload="metadata" muted playsInline onLoadedMetadata={nudgeVideoToFirstFrame} /> : <img src={getAttachmentUrl(file)} alt={file.name || 'Вложение'} loading="lazy" />}<span>{file.name} · {formatFileSize(file.size)}</span></button> : <AttachmentCard key={file.id || `${post.id}-feed-file-${index}`} cardKey={`${post.id}-feed-file-${index}`} file={file} variant="feed" />; })}</div>}
                     <div className="message-reactions-inline feed-reactions-inline">{REACTION_EMOJIS.filter((emoji) => (post.reactions?.[emoji] || []).length > 0).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={(event) => { event.stopPropagation(); toggleFeedReaction(post.id, emoji); }} title={(post.reactions?.[emoji] || []).join(', ')}>{emoji} {(post.reactions?.[emoji] || []).length}</button>; })}</div>
                     {selectedFeedPostId === post.id && (
-                      <div className="feed-selected-menu" onClick={(event) => event.stopPropagation()}>
+                      <div className="feed-selected-menu compact-feed-selected-menu" onClick={(event) => event.stopPropagation()}>
                         <div className="selected-reaction-row feed-reaction-picker">{(feedReactionExpanded ? REACTION_EMOJIS : REACTION_EMOJIS.slice(0, 7)).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => toggleFeedReaction(post.id, emoji)}>{emoji}</button>; })}{!feedReactionExpanded && <button type="button" className="more-reactions" onClick={() => setFeedReactionExpanded(true)}>⌄</button>}</div>
-                        <div className="selected-actions-row feed-actions-row">{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? 'Открепить' : 'Закрепить'}</button>}{canDeletePost && <button type="button" className="danger-action" onClick={() => deleteFeedPost(post.id)}>✕ Удалить</button>}</div>
+                        <div className="selected-actions-row feed-actions-row">{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? 'Открепить' : 'Закрепить'}</button>}</div>
                       </div>
                     )}
-                    <div className="employee-feed-comments"><div className="employee-feed-comments-title">Комментарии</div>{sortComments(post.comments || []).length === 0 && <small className="employee-feed-no-comments">Комментариев пока нет.</small>}<div className="feed-comment-tools"><select value={commentSort} onChange={(e) => setCommentSort(e.target.value)}>{COMMENT_SORTS.map((sort) => <option key={sort.id} value={sort.id}>{sort.label}</option>)}</select></div>{sortComments(post.comments || []).slice(0, expandedCommentPosts[post.id] ? undefined : 3).map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; return <div key={comment.id} className="employee-feed-comment"><div className="employee-feed-comment-body"><strong>{comment.authorName}</strong><span>{comment.text}</span><small>{formatFeedLogin(comment.author)} · {new Date(comment.createdAt).toLocaleString('ru-RU')}</small></div><div className="feed-comment-actions"><button type="button" onClick={() => setCommentDrafts((prev) => ({ ...prev, [post.id]: `@${formatFeedLogin(comment.author)} ` }))}>Ответить</button><button type="button" onClick={() => notify('Реакция на комментарий сохранится после подключения серверного метода', 'Лента')}>👍</button>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>Удалить</button>}</div></div>; })}{sortComments(post.comments || []).length > 3 && !expandedCommentPosts[post.id] && <button type="button" className="feed-show-more-comments" onClick={() => setExpandedCommentPosts((prev) => ({ ...prev, [post.id]: true }))}>Показать ещё {sortComments(post.comments || []).length - 3} комментариев</button>}<div className="employee-feed-comment-form"><input placeholder="Оставить комментарий…" value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} /><button type="button" onClick={() => addCommentToPost(post.id)} disabled={!(commentDrafts[post.id] || '').trim()}>Отправить</button></div></div>
+                    <div className="employee-feed-comments">
+                      <div className="employee-feed-comments-title">Комментарии</div>
+                      {sortedPostComments.length === 0 && <small className="employee-feed-no-comments">Комментариев пока нет.</small>}
+                      {previewComments.map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; const commentInitial = String(comment.authorName || comment.author || '?').slice(0, 1).toUpperCase(); const commentAvatar = getEmployeeAvatar(comment.author, comment.avatar, comment.authorAvatar, comment.authorPhoto, comment.author_photo); return <div key={comment.id} className="employee-feed-comment"><button type="button" className="feed-avatar comment-avatar profile-link-avatar" onClick={(event) => openEmployeeProfile(comment.author, event)}>{commentAvatar ? <img src={commentAvatar} alt={comment.authorName || comment.author || 'Комментарий'} /> : <span>{commentInitial}</span>}</button><div className="employee-feed-comment-body"><button type="button" className="comment-author-link" onClick={(event) => openEmployeeProfile(comment.author, event)}>{comment.authorName || formatFeedLogin(comment.author)}</button><span>{comment.text}</span><small>{formatFeedLogin(comment.author)} · {new Date(comment.createdAt).toLocaleString('ru-RU')}</small><div className="feed-comment-actions"><button type="button" onClick={() => setCommentDrafts((prev) => ({ ...prev, [post.id]: `@${formatFeedLogin(comment.author)} ` }))}>Ответить</button><button type="button" onClick={() => notify('Реакция на комментарий сохранится после подключения серверного метода', 'Лента')}>👍</button>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>Удалить</button>}</div></div></div>; })}
+                      {hiddenCommentsCount > 0 && !expandedCommentPosts[post.id] && <button type="button" className="feed-show-more-comments" onClick={() => setExpandedCommentPosts((prev) => ({ ...prev, [post.id]: true }))}>Показать все комментарии ({sortedPostComments.length})</button>}
+                      <div className="employee-feed-comment-form"><div className="feed-avatar comment-avatar feed-avatar-current">{avatarUrl ? <img src={avatarUrl} alt="Мой аватар" /> : <span>{String(profileForm.full_name || user?.name || user?.username || '?').slice(0, 1).toUpperCase()}</span>}</div><input placeholder="Написать комментарий…" value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} />{(commentDrafts[post.id] || '').trim() && <button type="button" onClick={() => addCommentToPost(post.id)}>Отправить</button>}</div>
+                    </div>
                   </article>
                 );
               })}
@@ -3381,13 +3543,13 @@ const EmployeeChat = () => {
           <div className="photo-viewer-stage" onMouseDown={(event) => event.stopPropagation()}>
             {hasManyViewerFiles && <button type="button" className="photo-viewer-nav prev" onClick={() => moveMediaViewer(-1)}>‹</button>}
             {isVideoAttachment(mediaViewer.file) ? (
-              <video src={getOriginalAttachmentUrl(mediaViewer.file)} controls playsInline poster={getAttachmentUrl(mediaViewer.file)}>Ваш браузер не поддерживает просмотр видео.</video>
+              <video src={getOriginalAttachmentUrl(mediaViewer.file)} controls playsInline poster={getVideoPosterUrl(mediaViewer.file) || getAttachmentUrl(mediaViewer.file)} onLoadedMetadata={nudgeVideoToFirstFrame}>Ваш браузер не поддерживает просмотр видео.</video>
             ) : (
               <img src={getOriginalAttachmentUrl(mediaViewer.file)} alt={mediaViewer.file.name || 'Фото'} />
             )}
             {hasManyViewerFiles && <button type="button" className="photo-viewer-nav next" onClick={() => moveMediaViewer(1)}>›</button>}
           </div>
-          {hasManyViewerFiles && <div className="photo-viewer-thumbs" onMouseDown={(event) => event.stopPropagation()}>{viewerFiles.map((file, index) => <button key={file.id || `${file.name}-${index}`} type="button" className={index === viewerIndex ? 'active' : ''} onClick={() => setMediaViewer((current) => ({ ...current, file, fileIndex: index }))}>{isVideoAttachment(file) ? <video src={getAttachmentUrl(file)} muted playsInline /> : <img src={getAttachmentUrl(file)} alt={file.name || 'Миниатюра'} loading="lazy" />}</button>)}</div>}
+          {hasManyViewerFiles && <div className="photo-viewer-thumbs" onMouseDown={(event) => event.stopPropagation()}>{viewerFiles.map((file, index) => <button key={file.id || `${file.name}-${index}`} type="button" className={index === viewerIndex ? 'active' : ''} onClick={() => setMediaViewer((current) => ({ ...current, file, fileIndex: index }))}>{isVideoAttachment(file) ? <video src={getOriginalAttachmentUrl(file)} poster={getVideoPosterUrl(file) || getAttachmentUrl(file)} muted playsInline preload="metadata" onLoadedMetadata={nudgeVideoToFirstFrame} /> : <img src={getAttachmentUrl(file)} alt={file.name || 'Миниатюра'} loading="lazy" />}</button>)}</div>}
         </div>
         );
       })()}
