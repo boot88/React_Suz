@@ -5,6 +5,8 @@ const pool = require('../config/database');
 
 const PHONE_BOOK_URL = process.env.PHONE_BOOK_URL || 'http://web3.nioch.nsc.ru/nioch/index.php/ru/kontakty/telefonnyj-spravochnik';
 const MIN_SYNC_EMPLOYEES = Number(process.env.EMPLOYEE_SYNC_MIN_ROWS || 50);
+const PHONE_BOOK_PAGE_SIZE = Number(process.env.PHONE_BOOK_PAGE_SIZE || 20);
+const PHONE_BOOK_MAX_PAGES = Number(process.env.PHONE_BOOK_MAX_PAGES || 60);
 
 const decodeHtmlEntities = (value = '') => String(value)
   .replace(/&nbsp;/gi, ' ')
@@ -35,8 +37,15 @@ const createSourceKey = (employee) => [
   employee.internal_phone || ''
 ].map(normalizeSourceKeyPart).filter(Boolean).join('|');
 
-const fetchPhoneBookHtml = async () => {
-  const response = await fetch(PHONE_BOOK_URL, {
+const buildPhoneBookPageUrl = (start = 0) => {
+  const pageUrl = new URL(PHONE_BOOK_URL);
+  if (start > 0) pageUrl.searchParams.set('start', String(start));
+  return pageUrl.toString();
+};
+
+const fetchPhoneBookHtml = async (start = 0) => {
+  const pageUrl = buildPhoneBookPageUrl(start);
+  const response = await fetch(pageUrl, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 EmployeeDirectorySync/1.0',
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -45,7 +54,7 @@ const fetchPhoneBookHtml = async () => {
   });
 
   if (!response.ok) {
-    throw new Error(`Источник справочника вернул HTTP ${response.status}`);
+    throw new Error(`Источник справочника вернул HTTP ${response.status} для ${pageUrl}`);
   }
 
   return response.text();
@@ -106,6 +115,35 @@ const parsePhoneBookEmployees = (html = '') => {
   }
 
   return employees;
+};
+
+
+const fetchAllPhoneBookEmployees = async () => {
+  const employees = [];
+  const seen = new Set();
+  const pages = [];
+
+  for (let page = 0; page < PHONE_BOOK_MAX_PAGES; page += 1) {
+    const start = page * PHONE_BOOK_PAGE_SIZE;
+    const html = await fetchPhoneBookHtml(start);
+    const pageEmployees = parsePhoneBookEmployees(html);
+    let addedFromPage = 0;
+
+    for (const employee of pageEmployees) {
+      if (seen.has(employee.source_key)) continue;
+      seen.add(employee.source_key);
+      employees.push(employee);
+      addedFromPage += 1;
+    }
+
+    pages.push({ start, parsed: pageEmployees.length, added: addedFromPage });
+
+    if (pageEmployees.length === 0) break;
+    if (page > 0 && addedFromPage === 0) break;
+    if (pageEmployees.length < PHONE_BOOK_PAGE_SIZE) break;
+  }
+
+  return { employees, pages };
 };
 
 const ensurePhoneBookSchema = async () => {
@@ -269,14 +307,14 @@ router.post('/sync', async (req, res) => {
   try {
     await ensurePhoneBookSchema();
 
-    const html = await fetchPhoneBookHtml();
-    const employees = parsePhoneBookEmployees(html);
+    const { employees, pages } = await fetchAllPhoneBookEmployees();
 
     if (employees.length < MIN_SYNC_EMPLOYEES) {
       return res.status(422).json({
         error: `Из источника получено слишком мало записей: ${employees.length}. Проверьте формат страницы или доступ к справочнику.`,
         parsed: employees.length,
-        sourceUrl: PHONE_BOOK_URL
+        sourceUrl: PHONE_BOOK_URL,
+        pages
       });
     }
 
@@ -286,6 +324,7 @@ router.post('/sync', async (req, res) => {
       message: 'Справочник сотрудников обновлён',
       sourceUrl: PHONE_BOOK_URL,
       parsed: employees.length,
+      pages,
       ...stats
     });
   } catch (error) {
