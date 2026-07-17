@@ -89,6 +89,7 @@ const ADMIN_FULL_NAMES = [
   'Сальников Георгий Ефимович',
   'Польников Д.В.'
 ];
+let lastProvisionAt = 0;
 
 const normalizePersonName = (value = '') => String(value)
   .toLowerCase()
@@ -188,6 +189,8 @@ const provisionUsersFromPhoneBook = async () => {
       [user.login, user.password, user.role, user.full_name, user.department, user.phone, user.room]
     );
   }
+
+  lastProvisionAt = Date.now();
 
   return {
     total: desiredUsers.length,
@@ -432,15 +435,18 @@ router.post('/provision-from-phone-book', async (req, res) => {
 
 router.get('/login-suggestions', async (req, res) => {
   try {
+    await ensureUsersProvisionedFromPhoneBook();
+
     const query = normalizeLogin(req.query?.query || '');
+    const role = req.query?.role === 'admin' ? 'admin' : 'employee';
     const like = `%${query}%`;
     const [users] = await db.execute(
       `SELECT id, login, role, full_name, department, phone, room
        FROM users
-       WHERE role = "employee" AND (LOWER(full_name) LIKE ? OR LOWER(login) LIKE ?)
+       WHERE role = ? AND (LOWER(full_name) LIKE ? OR LOWER(login) LIKE ?)
        ORDER BY full_name
-       LIMIT 30`,
-      [like, like]
+       LIMIT 40`,
+      [role, like, like]
     );
 
     res.json({ suggestions: users.map(mapUser) });
@@ -449,6 +455,13 @@ router.get('/login-suggestions', async (req, res) => {
     res.status(500).json({ message: 'Не удалось получить список сотрудников' });
   }
 });
+
+
+const ensureUsersProvisionedFromPhoneBook = async () => {
+  const provisionTtlMs = 5 * 60 * 1000;
+  if (lastProvisionAt && Date.now() - lastProvisionAt < provisionTtlMs) return null;
+  return provisionUsersFromPhoneBook();
+};
 
 // Регистрация сотрудника
 router.post('/register', async (req, res) => {
@@ -803,6 +816,8 @@ router.post('/login', async (req, res) => {
       recordFailedLogin(attemptKey);
       return res.status(401).json({ message: 'Неверный логин или пароль' });
     }
+
+    await ensureUsersProvisionedFromPhoneBook();
 
     const [users] = await db.execute(
       `SELECT * FROM users

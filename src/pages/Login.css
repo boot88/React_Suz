@@ -481,3 +481,31 @@
   color: var(--login-muted);
   font-size: 12px;
 }
+
+.jp-field {
+  position: relative;
+}
+
+.jp-field > input[name="username"] {
+  padding-right: 48px;
+}
+
+.login-suggestions-toggle {
+  position: absolute;
+  right: 10px;
+  top: 36px;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 50%;
+  background: #eaf6f8;
+  color: var(--login-blue);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.login-suggestions-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import './Login.css';
@@ -26,17 +26,24 @@ const Login = ({ mode = 'employee' }) => {
   const [capsLockOn, setCapsLockOn] = useState(false);
   const [loginSuggestions, setLoginSuggestions] = useState([]);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const defaultLoginAppliedRef = useRef(false);
 
 
   useEffect(() => {
-    if (isAdminMode) return undefined;
     const query = formData.username.trim();
+    const role = isAdminMode ? 'admin' : 'employee';
     const timeout = setTimeout(async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/auth/login-suggestions?query=${encodeURIComponent(query)}`);
+        const response = await fetch(`${API_BASE_URL}/auth/login-suggestions?role=${role}&query=${encodeURIComponent(query)}`);
         if (!response.ok) return;
         const data = await response.json();
-        setLoginSuggestions(Array.isArray(data?.suggestions) ? data.suggestions : []);
+        const suggestions = Array.isArray(data?.suggestions) ? data.suggestions : [];
+        setLoginSuggestions(suggestions);
+
+        if (!query && !defaultLoginAppliedRef.current && suggestions[0]?.login) {
+          defaultLoginAppliedRef.current = true;
+          setFormData((prev) => prev.username ? prev : { ...prev, username: suggestions[0].login });
+        }
       } catch {
         setLoginSuggestions([]);
       }
@@ -183,21 +190,24 @@ const Login = ({ mode = 'employee' }) => {
               )}
 
               <div className="jp-field">
-                <label htmlFor="username">Логин</label>
+                <label htmlFor="username">Фамилия / логин</label>
                 <input
                   id="username"
                   name="username"
                   type="text"
-                  placeholder="Введите логин"
+                  placeholder="Начните вводить фамилию"
                   value={formData.username}
                   onChange={(e) => { setFormData((prev) => ({ ...prev, username: e.target.value })); setSuggestionsOpen(true); }}
-                  onFocus={() => !isAdminMode && setSuggestionsOpen(true)}
+                  onFocus={() => setSuggestionsOpen(true)}
                   autoComplete="off"
                   spellCheck="false"
                   required
                   disabled={isSubmitting}
                 />
-                {!isAdminMode && suggestionsOpen && loginSuggestions.length > 0 && (
+                <button type="button" className="login-suggestions-toggle" onClick={() => setSuggestionsOpen((prev) => !prev)} disabled={isSubmitting} aria-label="Показать список сотрудников">
+                  ▾
+                </button>
+                {suggestionsOpen && loginSuggestions.length > 0 && (
                   <div className="login-suggestions">
                     {loginSuggestions.map((suggestion) => (
                       <button key={suggestion.id || suggestion.login} type="button" onMouseDown={(event) => { event.preventDefault(); applyLoginSuggestion(suggestion); }}>
@@ -275,7 +285,7 @@ const Login = ({ mode = 'employee' }) => {
                 id="recovery-login"
                 value={recoveryLogin}
                 onChange={(e) => { setRecoveryLogin(e.target.value); if (recoveryError) setRecoveryError(''); }}
-                placeholder="Введите логин"
+                placeholder="Начните вводить фамилию"
                 autoComplete="username"
                 autoFocus
                 disabled={isRecovering}
