@@ -356,6 +356,16 @@ const KnowledgeBase = () => {
         </div>
       </div>
 
+      <div className="kb-resource-link">
+        <div>
+          <strong>Официальный сайт НИОХ СО РАН</strong>
+          <span>Полезная ссылка для справочной информации</span>
+        </div>
+        <a href="http://nioch.nioch.nsc.ru/nioch/" target="_blank" rel="noopener noreferrer">
+          Открыть сайт
+        </a>
+      </div>
+
       {error && (
         <div className="error-message">
           <span>{error}</span>

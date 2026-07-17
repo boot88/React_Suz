@@ -19,6 +19,47 @@
   margin: 0;
 }
 
+.kb-resource-link {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin: -10px 0 24px;
+  padding: 16px 18px;
+  background: #eef6ff;
+  border: 1px solid #cfe6ff;
+  border-radius: 8px;
+}
+
+.kb-resource-link div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.kb-resource-link strong {
+  color: #1f3b57;
+}
+
+.kb-resource-link span {
+  color: #5f7284;
+  font-size: 14px;
+}
+
+.kb-resource-link a {
+  flex-shrink: 0;
+  color: white;
+  background: #3498db;
+  padding: 10px 14px;
+  border-radius: 6px;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.kb-resource-link a:hover {
+  background: #2980b9;
+}
+
 .search-filter {
   display: flex;
   gap: 15px;
