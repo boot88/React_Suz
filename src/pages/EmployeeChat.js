@@ -2458,8 +2458,8 @@ const EmployeeChat = () => {
     await fetchEmployees();
   };
 
-  const activeApplications = useMemo(() => myApplications.filter((item) => item.status !== 'done'), [myApplications]);
-  const completedApplications = useMemo(() => myApplications.filter((item) => item.status === 'done'), [myApplications]);
+  const activeApplications = useMemo(() => myApplications.filter((item) => item.status !== 'done' && !item.fl), [myApplications]);
+  const completedApplications = useMemo(() => myApplications.filter((item) => item.status === 'done' || item.fl), [myApplications]);
   const threadActivityById = useMemo(() => Object.fromEntries(
     Object.entries(threads).map(([threadId, messages]) => [threadId, getThreadActivityMeta(messages || [])])
   ), [threads]);
@@ -2490,7 +2490,7 @@ const EmployeeChat = () => {
     )).length;
     return count + postUnread + commentsUnread;
   }, 0);
-  const requestBadge = activeApplications.filter((item) => ['in_progress', 'waiting_employee_confirmation', 'reopened'].includes(item.status)).length || (requestStatus.state === 'sent' ? 1 : 0);
+  const requestBadge = activeApplications.length || (requestStatus.state === 'sent' ? 1 : 0);
   const activeContact = chatCandidates.find((item) => item.email === selectedEmail);
   void clockTick;
   const normalizedDialogSearch = normalizeText(dialogSearch);
