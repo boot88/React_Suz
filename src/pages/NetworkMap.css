@@ -1,0 +1,259 @@
+.network-map-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: 'Arial', sans-serif;
+}
+
+.network-page-header,
+.network-resource-link {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+  margin-bottom: 20px;
+  padding: 20px;
+  background: #ffffff;
+  border: 1px solid #e0e7ef;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+}
+
+.network-eyebrow {
+  display: inline-block;
+  margin-bottom: 6px;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.network-page-header h1 {
+  margin: 0 0 6px;
+  color: #1f2937;
+}
+
+.network-page-header p,
+.network-resource-link span {
+  margin: 0;
+  color: #64748b;
+}
+
+.network-resource-link {
+  background: #eef6ff;
+  border-color: #cfe6ff;
+  align-items: center;
+}
+
+
+.network-resource-link a,
+.network-refresh-btn {
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 6px;
+  color: white;
+  background: #3498db;
+  cursor: pointer;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.network-refresh-btn {
+  background: #16a34a;
+}
+
+.network-resource-link a:hover {
+  background: #2980b9;
+}
+
+.network-refresh-btn:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+
+.network-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 180px;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.network-toolbar input,
+.network-toolbar select {
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.network-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.network-summary-grid div {
+  padding: 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.network-summary-grid strong {
+  display: block;
+  color: #0f172a;
+  font-size: 22px;
+}
+
+.network-summary-grid span {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.network-error,
+.network-empty {
+  margin-bottom: 14px;
+  padding: 12px;
+  border-radius: 6px;
+}
+
+.network-error {
+  color: #991b1b;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+}
+
+.network-empty {
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.network-tables {
+  display: grid;
+  gap: 18px;
+  max-height: 760px;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.network-card {
+  border: 1px solid #dbe4ef;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.network-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  background: #f1f5f9;
+  border-bottom: 1px solid #dbe4ef;
+}
+
+.network-card h3 {
+  margin: 0 0 4px;
+  color: #1e293b;
+}
+
+.network-card p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.network-card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-content: flex-start;
+  justify-content: flex-end;
+}
+
+.network-card-stats span {
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.network-card-stats .occupied {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.network-card-stats .free {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.free-ranges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  color: #475569;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.free-ranges strong {
+  color: #1f2937;
+}
+
+.free-ranges em {
+  color: #64748b;
+}
+
+.network-table-wrap {
+  max-height: 340px;
+  overflow: auto;
+}
+
+.network-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.network-table th,
+.network-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid #eef2f7;
+  text-align: left;
+}
+
+.network-table th {
+  position: sticky;
+  top: 0;
+  background: #ffffff;
+  color: #475569;
+  z-index: 1;
+}
+
+.network-table tr.ip-free td:nth-child(2) {
+  color: #15803d;
+  font-weight: 700;
+}
+
+.network-table tr.ip-occupied td:nth-child(2) {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .network-page-header,
+  .network-resource-link,
+  .free-ranges {
+    flex-direction: column;
+  }
+
+  .network-toolbar,
+  .network-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -8,6 +8,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import EmployeeSearch from './pages/EmployeeSearch';
 import KnowledgeBase from './pages/KnowledgeBase';
+import NetworkMap from './pages/NetworkMap';
 import EmployeeChat from './pages/EmployeeChat';
 import { ApplicationsProvider } from './context/ApplicationsProvider';
 import './App.css';
@@ -49,6 +50,7 @@ function App() {
               <Route path="/edit/:id" element={<AdminRoute><EditApplication /></AdminRoute>} />
               <Route path="/employee-search" element={<AdminRoute><EmployeeSearch /></AdminRoute>} />
               <Route path="/knowledge-base" element={<AdminRoute><KnowledgeBase /></AdminRoute>} />
+              <Route path="/network-map" element={<AdminRoute><NetworkMap /></AdminRoute>} />
               <Route path="/statistics" element={<AdminRoute><Statistics /></AdminRoute>} />
 
               <Route path="/support" element={<Support />} />
@@ -164,6 +166,7 @@ function Sidebar() {
             <li className={isActive('/statistics') ? 'nav-item active' : 'nav-item'}><Link to="/statistics" className="nav-link"><span className="nav-icon">📊</span><span className="nav-text">Статистика</span></Link></li>
             <li className={isActive('/employee-search') ? 'nav-item active' : 'nav-item'}><Link to="/employee-search" className="nav-link"><span className="nav-icon">👥</span><span className="nav-text">Сотрудники</span></Link></li>
             <li className={isActive('/knowledge-base') ? 'nav-item active' : 'nav-item'}><Link to="/knowledge-base" className="nav-link"><span className="nav-icon">📚</span><span className="nav-text">База Знаний</span></Link></li>
+            <li className={isActive('/network-map') ? 'nav-item active' : 'nav-item'}><Link to="/network-map" className="nav-link"><span className="nav-icon">🌐</span><span className="nav-text">Сетка</span></Link></li>
           </ul>
         </nav>
 
