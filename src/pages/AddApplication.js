@@ -45,7 +45,7 @@ const AddApplication = () => {
 
   const validatePhone = (value) => {
     if (value && value.length > 15) return 'Максимум 15 символов';
-    if (value && !/^[0-9\s\-]+$/.test(value)) return 'Только цифры, пробелы и дефис';
+    if (value && !/^[0-9\s,-]+$/.test(value)) return 'Только цифры, пробелы, запятые и дефис';
     return '';
   };
 
