@@ -260,6 +260,27 @@ const safeParseImages = (imagesString) => {
   }
 };
 
+const NETWORK_MAP_SOURCE_URL = process.env.NETWORK_MAP_SOURCE_URL || 'http://nioch.nioch.nsc.ru/nioch/nioch.txt';
+
+app.get('/api/network-map', async (req, res) => {
+  try {
+    const response = await fetch(NETWORK_MAP_SOURCE_URL);
+    if (!response.ok) {
+      return res.status(response.status).json({ error: `Не удалось загрузить сетку: ${response.status}` });
+    }
+
+    const zoneText = await response.text();
+    res.json({
+      sourceUrl: NETWORK_MAP_SOURCE_URL,
+      fetchedAt: new Date().toISOString(),
+      zoneText
+    });
+  } catch (error) {
+    console.error('Error fetching network map:', error);
+    res.status(500).json({ error: 'Не удалось загрузить сетку' });
+  }
+});
+
 // API для базы знаний - ОБНОВЛЕННЫЕ МАРШРУТЫ С БЕЗОПАСНЫМ ПАРСИНГОМ
 app.get('/api/knowledge-base', async (req, res) => {
   try {
