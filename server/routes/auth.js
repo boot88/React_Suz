@@ -81,6 +81,122 @@ const chatThreadsFilePath = path.join(dataDir, 'chatThreads.json');
 const presenceFilePath = path.join(dataDir, 'presence.json');
 const profilesFilePath = path.join(dataDir, 'profiles.json');
 
+const DEFAULT_EMPLOYEE_PASSWORD = '12345';
+const DEFAULT_ADMIN_PASSWORD = '12399';
+const ADMIN_FULL_NAMES = [
+  'Повисок Е.В.',
+  'Андреев Р.В.',
+  'Сальников Георгий Ефимович',
+  'Польников Д.В.'
+];
+
+const normalizePersonName = (value = '') => String(value)
+  .toLowerCase()
+  .replace(/ё/g, 'е')
+  .replace(/[^а-яa-z]/g, '');
+
+const getNameParts = (fullName = '') => String(fullName)
+  .replace(/\./g, ' ')
+  .trim()
+  .split(/\s+/)
+  .filter(Boolean);
+
+const getShortPersonName = (fullName = '') => {
+  const [lastName = '', firstName = '', middleName = ''] = getNameParts(fullName);
+  const initials = [firstName, middleName].filter(Boolean).map((part) => `${part[0].toUpperCase()}.`).join('');
+  return `${lastName}${initials ? `.${initials}` : ''}`;
+};
+
+const createBaseLoginFromName = (fullName = '') => getShortPersonName(fullName)
+  .toLowerCase()
+  .replace(/ё/g, 'е')
+  .replace(/\s+/g, '')
+  .replace(/\.$/, '');
+
+const isConfiguredAdminName = (fullName = '') => {
+  const normalized = normalizePersonName(fullName);
+  return ADMIN_FULL_NAMES.some((adminName) => normalizePersonName(adminName) === normalized);
+};
+
+const createUniqueLogin = (baseLogin, usedLogins) => {
+  let login = baseLogin || `employee${usedLogins.size + 1}`;
+  let counter = 2;
+  while (usedLogins.has(login)) {
+    login = `${baseLogin}-${counter}`;
+    counter += 1;
+  }
+  usedLogins.add(login);
+  return login;
+};
+
+const provisionUsersFromPhoneBook = async () => {
+  const [phoneRows] = await db.execute(
+    `SELECT full_name, position, department, room, internal_phone, email
+     FROM phone_book
+     WHERE is_active = 1 AND full_name IS NOT NULL AND TRIM(full_name) <> ''
+     ORDER BY full_name`
+  );
+
+  const usedLogins = new Set();
+  const desiredUsers = [];
+
+  phoneRows.forEach((employee) => {
+    const baseLogin = createBaseLoginFromName(employee.full_name || employee.email || '');
+    const login = createUniqueLogin(baseLogin, usedLogins);
+    const isAdmin = isConfiguredAdminName(employee.full_name);
+
+    desiredUsers.push({
+      login,
+      role: isAdmin ? 'admin' : 'employee',
+      password: hashPassword(isAdmin ? DEFAULT_ADMIN_PASSWORD : DEFAULT_EMPLOYEE_PASSWORD),
+      full_name: employee.full_name,
+      department: employee.department || employee.position || null,
+      phone: employee.internal_phone || null,
+      room: employee.room || null
+    });
+  });
+
+  for (const adminName of ADMIN_FULL_NAMES) {
+    if (desiredUsers.some((item) => normalizePersonName(item.full_name) === normalizePersonName(adminName))) continue;
+    const login = createUniqueLogin(createBaseLoginFromName(adminName), usedLogins);
+    desiredUsers.push({
+      login,
+      role: 'admin',
+      password: hashPassword(DEFAULT_ADMIN_PASSWORD),
+      full_name: adminName,
+      department: null,
+      phone: null,
+      room: null
+    });
+  }
+
+  const desiredLogins = desiredUsers.map((item) => item.login);
+
+  await db.execute('DELETE FROM users WHERE login NOT IN (?)', [desiredLogins.length ? desiredLogins : ['__none__']]);
+
+  for (const user of desiredUsers) {
+    await db.execute(
+      `INSERT INTO users (login, password, role, full_name, department, phone, room)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         password = VALUES(password),
+         role = VALUES(role),
+         full_name = VALUES(full_name),
+         department = VALUES(department),
+         phone = VALUES(phone),
+         room = VALUES(room)`,
+      [user.login, user.password, user.role, user.full_name, user.department, user.phone, user.room]
+    );
+  }
+
+  return {
+    total: desiredUsers.length,
+    employees: desiredUsers.filter((item) => item.role === 'employee').length,
+    admins: desiredUsers.filter((item) => item.role === 'admin').length,
+    adminLogins: desiredUsers.filter((item) => item.role === 'admin').map((item) => ({ login: item.login, full_name: item.full_name }))
+  };
+};
+
 const ensureNotificationStorage = async () => {
   await fs.mkdir(dataDir, { recursive: true });
   try {
@@ -299,7 +415,39 @@ const mapUser = (user) => ({
   full_name: user.full_name,
   department: user.department,
   phone: user.phone,
-  room: user.room
+  room: user.room,
+  display_name: getShortPersonName(user.full_name || user.login)
+});
+
+
+router.post('/provision-from-phone-book', async (req, res) => {
+  try {
+    const stats = await provisionUsersFromPhoneBook();
+    res.json({ message: 'Пользователи синхронизированы со справочником сотрудников', ...stats });
+  } catch (error) {
+    console.error('Provision users error:', error);
+    res.status(500).json({ message: 'Не удалось синхронизировать пользователей со справочником' });
+  }
+});
+
+router.get('/login-suggestions', async (req, res) => {
+  try {
+    const query = normalizeLogin(req.query?.query || '');
+    const like = `%${query}%`;
+    const [users] = await db.execute(
+      `SELECT id, login, role, full_name, department, phone, room
+       FROM users
+       WHERE role = "employee" AND (LOWER(full_name) LIKE ? OR LOWER(login) LIKE ?)
+       ORDER BY full_name
+       LIMIT 30`,
+      [like, like]
+    );
+
+    res.json({ suggestions: users.map(mapUser) });
+  } catch (error) {
+    console.error('Login suggestions error:', error);
+    res.status(500).json({ message: 'Не удалось получить список сотрудников' });
+  }
 });
 
 // Регистрация сотрудника
@@ -657,8 +805,9 @@ router.post('/login', async (req, res) => {
     }
 
     const [users] = await db.execute(
-      'SELECT * FROM users WHERE LOWER(login) = ?',
-      [normalizedLogin]
+      `SELECT * FROM users
+       WHERE LOWER(login) = ? OR LOWER(full_name) = ? OR LOWER(REPLACE(REPLACE(full_name, ' ', ''), '.', '')) = ?`,
+      [normalizedLogin, normalizedLogin, normalizedLogin.replace(/[\s.]/g, '')]
     );
 
     if (users.length === 0) {

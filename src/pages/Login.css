@@ -442,3 +442,42 @@
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+.login-suggestions {
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid rgba(20, 35, 52, 0.12);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 14px 30px rgba(20, 35, 52, 0.12);
+}
+
+.login-suggestions button {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 12px;
+  background: #f7fbfc;
+  color: var(--login-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.login-suggestions button:hover {
+  background: #eaf6f8;
+}
+
+.login-suggestions strong {
+  font-size: 14px;
+}
+
+.login-suggestions span {
+  color: var(--login-muted);
+  font-size: 12px;
+}

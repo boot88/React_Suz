@@ -24,6 +24,31 @@ const Login = ({ mode = 'employee' }) => {
   const [isRecoveryOpen, setIsRecoveryOpen] = useState(false);
   const [recoveryLogin, setRecoveryLogin] = useState('');
   const [capsLockOn, setCapsLockOn] = useState(false);
+  const [loginSuggestions, setLoginSuggestions] = useState([]);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+
+
+  useEffect(() => {
+    if (isAdminMode) return undefined;
+    const query = formData.username.trim();
+    const timeout = setTimeout(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/login-suggestions?query=${encodeURIComponent(query)}`);
+        if (!response.ok) return;
+        const data = await response.json();
+        setLoginSuggestions(Array.isArray(data?.suggestions) ? data.suggestions : []);
+      } catch {
+        setLoginSuggestions([]);
+      }
+    }, query ? 180 : 0);
+
+    return () => clearTimeout(timeout);
+  }, [formData.username, isAdminMode]);
+
+  const applyLoginSuggestion = (suggestion) => {
+    setFormData((prev) => ({ ...prev, username: suggestion.login || '' }));
+    setSuggestionsOpen(false);
+  };
 
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
@@ -165,12 +190,23 @@ const Login = ({ mode = 'employee' }) => {
                   type="text"
                   placeholder="Введите логин"
                   value={formData.username}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, username: e.target.value }))}
-                  autoComplete="username"
+                  onChange={(e) => { setFormData((prev) => ({ ...prev, username: e.target.value })); setSuggestionsOpen(true); }}
+                  onFocus={() => !isAdminMode && setSuggestionsOpen(true)}
+                  autoComplete="off"
                   spellCheck="false"
                   required
                   disabled={isSubmitting}
                 />
+                {!isAdminMode && suggestionsOpen && loginSuggestions.length > 0 && (
+                  <div className="login-suggestions">
+                    {loginSuggestions.map((suggestion) => (
+                      <button key={suggestion.id || suggestion.login} type="button" onMouseDown={(event) => { event.preventDefault(); applyLoginSuggestion(suggestion); }}>
+                        <strong>{suggestion.display_name || suggestion.full_name || suggestion.login}</strong>
+                        <span>{suggestion.department || 'отдел —'} · каб. {suggestion.room || '—'} · {suggestion.phone || 'тел. —'}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="jp-field">

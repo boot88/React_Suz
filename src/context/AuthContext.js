@@ -168,10 +168,6 @@ export const AuthProvider = ({ children }) => {
       return managerUser;
     }
 
-    if (loginScope === 'admin') {
-      throw new Error('Неверный логин/email или пароль');
-    }
-
     const response = await fetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
       headers: {
