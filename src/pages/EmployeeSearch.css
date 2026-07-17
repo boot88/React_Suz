@@ -94,7 +94,8 @@
 }
 
 .search-button,
-.clear-button {
+.clear-button,
+.sync-button {
   padding: 14px 24px;
   border: none;
   border-radius: 8px;
@@ -135,6 +136,33 @@
   transform: translateY(-2px);
 }
 
+.sync-button {
+  background: linear-gradient(135deg, #16a085, #1abc9c);
+  color: white;
+}
+
+.sync-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #138d75, #16a085);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(22, 160, 133, 0.3);
+}
+
+.sync-button:disabled {
+  background: #bdc3c7;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.sync-message {
+  background: #e8f8f5;
+  color: #117a65;
+  padding: 16px 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  border-left: 4px solid #16a085;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
 .error-message {
   background: #ffe6e6;
   color: #d32f2f;
@@ -145,11 +173,18 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.results-container {
+.results-container,
+.sync-records-container {
   margin-top: 20px;
 }
 
-.results-container h3 {
+.sync-records-container > p {
+  color: #52616b;
+  margin: -5px 0 15px;
+}
+
+.results-container h3,
+.sync-records-container h3 {
   color: #2c3e50;
   margin-bottom: 15px;
   font-size: 18px;
@@ -169,6 +204,22 @@
   width: 100%;
   border-collapse: collapse;
   min-width: 800px;
+}
+
+.sync-records-table {
+  min-width: 1000px;
+}
+
+.sync-updates-table {
+  min-width: 900px;
+}
+
+.sync-field-change + .sync-field-change {
+  margin-top: 6px;
+}
+
+.sync-field-change strong {
+  color: #2c3e50;
 }
 
 .results-table th {
@@ -231,17 +282,18 @@
     padding: 20px;
     width: 100%;
   }
-  
+
   .search-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .form-buttons {
     flex-direction: column;
   }
-  
+
   .search-button,
-  .clear-button {
+  .clear-button,
+  .sync-button {
     width: 100%;
   }
 }
@@ -250,15 +302,15 @@
   .employee-search-container {
     padding: 15px;
   }
-  
+
   .search-form {
     padding: 20px;
   }
-  
+
   .results-table {
     font-size: 12px;
   }
-  
+
   .results-table th,
   .results-table td {
     padding: 12px 8px;
@@ -269,7 +321,7 @@
   .employee-search-header h1 {
     font-size: 24px;
   }
-  
+
   .employee-search-header p {
     font-size: 14px;
   }
@@ -283,7 +335,7 @@
   left: 0;
   width: 100%;
   height: 100%;
-  background-image: 
+  background-image:
     radial-gradient(circle at 10% 20%, rgba(142, 68, 173, 0.05) 0%, transparent 20%),
     radial-gradient(circle at 90% 70%, rgba(52, 152, 219, 0.05) 0%, transparent 20%),
     radial-gradient(circle at 50% 40%, rgba(46, 204, 113, 0.05) 0%, transparent 20%);

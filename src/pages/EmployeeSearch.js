@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { searchEmployees, getDepartments } from '../services/employeeService';
+import React, { useState, useEffect, useCallback } from 'react';
+import { searchEmployees, getDepartments, syncEmployees } from '../services/employeeService';
 import './EmployeeSearch.css'; // Импортируем CSS файл
 //import { API_BASE_URL } from '../config';
 
@@ -10,7 +10,10 @@ const EmployeeSearch = () => {
   const [results, setResults] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [syncLoading, setSyncLoading] = useState(false);
   const [error, setError] = useState('');
+  const [syncMessage, setSyncMessage] = useState('');
+  const [syncChanges, setSyncChanges] = useState(null);
 
   const searchFields = [
     { value: 'full_name', label: 'ФИО' },
@@ -21,23 +24,23 @@ const EmployeeSearch = () => {
     { value: 'email', label: 'Email' }
   ];
 
+  const loadDepartments = useCallback(async () => {
+    try {
+      const depts = await getDepartments();
+      setDepartments(depts);
+    } catch (err) {
+      console.error('Ошибка загрузки отделов:', err);
+    }
+  }, []);
+
   // Загружаем отделы при монтировании компонента
   useEffect(() => {
-    const loadDepartments = async () => {
-      try {
-        const depts = await getDepartments();
-        setDepartments(depts);
-      } catch (err) {
-        console.error('Ошибка загрузки отделов:', err);
-      }
-    };
-
     loadDepartments();
-  }, []);
+  }, [loadDepartments]);
 
   const handleSearch = async (e) => {
     e.preventDefault();
-    
+
     // Если выбран фильтр по отделу, используем его
     const actualSearchField = departmentFilter ? 'department' : searchField;
     const actualSearchTerm = departmentFilter || searchTerm;
@@ -49,6 +52,8 @@ const EmployeeSearch = () => {
 
     setLoading(true);
     setError('');
+    setSyncMessage('');
+    setSyncChanges(null);
 
     try {
       const data = await searchEmployees(actualSearchField, actualSearchTerm);
@@ -66,7 +71,64 @@ const EmployeeSearch = () => {
     setDepartmentFilter('');
     setResults([]);
     setError('');
+    setSyncMessage('');
+    setSyncChanges(null);
   };
+
+  const handleSync = async () => {
+    setSyncLoading(true);
+    setError('');
+    setSyncMessage('');
+    setSyncChanges(null);
+
+    try {
+      const data = await syncEmployees();
+      const loadedPages = Array.isArray(data.pages) ? data.pages.length : 0;
+      setSyncMessage(
+        `Справочник обновлён: найдено ${data.parsed}, страниц обработано ${loadedPages}/${data.expectedPages || loadedPages} (последний start=${data.lastStart ?? '—'}), добавлено ${data.inserted}, обновлено ${data.updated}, скрыто ${data.deactivated} ранее активных записей, которых нет в текущем источнике.`
+      );
+      setSyncChanges(data.changes || null);
+      await loadDepartments();
+    } catch (err) {
+      setError(err.message || 'Ошибка при обновлении справочника сотрудников');
+      console.error('Sync error:', err);
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+
+  const renderEmployeeCells = (employee = {}) => (
+    <>
+      <td>{employee.full_name}</td>
+      <td>{employee.position}</td>
+      <td>{employee.department}</td>
+      <td>{employee.room}</td>
+      <td>{employee.internal_phone}</td>
+      <td>{employee.email || <span className="no-data">-</span>}</td>
+    </>
+  );
+
+  const renderChangeSection = (title, changeGroup, renderRows) => {
+    if (!changeGroup || changeGroup.count === 0) return null;
+
+    return (
+      <div className="sync-records-container">
+        <h3>{title}: {changeGroup.count}</h3>
+        {changeGroup.count > changeGroup.items.length && (
+          <p>Показаны первые {changeGroup.items.length} из {changeGroup.count}.</p>
+        )}
+        <div className="table-container">
+          {renderRows(changeGroup.items || [])}
+        </div>
+      </div>
+    );
+  };
+
+  const hasSyncChanges = Boolean(
+    syncChanges
+    && (syncChanges.inserted?.count || syncChanges.updated?.count || syncChanges.deactivated?.count)
+  );
 
   return (
     <div className="employee-search-container">
@@ -74,7 +136,7 @@ const EmployeeSearch = () => {
         <h1>🔍 Поиск сотрудников</h1>
         <p>Институт органической химии - База данных сотрудников</p>
       </div>
-      
+
       <form onSubmit={handleSearch} className="search-form">
         <div className="search-grid">
           {/* Поле поиска */}
@@ -147,6 +209,15 @@ const EmployeeSearch = () => {
             >
               🗑️ Очистить
             </button>
+
+            <button
+              type="button"
+              onClick={handleSync}
+              disabled={syncLoading}
+              className="sync-button"
+            >
+              {syncLoading ? '⏳ Обновляем...' : '🔄 Обновить справочник'}
+            </button>
           </div>
         </div>
       </form>
@@ -154,6 +225,87 @@ const EmployeeSearch = () => {
       {error && (
         <div className="error-message">
           {error}
+        </div>
+      )}
+
+      {syncMessage && (
+        <div className="sync-message">
+          {syncMessage}
+        </div>
+      )}
+
+      {hasSyncChanges && (
+        <div className="sync-changes-summary">
+          {renderChangeSection('Новые сотрудники/записи', syncChanges.inserted, (items) => (
+            <table className="results-table sync-records-table">
+              <thead>
+                <tr>
+                  <th>ФИО</th>
+                  <th>Должность</th>
+                  <th>Отдел</th>
+                  <th>Кабинет</th>
+                  <th>Телефон вн.</th>
+                  <th>Email</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((employee) => (
+                  <tr key={employee.source_key || `${employee.full_name}-${employee.department}-${employee.room}`}>
+                    {renderEmployeeCells(employee)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ))}
+
+          {renderChangeSection('Скрыты/ушли из текущего справочника', syncChanges.deactivated, (items) => (
+            <table className="results-table sync-records-table">
+              <thead>
+                <tr>
+                  <th>ФИО</th>
+                  <th>Должность</th>
+                  <th>Отдел</th>
+                  <th>Кабинет</th>
+                  <th>Телефон вн.</th>
+                  <th>Email</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((employee) => (
+                  <tr key={employee.source_key || `${employee.full_name}-${employee.department}-${employee.room}`}>
+                    {renderEmployeeCells(employee)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ))}
+
+          {renderChangeSection('Изменённые записи', syncChanges.updated, (items) => (
+            <table className="results-table sync-updates-table">
+              <thead>
+                <tr>
+                  <th>ФИО</th>
+                  <th>Отдел</th>
+                  <th>Что изменилось</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item) => (
+                  <tr key={item.after?.source_key || `${item.after?.full_name}-${item.after?.department}`}>
+                    <td>{item.after?.full_name}</td>
+                    <td>{item.after?.department}</td>
+                    <td>
+                      {(item.changes || []).map((change) => (
+                        <div key={change.field} className="sync-field-change">
+                          <strong>{change.label}:</strong> {change.oldValue || '—'} → {change.newValue || '—'}
+                        </div>
+                      ))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ))}
         </div>
       )}
 
@@ -182,7 +334,7 @@ const EmployeeSearch = () => {
                     <td>{employee.internal_phone}</td>
                     <td>
                       {employee.email ? (
-                        <a 
+                        <a
                           href={`mailto:${employee.email}`}
                           className="email-link"
                         >

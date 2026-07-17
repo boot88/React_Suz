@@ -22,12 +22,12 @@ export const searchEmployees = async (field, query) => {
     const response = await fetch(
       `${API_BASE_URL}/employees/search?field=${field}&query=${encodeURIComponent(query)}`
     );
-    
+
     if (!response.ok) {
       const errorData = await response.json();
       throw new Error(errorData.error || 'Ошибка при поиске сотрудников');
     }
-    
+
     return await response.json();
   } catch (error) {
     console.error('Error searching employees:', error);
@@ -39,11 +39,11 @@ export const searchEmployees = async (field, query) => {
 export const getDepartments = async () => {
   try {
     const response = await fetch(`${API_BASE_URL}/employees/departments`);
-    
+
     if (!response.ok) {
       throw new Error('Ошибка при получении отделов');
     }
-    
+
     return await response.json();
   } catch (error) {
     console.error('Error getting departments:', error);
@@ -55,14 +55,34 @@ export const getDepartments = async () => {
 export const getAllEmployees = async () => {
   try {
     const response = await fetch(`${API_BASE_URL}/employees/search?field=full_name&query=`);
-    
+
     if (!response.ok) {
       throw new Error('Ошибка при получении сотрудников');
     }
-    
+
     return await response.json();
   } catch (error) {
     console.error('Error getting employees:', error);
+    throw error;
+  }
+};
+
+// Ручное обновление справочника сотрудников
+export const syncEmployees = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/employees/sync`, {
+      method: 'POST'
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Ошибка при обновлении справочника сотрудников');
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error syncing employees:', error);
     throw error;
   }
 };
