@@ -595,6 +595,7 @@ const Dashboard = () => {
   };
 
   const isDateOnlyValue = (dateString) => typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateString.trim());
+  const isMidnightValue = (date) => date.getHours() === 0 && date.getMinutes() === 0 && date.getSeconds() === 0 && date.getMilliseconds() === 0;
 
   const formatCreatedAt = (dateString) => {
     if (!dateString) return 'Ручная подача · дата —';
@@ -605,7 +606,7 @@ const Dashboard = () => {
       month: '2-digit',
       year: '2-digit'
     };
-    if (isDateOnlyValue(dateString)) return date.toLocaleDateString('ru-RU', dateFormat);
+    if (isDateOnlyValue(dateString) || isMidnightValue(date)) return date.toLocaleDateString('ru-RU', dateFormat);
     return date.toLocaleString('ru-RU', {
       ...dateFormat,
       hour: '2-digit',
