@@ -145,6 +145,30 @@ const RUSSIAN_LABELS = {
   noPosts: 'Пока нет публикаций',
   tryAnotherSearch: 'Попробуйте другой запрос',
   firstPostHint: 'Будьте первым, кто поделится новостью, фото или объявлением.',
+  back: 'Назад',
+  youTyping: 'Вы печатаете…',
+  confirm: 'Подтверждение',
+  deleteAttachmentConfirm: 'Удалить только это вложение?',
+  deleteAttachmentTitle: 'Удаление вложения',
+  deleteMediaFromPost: 'Удалить {type} {name} из публикации?',
+  deleteLastPostAttachment: 'Это последнее вложение. Удалить всю публикацию?',
+  deletePostTitle: 'Удаление публикации',
+  deletePhotoType: 'фото',
+  deleteVideoType: 'видео',
+  showExtraMessageActionsTitle: 'Показывать дополнительные действия сообщений',
+  showExtraMessageActionsHint: 'Редактирование, выбор нескольких, заявки, задачи и скачивание вложений. По умолчанию скрыто.',
+  showChatTemplatesTitle: 'Показывать шаблоны сообщений',
+  showChatTemplatesHint: 'По умолчанию скрыто. Включите, если нужны быстрые текстовые шаблоны.',
+  showDialogMediaPanelTitle: 'Показывать “Медиа / Файлы” в диалоге',
+  showDialogMediaPanelHint: 'По умолчанию скрыто. Включите, если нужна правая панель медиа, файлов и ссылок.',
+  showDialogDateJumpTitle: 'Показывать “Перейти к дате”',
+  showDialogDateJumpHint: 'По умолчанию скрыто, чтобы верх чата был компактнее.',
+  showDialogFiltersTitle: 'Показывать фильтры сообщений',
+  showDialogFiltersHint: 'Все, мои, собеседник, с файлами, фото, сегодня, неделя и месяц.',
+  showFeedCategorySelectTitle: 'Показывать выбор категории публикации',
+  showFeedCategorySelectHint: 'Объявление, новость, вопрос, поздравление и другие категории. По умолчанию скрыто.',
+  showFeedFiltersTitle: 'Показывать фильтры ленты',
+  showFeedFiltersHint: 'Кнопка фильтров справа от поиска по ленте. По умолчанию скрыто.',
   edit: 'Изменить',
   selectMultiple: 'Выбрать несколько',
   createRequest: 'Создать заявку',
@@ -281,6 +305,30 @@ const ENGLISH_LABELS = {
   noPosts: 'No posts yet',
   tryAnotherSearch: 'Try another search',
   firstPostHint: 'Be the first to share news, photos or an announcement.',
+  back: 'Back',
+  youTyping: 'You are typing…',
+  confirm: 'Confirmation',
+  deleteAttachmentConfirm: 'Delete this attachment only?',
+  deleteAttachmentTitle: 'Delete attachment',
+  deleteMediaFromPost: 'Delete {type} {name} from the post?',
+  deleteLastPostAttachment: 'This is the last attachment. Delete the entire post?',
+  deletePostTitle: 'Delete post',
+  deletePhotoType: 'photo',
+  deleteVideoType: 'video',
+  showExtraMessageActionsTitle: 'Show additional message actions',
+  showExtraMessageActionsHint: 'Editing, multi-select, requests, tasks and attachment downloads. Hidden by default.',
+  showChatTemplatesTitle: 'Show message templates',
+  showChatTemplatesHint: 'Hidden by default. Enable if you need quick text templates.',
+  showDialogMediaPanelTitle: 'Show “Media / Files” in dialog',
+  showDialogMediaPanelHint: 'Hidden by default. Enable if you need the right panel with media, files and links.',
+  showDialogDateJumpTitle: 'Show “Jump to date”',
+  showDialogDateJumpHint: 'Hidden by default to keep the chat header compact.',
+  showDialogFiltersTitle: 'Show message filters',
+  showDialogFiltersHint: 'All, mine, peer, with files, photo, today, week and month.',
+  showFeedCategorySelectTitle: 'Show post category selector',
+  showFeedCategorySelectHint: 'Announcement, news, question, greeting and other categories. Hidden by default.',
+  showFeedFiltersTitle: 'Show feed filters',
+  showFeedFiltersHint: 'Filter button to the right of feed search. Hidden by default.',
   edit: 'Edit',
   selectMultiple: 'Select multiple',
   createRequest: 'Create request',
@@ -1086,7 +1134,6 @@ const EmployeeChat = () => {
   const [inlineEditMessageId, setInlineEditMessageId] = useState('');
   const [inlineEditText, setInlineEditText] = useState('');
   const [pinnedMessageIndex, setPinnedMessageIndex] = useState(0);
-  const [peerTypingUntil, setPeerTypingUntil] = useState(0);
   const [activeTab, setActiveTab] = useState('chat');
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
@@ -2566,7 +2613,7 @@ const EmployeeChat = () => {
 
   const deleteChatAttachment = async (messageId, fileIndex = 0, targetConversationId = currentConversationId) => {
     if (!messageId || !targetConversationId) return;
-    const confirmed = await confirmAction('Удалить только это вложение?', 'Удаление вложения');
+    const confirmed = await confirmAction(t('deleteAttachmentConfirm'), t('deleteAttachmentTitle'));
     if (!confirmed) return;
 
     await updateMessage(messageId, (item) => {
@@ -2611,10 +2658,10 @@ const EmployeeChat = () => {
       const nextAttachments = currentAttachments.filter((_, index) => index !== fileIndex);
       const fileLabel = targetFile.name || (isVideoAttachment(targetFile) ? 'видео' : 'фото');
       const postHasText = Boolean(String(post.text || '').trim());
-      let confirmed = await confirmAction(`Удалить ${isVideoAttachment(targetFile) ? 'видео' : 'фото'} ${fileLabel} из публикации?`, 'Удаление вложения');
+      let confirmed = await confirmAction(t('deleteMediaFromPost').replace('{type}', isVideoAttachment(targetFile) ? t('deleteVideoType') : t('deletePhotoType')).replace('{name}', fileLabel), t('deleteAttachmentTitle'));
       if (!confirmed) return;
       if (!nextAttachments.length && !postHasText) {
-        confirmed = await confirmAction('Это последнее вложение. Удалить всю публикацию?', 'Удаление публикации');
+        confirmed = await confirmAction(t('deleteLastPostAttachment'), t('deletePostTitle'));
         if (!confirmed) return;
         setMediaViewer(null);
         await deleteFeedPost(post.id, { skipConfirm: true });
@@ -2798,7 +2845,7 @@ const EmployeeChat = () => {
     return `${participantsText} ${messagesText}`.includes(query);
   }).sort((a, b) => (threadActivityById[b]?.lastTimestamp || 0) - (threadActivityById[a]?.lastTimestamp || 0)), [auditFilters, auditSearch, threadActivityById, threads]);
 
-  const typingHint = draft.trim().length > 0 ? 'Вы печатаете…' : '';
+  const typingHint = draft.trim().length > 0 ? t('youTyping') : '';
   const tabs = isManager ? MANAGER_TABS : EMPLOYEE_TABS;
   const unreadTotal = Object.values(unreadByEmail).reduce((sum, count) => sum + count, 0);
   const feedReadTimestamp = feedReadAt ? new Date(feedReadAt).getTime() : 0;
@@ -3600,7 +3647,7 @@ const EmployeeChat = () => {
 
                   {pendingMessages.length > 0 && <div className="offline-status">{isOnline ? `${t('sendingPending')}: ${pendingMessages.length}` : `${t('waitingToSend')}: ${pendingMessages.length}`}</div>}
                   {!isOnline && <div className="offline-status warning">{t('offlineWarning')}</div>}
-                  {typingHint && <div className="typing-hint">{typingHint}</div>}{Date.now() < peerTypingUntil && <div className="typing-hint peer-typing">{activeContact?.profile?.full_name || formatVisibleLogin(selectedEmail)} {t('typing')}<span>•••</span></div>}
+                  {typingHint && <div className="typing-hint">{typingHint}</div>}
 
                   <form className="message-form" onSubmit={handleSend}>
                     <div className="composer-textarea-box">
@@ -3615,7 +3662,7 @@ const EmployeeChat = () => {
                           ref={messageTextareaRef}
                           placeholder={t('messagePlaceholder')}
                           value={draft}
-                          onChange={(e) => { setDraft(e.target.value); setPeerTypingUntil(Date.now() + 1800); }}
+                          onChange={(e) => setDraft(e.target.value)}
                           onKeyDown={handleComposerKeyDown}
                           onPaste={handleComposerPaste}
                           maxLength={2000}
@@ -3794,7 +3841,7 @@ const EmployeeChat = () => {
                       {sortedPostComments.length === 0 && <small className="employee-feed-no-comments">{t('noComments')}</small>}
                       {previewComments.map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; const commentInitial = String(comment.authorName || comment.author || '?').slice(0, 1).toUpperCase(); const commentAvatar = getEmployeeAvatar(comment.author, comment.avatar, comment.authorAvatar, comment.authorPhoto, comment.author_photo); return <div key={comment.id} className="employee-feed-comment"><button type="button" className="feed-avatar comment-avatar profile-link-avatar" onClick={(event) => openEmployeeProfile(comment.author, event)}>{commentAvatar ? <img src={commentAvatar} alt={comment.authorName || comment.author || 'Комментарий'} /> : <span>{commentInitial}</span>}</button><div className="employee-feed-comment-body"><button type="button" className="comment-author-link" onClick={(event) => openEmployeeProfile(comment.author, event)}>{comment.authorName || formatFeedLogin(comment.author)}</button><span>{comment.text}</span><small>{new Date(comment.createdAt).toLocaleString(isEnglishInterface ? 'en-US' : 'ru-RU')}</small><div className="feed-comment-actions compact"><button type="button" onClick={() => setCommentDrafts((prev) => ({ ...prev, [post.id]: `@${formatFeedLogin(comment.author)} ` }))}>{t('reply')}</button>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>{t('delete')}</button>}</div></div></div>; })}
                       {hiddenCommentsCount > 0 && !expandedCommentPosts[post.id] && <button type="button" className="feed-show-more-comments" onClick={() => setExpandedCommentPosts((prev) => ({ ...prev, [post.id]: true }))}>{t('showAllComments')} ({sortedPostComments.length})</button>}
-                      <div className="employee-feed-comment-form" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}><div className="feed-avatar comment-avatar feed-avatar-current">{avatarUrl ? <img src={avatarUrl} alt="Мой аватар" /> : <span>{String(profileForm.full_name || user?.name || user?.username || '?').slice(0, 1).toUpperCase()}</span>}</div><input placeholder={t('writeComment')} value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} />{(commentDrafts[post.id] || '').trim() && <button type="button" onClick={() => addCommentToPost(post.id)}>{t('sendComment')}</button>}</div>
+                      <div className="employee-feed-comment-form" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onFocus={(event) => event.stopPropagation()}><div className="feed-avatar comment-avatar feed-avatar-current">{avatarUrl ? <img src={avatarUrl} alt="Мой аватар" /> : <span>{String(profileForm.full_name || user?.name || user?.username || '?').slice(0, 1).toUpperCase()}</span>}</div><input placeholder={t('writeComment')} value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} />{(commentDrafts[post.id] || '').trim() && <button type="button" onClick={() => addCommentToPost(post.id)}>{t('sendComment')}</button>}</div>
                     </div>
                   </article>
                 );
@@ -3810,7 +3857,7 @@ const EmployeeChat = () => {
             ) : (
               <div className="profile-settings-grid">
                 <section className="profile-panel"><h3>{t('myProfile')}</h3><form onSubmit={saveMyProfile} className="profile-form profile-form-labeled"><label><span>{t('fullName')}</span><input placeholder="Иванов Иван Иванович" value={profileForm.full_name} onChange={(e) => updateProfileField('full_name', e.target.value)} /></label><label><span>{t('login')}</span><input value={profileForm.full_name || user?.name || user?.username || ''} disabled /></label><label><span>{t('position')}</span><input placeholder="Например: инженер" value={profileForm.position} onChange={(e) => updateProfileField('position', e.target.value)} /></label><label><span>{t('department')}</span><input placeholder="Название отдела" value={profileForm.department} onChange={(e) => updateProfileField('department', e.target.value)} /></label><label><span>{t('room')}</span><input placeholder="Например: 214" value={profileForm.room} onChange={(e) => updateProfileField('room', e.target.value)} /></label><label><span>{t('phone')}</span><input placeholder="Например: 12-34" value={profileForm.phone} onChange={(e) => updateProfileField('phone', e.target.value)} /></label><label><span>{t('websiteVersion')}</span><select value={profileForm.websiteLanguage || DEFAULT_PROFILE_WEBSITE_LANGUAGE} onChange={(e) => updateProfileField('websiteLanguage', e.target.value)}>{PROFILE_LANGUAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><label><span>{t('website')}</span><input placeholder="https://..." value={profileForm.website} onChange={(e) => updateProfileField('website', e.target.value)} /></label><label><span>{t('status')}</span><input placeholder="Короткий статус" value={profileForm.statusText} onChange={(e) => updateProfileField('statusText', e.target.value)} /></label><label className="profile-field-wide"><span>{t('bio')}</span><textarea placeholder="Кратко о себе" rows={4} value={profileForm.bio} onChange={(e) => updateProfileField('bio', e.target.value)} /></label><button type="submit">{t('saveProfile')}</button></form></section>
-                <section className="profile-panel"><h3>{t('securityPhoto')}</h3><div className="profile-appearance-settings"><h4>{t('appearance')}</h4><div className="chat-appearance-controls profile-appearance-controls"><label><span>{t('theme')}</span><select value={chatLocalSettings.uiTheme || 'light'} onChange={(e) => updateChatUiSetting('uiTheme', e.target.value)}>{CHAT_THEMES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('density')}</span><select value={chatLocalSettings.uiDensity || 'regular'} onChange={(e) => updateChatUiSetting('uiDensity', e.target.value)}>{CHAT_DENSITIES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('textSize')}</span><select value={chatLocalSettings.uiTextSize || 'medium'} onChange={(e) => updateChatUiSetting('uiTextSize', e.target.value)}>{CHAT_TEXT_SIZES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label></div></div><div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>{t('changePhoto')}</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>{t('removePhoto')}</button></div><div className="profile-chat-tools"><strong>{t('dialogTools')}</strong><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showExtraMessageActions === true} onChange={() => toggleDialogToolSetting('showExtraMessageActions')} /><span><strong>Показывать дополнительные действия сообщений</strong><small>Редактирование, выбор нескольких, заявки, задачи и скачивание вложений. По умолчанию скрыто.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showChatTemplates === true} onChange={() => toggleDialogToolSetting('showChatTemplates')} /><span><strong>Показывать шаблоны сообщений</strong><small>По умолчанию скрыто. Включите, если нужны быстрые текстовые шаблоны.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogMediaPanel === true} onChange={() => toggleDialogToolSetting('showDialogMediaPanel')} /><span><strong>Показывать “Медиа / Файлы” в диалоге</strong><small>По умолчанию скрыто. Включите, если нужна правая панель медиа, файлов и ссылок.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogDateJump === true} onChange={() => toggleDialogToolSetting('showDialogDateJump')} /><span><strong>Показывать “Перейти к дате”</strong><small>По умолчанию скрыто, чтобы верх чата был компактнее.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogFilters === true} onChange={() => toggleDialogToolSetting('showDialogFilters')} /><span><strong>Показывать фильтры сообщений</strong><small>Все, мои, собеседник, с файлами, фото, сегодня, неделя и месяц.</small></span></label></div><div className="profile-chat-tools"><strong>{t('feedTools')}</strong><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showFeedCategorySelect === true} onChange={() => toggleFeedToolSetting('showFeedCategorySelect')} /><span><strong>Показывать выбор категории публикации</strong><small>Объявление, новость, вопрос, поздравление и другие категории. По умолчанию скрыто.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showFeedFilters === true} onChange={() => toggleFeedToolSetting('showFeedFilters')} /><span><strong>Показывать фильтры ленты</strong><small>Кнопка фильтров справа от поиска по ленте. По умолчанию скрыто.</small></span></label></div><form onSubmit={changeMyPassword} className="profile-password-form"><input type="password" placeholder={t('currentPassword')} value={passwordForm.currentPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))} /><input type="password" placeholder={t('newPassword')} value={passwordForm.newPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))} /><button type="submit">{t('updatePassword')}</button></form>{!isAdmin && <button type="button" className="profile-logout-btn" onClick={handleLogout}>{t('logout')}</button>}</section>
+                <section className="profile-panel"><h3>{t('securityPhoto')}</h3><div className="profile-appearance-settings"><h4>{t('appearance')}</h4><div className="chat-appearance-controls profile-appearance-controls"><label><span>{t('theme')}</span><select value={chatLocalSettings.uiTheme || 'light'} onChange={(e) => updateChatUiSetting('uiTheme', e.target.value)}>{CHAT_THEMES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('density')}</span><select value={chatLocalSettings.uiDensity || 'regular'} onChange={(e) => updateChatUiSetting('uiDensity', e.target.value)}>{CHAT_DENSITIES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('textSize')}</span><select value={chatLocalSettings.uiTextSize || 'medium'} onChange={(e) => updateChatUiSetting('uiTextSize', e.target.value)}>{CHAT_TEXT_SIZES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label></div></div><div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>{t('changePhoto')}</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>{t('removePhoto')}</button></div><div className="profile-chat-tools"><strong>{t('dialogTools')}</strong><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showExtraMessageActions === true} onChange={() => toggleDialogToolSetting('showExtraMessageActions')} /><span><strong>{t('showExtraMessageActionsTitle')}</strong><small>{t('showExtraMessageActionsHint')}</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showChatTemplates === true} onChange={() => toggleDialogToolSetting('showChatTemplates')} /><span><strong>{t('showChatTemplatesTitle')}</strong><small>{t('showChatTemplatesHint')}</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogMediaPanel === true} onChange={() => toggleDialogToolSetting('showDialogMediaPanel')} /><span><strong>{t('showDialogMediaPanelTitle')}</strong><small>{t('showDialogMediaPanelHint')}</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogDateJump === true} onChange={() => toggleDialogToolSetting('showDialogDateJump')} /><span><strong>{t('showDialogDateJumpTitle')}</strong><small>{t('showDialogDateJumpHint')}</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogFilters === true} onChange={() => toggleDialogToolSetting('showDialogFilters')} /><span><strong>{t('showDialogFiltersTitle')}</strong><small>{t('showDialogFiltersHint')}</small></span></label></div><div className="profile-chat-tools"><strong>{t('feedTools')}</strong><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showFeedCategorySelect === true} onChange={() => toggleFeedToolSetting('showFeedCategorySelect')} /><span><strong>{t('showFeedCategorySelectTitle')}</strong><small>{t('showFeedCategorySelectHint')}</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showFeedFilters === true} onChange={() => toggleFeedToolSetting('showFeedFilters')} /><span><strong>{t('showFeedFiltersTitle')}</strong><small>{t('showFeedFiltersHint')}</small></span></label></div><form onSubmit={changeMyPassword} className="profile-password-form"><input type="password" placeholder={t('currentPassword')} value={passwordForm.currentPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))} /><input type="password" placeholder={t('newPassword')} value={passwordForm.newPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))} /><button type="submit">{t('updatePassword')}</button></form>{!isAdmin && <button type="button" className="profile-logout-btn" onClick={handleLogout}>{t('logout')}</button>}</section>
               </div>
             )}
           </div>
@@ -3845,7 +3892,7 @@ const EmployeeChat = () => {
             }}
           >
           <header className="photo-viewer-header" onMouseDown={(event) => event.stopPropagation()}>
-            <button type="button" className="photo-viewer-back" onClick={() => setMediaViewer(null)}>← Назад</button>
+            <button type="button" className="photo-viewer-back" onClick={() => setMediaViewer(null)}>← {t('back')}</button>
             <strong className="photo-viewer-counter">{viewerIndex + 1} из {viewerFiles.length || 1}</strong>
             <details className="photo-viewer-menu">
               <summary aria-label="Действия с фото">⋯</summary>
