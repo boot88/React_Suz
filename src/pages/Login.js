@@ -29,6 +29,7 @@ const Login = ({ mode = 'employee' }) => {
   const [showAllSuggestions, setShowAllSuggestions] = useState(false);
   const [selectedLogin, setSelectedLogin] = useState('');
   const defaultLoginAppliedRef = useRef(false);
+  const loginFieldRef = useRef(null);
 
 
   useEffect(() => {
@@ -54,6 +55,18 @@ const Login = ({ mode = 'employee' }) => {
 
     return () => clearTimeout(timeout);
   }, [formData.username, isAdminMode, showAllSuggestions]);
+
+
+  useEffect(() => {
+    const handleDocumentPointerDown = (event) => {
+      if (!loginFieldRef.current || loginFieldRef.current.contains(event.target)) return;
+      setSuggestionsOpen(false);
+      setShowAllSuggestions(false);
+    };
+
+    document.addEventListener('mousedown', handleDocumentPointerDown);
+    return () => document.removeEventListener('mousedown', handleDocumentPointerDown);
+  }, []);
 
   const applyLoginSuggestion = (suggestion) => {
     setSelectedLogin(suggestion.login || '');
@@ -194,7 +207,7 @@ const Login = ({ mode = 'employee' }) => {
                 </div>
               )}
 
-              <div className="jp-field">
+              <div className="jp-field" ref={loginFieldRef}>
                 <label htmlFor="username">Фамилия / логин</label>
                 <input
                   id="username"
@@ -217,7 +230,7 @@ const Login = ({ mode = 'employee' }) => {
                     {loginSuggestions.map((suggestion) => (
                       <button key={suggestion.id || suggestion.login} type="button" onMouseDown={(event) => { event.preventDefault(); applyLoginSuggestion(suggestion); }}>
                         <strong>{suggestion.display_name || suggestion.full_name || suggestion.login}</strong>
-                        <span>{suggestion.department || 'отдел —'} · каб. {suggestion.room || '—'} · {suggestion.phone || 'тел. —'}</span>
+                        {!isAdminMode && <span>{suggestion.department || 'отдел —'} · каб. {suggestion.room || '—'} · {suggestion.phone || 'тел. —'}</span>}
                       </button>
                     ))}
                   </div>
