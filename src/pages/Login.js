@@ -26,11 +26,13 @@ const Login = ({ mode = 'employee' }) => {
   const [capsLockOn, setCapsLockOn] = useState(false);
   const [loginSuggestions, setLoginSuggestions] = useState([]);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [showAllSuggestions, setShowAllSuggestions] = useState(false);
+  const [selectedLogin, setSelectedLogin] = useState('');
   const defaultLoginAppliedRef = useRef(false);
 
 
   useEffect(() => {
-    const query = formData.username.trim();
+    const query = showAllSuggestions ? '' : formData.username.trim();
     const role = isAdminMode ? 'admin' : 'employee';
     const timeout = setTimeout(async () => {
       try {
@@ -42,7 +44,8 @@ const Login = ({ mode = 'employee' }) => {
 
         if (!query && !defaultLoginAppliedRef.current && suggestions[0]?.login) {
           defaultLoginAppliedRef.current = true;
-          setFormData((prev) => prev.username ? prev : { ...prev, username: suggestions[0].login });
+          setSelectedLogin(suggestions[0].login || '');
+          setFormData((prev) => prev.username ? prev : { ...prev, username: suggestions[0].display_name || suggestions[0].full_name || suggestions[0].login });
         }
       } catch {
         setLoginSuggestions([]);
@@ -50,11 +53,13 @@ const Login = ({ mode = 'employee' }) => {
     }, query ? 180 : 0);
 
     return () => clearTimeout(timeout);
-  }, [formData.username, isAdminMode]);
+  }, [formData.username, isAdminMode, showAllSuggestions]);
 
   const applyLoginSuggestion = (suggestion) => {
-    setFormData((prev) => ({ ...prev, username: suggestion.login || '' }));
+    setSelectedLogin(suggestion.login || '');
+    setFormData((prev) => ({ ...prev, username: suggestion.display_name || suggestion.full_name || suggestion.login || prev.username }));
     setSuggestionsOpen(false);
+    setShowAllSuggestions(false);
   };
 
   useEffect(() => {
@@ -69,7 +74,7 @@ const Login = ({ mode = 'employee' }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const username = normalizeLoginValue(formData.username);
+    const username = selectedLogin || normalizeLoginValue(formData.username);
 
     if (!username || !formData.password) {
       setError('Введите логин и пароль.');
@@ -197,14 +202,14 @@ const Login = ({ mode = 'employee' }) => {
                   type="text"
                   placeholder="Начните вводить фамилию"
                   value={formData.username}
-                  onChange={(e) => { setFormData((prev) => ({ ...prev, username: e.target.value })); setSuggestionsOpen(true); }}
+                  onChange={(e) => { setSelectedLogin(''); setShowAllSuggestions(false); setFormData((prev) => ({ ...prev, username: e.target.value })); setSuggestionsOpen(true); }}
                   onFocus={() => setSuggestionsOpen(true)}
                   autoComplete="off"
                   spellCheck="false"
                   required
                   disabled={isSubmitting}
                 />
-                <button type="button" className="login-suggestions-toggle" onClick={() => setSuggestionsOpen((prev) => !prev)} disabled={isSubmitting} aria-label="Показать список сотрудников">
+                <button type="button" className="login-suggestions-toggle" onClick={() => { setShowAllSuggestions(true); setSuggestionsOpen((prev) => !prev); }} disabled={isSubmitting} aria-label="Показать список сотрудников">
                   ▾
                 </button>
                 {suggestionsOpen && loginSuggestions.length > 0 && (

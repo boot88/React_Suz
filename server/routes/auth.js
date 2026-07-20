@@ -105,8 +105,10 @@ const getNameParts = (fullName = '') => String(fullName)
 const getShortPersonName = (fullName = '') => {
   const [lastName = '', firstName = '', middleName = ''] = getNameParts(fullName);
   const initials = [firstName, middleName].filter(Boolean).map((part) => `${part[0].toUpperCase()}.`).join('');
-  return `${lastName}${initials ? `.${initials}` : ''}`;
+  return `${lastName}${initials ? ` ${initials}` : ''}`;
 };
+
+const joinUniqueValues = (values = []) => [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))].join(', ');
 
 const createBaseLoginFromName = (fullName = '') => getShortPersonName(fullName)
   .toLowerCase()
@@ -141,19 +143,33 @@ const provisionUsersFromPhoneBook = async () => {
   const usedLogins = new Set();
   const desiredUsers = [];
 
+  const employeesByName = new Map();
   phoneRows.forEach((employee) => {
+    const key = normalizePersonName(employee.full_name);
+    if (!key) return;
+    const current = employeesByName.get(key) || { ...employee, departments: [], positions: [], rooms: [], phones: [] };
+    current.departments.push(employee.department);
+    current.positions.push(employee.position);
+    current.rooms.push(employee.room);
+    current.phones.push(employee.internal_phone);
+    employeesByName.set(key, current);
+  });
+
+  [...employeesByName.values()].forEach((employee) => {
     const baseLogin = createBaseLoginFromName(employee.full_name || employee.email || '');
     const login = createUniqueLogin(baseLogin, usedLogins);
     const isAdmin = isConfiguredAdminName(employee.full_name);
+    const departments = joinUniqueValues(employee.departments);
+    const positions = joinUniqueValues(employee.positions);
 
     desiredUsers.push({
       login,
       role: isAdmin ? 'admin' : 'employee',
       password: hashPassword(isAdmin ? DEFAULT_ADMIN_PASSWORD : DEFAULT_EMPLOYEE_PASSWORD),
       full_name: employee.full_name,
-      department: employee.department || employee.position || null,
-      phone: employee.internal_phone || null,
-      room: employee.room || null
+      department: departments || positions || null,
+      phone: joinUniqueValues(employee.phones) || null,
+      room: joinUniqueValues(employee.rooms) || null
     });
   });
 
@@ -439,13 +455,13 @@ router.get('/login-suggestions', async (req, res) => {
 
     const query = normalizeLogin(req.query?.query || '');
     const role = req.query?.role === 'admin' ? 'admin' : 'employee';
-    const like = `%${query}%`;
+    const like = `${query}%`;
     const [users] = await db.execute(
       `SELECT id, login, role, full_name, department, phone, room
        FROM users
        WHERE role = ? AND (LOWER(full_name) LIKE ? OR LOWER(login) LIKE ?)
        ORDER BY full_name
-       LIMIT 40`,
+       LIMIT 500`,
       [role, like, like]
     );
 
@@ -821,8 +837,11 @@ router.post('/login', async (req, res) => {
 
     const [users] = await db.execute(
       `SELECT * FROM users
-       WHERE LOWER(login) = ? OR LOWER(full_name) = ? OR LOWER(REPLACE(REPLACE(full_name, ' ', ''), '.', '')) = ?`,
-      [normalizedLogin, normalizedLogin, normalizedLogin.replace(/[\s.]/g, '')]
+       WHERE LOWER(login) = ?
+          OR LOWER(REPLACE(REPLACE(login, ' ', ''), '.', '')) = ?
+          OR LOWER(full_name) = ?
+          OR LOWER(REPLACE(REPLACE(full_name, ' ', ''), '.', '')) = ?`,
+      [normalizedLogin, normalizedLogin.replace(/[\s.]/g, ''), normalizedLogin, normalizedLogin.replace(/[\s.]/g, '')]
     );
 
     if (users.length === 0) {
