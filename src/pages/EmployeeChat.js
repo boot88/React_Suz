@@ -100,6 +100,47 @@ const RUSSIAN_LABELS = {
   login: 'Логин',
   websiteVersion: 'Версия сайта',
   status: 'Статус',
+  securityPhoto: 'Безопасность и фото',
+  appearance: 'Вид интерфейса',
+  theme: 'Тема',
+  density: 'Плотность',
+  textSize: 'Текст',
+  changePhoto: 'Изменить фото',
+  removePhoto: 'Удалить фото',
+  dialogTools: 'Дополнительные инструменты диалога',
+  feedTools: 'Дополнительные инструменты ленты',
+  currentPassword: 'Текущий пароль',
+  newPassword: 'Новый пароль',
+  updatePassword: 'Обновить пароль',
+  logout: 'Выйти из аккаунта',
+  requestHint: 'Заполните категорию, приоритет и описание — статус заявки появится сразу после отправки.',
+  ticketNumber: 'Номер',
+  techSupportContacts: 'Контакты технической поддержки',
+  techSupport: 'Техническая поддержка',
+  techSupportDepartment: 'Отдел программно-технического обеспечения средств вычислительной техники',
+  techSupportText: 'По всем вопросам работы компьютеров, программ, доступа к сервисам и другой техники обращайтесь в техподдержку. Чтобы обращение не потерялось и быстрее попало в работу, заявки лучше отправлять через форму на сайте ниже.',
+  leadSpecialist: 'Ведущий специалист',
+  internalPhone: 'Внутренний телефон',
+  mobile: 'Мобильный',
+  requestEyebrow: 'Служебная заявка',
+  requestTitle: 'Сообщить о проблеме',
+  category: 'Категория',
+  priority: 'Приоритет',
+  requestPlaceholder: 'Например: кабинет 204, не работает принтер, требуется проверка подключения...',
+  sendingRequest: 'Отправляем...',
+  sendRequest: 'Отправить заявку',
+  refreshing: 'Обновляем...',
+  refreshStatuses: 'Обновить статусы',
+  requestsUnavailable: 'Заявки временно недоступны',
+  feedTitle: 'Лента сотрудников',
+  feedSubtitle: 'Объявления, новости и фотоотчёты.',
+  feedUnavailable: 'Лента временно недоступна',
+  photoVideo: 'Фото/видео',
+  publishing: 'Публикуем...',
+  publish: 'Опубликовать',
+  comments: 'Комментарии',
+  noComments: 'Комментариев пока нет.',
+  writeComment: 'Написать комментарий…',
   saveProfile: 'Сохранить анкету'
 };
 
@@ -157,6 +198,47 @@ const ENGLISH_LABELS = {
   login: 'Login',
   websiteVersion: 'Website version',
   status: 'Status',
+  securityPhoto: 'Security and photo',
+  appearance: 'Appearance',
+  theme: 'Theme',
+  density: 'Density',
+  textSize: 'Text',
+  changePhoto: 'Change photo',
+  removePhoto: 'Remove photo',
+  dialogTools: 'Additional dialog tools',
+  feedTools: 'Additional feed tools',
+  currentPassword: 'Current password',
+  newPassword: 'New password',
+  updatePassword: 'Update password',
+  logout: 'Log out',
+  requestHint: 'Fill in category, priority and description — the request status will appear right after sending.',
+  ticketNumber: 'Number',
+  techSupportContacts: 'Technical support contacts',
+  techSupport: 'Technical support',
+  techSupportDepartment: 'Software and technical support department for computing equipment',
+  techSupportText: 'For computer, software, service access and equipment issues, contact technical support. To keep the request visible and route it faster, please submit it through the form below.',
+  leadSpecialist: 'Lead specialist',
+  internalPhone: 'Internal phone',
+  mobile: 'Mobile',
+  requestEyebrow: 'Service request',
+  requestTitle: 'Report a problem',
+  category: 'Category',
+  priority: 'Priority',
+  requestPlaceholder: 'Example: room 204, printer is not working, connection check required...',
+  sendingRequest: 'Sending...',
+  sendRequest: 'Send request',
+  refreshing: 'Refreshing...',
+  refreshStatuses: 'Refresh statuses',
+  requestsUnavailable: 'Requests are temporarily unavailable',
+  feedTitle: 'Employee feed',
+  feedSubtitle: 'Announcements, news and photo reports.',
+  feedUnavailable: 'Feed is temporarily unavailable',
+  photoVideo: 'Photo/video',
+  publishing: 'Publishing...',
+  publish: 'Publish',
+  comments: 'Comments',
+  noComments: 'No comments yet.',
+  writeComment: 'Write a comment…',
   saveProfile: 'Save profile'
 };
 const ENGLISH_TAB_LABELS = { feed: 'Feed', chat: 'Chat', request: 'Request', employees: 'Employees', audit: 'Audit' };
@@ -3482,38 +3564,38 @@ const EmployeeChat = () => {
         {activeTab === 'request' && !isManager && (
           <div className="request-workspace">
             <header className="section-hero">
-              <span className="eyebrow">Служебная заявка</span>
-              <h2>Сообщить о проблеме</h2>
-              <p>Заполните категорию, приоритет и описание — статус заявки появится сразу после отправки.</p>
+              <span className="eyebrow">{t('requestEyebrow')}</span>
+              <h2>{t('requestTitle')}</h2>
+              <p>{t('requestHint')}</p>
             </header>
             {requestStatus.state !== 'idle' && (
               <div className={`request-status-card ${requestStatus.state}`}>
                 <strong>{requestStatus.text}</strong>
-                {requestStatus.ticketId && <span>Номер: #{requestStatus.ticketId}</span>}
+                {requestStatus.ticketId && <span>{t('ticketNumber')}: #{requestStatus.ticketId}</span>}
               </div>
             )}
-            <section className="request-support-card" aria-label="Контакты технической поддержки">
+            <section className="request-support-card" aria-label={t('techSupportContacts')}>
               <div>
-                <span className="eyebrow">Техническая поддержка</span>
-                <h3>Отдел программно-технического обеспечения средств вычислительной техники</h3>
-                <p>По всем вопросам работы компьютеров, программ, доступа к сервисам и другой техники обращайтесь в техподдержку. Чтобы обращение не потерялось и быстрее попало в работу, заявки лучше отправлять через форму на сайте ниже.</p>
+                <span className="eyebrow">{t('techSupport')}</span>
+                <h3>{t('techSupportDepartment')}</h3>
+                <p>{t('techSupportText')}</p>
               </div>
               <div className="request-support-contact">
                 <strong>Повисок Евгений Вячеславович</strong>
-                <span>Ведущий специалист</span>
-                <a href="tel:1380">Внутренний телефон: 1-380</a>
+                <span>{t('leadSpecialist')}</span>
+                <a href="tel:1380">{t('internalPhone')}: 1-380</a>
                 <a href="mailto:povisok@nioch.nsc.ru">povisok@nioch.nsc.ru</a>
-                <a href="tel:+79130080146">Мобильный: 8-913-008-01-46</a>
+                <a href="tel:+79130080146">{t('mobile')}: 8-913-008-01-46</a>
               </div>
             </section>
             <form className="employee-request-box" onSubmit={submitRequest}>
               <div className="form-grid two">
-                <label>Категория<select value={requestCategory} onChange={(e) => setRequestCategory(e.target.value)}>{REQUEST_CATEGORIES.map((item) => <option key={item}>{item}</option>)}</select></label>
-                <label>Приоритет<select value={requestPriority} onChange={(e) => setRequestPriority(e.target.value)}>{REQUEST_PRIORITIES.map((item) => <option key={item}>{item}</option>)}</select></label>
+                <label>{t('category')}<select value={requestCategory} onChange={(e) => setRequestCategory(e.target.value)}>{REQUEST_CATEGORIES.map((item) => <option key={item}>{item}</option>)}</select></label>
+                <label>{t('priority')}<select value={requestPriority} onChange={(e) => setRequestPriority(e.target.value)}>{REQUEST_PRIORITIES.map((item) => <option key={item}>{item}</option>)}</select></label>
               </div>
-              <textarea rows={7} placeholder="Например: кабинет 204, не работает принтер, требуется проверка подключения..." value={requestText} onChange={(e) => setRequestText(e.target.value)} />
-              <div className="request-form-actions"><button type="submit" disabled={requestStatus.state === 'sending'}>{requestStatus.state === 'sending' ? 'Отправляем...' : 'Отправить заявку'}</button><button type="button" onClick={() => fetchMyApplications({ silent: false })}>{applicationsLoading ? 'Обновляем...' : 'Обновить статусы'}</button></div>
-              {applicationsError && <div className="request-inline-error">Заявки временно недоступны: {applicationsError}</div>}
+              <textarea rows={7} placeholder={t('requestPlaceholder')} value={requestText} onChange={(e) => setRequestText(e.target.value)} />
+              <div className="request-form-actions"><button type="submit" disabled={requestStatus.state === 'sending'}>{requestStatus.state === 'sending' ? t('sendingRequest') : t('sendRequest')}</button><button type="button" onClick={() => fetchMyApplications({ silent: false })}>{applicationsLoading ? t('refreshing') : t('refreshStatuses')}</button></div>
+              {applicationsError && <div className="request-inline-error">{t('requestsUnavailable')}: {applicationsError}</div>}
             </form>
 
             <section className="employee-ticket-board">
@@ -3548,10 +3630,10 @@ const EmployeeChat = () => {
             <div className="employee-feed-list" ref={feedListRef} onClick={(event) => { if (event.target === event.currentTarget) { setSelectedFeedPostId(''); setFeedReactionExpanded(false); } }}>
               <article className="employee-feed-post feed-composer-post">
                 <header className="employee-feed-header compact-feed-header feed-composer-post-header">
-                  <div><h2>Лента сотрудников</h2><p>Объявления, новости и фотоотчёты.</p></div>
+                  <div><h2>{t('feedTitle')}</h2><p>{t('feedSubtitle')}</p></div>
                   <button type="button" onClick={() => fetchFeed({ silent: false })}>{feedRefreshing ? 'Обновляем…' : 'Обновить'}</button>
                 </header>
-                {feedError && <div className="feed-status-warning">Лента временно недоступна: {feedError}</div>}
+                {feedError && <div className="feed-status-warning">{t('feedUnavailable')}: {feedError}</div>}
                 <form className="employee-feed-composer compact-feed-composer vk-feed-composer" onSubmit={addFeedPost}>
                   <div className="feed-composer-body"><div className="feed-avatar feed-avatar-current">{avatarUrl ? <img src={avatarUrl} alt="Мой аватар" /> : <span>{String(profileForm.full_name || user?.name || user?.username || '?').slice(0, 1).toUpperCase()}</span>}</div><div className={`feed-composer-line ${chatLocalSettings.showFeedCategorySelect === true ? 'has-category' : 'without-category'}`}>{chatLocalSettings.showFeedCategorySelect === true && <select value={feedCategory} onChange={(e) => setFeedCategory(e.target.value)}>{FEED_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select>}<textarea rows={2} placeholder="Что у вас нового?" value={feedDraft} onChange={(e) => setFeedDraft(e.target.value)} /></div></div>
                   {feedAttachments.length > 0 && (
@@ -3572,7 +3654,7 @@ const EmployeeChat = () => {
                       })}
                     </div>
                   )}
-                  <div className="employee-feed-composer-actions"><label>📎 Фото/видео<input type="file" multiple hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="submit" disabled={isPublishingFeed || (!feedDraft.trim() && feedAttachments.length === 0)}>{isPublishingFeed ? 'Публикуем...' : 'Опубликовать'}</button></div>
+                  <div className="employee-feed-composer-actions"><label>📎 {t('photoVideo')}<input type="file" multiple hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="submit" disabled={isPublishingFeed || (!feedDraft.trim() && feedAttachments.length === 0)}>{isPublishingFeed ? t('publishing') : t('publish')}</button></div>
                 </form>
               </article>
               {feedLoading && <div className="feed-skeleton-list"><div /><div /><div /></div>}
@@ -3632,11 +3714,11 @@ const EmployeeChat = () => {
                       </div>
                     )}
                     <div className="employee-feed-comments">
-                      <div className="employee-feed-comments-title">Комментарии</div>
-                      {sortedPostComments.length === 0 && <small className="employee-feed-no-comments">Комментариев пока нет.</small>}
+                      <div className="employee-feed-comments-title">{t('comments')}</div>
+                      {sortedPostComments.length === 0 && <small className="employee-feed-no-comments">{t('noComments')}</small>}
                       {previewComments.map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; const commentInitial = String(comment.authorName || comment.author || '?').slice(0, 1).toUpperCase(); const commentAvatar = getEmployeeAvatar(comment.author, comment.avatar, comment.authorAvatar, comment.authorPhoto, comment.author_photo); return <div key={comment.id} className="employee-feed-comment"><button type="button" className="feed-avatar comment-avatar profile-link-avatar" onClick={(event) => openEmployeeProfile(comment.author, event)}>{commentAvatar ? <img src={commentAvatar} alt={comment.authorName || comment.author || 'Комментарий'} /> : <span>{commentInitial}</span>}</button><div className="employee-feed-comment-body"><button type="button" className="comment-author-link" onClick={(event) => openEmployeeProfile(comment.author, event)}>{comment.authorName || formatFeedLogin(comment.author)}</button><span>{comment.text}</span><small>{formatFeedLogin(comment.author)} · {new Date(comment.createdAt).toLocaleString('ru-RU')}</small><div className="feed-comment-actions"><button type="button" onClick={() => setCommentDrafts((prev) => ({ ...prev, [post.id]: `@${formatFeedLogin(comment.author)} ` }))}>Ответить</button><button type="button" onClick={() => notify('Реакция на комментарий сохранится после подключения серверного метода', 'Лента')}>👍</button>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>Удалить</button>}</div></div></div>; })}
                       {hiddenCommentsCount > 0 && !expandedCommentPosts[post.id] && <button type="button" className="feed-show-more-comments" onClick={() => setExpandedCommentPosts((prev) => ({ ...prev, [post.id]: true }))}>Показать все комментарии ({sortedPostComments.length})</button>}
-                      <div className="employee-feed-comment-form"><div className="feed-avatar comment-avatar feed-avatar-current">{avatarUrl ? <img src={avatarUrl} alt="Мой аватар" /> : <span>{String(profileForm.full_name || user?.name || user?.username || '?').slice(0, 1).toUpperCase()}</span>}</div><input placeholder="Написать комментарий…" value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} />{(commentDrafts[post.id] || '').trim() && <button type="button" onClick={() => addCommentToPost(post.id)}>Отправить</button>}</div>
+                      <div className="employee-feed-comment-form"><div className="feed-avatar comment-avatar feed-avatar-current">{avatarUrl ? <img src={avatarUrl} alt="Мой аватар" /> : <span>{String(profileForm.full_name || user?.name || user?.username || '?').slice(0, 1).toUpperCase()}</span>}</div><input placeholder={t('writeComment')} value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} />{(commentDrafts[post.id] || '').trim() && <button type="button" onClick={() => addCommentToPost(post.id)}>Отправить</button>}</div>
                     </div>
                   </article>
                 );
@@ -3652,7 +3734,7 @@ const EmployeeChat = () => {
             ) : (
               <div className="profile-settings-grid">
                 <section className="profile-panel"><h3>{t('myProfile')}</h3><form onSubmit={saveMyProfile} className="profile-form profile-form-labeled"><label><span>{t('fullName')}</span><input placeholder="Иванов Иван Иванович" value={profileForm.full_name} onChange={(e) => updateProfileField('full_name', e.target.value)} /></label><label><span>{t('login')}</span><input value={profileForm.full_name || user?.name || user?.username || ''} disabled /></label><label><span>{t('position')}</span><input placeholder="Например: инженер" value={profileForm.position} onChange={(e) => updateProfileField('position', e.target.value)} /></label><label><span>{t('department')}</span><input placeholder="Название отдела" value={profileForm.department} onChange={(e) => updateProfileField('department', e.target.value)} /></label><label><span>{t('room')}</span><input placeholder="Например: 214" value={profileForm.room} onChange={(e) => updateProfileField('room', e.target.value)} /></label><label><span>{t('phone')}</span><input placeholder="Например: 12-34" value={profileForm.phone} onChange={(e) => updateProfileField('phone', e.target.value)} /></label><label><span>{t('websiteVersion')}</span><select value={profileForm.websiteLanguage || DEFAULT_PROFILE_WEBSITE_LANGUAGE} onChange={(e) => updateProfileField('websiteLanguage', e.target.value)}>{PROFILE_LANGUAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><label><span>{t('website')}</span><input placeholder="https://..." value={profileForm.website} onChange={(e) => updateProfileField('website', e.target.value)} /></label><label><span>{t('status')}</span><input placeholder="Короткий статус" value={profileForm.statusText} onChange={(e) => updateProfileField('statusText', e.target.value)} /></label><label className="profile-field-wide"><span>{t('bio')}</span><textarea placeholder="Кратко о себе" rows={4} value={profileForm.bio} onChange={(e) => updateProfileField('bio', e.target.value)} /></label><button type="submit">{t('saveProfile')}</button></form></section>
-                <section className="profile-panel"><h3>Безопасность и фото</h3><div className="profile-appearance-settings"><h4>Вид интерфейса</h4><div className="chat-appearance-controls profile-appearance-controls"><label><span>Тема</span><select value={chatLocalSettings.uiTheme || 'light'} onChange={(e) => updateChatUiSetting('uiTheme', e.target.value)}>{CHAT_THEMES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>Плотность</span><select value={chatLocalSettings.uiDensity || 'regular'} onChange={(e) => updateChatUiSetting('uiDensity', e.target.value)}>{CHAT_DENSITIES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>Текст</span><select value={chatLocalSettings.uiTextSize || 'medium'} onChange={(e) => updateChatUiSetting('uiTextSize', e.target.value)}>{CHAT_TEXT_SIZES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label></div></div><div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>Изменить фото</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>Удалить фото</button></div><div className="profile-chat-tools"><strong>Дополнительные инструменты диалога</strong><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showExtraMessageActions === true} onChange={() => toggleDialogToolSetting('showExtraMessageActions')} /><span><strong>Показывать дополнительные действия сообщений</strong><small>Редактирование, выбор нескольких, заявки, задачи и скачивание вложений. По умолчанию скрыто.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showChatTemplates === true} onChange={() => toggleDialogToolSetting('showChatTemplates')} /><span><strong>Показывать шаблоны сообщений</strong><small>По умолчанию скрыто. Включите, если нужны быстрые текстовые шаблоны.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogMediaPanel === true} onChange={() => toggleDialogToolSetting('showDialogMediaPanel')} /><span><strong>Показывать “Медиа / Файлы” в диалоге</strong><small>По умолчанию скрыто. Включите, если нужна правая панель медиа, файлов и ссылок.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogDateJump === true} onChange={() => toggleDialogToolSetting('showDialogDateJump')} /><span><strong>Показывать “Перейти к дате”</strong><small>По умолчанию скрыто, чтобы верх чата был компактнее.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogFilters === true} onChange={() => toggleDialogToolSetting('showDialogFilters')} /><span><strong>Показывать фильтры сообщений</strong><small>Все, мои, собеседник, с файлами, фото, сегодня, неделя и месяц.</small></span></label></div><div className="profile-chat-tools"><strong>Дополнительные инструменты ленты</strong><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showFeedCategorySelect === true} onChange={() => toggleFeedToolSetting('showFeedCategorySelect')} /><span><strong>Показывать выбор категории публикации</strong><small>Объявление, новость, вопрос, поздравление и другие категории. По умолчанию скрыто.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showFeedFilters === true} onChange={() => toggleFeedToolSetting('showFeedFilters')} /><span><strong>Показывать фильтры ленты</strong><small>Кнопка фильтров справа от поиска по ленте. По умолчанию скрыто.</small></span></label></div><form onSubmit={changeMyPassword} className="profile-password-form"><input type="password" placeholder="Текущий пароль" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))} /><input type="password" placeholder="Новый пароль" value={passwordForm.newPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))} /><button type="submit">Обновить пароль</button></form>{!isAdmin && <button type="button" className="profile-logout-btn" onClick={handleLogout}>Выйти из аккаунта</button>}</section>
+                <section className="profile-panel"><h3>{t('securityPhoto')}</h3><div className="profile-appearance-settings"><h4>{t('appearance')}</h4><div className="chat-appearance-controls profile-appearance-controls"><label><span>{t('theme')}</span><select value={chatLocalSettings.uiTheme || 'light'} onChange={(e) => updateChatUiSetting('uiTheme', e.target.value)}>{CHAT_THEMES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('density')}</span><select value={chatLocalSettings.uiDensity || 'regular'} onChange={(e) => updateChatUiSetting('uiDensity', e.target.value)}>{CHAT_DENSITIES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>{t('textSize')}</span><select value={chatLocalSettings.uiTextSize || 'medium'} onChange={(e) => updateChatUiSetting('uiTextSize', e.target.value)}>{CHAT_TEXT_SIZES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label></div></div><div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>{t('changePhoto')}</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>{t('removePhoto')}</button></div><div className="profile-chat-tools"><strong>{t('dialogTools')}</strong><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showExtraMessageActions === true} onChange={() => toggleDialogToolSetting('showExtraMessageActions')} /><span><strong>Показывать дополнительные действия сообщений</strong><small>Редактирование, выбор нескольких, заявки, задачи и скачивание вложений. По умолчанию скрыто.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showChatTemplates === true} onChange={() => toggleDialogToolSetting('showChatTemplates')} /><span><strong>Показывать шаблоны сообщений</strong><small>По умолчанию скрыто. Включите, если нужны быстрые текстовые шаблоны.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogMediaPanel === true} onChange={() => toggleDialogToolSetting('showDialogMediaPanel')} /><span><strong>Показывать “Медиа / Файлы” в диалоге</strong><small>По умолчанию скрыто. Включите, если нужна правая панель медиа, файлов и ссылок.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogDateJump === true} onChange={() => toggleDialogToolSetting('showDialogDateJump')} /><span><strong>Показывать “Перейти к дате”</strong><small>По умолчанию скрыто, чтобы верх чата был компактнее.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogFilters === true} onChange={() => toggleDialogToolSetting('showDialogFilters')} /><span><strong>Показывать фильтры сообщений</strong><small>Все, мои, собеседник, с файлами, фото, сегодня, неделя и месяц.</small></span></label></div><div className="profile-chat-tools"><strong>{t('feedTools')}</strong><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showFeedCategorySelect === true} onChange={() => toggleFeedToolSetting('showFeedCategorySelect')} /><span><strong>Показывать выбор категории публикации</strong><small>Объявление, новость, вопрос, поздравление и другие категории. По умолчанию скрыто.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showFeedFilters === true} onChange={() => toggleFeedToolSetting('showFeedFilters')} /><span><strong>Показывать фильтры ленты</strong><small>Кнопка фильтров справа от поиска по ленте. По умолчанию скрыто.</small></span></label></div><form onSubmit={changeMyPassword} className="profile-password-form"><input type="password" placeholder={t('currentPassword')} value={passwordForm.currentPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))} /><input type="password" placeholder={t('newPassword')} value={passwordForm.newPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))} /><button type="submit">{t('updatePassword')}</button></form>{!isAdmin && <button type="button" className="profile-logout-btn" onClick={handleLogout}>{t('logout')}</button>}</section>
               </div>
             )}
           </div>

@@ -518,3 +518,35 @@
   z-index: 20;
   margin-top: 0;
 }
+
+
+.jp-language-switch {
+  position: fixed;
+  left: 24px;
+  bottom: 20px;
+  z-index: 6;
+  display: inline-flex;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(21, 95, 134, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 12px 30px rgba(12, 36, 58, 0.14);
+  backdrop-filter: blur(12px);
+}
+
+.jp-language-switch button {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--login-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.jp-language-switch button.active {
+  background: var(--login-blue);
+  color: #fff;
+}
