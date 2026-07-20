@@ -83,6 +83,8 @@ const profilesFilePath = path.join(dataDir, 'profiles.json');
 
 const DEFAULT_EMPLOYEE_PASSWORD = '12345';
 const DEFAULT_ADMIN_PASSWORD = '12399';
+const DEFAULT_PROFILE_WEBSITE = 'http://web3.nioch.nsc.ru/nioch/index.php/ru/';
+const DEFAULT_PROFILE_STATUS = 'Работа';
 const ADMIN_FULL_NAMES = [
   'Повисок Е.В.',
   'Андреев Р.В.',
@@ -113,7 +115,8 @@ const joinUniqueValues = (values = []) => [...new Set(values.map((value) => Stri
 const createBaseLoginFromName = (fullName = '') => getShortPersonName(fullName)
   .toLowerCase()
   .replace(/ё/g, 'е')
-  .replace(/\s+/g, '')
+  .replace(/\s+/g, ' ')
+  .trim()
   .replace(/\.$/, '');
 
 const isConfiguredAdminName = (fullName = '') => {
@@ -167,7 +170,8 @@ const provisionUsersFromPhoneBook = async () => {
       role: isAdmin ? 'admin' : 'employee',
       password: hashPassword(isAdmin ? DEFAULT_ADMIN_PASSWORD : DEFAULT_EMPLOYEE_PASSWORD),
       full_name: employee.full_name,
-      department: departments || positions || null,
+      department: departments || null,
+      position: positions || null,
       phone: joinUniqueValues(employee.phones) || null,
       room: joinUniqueValues(employee.rooms) || null
     });
@@ -182,6 +186,7 @@ const provisionUsersFromPhoneBook = async () => {
       password: hashPassword(DEFAULT_ADMIN_PASSWORD),
       full_name: adminName,
       department: null,
+      position: null,
       phone: null,
       room: null
     });
@@ -207,6 +212,21 @@ const provisionUsersFromPhoneBook = async () => {
   }
 
   lastProvisionAt = Date.now();
+
+  const profiles = await readProfiles();
+  desiredUsers.forEach((user) => {
+    profiles[user.login] = {
+      ...(profiles[user.login] || {}),
+      full_name: user.full_name,
+      department: user.department || '',
+      phone: user.phone || '',
+      room: user.room || '',
+      position: user.position || profiles[user.login]?.position || '',
+      website: DEFAULT_PROFILE_WEBSITE,
+      statusText: DEFAULT_PROFILE_STATUS
+    };
+  });
+  await writeProfiles(profiles);
 
   return {
     total: desiredUsers.length,
