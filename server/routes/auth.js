@@ -83,7 +83,19 @@ const profilesFilePath = path.join(dataDir, 'profiles.json');
 
 const DEFAULT_EMPLOYEE_PASSWORD = '12345';
 const DEFAULT_ADMIN_PASSWORD = '12399';
-const DEFAULT_PROFILE_WEBSITE = 'http://web3.nioch.nsc.ru/nioch/index.php/ru/';
+const DEFAULT_PROFILE_WEBSITE_LANGUAGE = 'en';
+const PROFILE_WEBSITE_BY_LANGUAGE = {
+  en: 'http://web3.nioch.nsc.ru/nioch/index.php/en/',
+  ru: 'http://web3.nioch.nsc.ru/nioch/index.php/ru/'
+};
+const DEFAULT_PROFILE_WEBSITE = PROFILE_WEBSITE_BY_LANGUAGE[DEFAULT_PROFILE_WEBSITE_LANGUAGE];
+const getProfileWebsiteByLanguage = (language = DEFAULT_PROFILE_WEBSITE_LANGUAGE) => PROFILE_WEBSITE_BY_LANGUAGE[language] || DEFAULT_PROFILE_WEBSITE;
+const getStoredProfileWebsite = (profile = {}) => {
+  const language = profile.websiteLanguage || DEFAULT_PROFILE_WEBSITE_LANGUAGE;
+  const website = profile.website || '';
+  const isKnownDefault = Object.values(PROFILE_WEBSITE_BY_LANGUAGE).includes(website);
+  return isKnownDefault ? getProfileWebsiteByLanguage(language) : (website || getProfileWebsiteByLanguage(language));
+};
 const DEFAULT_PROFILE_STATUS = 'Работа';
 const ADMIN_FULL_NAMES = [
   'Повисок Е.В.',
@@ -222,7 +234,8 @@ const provisionUsersFromPhoneBook = async () => {
       phone: user.phone || '',
       room: user.room || '',
       position: user.position || profiles[user.login]?.position || '',
-      website: DEFAULT_PROFILE_WEBSITE,
+      websiteLanguage: profiles[user.login]?.websiteLanguage || DEFAULT_PROFILE_WEBSITE_LANGUAGE,
+      website: getStoredProfileWebsite(profiles[user.login]),
       statusText: DEFAULT_PROFILE_STATUS
     };
   });
@@ -742,8 +755,9 @@ router.get('/profile', async (req, res) => {
         room: user?.room || extras.room || '',
         position: extras.position || '',
         bio: extras.bio || '',
-        website: extras.website || '',
-        statusText: extras.statusText || '',
+        websiteLanguage: extras.websiteLanguage || DEFAULT_PROFILE_WEBSITE_LANGUAGE,
+        website: getStoredProfileWebsite(extras),
+        statusText: extras.statusText || DEFAULT_PROFILE_STATUS,
         avatar: extras.avatar || ''
       }
     });
@@ -787,8 +801,9 @@ router.put('/profile', async (req, res) => {
       room: req.body?.room || '',
       position: req.body?.position || '',
       bio: req.body?.bio || '',
-      website: req.body?.website || '',
-      statusText: req.body?.statusText || '',
+      websiteLanguage: req.body?.websiteLanguage || DEFAULT_PROFILE_WEBSITE_LANGUAGE,
+      website: req.body?.website || PROFILE_WEBSITE_BY_LANGUAGE[req.body?.websiteLanguage] || DEFAULT_PROFILE_WEBSITE,
+      statusText: req.body?.statusText || DEFAULT_PROFILE_STATUS,
       avatar: req.body?.avatar || profiles[normalizedLogin]?.avatar || ''
     };
     await writeProfiles(profiles);
