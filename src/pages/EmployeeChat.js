@@ -138,6 +138,17 @@ const RUSSIAN_LABELS = {
   photoVideo: 'Фото/видео',
   publishing: 'Публикуем...',
   publish: 'Опубликовать',
+  searchFeed: 'Поиск по ленте',
+  clearSearch: 'Очистить поиск',
+  refresh: 'Обновить',
+  whatsNew: 'Что у вас нового?',
+  noPosts: 'Пока нет публикаций',
+  tryAnotherSearch: 'Попробуйте другой запрос',
+  firstPostHint: 'Будьте первым, кто поделится новостью, фото или объявлением.',
+  reply: 'Ответить',
+  delete: 'Удалить',
+  sendComment: 'Отправить',
+  showAllComments: 'Показать все комментарии',
   comments: 'Комментарии',
   noComments: 'Комментариев пока нет.',
   writeComment: 'Написать комментарий…',
@@ -236,6 +247,17 @@ const ENGLISH_LABELS = {
   photoVideo: 'Photo/video',
   publishing: 'Publishing...',
   publish: 'Publish',
+  searchFeed: 'Search feed',
+  clearSearch: 'Clear search',
+  refresh: 'Refresh',
+  whatsNew: 'What’s new?',
+  noPosts: 'No posts yet',
+  tryAnotherSearch: 'Try another search',
+  firstPostHint: 'Be the first to share news, photos or an announcement.',
+  reply: 'Reply',
+  delete: 'Delete',
+  sendComment: 'Send',
+  showAllComments: 'Show all comments',
   comments: 'Comments',
   noComments: 'No comments yet.',
   writeComment: 'Write a comment…',
@@ -3626,16 +3648,16 @@ const EmployeeChat = () => {
 
         {activeTab === 'feed' && (
           <section className="employee-feed-section">
-            <div className="feed-toolbar compact-feed-toolbar sticky-feed-search"><div className="feed-search-shell"><span className="feed-search-icon">🔍</span><input type="search" placeholder="Поиск по ленте" value={feedSearch} onChange={(e) => setFeedSearch(e.target.value)} />{feedSearch && <button type="button" className="feed-search-clear" onClick={() => setFeedSearch('')} aria-label="Очистить поиск">×</button>}</div></div>
+            <div className="feed-toolbar compact-feed-toolbar sticky-feed-search"><div className="feed-search-shell"><span className="feed-search-icon">🔍</span><input type="search" placeholder={t('searchFeed')} value={feedSearch} onChange={(e) => setFeedSearch(e.target.value)} />{feedSearch && <button type="button" className="feed-search-clear" onClick={() => setFeedSearch('')} aria-label={t('clearSearch')}>×</button>}</div></div>
             <div className="employee-feed-list" ref={feedListRef} onClick={(event) => { if (event.target === event.currentTarget) { setSelectedFeedPostId(''); setFeedReactionExpanded(false); } }}>
               <article className="employee-feed-post feed-composer-post">
                 <header className="employee-feed-header compact-feed-header feed-composer-post-header">
                   <div><h2>{t('feedTitle')}</h2><p>{t('feedSubtitle')}</p></div>
-                  <button type="button" onClick={() => fetchFeed({ silent: false })}>{feedRefreshing ? 'Обновляем…' : 'Обновить'}</button>
+                  <button type="button" onClick={() => fetchFeed({ silent: false })}>{feedRefreshing ? t('refreshing') : t('refresh')}</button>
                 </header>
                 {feedError && <div className="feed-status-warning">{t('feedUnavailable')}: {feedError}</div>}
                 <form className="employee-feed-composer compact-feed-composer vk-feed-composer" onSubmit={addFeedPost}>
-                  <div className="feed-composer-body"><div className="feed-avatar feed-avatar-current">{avatarUrl ? <img src={avatarUrl} alt="Мой аватар" /> : <span>{String(profileForm.full_name || user?.name || user?.username || '?').slice(0, 1).toUpperCase()}</span>}</div><div className={`feed-composer-line ${chatLocalSettings.showFeedCategorySelect === true ? 'has-category' : 'without-category'}`}>{chatLocalSettings.showFeedCategorySelect === true && <select value={feedCategory} onChange={(e) => setFeedCategory(e.target.value)}>{FEED_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select>}<textarea rows={2} placeholder="Что у вас нового?" value={feedDraft} onChange={(e) => setFeedDraft(e.target.value)} /></div></div>
+                  <div className="feed-composer-body"><div className="feed-avatar feed-avatar-current">{avatarUrl ? <img src={avatarUrl} alt="Мой аватар" /> : <span>{String(profileForm.full_name || user?.name || user?.username || '?').slice(0, 1).toUpperCase()}</span>}</div><div className={`feed-composer-line ${chatLocalSettings.showFeedCategorySelect === true ? 'has-category' : 'without-category'}`}>{chatLocalSettings.showFeedCategorySelect === true && <select value={feedCategory} onChange={(e) => setFeedCategory(e.target.value)}>{FEED_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select>}<textarea rows={2} placeholder={t('whatsNew')} value={feedDraft} onChange={(e) => setFeedDraft(e.target.value)} /></div></div>
                   {feedAttachments.length > 0 && (
                     <div className="employee-feed-attachment-preview-grid media-draft-grid">
                       {feedAttachments.map((file, index) => {
@@ -3659,7 +3681,7 @@ const EmployeeChat = () => {
               </article>
               {feedLoading && <div className="feed-skeleton-list"><div /><div /><div /></div>}
               {!feedLoading && feedError && <button type="button" className="feed-retry" onClick={() => fetchFeed({ silent: false })}>Повторить загрузку</button>}
-              {!feedLoading && visibleFeedPosts.length === 0 && <div className="feed-empty-card"><strong>{feedSearch.trim() ? 'Ничего не найдено' : 'Пока нет публикаций'}</strong><span>{feedSearch.trim() ? 'Попробуйте другой запрос' : 'Будьте первым, кто поделится новостью, фото или объявлением.'}</span></div>}
+              {!feedLoading && visibleFeedPosts.length === 0 && <div className="feed-empty-card"><strong>{feedSearch.trim() ? t('noResults') : t('noPosts')}</strong><span>{feedSearch.trim() ? t('tryAnotherSearch') : t('firstPostHint')}</span></div>}
               {pinnedFeedPosts.length > 0 && <div className="feed-pinned-title">📌 Закреплено</div>}
               {[...pinnedFeedPosts, ...regularFeedPosts].map((post) => {
                 const canDeletePost = canManageFeedPost(post, user, isManager, isAdmin);
@@ -3716,9 +3738,9 @@ const EmployeeChat = () => {
                     <div className="employee-feed-comments">
                       <div className="employee-feed-comments-title">{t('comments')}</div>
                       {sortedPostComments.length === 0 && <small className="employee-feed-no-comments">{t('noComments')}</small>}
-                      {previewComments.map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; const commentInitial = String(comment.authorName || comment.author || '?').slice(0, 1).toUpperCase(); const commentAvatar = getEmployeeAvatar(comment.author, comment.avatar, comment.authorAvatar, comment.authorPhoto, comment.author_photo); return <div key={comment.id} className="employee-feed-comment"><button type="button" className="feed-avatar comment-avatar profile-link-avatar" onClick={(event) => openEmployeeProfile(comment.author, event)}>{commentAvatar ? <img src={commentAvatar} alt={comment.authorName || comment.author || 'Комментарий'} /> : <span>{commentInitial}</span>}</button><div className="employee-feed-comment-body"><button type="button" className="comment-author-link" onClick={(event) => openEmployeeProfile(comment.author, event)}>{comment.authorName || formatFeedLogin(comment.author)}</button><span>{comment.text}</span><small>{formatFeedLogin(comment.author)} · {new Date(comment.createdAt).toLocaleString('ru-RU')}</small><div className="feed-comment-actions"><button type="button" onClick={() => setCommentDrafts((prev) => ({ ...prev, [post.id]: `@${formatFeedLogin(comment.author)} ` }))}>Ответить</button><button type="button" onClick={() => notify('Реакция на комментарий сохранится после подключения серверного метода', 'Лента')}>👍</button>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>Удалить</button>}</div></div></div>; })}
-                      {hiddenCommentsCount > 0 && !expandedCommentPosts[post.id] && <button type="button" className="feed-show-more-comments" onClick={() => setExpandedCommentPosts((prev) => ({ ...prev, [post.id]: true }))}>Показать все комментарии ({sortedPostComments.length})</button>}
-                      <div className="employee-feed-comment-form"><div className="feed-avatar comment-avatar feed-avatar-current">{avatarUrl ? <img src={avatarUrl} alt="Мой аватар" /> : <span>{String(profileForm.full_name || user?.name || user?.username || '?').slice(0, 1).toUpperCase()}</span>}</div><input placeholder={t('writeComment')} value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} />{(commentDrafts[post.id] || '').trim() && <button type="button" onClick={() => addCommentToPost(post.id)}>Отправить</button>}</div>
+                      {previewComments.map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; const commentInitial = String(comment.authorName || comment.author || '?').slice(0, 1).toUpperCase(); const commentAvatar = getEmployeeAvatar(comment.author, comment.avatar, comment.authorAvatar, comment.authorPhoto, comment.author_photo); return <div key={comment.id} className="employee-feed-comment"><button type="button" className="feed-avatar comment-avatar profile-link-avatar" onClick={(event) => openEmployeeProfile(comment.author, event)}>{commentAvatar ? <img src={commentAvatar} alt={comment.authorName || comment.author || 'Комментарий'} /> : <span>{commentInitial}</span>}</button><div className="employee-feed-comment-body"><button type="button" className="comment-author-link" onClick={(event) => openEmployeeProfile(comment.author, event)}>{comment.authorName || formatFeedLogin(comment.author)}</button><span>{comment.text}</span><small>{new Date(comment.createdAt).toLocaleString(isEnglishInterface ? 'en-US' : 'ru-RU')}</small><div className="feed-comment-actions compact"><button type="button" onClick={() => setCommentDrafts((prev) => ({ ...prev, [post.id]: `@${formatFeedLogin(comment.author)} ` }))}>{t('reply')}</button>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>{t('delete')}</button>}</div></div></div>; })}
+                      {hiddenCommentsCount > 0 && !expandedCommentPosts[post.id] && <button type="button" className="feed-show-more-comments" onClick={() => setExpandedCommentPosts((prev) => ({ ...prev, [post.id]: true }))}>{t('showAllComments')} ({sortedPostComments.length})</button>}
+                      <div className="employee-feed-comment-form" onClick={(event) => event.stopPropagation()}><div className="feed-avatar comment-avatar feed-avatar-current">{avatarUrl ? <img src={avatarUrl} alt="Мой аватар" /> : <span>{String(profileForm.full_name || user?.name || user?.username || '?').slice(0, 1).toUpperCase()}</span>}</div><input placeholder={t('writeComment')} value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} />{(commentDrafts[post.id] || '').trim() && <button type="button" onClick={() => addCommentToPost(post.id)}>{t('sendComment')}</button>}</div>
                     </div>
                   </article>
                 );

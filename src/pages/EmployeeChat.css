@@ -4574,3 +4574,17 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 }
+
+.feed-comment-actions.compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.feed-comment-actions.compact button {
+  min-height: 0;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.2;
+}

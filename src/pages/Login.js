@@ -28,6 +28,17 @@ const LOGIN_LABELS = {
   }
 };
 
+
+const formatSuggestionName = (value = '') => String(value || '')
+  .trim()
+  .split(/\s+/)
+  .map((part, index) => {
+    if (!part) return part;
+    if (index > 0 && part.includes('.')) return part.toUpperCase();
+    return part.charAt(0).toUpperCase() + part.slice(1);
+  })
+  .join(' ');
+
 const normalizeLoginValue = (value = '') => value.trim().toLowerCase();
 
 const Login = ({ mode = 'employee' }) => {
@@ -75,7 +86,7 @@ const Login = ({ mode = 'employee' }) => {
         if (!query && !defaultLoginAppliedRef.current && suggestions[0]?.login) {
           defaultLoginAppliedRef.current = true;
           setSelectedLogin(suggestions[0].login || '');
-          setFormData((prev) => prev.username ? prev : { ...prev, username: suggestions[0].display_name || suggestions[0].full_name || suggestions[0].login });
+          setFormData((prev) => prev.username ? prev : { ...prev, username: formatSuggestionName(suggestions[0].display_name || suggestions[0].full_name || suggestions[0].login) });
         }
       } catch {
         setLoginSuggestions([]);
@@ -99,7 +110,7 @@ const Login = ({ mode = 'employee' }) => {
 
   const applyLoginSuggestion = (suggestion) => {
     setSelectedLogin(suggestion.login || '');
-    setFormData((prev) => ({ ...prev, username: suggestion.display_name || suggestion.full_name || suggestion.login || prev.username }));
+    setFormData((prev) => ({ ...prev, username: formatSuggestionName(suggestion.display_name || suggestion.full_name || suggestion.login || prev.username) }));
     setSuggestionsOpen(false);
     setShowAllSuggestions(false);
   };
@@ -159,7 +170,7 @@ const Login = ({ mode = 'employee' }) => {
   };
 
   const openRecoveryPanel = () => {
-    setRecoveryLogin(normalizeLoginValue(formData.username));
+    setRecoveryLogin(formatSuggestionName(formData.username));
     setRecoveryMessage('');
     setRecoveryError('');
     setError('');
@@ -258,7 +269,7 @@ const Login = ({ mode = 'employee' }) => {
                   <div className="login-suggestions">
                     {loginSuggestions.map((suggestion) => (
                       <button key={suggestion.id || suggestion.login} type="button" onMouseDown={(event) => { event.preventDefault(); applyLoginSuggestion(suggestion); }}>
-                        <strong>{suggestion.display_name || suggestion.full_name || suggestion.login}</strong>
+                        <strong>{formatSuggestionName(suggestion.display_name || suggestion.full_name || suggestion.login)}</strong>
                         {!isAdminMode && <span>{suggestion.department || t('departmentMissing')} · {t('room')}. {suggestion.room || '—'} · {suggestion.phone || t('phoneMissing')}</span>}
                       </button>
                     ))}
