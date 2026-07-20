@@ -44,6 +44,123 @@ const PROFILE_LANGUAGE_OPTIONS = [
   { value: 'en', label: 'English' },
   { value: 'ru', label: 'Русский' }
 ];
+
+
+const RUSSIAN_LABELS = {
+  workingChat: 'Рабочий чат',
+  profile: 'Профиль',
+  chatSections: 'Разделы чата',
+  contacts: 'Контакты',
+  contactSearch: 'ФИО, login, отдел, кабинет, телефон...',
+  filter: 'Фильтр',
+  noResults: 'Ничего не найдено',
+  departmentMissing: 'отдел —',
+  cabinetShort: 'каб',
+  admin: 'admin',
+  online: 'online',
+  offline: 'offline',
+  pinDialog: 'Закрепить диалог',
+  favorite: 'Избранное',
+  chooseDialog: 'Выберите диалог',
+  chooseDialogHint: 'Автовыбор убран: откройте нужного сотрудника слева или найдите контакт поиском.',
+  dialog: 'Диалог',
+  dialogSearch: 'Поиск в диалоге...',
+  of: 'из',
+  mediaFiles: 'Медиа / Файлы',
+  dialogActions: 'Действия с диалогом',
+  archiveDialog: 'Архивировать диалог',
+  hideDialog: 'Скрыть диалог',
+  pinDialogAction: 'Закрепить диалог',
+  markUnread: 'Пометить непрочитанным',
+  muteNotifications: 'Отключить уведомления',
+  clearDraft: 'Очистить черновик',
+  deleteConversation: 'Удалить переписку',
+  sendingPending: 'Отправляем ожидающие',
+  waitingToSend: 'Ожидает отправки',
+  offlineWarning: 'Нет соединения. Сообщения сохраняются локально.',
+  typing: 'печатает',
+  emoji: 'Выбрать смайлик',
+  messagePlaceholder: 'Введите сообщение или перетащите файлы сюда... @username',
+  enterSends: 'Enter отправляет',
+  composerHint: 'Shift+Enter — новая строка · Ctrl+V — скриншот/файл',
+  attachFiles: 'Прикрепить файлы',
+  sending: 'Отправляем...',
+  send: 'Отправить',
+  queue: 'В очередь',
+  myProfile: 'Мой профиль',
+  internalProfile: 'Внутренняя страница сотрудника',
+  position: 'Должность',
+  department: 'Отдел',
+  room: 'Кабинет',
+  phone: 'Телефон',
+  website: 'Сайт',
+  bio: 'О себе',
+  openDialog: 'Открыть диалог',
+  fullName: 'ФИО',
+  login: 'Логин',
+  websiteVersion: 'Версия сайта',
+  status: 'Статус',
+  saveProfile: 'Сохранить анкету'
+};
+
+const ENGLISH_LABELS = {
+  workingChat: 'Work chat',
+  profile: 'Profile',
+  chatSections: 'Chat sections',
+  contacts: 'Contacts',
+  contactSearch: 'Name, login, department, room, phone...',
+  filter: 'Filter',
+  noResults: 'Nothing found',
+  departmentMissing: 'department —',
+  cabinetShort: 'room',
+  admin: 'admin',
+  online: 'online',
+  offline: 'offline',
+  pinDialog: 'Pin dialog',
+  favorite: 'Favorite',
+  chooseDialog: 'Choose a dialog',
+  chooseDialogHint: 'Auto-select is disabled: open an employee on the left or find a contact with search.',
+  dialog: 'Dialog',
+  dialogSearch: 'Search in dialog...',
+  of: 'of',
+  mediaFiles: 'Media / Files',
+  dialogActions: 'Dialog actions',
+  archiveDialog: 'Archive dialog',
+  hideDialog: 'Hide dialog',
+  pinDialogAction: 'Pin dialog',
+  markUnread: 'Mark as unread',
+  muteNotifications: 'Mute notifications',
+  clearDraft: 'Clear draft',
+  deleteConversation: 'Delete conversation',
+  sendingPending: 'Sending pending',
+  waitingToSend: 'Waiting to send',
+  offlineWarning: 'No connection. Messages are saved locally.',
+  typing: 'is typing',
+  emoji: 'Choose emoji',
+  messagePlaceholder: 'Type a message or drop files here... @username',
+  enterSends: 'Enter sends',
+  composerHint: 'Shift+Enter — new line · Ctrl+V — screenshot/file',
+  attachFiles: 'Attach files',
+  sending: 'Sending...',
+  send: 'Send',
+  queue: 'Queue',
+  myProfile: 'My profile',
+  internalProfile: 'Employee internal page',
+  position: 'Position',
+  department: 'Department',
+  room: 'Room',
+  phone: 'Phone',
+  website: 'Website',
+  bio: 'About',
+  openDialog: 'Open dialog',
+  fullName: 'Full name',
+  login: 'Login',
+  websiteVersion: 'Website version',
+  status: 'Status',
+  saveProfile: 'Save profile'
+};
+const ENGLISH_TAB_LABELS = { feed: 'Feed', chat: 'Chat', request: 'Request', employees: 'Employees', audit: 'Audit' };
+const ENGLISH_CONTACT_FILTER_LABELS = { all: 'All', online: 'Online', unread: 'Unread', managers: 'Managers', department: 'My department', favorites: 'Favorites', recent: 'Recent', attachments: 'With attachments', tickets: 'With requests' };
 const CYRILLIC_TO_LATIN = {
   а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'kh', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'shch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya'
 };
@@ -861,6 +978,11 @@ const EmployeeChat = () => {
     website: getWebsiteByLanguage(),
     statusText: ''
   });
+  const isEnglishInterface = (profileForm.websiteLanguage || DEFAULT_PROFILE_WEBSITE_LANGUAGE) === 'en';
+  const t = useCallback((key) => (isEnglishInterface ? ENGLISH_LABELS[key] : RUSSIAN_LABELS[key]) || key, [isEnglishInterface]);
+  const getTabLabel = useCallback((tab) => (isEnglishInterface ? ENGLISH_TAB_LABELS[tab.id] : tab.label) || tab.label, [isEnglishInterface]);
+  const getContactFilterLabel = useCallback((filter) => (isEnglishInterface ? ENGLISH_CONTACT_FILTER_LABELS[filter.id] : filter.label) || filter.label, [isEnglishInterface]);
+  const formatVisibleLogin = useCallback((login = '') => (isEnglishInterface ? formatEnglishProfileLogin(login) : login), [isEnglishInterface]);
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
   const [requestText, setRequestText] = useState('');
   const [requestCategory, setRequestCategory] = useState(REQUEST_CATEGORIES[0]);
@@ -2983,17 +3105,17 @@ const EmployeeChat = () => {
           </button>
           <div className="employee-brand-meta">
             <strong>{headerName}</strong>
-            <span>{profileForm.position || profileForm.department || user?.role || 'Рабочий чат'}</span>
+            <span>{profileForm.position || profileForm.department || user?.role || t('workingChat')}</span>
           </div>
-          <div className="brand-actions"><button type="button" className="icon-btn" onClick={() => { setActiveTab('profile'); setProfileViewLogin(''); }}>Профиль</button></div>
+          <div className="brand-actions"><button type="button" className="icon-btn" onClick={() => { setActiveTab('profile'); setProfileViewLogin(''); }}>{t('profile')}</button></div>
         </div>
 
-        <nav className="employee-chat-tabs" aria-label="Разделы чата">
+        <nav className="employee-chat-tabs" aria-label={t('chatSections')}>
           {tabs.map((tab) => {
             const badge = tab.id === 'chat' ? unreadTotal : tab.id === 'feed' ? feedBadge : tab.id === 'request' ? requestBadge : 0;
             return (
               <button key={tab.id} type="button" className={activeTab === tab.id ? 'active' : ''} onClick={() => setActiveTab(tab.id)}>
-                <span>{tab.label}</span>
+                <span>{getTabLabel(tab)}</span>
                 {badge > 0 && <em>{badge}</em>}
               </button>
             );
@@ -3002,16 +3124,16 @@ const EmployeeChat = () => {
 
 
         <div className="employee-contact-panel">
-          <label className="field-label">Контакты</label>
+          <label className="field-label">{t('contacts')}</label>
           <input
             className="employee-chat-search"
-            placeholder="ФИО, email, отдел, кабинет, телефон..."
+            placeholder={t('contactSearch')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
 
-          <label className="contact-filter-select"><span>Фильтр</span><select value={contactFilter} onChange={(e) => setContactFilter(e.target.value)}>{CONTACT_FILTERS.map((filter) => <option key={filter.id} value={filter.id}>{filter.label}</option>)}</select></label><div className={`employee-chat-list ${isManager ? 'manager-mode' : ''}`}>
-            {availableEmployees.length === 0 && <div className="empty-mini">Ничего не найдено</div>}
+          <label className="contact-filter-select"><span>{t('filter')}</span><select value={contactFilter} onChange={(e) => setContactFilter(e.target.value)}>{CONTACT_FILTERS.map((filter) => <option key={filter.id} value={filter.id}>{getContactFilterLabel(filter)}</option>)}</select></label><div className={`employee-chat-list ${isManager ? 'manager-mode' : ''}`}>
+            {availableEmployees.length === 0 && <div className="empty-mini">{t('noResults')}</div>}
             {availableEmployees.map((employee) => {
               const isOnline = Boolean(employee.isOnline);
               const isManagerContact = ['manager', 'admin'].includes((employee.role || '').toLowerCase()) || employee.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
@@ -3022,12 +3144,12 @@ const EmployeeChat = () => {
                     <span className={`status-dot ${isOnline ? 'online' : 'offline'}`} />
                     <span className="employee-chat-user-main">
                       <span className="employee-chat-user-email">{profile.full_name || employee.email}</span>
-                      <span className="employee-chat-user-extra">{employee.email} · {profile.department || 'отдел —'} · каб. {profile.room || '—'}</span>
+                      <span className="employee-chat-user-extra">{formatVisibleLogin(employee.email)} · {profile.department || t('departmentMissing')} · {t('cabinetShort')}. {profile.room || '—'}</span>
                     </span>
-                    <span className="employee-chat-user-status">{isManagerContact ? 'admin' : (isOnline ? 'online' : 'offline')}</span>
+                    <span className="employee-chat-user-status">{isManagerContact ? t('admin') : (isOnline ? t('online') : t('offline'))}</span>
                     {unreadByEmail[employee.email] > 0 && <span className="employee-chat-user-unread">{unreadByEmail[employee.email]}</span>}
                   </button>
-                  <span className="contact-card-actions"><button type="button" className="profile-open-btn" onClick={() => { openProfileCard(employee.email); setActiveTab('profile'); }}>Профиль</button><button type="button" className="favorite-contact-btn" aria-label="Закрепить диалог" onClick={() => toggleLocalListValue('pinned', getConversationId(user.username, employee.email))}>{(chatLocalSettings.pinned || []).includes(getConversationId(user.username, employee.email)) ? '📌' : '📍'}</button><button type="button" className="favorite-contact-btn" aria-label="Избранное" onClick={() => toggleLocalListValue('favorites', employee.email)}>{(chatLocalSettings.favorites || []).includes(employee.email) ? '★' : '☆'}</button></span>
+                  <span className="contact-card-actions"><button type="button" className="profile-open-btn" onClick={() => { openProfileCard(employee.email); setActiveTab('profile'); }}>{t('profile')}</button><button type="button" className="favorite-contact-btn" aria-label={t('pinDialog')}  onClick={() => toggleLocalListValue('pinned', getConversationId(user.username, employee.email))}>{(chatLocalSettings.pinned || []).includes(getConversationId(user.username, employee.email)) ? '📌' : '📍'}</button><button type="button" className="favorite-contact-btn" aria-label={t('favorite')} onClick={() => toggleLocalListValue('favorites', employee.email)}>{(chatLocalSettings.favorites || []).includes(employee.email) ? '★' : '☆'}</button></span>
                 </div>
               );
             })}
@@ -3048,23 +3170,23 @@ const EmployeeChat = () => {
           >
             {!selectedEmail ? (
               <div className="empty-chat">
-                <strong>Выберите диалог</strong>
-                <span>Автовыбор убран: откройте нужного сотрудника слева или найдите контакт поиском.</span>
+                <strong>{t('chooseDialog')}</strong>
+                <span>{t('chooseDialogHint')}</span>
               </div>
             ) : (
               <>
                 <header className="conversation-header">
                   <div>
-                    <span className="eyebrow">Диалог</span>
+                    <span className="eyebrow">{t('dialog')}</span>
                     <h2>{activeContact?.profile?.full_name || selectedEmail}</h2>
-                    <p>{selectedEmail}</p>
+                    <p>{formatVisibleLogin(selectedEmail)}</p>
                   </div>
                   <div className="conversation-tools">
-                    <input value={dialogSearch} onChange={(e) => { setDialogSearch(e.target.value); setDialogSearchIndex(0); }} placeholder="Поиск в диалоге..." />{normalizedDialogSearch && <span className="dialog-search-count">{dialogSearchResults.length ? dialogSearchIndex + 1 : 0} из {dialogSearchResults.length}</span>}<button type="button" disabled={!dialogSearchResults.length} onClick={() => setDialogSearchIndex((prev) => Math.max(0, prev - 1))}>↑</button><button type="button" disabled={!dialogSearchResults.length} onClick={() => setDialogSearchIndex((prev) => Math.min(dialogSearchResults.length - 1, prev + 1))}>↓</button>{chatLocalSettings.showDialogMediaPanel === true && <button type="button" onClick={() => setMediaPanelOpen((prev) => !prev)}>Медиа / Файлы</button>}
+                    <input value={dialogSearch} onChange={(e) => { setDialogSearch(e.target.value); setDialogSearchIndex(0); }} placeholder={t('dialogSearch')} />{normalizedDialogSearch && <span className="dialog-search-count">{dialogSearchResults.length ? dialogSearchIndex + 1 : 0} {t('of')} {dialogSearchResults.length}</span>}<button type="button" disabled={!dialogSearchResults.length} onClick={() => setDialogSearchIndex((prev) => Math.max(0, prev - 1))}>↑</button><button type="button" disabled={!dialogSearchResults.length} onClick={() => setDialogSearchIndex((prev) => Math.min(dialogSearchResults.length - 1, prev + 1))}>↓</button>{chatLocalSettings.showDialogMediaPanel === true && <button type="button" onClick={() => setMediaPanelOpen((prev) => !prev)}>{t('mediaFiles')}</button>}
                     <details className="conversation-menu" open={conversationMenuOpen} onClick={(event) => event.stopPropagation()}>
-                      <summary aria-label="Действия с диалогом" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setConversationMenuOpen((prev) => !prev); }}>⋯</summary>
+                      <summary aria-label={t('dialogActions')} onClick={(event) => { event.preventDefault(); event.stopPropagation(); setConversationMenuOpen((prev) => !prev); }}>⋯</summary>
                       <div className="conversation-menu-popover">
-                        <button type="button" onClick={() => { toggleLocalListValue('archived', currentConversationId); setConversationMenuOpen(false); }}>Архивировать диалог</button><button type="button" onClick={() => { toggleLocalListValue('hidden', currentConversationId); setConversationMenuOpen(false); }}>Скрыть диалог</button><button type="button" onClick={() => { toggleLocalListValue('pinned', currentConversationId); setConversationMenuOpen(false); }}>Закрепить диалог</button><button type="button" onClick={() => { setReadState((prev) => ({ ...prev, [currentConversationId]: '' })); setConversationMenuOpen(false); }}>Пометить непрочитанным</button><button type="button" onClick={() => { toggleLocalListValue('muted', currentConversationId); setConversationMenuOpen(false); }}>Отключить уведомления</button><button type="button" onClick={() => { clearCurrentDraft(); setConversationMenuOpen(false); }}>Очистить черновик</button><button type="button" className="danger-action" onClick={() => { clearConversation(); setConversationMenuOpen(false); }}>Удалить переписку</button>
+                        <button type="button" onClick={() => { toggleLocalListValue('archived', currentConversationId); setConversationMenuOpen(false); }}>{t('archiveDialog')}</button><button type="button" onClick={() => { toggleLocalListValue('hidden', currentConversationId); setConversationMenuOpen(false); }}>{t('hideDialog')}</button><button type="button" onClick={() => { toggleLocalListValue('pinned', currentConversationId); setConversationMenuOpen(false); }}>{t('pinDialogAction')}</button><button type="button" onClick={() => { setReadState((prev) => ({ ...prev, [currentConversationId]: '' })); setConversationMenuOpen(false); }}>{t('markUnread')}</button><button type="button" onClick={() => { toggleLocalListValue('muted', currentConversationId); setConversationMenuOpen(false); }}>{t('muteNotifications')}</button><button type="button" onClick={() => { clearCurrentDraft(); setConversationMenuOpen(false); }}>{t('clearDraft')}</button><button type="button" className="danger-action" onClick={() => { clearConversation(); setConversationMenuOpen(false); }}>{t('deleteConversation')}</button>
                       </div>
                     </details>
                   </div>
@@ -3318,14 +3440,14 @@ const EmployeeChat = () => {
                     </div>
                   )}
 
-                  {pendingMessages.length > 0 && <div className="offline-status">{isOnline ? `Отправляем ожидающие: ${pendingMessages.length}` : `Ожидает отправки: ${pendingMessages.length}`}</div>}
-                  {!isOnline && <div className="offline-status warning">Нет соединения. Сообщения сохраняются локально.</div>}
-                  {typingHint && <div className="typing-hint">{typingHint}</div>}{Date.now() < peerTypingUntil && <div className="typing-hint peer-typing">{activeContact?.profile?.full_name || selectedEmail} печатает<span>•••</span></div>}
+                  {pendingMessages.length > 0 && <div className="offline-status">{isOnline ? `${t('sendingPending')}: ${pendingMessages.length}` : `${t('waitingToSend')}: ${pendingMessages.length}`}</div>}
+                  {!isOnline && <div className="offline-status warning">{t('offlineWarning')}</div>}
+                  {typingHint && <div className="typing-hint">{typingHint}</div>}{Date.now() < peerTypingUntil && <div className="typing-hint peer-typing">{activeContact?.profile?.full_name || formatVisibleLogin(selectedEmail)} {t('typing')}<span>•••</span></div>}
 
                   <form className="message-form" onSubmit={handleSend}>
                     <div className="composer-textarea-box">
                       <div className="composer-input-shell">
-                        <button type="button" className="composer-emoji-btn" aria-label="Выбрать смайлик" onClick={() => setIsEmojiOpen((prev) => !prev)}>☺</button>
+                        <button type="button" className="composer-emoji-btn" aria-label={t('emoji')} onClick={() => setIsEmojiOpen((prev) => !prev)}>☺</button>
                         {isEmojiOpen && (
                           <div className="emoji-picker composer-emoji-picker">
                             {QUICK_EMOJIS.map((emoji) => <button key={emoji} type="button" onClick={() => { appendToDraft(emoji); setIsEmojiOpen(false); }}>{emoji}</button>)}
@@ -3333,7 +3455,7 @@ const EmployeeChat = () => {
                         )}
                         <textarea
                           ref={messageTextareaRef}
-                          placeholder="Введите сообщение или перетащите файлы сюда... @username"
+                          placeholder={t('messagePlaceholder')}
                           value={draft}
                           onChange={(e) => { setDraft(e.target.value); setPeerTypingUntil(Date.now() + 1800); }}
                           onKeyDown={handleComposerKeyDown}
@@ -3343,13 +3465,13 @@ const EmployeeChat = () => {
                         />
                       </div>
                       <div className="composer-hints">
-                        <label><input type="checkbox" checked={chatLocalSettings.enterToSend !== false} onChange={() => updateChatLocalSettings((prev) => ({ ...prev, enterToSend: prev.enterToSend === false }))} /> Enter отправляет</label>
+                        <label><input type="checkbox" checked={chatLocalSettings.enterToSend !== false} onChange={() => updateChatLocalSettings((prev) => ({ ...prev, enterToSend: prev.enterToSend === false }))} /> {t('enterSends')}</label>
                         {draft.length > 1600 && <span className={draft.length > 1900 ? 'limit-warning' : ''}>{draft.length}/2000</span>}
-                        <span>Shift+Enter — новая строка · Ctrl+V — скриншот/файл</span>
+                        <span>{t('composerHint')}</span>
                       </div>
                     </div>
-                    <label className="attach-file-btn" aria-label="Прикрепить файлы" title="Прикрепить файлы">📎<input type="file" hidden multiple accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={handleAttachmentChange} /></label>
-                    <button type="submit" disabled={isSendingMessage}>{isSendingMessage ? 'Отправляем...' : isOnline ? 'Отправить' : 'В очередь'}</button>
+                    <label className="attach-file-btn" aria-label={t('attachFiles')} title={t('attachFiles')}>📎<input type="file" hidden multiple accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={handleAttachmentChange} /></label>
+                    <button type="submit" disabled={isSendingMessage}>{isSendingMessage ? t('sending') : isOnline ? t('send') : t('queue')}</button>
                   </form>
                 </div>
               </>
@@ -3526,10 +3648,10 @@ const EmployeeChat = () => {
         {activeTab === 'profile' && (
           <div className="profile-workspace">
             {profileViewLogin && profilePreview ? (
-              <div className="profile-preview-card"><button type="button" className="back-to-chat-btn" onClick={() => setProfileViewLogin('')}>← Мой профиль</button><div className="profile-preview-head"><div className="profile-preview-avatar">{profilePreview.avatar ? <img src={profilePreview.avatar} alt="profile-avatar" /> : <span>{String(profilePreview.full_name || profilePreview.login || '?').slice(0, 1).toUpperCase()}</span>}</div><div><h3>{profilePreview.full_name || profilePreview.login}</h3><p>{formatEnglishProfileLogin(profilePreview.login)}</p><small>{profilePreview.statusText || 'Внутренняя страница сотрудника'}</small></div></div><div className="profile-preview-grid"><div><strong>Должность:</strong> {profilePreview.position || '—'}</div><div><strong>Отдел:</strong> {profilePreview.department || '—'}</div><div><strong>Кабинет:</strong> {profilePreview.room || '—'}</div><div><strong>Телефон:</strong> {profilePreview.phone || '—'}</div><div><strong>Сайт:</strong> {profilePreview.website || '—'}</div><div><strong>О себе:</strong> {profilePreview.bio || '—'}</div></div><button type="button" onClick={() => { setSelectedEmail(profilePreview.login); setProfileViewLogin(''); setActiveTab('chat'); }}>Открыть диалог</button></div>
+              <div className="profile-preview-card"><button type="button" className="back-to-chat-btn" onClick={() => setProfileViewLogin('')}>← {t('myProfile')}</button><div className="profile-preview-head"><div className="profile-preview-avatar">{profilePreview.avatar ? <img src={profilePreview.avatar} alt="profile-avatar" /> : <span>{String(profilePreview.full_name || profilePreview.login || '?').slice(0, 1).toUpperCase()}</span>}</div><div><h3>{profilePreview.full_name || profilePreview.login}</h3><p>{formatVisibleLogin(profilePreview.login)}</p><small>{profilePreview.statusText || t('internalProfile')}</small></div></div><div className="profile-preview-grid"><div><strong>{t('position')}:</strong> {profilePreview.position || '—'}</div><div><strong>{t('department')}:</strong> {profilePreview.department || '—'}</div><div><strong>{t('room')}:</strong> {profilePreview.room || '—'}</div><div><strong>{t('phone')}:</strong> {profilePreview.phone || '—'}</div><div><strong>{t('website')}:</strong> {profilePreview.website || '—'}</div><div><strong>{t('bio')}:</strong> {profilePreview.bio || '—'}</div></div><button type="button" onClick={() => { setSelectedEmail(profilePreview.login); setProfileViewLogin(''); setActiveTab('chat'); }}>{t('openDialog')}</button></div>
             ) : (
               <div className="profile-settings-grid">
-                <section className="profile-panel"><h3>Мой профиль</h3><form onSubmit={saveMyProfile} className="profile-form profile-form-labeled"><label><span>ФИО</span><input placeholder="Иванов Иван Иванович" value={profileForm.full_name} onChange={(e) => updateProfileField('full_name', e.target.value)} /></label><label><span>Логин</span><input value={profileForm.full_name || user?.name || user?.username || ''} disabled /></label><label><span>Должность</span><input placeholder="Например: инженер" value={profileForm.position} onChange={(e) => updateProfileField('position', e.target.value)} /></label><label><span>Отдел</span><input placeholder="Название отдела" value={profileForm.department} onChange={(e) => updateProfileField('department', e.target.value)} /></label><label><span>Кабинет</span><input placeholder="Например: 214" value={profileForm.room} onChange={(e) => updateProfileField('room', e.target.value)} /></label><label><span>Внутренний телефон</span><input placeholder="Например: 12-34" value={profileForm.phone} onChange={(e) => updateProfileField('phone', e.target.value)} /></label><label><span>Версия сайта</span><select value={profileForm.websiteLanguage || DEFAULT_PROFILE_WEBSITE_LANGUAGE} onChange={(e) => updateProfileField('websiteLanguage', e.target.value)}>{PROFILE_LANGUAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><label><span>Сайт / соцссылка</span><input placeholder="https://..." value={profileForm.website} onChange={(e) => updateProfileField('website', e.target.value)} /></label><label><span>Статус</span><input placeholder="Короткий статус" value={profileForm.statusText} onChange={(e) => updateProfileField('statusText', e.target.value)} /></label><label className="profile-field-wide"><span>О себе</span><textarea placeholder="Кратко о себе" rows={4} value={profileForm.bio} onChange={(e) => updateProfileField('bio', e.target.value)} /></label><button type="submit">Сохранить анкету</button></form></section>
+                <section className="profile-panel"><h3>{t('myProfile')}</h3><form onSubmit={saveMyProfile} className="profile-form profile-form-labeled"><label><span>{t('fullName')}</span><input placeholder="Иванов Иван Иванович" value={profileForm.full_name} onChange={(e) => updateProfileField('full_name', e.target.value)} /></label><label><span>{t('login')}</span><input value={profileForm.full_name || user?.name || user?.username || ''} disabled /></label><label><span>{t('position')}</span><input placeholder="Например: инженер" value={profileForm.position} onChange={(e) => updateProfileField('position', e.target.value)} /></label><label><span>{t('department')}</span><input placeholder="Название отдела" value={profileForm.department} onChange={(e) => updateProfileField('department', e.target.value)} /></label><label><span>{t('room')}</span><input placeholder="Например: 214" value={profileForm.room} onChange={(e) => updateProfileField('room', e.target.value)} /></label><label><span>{t('phone')}</span><input placeholder="Например: 12-34" value={profileForm.phone} onChange={(e) => updateProfileField('phone', e.target.value)} /></label><label><span>{t('websiteVersion')}</span><select value={profileForm.websiteLanguage || DEFAULT_PROFILE_WEBSITE_LANGUAGE} onChange={(e) => updateProfileField('websiteLanguage', e.target.value)}>{PROFILE_LANGUAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><label><span>{t('website')}</span><input placeholder="https://..." value={profileForm.website} onChange={(e) => updateProfileField('website', e.target.value)} /></label><label><span>{t('status')}</span><input placeholder="Короткий статус" value={profileForm.statusText} onChange={(e) => updateProfileField('statusText', e.target.value)} /></label><label className="profile-field-wide"><span>{t('bio')}</span><textarea placeholder="Кратко о себе" rows={4} value={profileForm.bio} onChange={(e) => updateProfileField('bio', e.target.value)} /></label><button type="submit">{t('saveProfile')}</button></form></section>
                 <section className="profile-panel"><h3>Безопасность и фото</h3><div className="profile-appearance-settings"><h4>Вид интерфейса</h4><div className="chat-appearance-controls profile-appearance-controls"><label><span>Тема</span><select value={chatLocalSettings.uiTheme || 'light'} onChange={(e) => updateChatUiSetting('uiTheme', e.target.value)}>{CHAT_THEMES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>Плотность</span><select value={chatLocalSettings.uiDensity || 'regular'} onChange={(e) => updateChatUiSetting('uiDensity', e.target.value)}>{CHAT_DENSITIES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label><span>Текст</span><select value={chatLocalSettings.uiTextSize || 'medium'} onChange={(e) => updateChatUiSetting('uiTextSize', e.target.value)}>{CHAT_TEXT_SIZES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label></div></div><div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>Изменить фото</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>Удалить фото</button></div><div className="profile-chat-tools"><strong>Дополнительные инструменты диалога</strong><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showExtraMessageActions === true} onChange={() => toggleDialogToolSetting('showExtraMessageActions')} /><span><strong>Показывать дополнительные действия сообщений</strong><small>Редактирование, выбор нескольких, заявки, задачи и скачивание вложений. По умолчанию скрыто.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showChatTemplates === true} onChange={() => toggleDialogToolSetting('showChatTemplates')} /><span><strong>Показывать шаблоны сообщений</strong><small>По умолчанию скрыто. Включите, если нужны быстрые текстовые шаблоны.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogMediaPanel === true} onChange={() => toggleDialogToolSetting('showDialogMediaPanel')} /><span><strong>Показывать “Медиа / Файлы” в диалоге</strong><small>По умолчанию скрыто. Включите, если нужна правая панель медиа, файлов и ссылок.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogDateJump === true} onChange={() => toggleDialogToolSetting('showDialogDateJump')} /><span><strong>Показывать “Перейти к дате”</strong><small>По умолчанию скрыто, чтобы верх чата был компактнее.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogFilters === true} onChange={() => toggleDialogToolSetting('showDialogFilters')} /><span><strong>Показывать фильтры сообщений</strong><small>Все, мои, собеседник, с файлами, фото, сегодня, неделя и месяц.</small></span></label></div><div className="profile-chat-tools"><strong>Дополнительные инструменты ленты</strong><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showFeedCategorySelect === true} onChange={() => toggleFeedToolSetting('showFeedCategorySelect')} /><span><strong>Показывать выбор категории публикации</strong><small>Объявление, новость, вопрос, поздравление и другие категории. По умолчанию скрыто.</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showFeedFilters === true} onChange={() => toggleFeedToolSetting('showFeedFilters')} /><span><strong>Показывать фильтры ленты</strong><small>Кнопка фильтров справа от поиска по ленте. По умолчанию скрыто.</small></span></label></div><form onSubmit={changeMyPassword} className="profile-password-form"><input type="password" placeholder="Текущий пароль" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))} /><input type="password" placeholder="Новый пароль" value={passwordForm.newPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))} /><button type="submit">Обновить пароль</button></form>{!isAdmin && <button type="button" className="profile-logout-btn" onClick={handleLogout}>Выйти из аккаунта</button>}</section>
               </div>
             )}
@@ -3537,7 +3659,7 @@ const EmployeeChat = () => {
         )}
 
         {activeTab === 'employees' && isManager && (
-          <section className="manager-panel"><h2>Управление сотрудниками</h2><form className="manager-form manager-form-labeled" onSubmit={saveEmployee}><label><span>Логин (email)</span><input placeholder="ivanov@example.local" value={employeeForm.login} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, login: e.target.value }))} required /></label><label><span>{employeeForm.id ? 'Новый пароль' : 'Пароль'}</span><input type={showEmployeePassword ? 'text' : 'password'} placeholder={employeeForm.id ? 'Оставьте пустым, если не менять' : 'Пароль для входа'} value={employeeForm.password} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, password: e.target.value }))} /><small>{employeeForm.id ? 'Оставьте поле пустым, если пароль менять не нужно.' : 'Минимум 8 символов.'}</small></label><label><span>ФИО</span><input placeholder="Иванов Иван Иванович" value={employeeForm.full_name} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, full_name: e.target.value }))} /></label><label><span>Отдел</span><input placeholder="Отдел сотрудника" value={employeeForm.department} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, department: e.target.value }))} /></label><label className="manager-password-toggle"><input type="checkbox" checked={showEmployeePassword} onChange={(e) => setShowEmployeePassword(e.target.checked)} />Показать пароль</label><div className="manager-form-actions"><button type="submit">{employeeForm.id ? 'Сохранить' : 'Добавить'}</button>{employeeForm.id && <button type="button" onClick={() => { setEmployeeForm({ id: null, login: '', password: '', full_name: '', department: '', phone: '', room: '' }); setShowEmployeePassword(false); }}>Отмена</button>}</div></form><div className="manager-list">{directoryEmployees.map((employee) => <div className="manager-list-item" key={employee.id}><div><strong>{employee.login}</strong><div>{employee.full_name || '—'}</div></div><div className="manager-list-actions"><button type="button" onClick={() => { setEmployeeForm({ id: employee.id, login: employee.login || '', password: '', full_name: employee.full_name || '', department: employee.department || '', phone: employee.phone || '', room: employee.room || '' }); setShowEmployeePassword(false); }}>Редактировать</button><button type="button" onClick={() => deleteEmployee(employee.id)}>Удалить</button></div></div>)}</div></section>
+          <section className="manager-panel"><h2>Управление сотрудниками</h2><form className="manager-form manager-form-labeled" onSubmit={saveEmployee}><label><span>Логин (email)</span><input placeholder="ivanov@example.local" value={employeeForm.login} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, login: e.target.value }))} required /></label><label><span>{employeeForm.id ? 'Новый пароль' : 'Пароль'}</span><input type={showEmployeePassword ? 'text' : 'password'} placeholder={employeeForm.id ? 'Оставьте пустым, если не менять' : 'Пароль для входа'} value={employeeForm.password} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, password: e.target.value }))} /><small>{employeeForm.id ? 'Оставьте поле пустым, если пароль менять не нужно.' : 'Минимум 8 символов.'}</small></label><label><span>{t('fullName')}</span><input placeholder="Иванов Иван Иванович" value={employeeForm.full_name} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, full_name: e.target.value }))} /></label><label><span>{t('department')}</span><input placeholder="Отдел сотрудника" value={employeeForm.department} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, department: e.target.value }))} /></label><label className="manager-password-toggle"><input type="checkbox" checked={showEmployeePassword} onChange={(e) => setShowEmployeePassword(e.target.checked)} />Показать пароль</label><div className="manager-form-actions"><button type="submit">{employeeForm.id ? 'Сохранить' : 'Добавить'}</button>{employeeForm.id && <button type="button" onClick={() => { setEmployeeForm({ id: null, login: '', password: '', full_name: '', department: '', phone: '', room: '' }); setShowEmployeePassword(false); }}>Отмена</button>}</div></form><div className="manager-list">{directoryEmployees.map((employee) => <div className="manager-list-item" key={employee.id}><div><strong>{employee.login}</strong><div>{employee.full_name || '—'}</div></div><div className="manager-list-actions"><button type="button" onClick={() => { setEmployeeForm({ id: employee.id, login: employee.login || '', password: '', full_name: employee.full_name || '', department: employee.department || '', phone: employee.phone || '', room: employee.room || '' }); setShowEmployeePassword(false); }}>Редактировать</button><button type="button" onClick={() => deleteEmployee(employee.id)}>Удалить</button></div></div>)}</div></section>
         )}
 
         {activeTab === 'audit' && isManager && (
@@ -3614,7 +3736,7 @@ const EmployeeChat = () => {
                   <span className="contact-avatar small">{(employee.profile?.full_name || employee.email).slice(0, 1).toUpperCase()}</span>
                   <span>
                     <strong>{employee.profile?.full_name || employee.email}</strong>
-                    <small>{employee.email}</small>
+                    <small>{formatVisibleLogin(employee.email)}</small>
                   </span>
                 </button>
               ))}
