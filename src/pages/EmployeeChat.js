@@ -145,6 +145,33 @@ const RUSSIAN_LABELS = {
   noPosts: 'Пока нет публикаций',
   tryAnotherSearch: 'Попробуйте другой запрос',
   firstPostHint: 'Будьте первым, кто поделится новостью, фото или объявлением.',
+  edit: 'Изменить',
+  selectMultiple: 'Выбрать несколько',
+  createRequest: 'Создать заявку',
+  addToRequest: 'Добавить к заявке',
+  createTask: 'Создать задачу',
+  assignExecutor: 'Назначить исполнителя',
+  setDeadline: 'Поставить срок',
+  downloadAttachments: 'Скачать вложения',
+  cancel: 'Отмена',
+  openAttachment: 'Открыть вложение',
+  media: 'медиа',
+  attachmentAlt: 'Вложение',
+  copy: 'Копировать',
+  forward: 'Переслать',
+  pin: 'Закрепить',
+  unpin: 'Открепить',
+  editText: 'Редактировать текст',
+  copyLink: 'Скопировать ссылку',
+  sharePost: 'Поделиться постом в чат',
+  quotePost: 'Цитировать пост',
+  hidePost: 'Скрыть пост',
+  report: 'Пожаловаться',
+  changeHistory: 'История изменений',
+  save: 'Сохранить',
+  share: 'Поделиться',
+  unsupportedVideo: 'Ваш браузер не поддерживает просмотр видео.',
+  photoAlt: 'Фото',
   reply: 'Ответить',
   delete: 'Удалить',
   sendComment: 'Отправить',
@@ -254,6 +281,33 @@ const ENGLISH_LABELS = {
   noPosts: 'No posts yet',
   tryAnotherSearch: 'Try another search',
   firstPostHint: 'Be the first to share news, photos or an announcement.',
+  edit: 'Edit',
+  selectMultiple: 'Select multiple',
+  createRequest: 'Create request',
+  addToRequest: 'Add to request',
+  createTask: 'Create task',
+  assignExecutor: 'Assign executor',
+  setDeadline: 'Set deadline',
+  downloadAttachments: 'Download attachments',
+  cancel: 'Cancel',
+  openAttachment: 'Open attachment',
+  media: 'media',
+  attachmentAlt: 'Attachment',
+  copy: 'Copy',
+  forward: 'Forward',
+  pin: 'Pin',
+  unpin: 'Unpin',
+  editText: 'Edit text',
+  copyLink: 'Copy link',
+  sharePost: 'Share post to chat',
+  quotePost: 'Quote post',
+  hidePost: 'Hide post',
+  report: 'Report',
+  changeHistory: 'Change history',
+  save: 'Save',
+  share: 'Share',
+  unsupportedVideo: 'Your browser does not support video playback.',
+  photoAlt: 'Photo',
   reply: 'Reply',
   delete: 'Delete',
   sendComment: 'Send',
@@ -3306,7 +3360,7 @@ const EmployeeChat = () => {
                   </div>
                 )}
 
-                {multiSelectMode && <div className="multi-select-toolbar"><strong>Выбрано: {selectedMessageIds.length}</strong><button type="button" onClick={copySelectedMessages}>Копировать</button><button type="button" onClick={() => { const selected = getSelectedMessages(); if (selected[0]) openForwardMessagePicker({ ...selected[0], text: selected.map((msg) => `${msg.sender}: ${msg.text || '[вложение]'}`).join('\n') }); }}>Переслать</button><button type="button" onClick={() => { const selected = getSelectedMessages(); setRequestText(selected.map((msg) => `${msg.sender}: ${msg.text || '[вложение]'}`).join('\n')); setActiveTab('request'); }}>Создать заявку</button><button type="button" onClick={() => notify('Архив вложений будет доступен после серверного zip-метода', 'Вложения')}>Скачать вложения</button><button type="button" className="danger-action" onClick={deleteSelectedMessages}>Удалить</button><button type="button" onClick={clearSelectedMessages}>Отмена</button></div>}
+                {multiSelectMode && <div className="multi-select-toolbar"><strong>Выбрано: {selectedMessageIds.length}</strong><button type="button" onClick={copySelectedMessages}>{t('copy')}</button><button type="button" onClick={() => { const selected = getSelectedMessages(); if (selected[0]) openForwardMessagePicker({ ...selected[0], text: selected.map((msg) => `${msg.sender}: ${msg.text || '[вложение]'}`).join('\n') }); }}>{t('forward')}</button><button type="button" onClick={() => { const selected = getSelectedMessages(); setRequestText(selected.map((msg) => `${msg.sender}: ${msg.text || '[вложение]'}`).join('\n')); setActiveTab('request'); }}>{t('createRequest')}</button><button type="button" onClick={() => notify('Архив вложений будет доступен после серверного zip-метода', 'Вложения')}>{t('downloadAttachments')}</button><button type="button" className="danger-action" onClick={deleteSelectedMessages}>{t('delete')}</button><button type="button" onClick={clearSelectedMessages}>{t('cancel')}</button></div>}
                 <div
                   className="messages-wrap"
                   ref={messagesWrapRef}
@@ -3393,7 +3447,7 @@ const EmployeeChat = () => {
                           {isDeleted ? (
                             <div className="message-deleted">Сообщение удалено {message.deletedBy ? `· ${message.deletedBy}` : ''}</div>
                           ) : hasTextContent ? (
-                            inlineEditMessageId === message.id ? <div className="inline-message-editor"><textarea value={inlineEditText} onChange={(e) => setInlineEditText(e.target.value)} /><button type="button" onClick={() => saveInlineEditMessage(message)}>Сохранить</button><button type="button" onClick={() => setInlineEditMessageId('')}>Отмена</button></div> : <div className="message-text">{highlightText(message.text)}</div>
+                            inlineEditMessageId === message.id ? <div className="inline-message-editor"><textarea value={inlineEditText} onChange={(e) => setInlineEditText(e.target.value)} /><button type="button" onClick={() => saveInlineEditMessage(message)}>Сохранить</button><button type="button" onClick={() => setInlineEditMessageId('')}>{t('cancel')}</button></div> : <div className="message-text">{highlightText(message.text)}</div>
                           ) : null}
 
                           {linkPreviews.length > 0 && !isDeleted && (
@@ -3471,23 +3525,23 @@ const EmployeeChat = () => {
                             {!messageReactionExpanded && (
                               <>
                                 <div className="message-action-grid primary-actions compact-message-actions">
-                                  <button type="button" onClick={() => { setReplyTo(message); setSelectedMessageId(''); }}><span className="message-action-icon">↩</span>Ответить</button>
-                                  <button type="button" onClick={() => { copyMessageText(message); setSelectedMessageId(''); }}><span className="message-action-icon">⧉</span>Копировать</button>
-                                  <button type="button" onClick={() => openForwardMessagePicker(message)}><span className="message-action-icon">↷</span>Переслать</button>
-                                  <button type="button" onClick={() => { togglePinned(message.id); setSelectedMessageId(''); }}><span className="message-action-icon">⌖</span>{message.pinned ? 'Открепить' : 'Закрепить'}</button>
-                                  {canEdit && <button type="button" className="danger-action" onClick={() => { deleteMessage(message.id); setSelectedMessageId(''); }}><span className="message-action-icon">×</span>Удалить</button>}
+                                  <button type="button" onClick={() => { setReplyTo(message); setSelectedMessageId(''); }}><span className="message-action-icon">↩</span>{t('reply')}</button>
+                                  <button type="button" onClick={() => { copyMessageText(message); setSelectedMessageId(''); }}><span className="message-action-icon">⧉</span>{t('copy')}</button>
+                                  <button type="button" onClick={() => openForwardMessagePicker(message)}><span className="message-action-icon">↷</span>{t('forward')}</button>
+                                  <button type="button" onClick={() => { togglePinned(message.id); setSelectedMessageId(''); }}><span className="message-action-icon">⌖</span>{message.pinned ? t('unpin') : t('pin')}</button>
+                                  {canEdit && <button type="button" className="danger-action" onClick={() => { deleteMessage(message.id); setSelectedMessageId(''); }}><span className="message-action-icon">×</span>{t('delete')}</button>}
                                 </div>
                                 {chatLocalSettings.showExtraMessageActions === true && (
                                   <>
                                     <div className="message-action-grid secondary-actions">
-                                      {canEdit && <button type="button" onClick={() => startInlineEditMessage(message)}>Изменить</button>}
-                                      <button type="button" onClick={() => { setMultiSelectMode(true); toggleSelectedMessage(message.id); setSelectedMessageId(''); }}>Выбрать несколько</button>
-                                      <button type="button" onClick={() => createRequestFromMessage(message)}>Создать заявку</button>
-                                      <button type="button" onClick={() => notify('Добавление к существующей заявке будет доступно после выбора заявки', 'Заявка')}>Добавить к заявке</button>
-                                      <button type="button" onClick={() => notify('Задача создана как черновик после подключения задач', 'Задачи')}>Создать задачу</button>
-                                      <button type="button" onClick={() => notify('Назначение исполнителя появится в модуле задач', 'Задачи')}>Назначить исполнителя</button>
-                                      <button type="button" onClick={() => notify('Срок можно будет поставить после подключения задач', 'Задачи')}>Поставить срок</button>
-                                      <button type="button" onClick={() => getMessageAttachments(message).forEach(openAttachmentInNewTab)}>Скачать вложения</button>
+                                      {canEdit && <button type="button" onClick={() => startInlineEditMessage(message)}>{t('edit')}</button>}
+                                      <button type="button" onClick={() => { setMultiSelectMode(true); toggleSelectedMessage(message.id); setSelectedMessageId(''); }}>{t('selectMultiple')}</button>
+                                      <button type="button" onClick={() => createRequestFromMessage(message)}>{t('createRequest')}</button>
+                                      <button type="button" onClick={() => notify('Добавление к существующей заявке будет доступно после выбора заявки', 'Заявка')}>{t('addToRequest')}</button>
+                                      <button type="button" onClick={() => notify('Задача создана как черновик после подключения задач', 'Задачи')}>{t('createTask')}</button>
+                                      <button type="button" onClick={() => notify('Назначение исполнителя появится в модуле задач', 'Задачи')}>{t('assignExecutor')}</button>
+                                      <button type="button" onClick={() => notify('Срок можно будет поставить после подключения задач', 'Задачи')}>{t('setDeadline')}</button>
+                                      <button type="button" onClick={() => getMessageAttachments(message).forEach(openAttachmentInNewTab)}>{t('downloadAttachments')}</button>
                                     </div>
                                     <div className="message-action-grid danger-actions">
                                       {isMine && ['waiting', 'error'].includes(message.deliveryStatus) && <button type="button" onClick={() => retryMessageSend(message)}>Повторить отправку</button>}
@@ -3724,15 +3778,15 @@ const EmployeeChat = () => {
                         <span>{authorMeta}{post.editedAt && ' · изменено'}</span>
                       </button>
                       <button type="button" className="feed-post-menu-button" onClick={(event) => { event.stopPropagation(); setOpenFeedMenuId(openFeedMenuId === post.id ? '' : post.id); }}>⋯</button>
-                      {openFeedMenuId === post.id && <div className="feed-post-menu" onClick={(event) => event.stopPropagation()}>{canDeletePost && <button type="button" onClick={() => startEditFeedPost(post)}>Редактировать текст</button>}{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? 'Открепить' : 'Закрепить'}</button>}<button type="button" onClick={() => copyFeedPostLink(post.id)}>Скопировать ссылку</button><button type="button" onClick={() => shareFeedPostToChat(post)}>Поделиться постом в чат</button><button type="button" onClick={() => quoteFeedPost(post)}>Цитировать пост</button><button type="button" onClick={() => hideFeedPost(post.id)}>Скрыть пост</button>{!isPostAuthor(post, user) && <button type="button" onClick={() => reportFeedPost(post.id)}>Пожаловаться</button>}{(isManager || isAdmin) && <button type="button" onClick={() => notify((post.audit || []).length ? 'История есть в аудите' : 'История изменений пуста', 'Лента')}>История изменений</button>}{canDeletePost && <button type="button" className="danger-action" onClick={() => deleteFeedPost(post.id)}>Удалить</button>}</div>}
+                      {openFeedMenuId === post.id && <div className="feed-post-menu" onClick={(event) => event.stopPropagation()}>{canDeletePost && <button type="button" onClick={() => startEditFeedPost(post)}>{t('editText')}</button>}{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? t('unpin') : t('pin')}</button>}<button type="button" onClick={() => copyFeedPostLink(post.id)}>{t('copyLink')}</button><button type="button" onClick={() => shareFeedPostToChat(post)}>{t('sharePost')}</button><button type="button" onClick={() => quoteFeedPost(post)}>{t('quotePost')}</button><button type="button" onClick={() => hideFeedPost(post.id)}>{t('hidePost')}</button>{!isPostAuthor(post, user) && <button type="button" onClick={() => reportFeedPost(post.id)}>{t('report')}</button>}{(isManager || isAdmin) && <button type="button" onClick={() => notify((post.audit || []).length ? 'История есть в аудите' : 'История изменений пуста', 'Лента')}>{t('changeHistory')}</button>}{canDeletePost && <button type="button" className="danger-action" onClick={() => deleteFeedPost(post.id)}>{t('delete')}</button>}</div>}
                     </header>
-                    {editingFeedPostId === post.id ? <div className="feed-edit-box"><textarea rows={3} value={editingFeedText} onChange={(e) => setEditingFeedText(e.target.value)} /><div><button type="button" onClick={() => saveFeedPostEdit(post.id)}>Сохранить</button><button type="button" onClick={() => setEditingFeedPostId('')}>Отмена</button></div></div> : post.text && <p className="employee-feed-post-text">{post.text}</p>}
-                    {getFeedAttachments(post).length > 0 && <div className="employee-feed-media-grid">{getFeedAttachments(post).map((file, index) => { const isMedia = String(file.type || '').startsWith('image/') || isVideoAttachment(file); return isMedia ? <button key={file.id || `${post.id}-feed-media-${index}`} type="button" className={`employee-feed-media-tile ${isVideoAttachment(file) ? 'video' : ''}`} onClick={(event) => { event.stopPropagation(); openFeedMediaViewer(post, file, index); }} onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); toggleFeedReaction(post.id, '👍'); }} aria-label={`Открыть вложение ${file.name || 'медиа'}`}>{isVideoAttachment(file) ? <video src={getOriginalAttachmentUrl(file)} poster={getVideoPosterUrl(file) || getAttachmentUrl(file)} preload="metadata" muted playsInline onLoadedMetadata={nudgeVideoToFirstFrame} /> : <img src={getAttachmentUrl(file)} alt={file.name || 'Вложение'} loading="lazy" />}<span>{file.name} · {formatFileSize(file.size)}</span></button> : <AttachmentCard key={file.id || `${post.id}-feed-file-${index}`} cardKey={`${post.id}-feed-file-${index}`} file={file} variant="feed" />; })}</div>}
+                    {editingFeedPostId === post.id ? <div className="feed-edit-box"><textarea rows={3} value={editingFeedText} onChange={(e) => setEditingFeedText(e.target.value)} /><div><button type="button" onClick={() => saveFeedPostEdit(post.id)}>Сохранить</button><button type="button" onClick={() => setEditingFeedPostId('')}>{t('cancel')}</button></div></div> : post.text && <p className="employee-feed-post-text">{post.text}</p>}
+                    {getFeedAttachments(post).length > 0 && <div className="employee-feed-media-grid">{getFeedAttachments(post).map((file, index) => { const isMedia = String(file.type || '').startsWith('image/') || isVideoAttachment(file); return isMedia ? <button key={file.id || `${post.id}-feed-media-${index}`} type="button" className={`employee-feed-media-tile ${isVideoAttachment(file) ? 'video' : ''}`} onClick={(event) => { event.stopPropagation(); openFeedMediaViewer(post, file, index); }} onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); toggleFeedReaction(post.id, '👍'); }} aria-label={`${t('openAttachment')} ${file.name || t('media')}`}>{isVideoAttachment(file) ? <video src={getOriginalAttachmentUrl(file)} poster={getVideoPosterUrl(file) || getAttachmentUrl(file)} preload="metadata" muted playsInline onLoadedMetadata={nudgeVideoToFirstFrame} /> : <img src={getAttachmentUrl(file)} alt={file.name || t('attachmentAlt')} loading="lazy" />}<span>{file.name} · {formatFileSize(file.size)}</span></button> : <AttachmentCard key={file.id || `${post.id}-feed-file-${index}`} cardKey={`${post.id}-feed-file-${index}`} file={file} variant="feed" />; })}</div>}
                     <div className="message-reactions-inline feed-reactions-inline">{REACTION_EMOJIS.filter((emoji) => (post.reactions?.[emoji] || []).length > 0).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={(event) => { event.stopPropagation(); toggleFeedReaction(post.id, emoji); }} title={(post.reactions?.[emoji] || []).join(', ')}>{emoji} {(post.reactions?.[emoji] || []).length}</button>; })}</div>
                     {selectedFeedPostId === post.id && (
                       <div className="feed-selected-menu compact-feed-selected-menu" onClick={(event) => event.stopPropagation()}>
                         <div className="selected-reaction-row feed-reaction-picker">{(feedReactionExpanded ? REACTION_EMOJIS : REACTION_EMOJIS.slice(0, 7)).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => toggleFeedReaction(post.id, emoji)}>{emoji}</button>; })}{!feedReactionExpanded && <button type="button" className="more-reactions" onClick={() => setFeedReactionExpanded(true)}>⌄</button>}</div>
-                        <div className="selected-actions-row feed-actions-row">{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? 'Открепить' : 'Закрепить'}</button>}</div>
+                        <div className="selected-actions-row feed-actions-row">{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? t('unpin') : t('pin')}</button>}</div>
                       </div>
                     )}
                     <div className="employee-feed-comments">
@@ -3740,7 +3794,7 @@ const EmployeeChat = () => {
                       {sortedPostComments.length === 0 && <small className="employee-feed-no-comments">{t('noComments')}</small>}
                       {previewComments.map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; const commentInitial = String(comment.authorName || comment.author || '?').slice(0, 1).toUpperCase(); const commentAvatar = getEmployeeAvatar(comment.author, comment.avatar, comment.authorAvatar, comment.authorPhoto, comment.author_photo); return <div key={comment.id} className="employee-feed-comment"><button type="button" className="feed-avatar comment-avatar profile-link-avatar" onClick={(event) => openEmployeeProfile(comment.author, event)}>{commentAvatar ? <img src={commentAvatar} alt={comment.authorName || comment.author || 'Комментарий'} /> : <span>{commentInitial}</span>}</button><div className="employee-feed-comment-body"><button type="button" className="comment-author-link" onClick={(event) => openEmployeeProfile(comment.author, event)}>{comment.authorName || formatFeedLogin(comment.author)}</button><span>{comment.text}</span><small>{new Date(comment.createdAt).toLocaleString(isEnglishInterface ? 'en-US' : 'ru-RU')}</small><div className="feed-comment-actions compact"><button type="button" onClick={() => setCommentDrafts((prev) => ({ ...prev, [post.id]: `@${formatFeedLogin(comment.author)} ` }))}>{t('reply')}</button>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>{t('delete')}</button>}</div></div></div>; })}
                       {hiddenCommentsCount > 0 && !expandedCommentPosts[post.id] && <button type="button" className="feed-show-more-comments" onClick={() => setExpandedCommentPosts((prev) => ({ ...prev, [post.id]: true }))}>{t('showAllComments')} ({sortedPostComments.length})</button>}
-                      <div className="employee-feed-comment-form" onClick={(event) => event.stopPropagation()}><div className="feed-avatar comment-avatar feed-avatar-current">{avatarUrl ? <img src={avatarUrl} alt="Мой аватар" /> : <span>{String(profileForm.full_name || user?.name || user?.username || '?').slice(0, 1).toUpperCase()}</span>}</div><input placeholder={t('writeComment')} value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} />{(commentDrafts[post.id] || '').trim() && <button type="button" onClick={() => addCommentToPost(post.id)}>{t('sendComment')}</button>}</div>
+                      <div className="employee-feed-comment-form" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}><div className="feed-avatar comment-avatar feed-avatar-current">{avatarUrl ? <img src={avatarUrl} alt="Мой аватар" /> : <span>{String(profileForm.full_name || user?.name || user?.username || '?').slice(0, 1).toUpperCase()}</span>}</div><input placeholder={t('writeComment')} value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} />{(commentDrafts[post.id] || '').trim() && <button type="button" onClick={() => addCommentToPost(post.id)}>{t('sendComment')}</button>}</div>
                     </div>
                   </article>
                 );
@@ -3763,11 +3817,11 @@ const EmployeeChat = () => {
         )}
 
         {activeTab === 'employees' && isManager && (
-          <section className="manager-panel"><h2>Управление сотрудниками</h2><form className="manager-form manager-form-labeled" onSubmit={saveEmployee}><label><span>Логин (email)</span><input placeholder="ivanov@example.local" value={employeeForm.login} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, login: e.target.value }))} required /></label><label><span>{employeeForm.id ? 'Новый пароль' : 'Пароль'}</span><input type={showEmployeePassword ? 'text' : 'password'} placeholder={employeeForm.id ? 'Оставьте пустым, если не менять' : 'Пароль для входа'} value={employeeForm.password} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, password: e.target.value }))} /><small>{employeeForm.id ? 'Оставьте поле пустым, если пароль менять не нужно.' : 'Минимум 8 символов.'}</small></label><label><span>{t('fullName')}</span><input placeholder="Иванов Иван Иванович" value={employeeForm.full_name} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, full_name: e.target.value }))} /></label><label><span>{t('department')}</span><input placeholder="Отдел сотрудника" value={employeeForm.department} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, department: e.target.value }))} /></label><label className="manager-password-toggle"><input type="checkbox" checked={showEmployeePassword} onChange={(e) => setShowEmployeePassword(e.target.checked)} />Показать пароль</label><div className="manager-form-actions"><button type="submit">{employeeForm.id ? 'Сохранить' : 'Добавить'}</button>{employeeForm.id && <button type="button" onClick={() => { setEmployeeForm({ id: null, login: '', password: '', full_name: '', department: '', phone: '', room: '' }); setShowEmployeePassword(false); }}>Отмена</button>}</div></form><div className="manager-list">{directoryEmployees.map((employee) => <div className="manager-list-item" key={employee.id}><div><strong>{employee.login}</strong><div>{employee.full_name || '—'}</div></div><div className="manager-list-actions"><button type="button" onClick={() => { setEmployeeForm({ id: employee.id, login: employee.login || '', password: '', full_name: employee.full_name || '', department: employee.department || '', phone: employee.phone || '', room: employee.room || '' }); setShowEmployeePassword(false); }}>Редактировать</button><button type="button" onClick={() => deleteEmployee(employee.id)}>Удалить</button></div></div>)}</div></section>
+          <section className="manager-panel"><h2>Управление сотрудниками</h2><form className="manager-form manager-form-labeled" onSubmit={saveEmployee}><label><span>Логин (email)</span><input placeholder="ivanov@example.local" value={employeeForm.login} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, login: e.target.value }))} required /></label><label><span>{employeeForm.id ? 'Новый пароль' : 'Пароль'}</span><input type={showEmployeePassword ? 'text' : 'password'} placeholder={employeeForm.id ? 'Оставьте пустым, если не менять' : 'Пароль для входа'} value={employeeForm.password} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, password: e.target.value }))} /><small>{employeeForm.id ? 'Оставьте поле пустым, если пароль менять не нужно.' : 'Минимум 8 символов.'}</small></label><label><span>{t('fullName')}</span><input placeholder="Иванов Иван Иванович" value={employeeForm.full_name} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, full_name: e.target.value }))} /></label><label><span>{t('department')}</span><input placeholder="Отдел сотрудника" value={employeeForm.department} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, department: e.target.value }))} /></label><label className="manager-password-toggle"><input type="checkbox" checked={showEmployeePassword} onChange={(e) => setShowEmployeePassword(e.target.checked)} />Показать пароль</label><div className="manager-form-actions"><button type="submit">{employeeForm.id ? 'Сохранить' : 'Добавить'}</button>{employeeForm.id && <button type="button" onClick={() => { setEmployeeForm({ id: null, login: '', password: '', full_name: '', department: '', phone: '', room: '' }); setShowEmployeePassword(false); }}>{t('cancel')}</button>}</div></form><div className="manager-list">{directoryEmployees.map((employee) => <div className="manager-list-item" key={employee.id}><div><strong>{employee.login}</strong><div>{employee.full_name || '—'}</div></div><div className="manager-list-actions"><button type="button" onClick={() => { setEmployeeForm({ id: employee.id, login: employee.login || '', password: '', full_name: employee.full_name || '', department: employee.department || '', phone: employee.phone || '', room: employee.room || '' }); setShowEmployeePassword(false); }}>Редактировать</button><button type="button" onClick={() => deleteEmployee(employee.id)}>{t('delete')}</button></div></div>)}</div></section>
         )}
 
         {activeTab === 'audit' && isManager && (
-          <section className="manager-panel"><h2>Переписка сотрудников</h2><div className="audit-toolbar"><input type="search" placeholder="Поиск по участникам и тексту" value={auditSearch} onChange={(e) => setAuditSearch(e.target.value)} /><div className="audit-filter-row"><label><input type="checkbox" checked={auditFilters.showEmpty} onChange={(e) => setAuditFilters((prev) => ({ ...prev, showEmpty: e.target.checked }))} />Показывать пустые/архивные</label><label><input type="checkbox" checked={auditFilters.attachmentsOnly} onChange={(e) => setAuditFilters((prev) => ({ ...prev, attachmentsOnly: e.target.checked }))} />Только с вложениями</label><label><input type="checkbox" checked={auditFilters.deletedOnly} onChange={(e) => setAuditFilters((prev) => ({ ...prev, deletedOnly: e.target.checked }))} />Только удалённые</label></div><div className="audit-periods">{[['all', 'Все'], ['today', 'Сегодня'], ['week', 'Неделя'], ['month', 'Месяц']].map(([value, label]) => <button key={value} type="button" className={auditFilters.period === value ? 'active' : ''} onClick={() => setAuditFilters((prev) => ({ ...prev, period: value }))}>{label}</button>)}</div></div><div className="threads-grid"><div className="threads-list">{allConversationIds.length === 0 && <div className="empty-chat">Диалогов по фильтрам нет.</div>}{allConversationIds.map((threadId) => { const participants = getParticipantsFromThreadId(threadId); const meta = threadActivityById[threadId] || getThreadActivityMeta(threads[threadId] || []); return <button key={threadId} type="button" className={`thread-item ${selectedThreadId === threadId ? 'active' : ''}`} onClick={() => setSelectedThreadId(threadId)}><span className="thread-title">{participants.join(' ↔ ')}</span><span className="thread-stats"><b>{meta.messageCount}</b> сообщ. {meta.attachmentsCount > 0 ? ` · 📎 ${meta.attachmentsCount}` : ''}{meta.deletedCount > 0 ? ` · удалено ${meta.deletedCount}` : ''}</span><span className="thread-last">{meta.lastAt ? `последнее: ${new Date(meta.lastAt).toLocaleString('ru-RU')}` : 'без сообщений'}</span></button>; })}</div><div className="threads-messages">{!selectedThreadId && <div className="empty-chat">Выберите переписку.</div>}{selectedThreadId && selectedThreadMessages.map((message) => { const isDeleted = Boolean(message.deletedAt); const attachments = !isDeleted && message.attachments?.length ? message.attachments : !isDeleted && message.attachment ? [message.attachment] : []; return <div key={message.id} className={`audit-message ${isDeleted ? 'deleted' : ''}`}><div className="message-meta"><span>{message.sender}</span><span>{new Date(message.createdAt).toLocaleString('ru-RU')}</span></div><div>{isDeleted ? <em>Сообщение удалено</em> : message.text}</div>{isDeleted && <div className="audit-history">Удалил: {message.deletedBy || '—'} · {message.deletedAt ? new Date(message.deletedAt).toLocaleString('ru-RU') : '—'}</div>}{attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <AttachmentCard key={`${message.id}-audit-${index}`} cardKey={`${message.id}-audit-${index}`} file={file} />)}</div>}{Array.isArray(message.audit) && message.audit.length > 0 && <div className="audit-history"><strong>История:</strong>{message.audit.slice(-4).map((entry, index) => <span key={`${message.id}-audit-entry-${index}`}>{entry.action || 'изменение'} · {entry.by || '—'} · {entry.at ? new Date(entry.at).toLocaleString('ru-RU') : '—'}</span>)}</div>}<div className="message-controls"><button type="button" onClick={() => editMessage(message.id, selectedThreadId)}>Изменить</button><button type="button" onClick={() => deleteMessage(message.id, selectedThreadId)}>Удалить</button></div></div>; })}</div></div></section>
+          <section className="manager-panel"><h2>Переписка сотрудников</h2><div className="audit-toolbar"><input type="search" placeholder="Поиск по участникам и тексту" value={auditSearch} onChange={(e) => setAuditSearch(e.target.value)} /><div className="audit-filter-row"><label><input type="checkbox" checked={auditFilters.showEmpty} onChange={(e) => setAuditFilters((prev) => ({ ...prev, showEmpty: e.target.checked }))} />Показывать пустые/архивные</label><label><input type="checkbox" checked={auditFilters.attachmentsOnly} onChange={(e) => setAuditFilters((prev) => ({ ...prev, attachmentsOnly: e.target.checked }))} />Только с вложениями</label><label><input type="checkbox" checked={auditFilters.deletedOnly} onChange={(e) => setAuditFilters((prev) => ({ ...prev, deletedOnly: e.target.checked }))} />Только удалённые</label></div><div className="audit-periods">{[['all', 'Все'], ['today', 'Сегодня'], ['week', 'Неделя'], ['month', 'Месяц']].map(([value, label]) => <button key={value} type="button" className={auditFilters.period === value ? 'active' : ''} onClick={() => setAuditFilters((prev) => ({ ...prev, period: value }))}>{label}</button>)}</div></div><div className="threads-grid"><div className="threads-list">{allConversationIds.length === 0 && <div className="empty-chat">Диалогов по фильтрам нет.</div>}{allConversationIds.map((threadId) => { const participants = getParticipantsFromThreadId(threadId); const meta = threadActivityById[threadId] || getThreadActivityMeta(threads[threadId] || []); return <button key={threadId} type="button" className={`thread-item ${selectedThreadId === threadId ? 'active' : ''}`} onClick={() => setSelectedThreadId(threadId)}><span className="thread-title">{participants.join(' ↔ ')}</span><span className="thread-stats"><b>{meta.messageCount}</b> сообщ. {meta.attachmentsCount > 0 ? ` · 📎 ${meta.attachmentsCount}` : ''}{meta.deletedCount > 0 ? ` · удалено ${meta.deletedCount}` : ''}</span><span className="thread-last">{meta.lastAt ? `последнее: ${new Date(meta.lastAt).toLocaleString('ru-RU')}` : 'без сообщений'}</span></button>; })}</div><div className="threads-messages">{!selectedThreadId && <div className="empty-chat">Выберите переписку.</div>}{selectedThreadId && selectedThreadMessages.map((message) => { const isDeleted = Boolean(message.deletedAt); const attachments = !isDeleted && message.attachments?.length ? message.attachments : !isDeleted && message.attachment ? [message.attachment] : []; return <div key={message.id} className={`audit-message ${isDeleted ? 'deleted' : ''}`}><div className="message-meta"><span>{message.sender}</span><span>{new Date(message.createdAt).toLocaleString('ru-RU')}</span></div><div>{isDeleted ? <em>Сообщение удалено</em> : message.text}</div>{isDeleted && <div className="audit-history">Удалил: {message.deletedBy || '—'} · {message.deletedAt ? new Date(message.deletedAt).toLocaleString('ru-RU') : '—'}</div>}{attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <AttachmentCard key={`${message.id}-audit-${index}`} cardKey={`${message.id}-audit-${index}`} file={file} />)}</div>}{Array.isArray(message.audit) && message.audit.length > 0 && <div className="audit-history"><strong>История:</strong>{message.audit.slice(-4).map((entry, index) => <span key={`${message.id}-audit-entry-${index}`}>{entry.action || 'изменение'} · {entry.by || '—'} · {entry.at ? new Date(entry.at).toLocaleString('ru-RU') : '—'}</span>)}</div>}<div className="message-controls"><button type="button" onClick={() => editMessage(message.id, selectedThreadId)}>{t('edit')}</button><button type="button" onClick={() => deleteMessage(message.id, selectedThreadId)}>{t('delete')}</button></div></div>; })}</div></div></section>
         )}
       </section>
 
@@ -3796,21 +3850,21 @@ const EmployeeChat = () => {
             <details className="photo-viewer-menu">
               <summary aria-label="Действия с фото">⋯</summary>
               <div className="photo-viewer-menu-popover">
-                <a href={getOriginalAttachmentUrl(mediaViewer.file)} download={mediaViewer.file.name || 'photo'}>Сохранить</a>
-                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={replyToViewedMedia}>Ответить</button>}
-                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={shareViewedMedia}>Поделиться</button>}
-                {mediaViewer.source === 'feed' && <button type="button" onClick={shareViewedFeedMedia}>Поделиться</button>}
-                {mediaViewer.source === 'feed' && canManageFeedPost(mediaViewer.post, user, isManager, isAdmin) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>Удалить</button>}
-                {mediaViewer.message && mediaViewer.source !== 'feed' && (isManager || mediaViewer.message?.sender === user.username) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>Удалить</button>}
+                <a href={getOriginalAttachmentUrl(mediaViewer.file)} download={mediaViewer.file.name || 'photo'}>{t('save')}</a>
+                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={replyToViewedMedia}>{t('reply')}</button>}
+                {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={shareViewedMedia}>{t('share')}</button>}
+                {mediaViewer.source === 'feed' && <button type="button" onClick={shareViewedFeedMedia}>{t('share')}</button>}
+                {mediaViewer.source === 'feed' && canManageFeedPost(mediaViewer.post, user, isManager, isAdmin) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>{t('delete')}</button>}
+                {mediaViewer.message && mediaViewer.source !== 'feed' && (isManager || mediaViewer.message?.sender === user.username) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>{t('delete')}</button>}
               </div>
             </details>
           </header>
           <div className="photo-viewer-stage" onMouseDown={(event) => event.stopPropagation()}>
             {hasManyViewerFiles && <button type="button" className="photo-viewer-nav prev" onClick={() => moveMediaViewer(-1)}>‹</button>}
             {isVideoAttachment(mediaViewer.file) ? (
-              <video src={getOriginalAttachmentUrl(mediaViewer.file)} controls playsInline poster={getVideoPosterUrl(mediaViewer.file) || getAttachmentUrl(mediaViewer.file)} onLoadedMetadata={nudgeVideoToFirstFrame}>Ваш браузер не поддерживает просмотр видео.</video>
+              <video src={getOriginalAttachmentUrl(mediaViewer.file)} controls playsInline poster={getVideoPosterUrl(mediaViewer.file) || getAttachmentUrl(mediaViewer.file)} onLoadedMetadata={nudgeVideoToFirstFrame}>{t('unsupportedVideo')}</video>
             ) : (
-              <img src={getOriginalAttachmentUrl(mediaViewer.file)} alt={mediaViewer.file.name || 'Фото'} />
+              <img src={getOriginalAttachmentUrl(mediaViewer.file)} alt={mediaViewer.file.name || t('photoAlt')} />
             )}
             {hasManyViewerFiles && <button type="button" className="photo-viewer-nav next" onClick={() => moveMediaViewer(1)}>›</button>}
           </div>
@@ -3846,7 +3900,7 @@ const EmployeeChat = () => {
               ))}
             </div>
             <div className="app-modal-actions">
-              <button type="button" onClick={() => setForwardSourceMessage(null)}>Отмена</button>
+              <button type="button" onClick={() => setForwardSourceMessage(null)}>{t('cancel')}</button>
             </div>
           </div>
         </div>
@@ -3857,7 +3911,7 @@ const EmployeeChat = () => {
           <div className="avatar-viewer" onMouseDown={(event) => event.stopPropagation()}>
             <header><strong>Фото профиля</strong><button type="button" onClick={() => setAvatarViewerOpen(false)}>×</button></header>
             {avatarUrl ? <img src={avatarUrl} alt="Фото профиля" /> : <div className="avatar-full-placeholder">{String(baseDisplayName || user?.username || '?').slice(0, 1).toUpperCase()}</div>}
-            <div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>Изменить</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>Удалить</button></div>
+            <div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>{t('edit')}</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>{t('delete')}</button></div>
           </div>
         </div>
       )}
@@ -3870,8 +3924,8 @@ const EmployeeChat = () => {
             {modal.type === 'prompt' && <textarea rows={4} value={modal.value} onChange={(e) => setModal((prev) => ({ ...prev, value: e.target.value }))} />}
             <div className="app-modal-actions">
               {modal.type === 'info' && <button type="button" onClick={() => setModal(null)}>Понятно</button>}
-              {modal.type === 'confirm' && <><button type="button" onClick={() => closeModal(false)}>Отмена</button><button type="button" className="danger" onClick={() => closeModal(true)}>Подтвердить</button></>}
-              {modal.type === 'prompt' && <><button type="button" onClick={() => closeModal('')}>Отмена</button><button type="button" onClick={() => closeModal(modal.value)}>Сохранить</button></>}
+              {modal.type === 'confirm' && <><button type="button" onClick={() => closeModal(false)}>{t('cancel')}</button><button type="button" className="danger" onClick={() => closeModal(true)}>Подтвердить</button></>}
+              {modal.type === 'prompt' && <><button type="button" onClick={() => closeModal('')}>{t('cancel')}</button><button type="button" onClick={() => closeModal(modal.value)}>Сохранить</button></>}
             </div>
           </div>
         </div>

@@ -4588,3 +4588,20 @@ button:disabled {
   font-size: 12px;
   line-height: 1.2;
 }
+
+.employee-feed-composer.compact-feed-composer {
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  background: #f8fbff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.9), 0 12px 30px rgba(15, 23, 42, 0.06);
+}
+
+.vk-feed-composer .feed-composer-line,
+.vk-feed-composer .feed-composer-line textarea {
+  border-color: rgba(37, 99, 235, 0.22);
+  background: #ffffff;
+}
+
+.vk-feed-composer .feed-composer-line textarea:focus {
+  border-color: rgba(37, 99, 235, 0.55);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.11);
+}
