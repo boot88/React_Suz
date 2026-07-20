@@ -509,3 +509,12 @@
   cursor: not-allowed;
   opacity: 0.6;
 }
+
+.login-suggestions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 20;
+  margin-top: 0;
+}
