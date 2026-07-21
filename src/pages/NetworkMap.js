@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import './NetworkMap.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 
-const NETWORK_SOURCE_URL = 'http://nioch.nioch.nsc.ru/nioch/nioch.txt';
 const OFFICIAL_SITE_URL = 'http://nioch.nioch.nsc.ru/nioch/';
 const IP_LAST_OCTET_MIN = 1;
 const IP_LAST_OCTET_MAX = 254;
@@ -153,7 +152,6 @@ const NetworkMap = () => {
         <div>
           <span className="network-eyebrow">Сетка / маска сети</span>
           <h1>Свободные и занятые IP-адреса</h1>
-          <p>Источник: <a href={NETWORK_SOURCE_URL} target="_blank" rel="noopener noreferrer">nioch.txt</a></p>
         </div>
         <button type="button" className="network-refresh-btn" onClick={() => fetchNetworkMap({ silent: false })} disabled={networkLoading}>
           {networkLoading ? 'Обновляем...' : 'Обновить сетку'}
