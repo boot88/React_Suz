@@ -64,6 +64,7 @@ const Login = ({ mode = 'employee' }) => {
   const [isRecoveryOpen, setIsRecoveryOpen] = useState(false);
   const [recoveryLogin, setRecoveryLogin] = useState('');
   const [capsLockOn, setCapsLockOn] = useState(false);
+  const [allLoginSuggestions, setAllLoginSuggestions] = useState([]);
   const [loginSuggestions, setLoginSuggestions] = useState([]);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [showAllSuggestions, setShowAllSuggestions] = useState(false);
@@ -73,28 +74,48 @@ const Login = ({ mode = 'employee' }) => {
 
 
   useEffect(() => {
-    const query = showAllSuggestions ? '' : formData.username.trim();
     const role = isAdminMode ? 'admin' : 'employee';
-    const timeout = setTimeout(async () => {
+    let isCancelled = false;
+
+    const loadSuggestions = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/auth/login-suggestions?role=${role}&query=${encodeURIComponent(query)}`);
+        const response = await fetch(`${API_BASE_URL}/auth/login-suggestions?role=${role}&query=`);
         if (!response.ok) return;
         const data = await response.json();
+        if (isCancelled) return;
         const suggestions = Array.isArray(data?.suggestions) ? data.suggestions : [];
-        setLoginSuggestions(suggestions);
+        setAllLoginSuggestions(suggestions);
 
-        if (!query && !defaultLoginAppliedRef.current && suggestions[0]?.login) {
+        if (!defaultLoginAppliedRef.current && suggestions[0]?.login) {
           defaultLoginAppliedRef.current = true;
           setSelectedLogin(suggestions[0].login || '');
           setFormData((prev) => prev.username ? prev : { ...prev, username: formatSuggestionName(suggestions[0].display_name || suggestions[0].full_name || suggestions[0].login) });
         }
       } catch {
-        setLoginSuggestions([]);
+        if (!isCancelled) setAllLoginSuggestions([]);
       }
-    }, query ? 180 : 0);
+    };
 
-    return () => clearTimeout(timeout);
-  }, [formData.username, isAdminMode, showAllSuggestions]);
+    defaultLoginAppliedRef.current = false;
+    setAllLoginSuggestions([]);
+    setLoginSuggestions([]);
+    loadSuggestions();
+
+    return () => { isCancelled = true; };
+  }, [isAdminMode]);
+
+  useEffect(() => {
+    const query = formData.username.trim().toLowerCase();
+    const normalizedQuery = query.replace(/ё/g, 'е');
+    const suggestions = allLoginSuggestions.filter((suggestion) => {
+      if (showAllSuggestions || !normalizedQuery) return true;
+      const displayName = String(suggestion.display_name || suggestion.full_name || suggestion.login || '').toLowerCase().replace(/ё/g, 'е');
+      const loginValue = String(suggestion.login || '').toLowerCase().replace(/ё/g, 'е');
+      const surname = displayName.split(/\s+/)[0] || '';
+      return surname.startsWith(normalizedQuery) || loginValue.startsWith(normalizedQuery);
+    });
+    setLoginSuggestions(suggestions.slice(0, showAllSuggestions || !normalizedQuery ? 300 : 100));
+  }, [allLoginSuggestions, formData.username, showAllSuggestions]);
 
 
   useEffect(() => {

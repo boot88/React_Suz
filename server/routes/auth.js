@@ -484,8 +484,6 @@ router.post('/provision-from-phone-book', async (req, res) => {
 
 router.get('/login-suggestions', async (req, res) => {
   try {
-    await ensureUsersProvisionedFromPhoneBook();
-
     const query = normalizeLogin(req.query?.query || '');
     const role = req.query?.role === 'admin' ? 'admin' : 'employee';
     const like = `${query}%`;
@@ -494,7 +492,7 @@ router.get('/login-suggestions', async (req, res) => {
        FROM users
        WHERE role = ? AND (LOWER(full_name) LIKE ? OR LOWER(login) LIKE ?)
        ORDER BY full_name
-       LIMIT 500`,
+       LIMIT 1000`,
       [role, like, like]
     );
 
