@@ -343,15 +343,15 @@ button:disabled {
 }
 
 .status-dot {
-  width: 10px;
-  height: 10px;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
   background: #9a9389;
 }
 
 .status-dot.online {
   background: var(--chat-success);
-  box-shadow: 0 0 0 5px rgba(47, 143, 97, .12);
+  box-shadow: 0 0 0 6px rgba(47, 143, 97, .12);
 }
 
 .profile-open-btn {

@@ -3351,7 +3351,7 @@ const EmployeeChat = () => {
                       <span className="employee-chat-user-email">{profile.full_name || employee.email}</span>
                       <span className="employee-chat-user-extra">{formatVisibleLogin(employee.email)} · {profile.department || t('departmentMissing')} · {t('cabinetShort')}. {profile.room || '—'}</span>
                     </span>
-                    <span className="employee-chat-user-status">{isManagerContact ? t('admin') : (isOnline ? t('online') : t('offline'))}</span>
+                    {(isManagerContact || isOnline) && <span className="employee-chat-user-status">{isManagerContact ? t('admin') : t('online')}</span>}
                     {unreadByEmail[employee.email] > 0 && <span className="employee-chat-user-unread">{unreadByEmail[employee.email]}</span>}
                   </button>
                   <span className="contact-card-actions"><button type="button" className="profile-open-btn" onClick={() => { openProfileCard(employee.email); setActiveTab('profile'); }}>{t('profile')}</button><button type="button" className="favorite-contact-btn" aria-label={t('pinDialog')}  onClick={() => toggleLocalListValue('pinned', getConversationId(user.username, employee.email))}>{(chatLocalSettings.pinned || []).includes(getConversationId(user.username, employee.email)) ? '📌' : '📍'}</button><button type="button" className="favorite-contact-btn" aria-label={t('favorite')} onClick={() => toggleLocalListValue('favorites', employee.email)}>{(chatLocalSettings.favorites || []).includes(employee.email) ? '★' : '☆'}</button></span>
