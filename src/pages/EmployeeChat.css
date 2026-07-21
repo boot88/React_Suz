@@ -4646,3 +4646,55 @@ button:disabled {
   height: 30px;
   font-size: 14px;
 }
+
+/* Stronger chat boundaries for contact search, employee rows and composers */
+.employee-chat-sidebar,
+.employee-chat-main,
+.employee-contact-panel,
+.chat-workspace,
+.employee-feed-section,
+.profile-workspace,
+.request-workspace {
+  border-color: rgba(30, 90, 168, .26);
+}
+
+.employee-chat-search,
+.conversation-tools input,
+.message-form input,
+.message-form textarea,
+.employee-feed-composer textarea,
+.employee-feed-comment-form input,
+.feed-composer-line select,
+.feed-composer-line textarea {
+  border: 1.5px solid rgba(30, 90, 168, .32);
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .03), 0 1px 2px rgba(15, 23, 42, .04);
+}
+
+.employee-chat-search::placeholder,
+.message-form textarea::placeholder,
+.employee-feed-composer textarea::placeholder,
+.employee-feed-comment-form input::placeholder,
+.feed-composer-line textarea::placeholder {
+  color: #64748b;
+}
+
+.employee-contact-open {
+  border-color: rgba(30, 90, 168, .30);
+  background: rgba(255, 255, 255, .92);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .06);
+}
+
+.employee-contact-open:hover,
+.employee-chat-user.active .employee-contact-open {
+  border-color: rgba(30, 90, 168, .62);
+  box-shadow: 0 8px 18px rgba(30, 90, 168, .10);
+}
+
+.composer-wrap,
+.compact-feed-composer,
+.employee-feed-comment-form {
+  border: 1.5px solid rgba(30, 90, 168, .28);
+  background: rgba(255, 255, 255, .94);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, .06);
+}
