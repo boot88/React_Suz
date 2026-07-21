@@ -4605,3 +4605,44 @@ button:disabled {
   border-color: rgba(37, 99, 235, 0.55);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.11);
 }
+
+.employee-chat-user {
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 5px;
+}
+
+.employee-contact-open {
+  grid-template-columns: 10px minmax(0, 1fr) max-content;
+  gap: 6px;
+  padding: 9px 10px;
+}
+
+.employee-chat-user-email {
+  font-size: 14px;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+}
+
+.status-dot.online {
+  box-shadow: 0 0 0 5px rgba(47, 143, 97, .12);
+}
+
+.contact-card-actions {
+  gap: 3px;
+}
+
+.contact-card-actions .profile-open-btn {
+  min-height: 30px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+.contact-card-actions .favorite-contact-btn {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  font-size: 14px;
+}
