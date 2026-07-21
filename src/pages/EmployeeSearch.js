@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { searchEmployees, getDepartments, syncEmployees } from '../services/employeeService';
 import './EmployeeSearch.css'; // Импортируем CSS файл
-import { API_BASE_URL } from '../utils/apiConfig';
 
 const EmployeeSearch = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -14,7 +13,6 @@ const EmployeeSearch = () => {
   const [error, setError] = useState('');
   const [syncMessage, setSyncMessage] = useState('');
   const [syncChanges, setSyncChanges] = useState(null);
-  const [provisionLoading, setProvisionLoading] = useState(false);
 
   const searchFields = [
     { value: 'full_name', label: 'ФИО' },
@@ -98,24 +96,6 @@ const EmployeeSearch = () => {
     }
   };
 
-
-
-  const handleProvisionUsers = async () => {
-    setProvisionLoading(true);
-    setError('');
-    setSyncMessage('');
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/auth/provision-from-phone-book`, { method: 'POST' });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || 'Не удалось зарегистрировать пользователей');
-      setSyncMessage(`Пользователи зарегистрированы: сотрудников ${data.employees}, администраторов ${data.admins}. Пароли: сотрудники 12345, администраторы 12399.`);
-    } catch (err) {
-      setError(err.message || 'Ошибка регистрации пользователей из справочника');
-    } finally {
-      setProvisionLoading(false);
-    }
-  };
 
   const renderEmployeeCells = (employee = {}) => (
     <>
@@ -236,15 +216,6 @@ const EmployeeSearch = () => {
               className="sync-button"
             >
               {syncLoading ? '⏳ Обновляем...' : '🔄 Обновить справочник'}
-            </button>
-
-            <button
-              type="button"
-              onClick={handleProvisionUsers}
-              disabled={provisionLoading}
-              className="sync-button"
-            >
-              {provisionLoading ? '⏳ Регистрируем...' : '👤 Зарегистрировать пользователей'}
             </button>
           </div>
         </div>
