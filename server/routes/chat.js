@@ -1,4 +1,5 @@
 const express = require('express');
+const fsSync = require('fs');
 const fs = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
@@ -141,66 +142,259 @@ const getDataUrlPayload = (dataUrl = '') => {
 
 const buildUploadUrl = (scope, fileName) => `/uploads/${scope}/${encodeURIComponent(fileName)}`;
 
-const saveUploadedDataUrl = async ({ scope = 'chat', name = 'file', type = '', size = 0, dataUrl = '', thumbnailDataUrl = '' }) => {
-  const safeScope = ALLOWED_UPLOAD_SCOPES.has(scope) ? scope : 'chat';
-  const parsed = getDataUrlPayload(dataUrl);
-  if (!parsed) {
-    const error = new Error('Неверный формат файла');
+let chatFilesSqlReady = false;
+let chatFilesSqlChecked = false;
+
+const ensureChatFilesSqlSchema = async () => {
+  if (chatFilesSqlChecked) return chatFilesSqlReady;
+  chatFilesSqlChecked = true;
+  try {
+    if (!db?.execute) throw new Error('SQL execute is unavailable');
+    await db.execute(`CREATE TABLE IF NOT EXISTS chat_files (
+      id VARCHAR(128) PRIMARY KEY,
+      scope VARCHAR(32) NOT NULL,
+      original_name VARCHAR(255) NOT NULL,
+      stored_name VARCHAR(255) NOT NULL,
+      url VARCHAR(512) NOT NULL,
+      thumbnail_url VARCHAR(512) NULL,
+      mime_type VARCHAR(255) NOT NULL,
+      size_bytes BIGINT NOT NULL,
+      sha256 VARCHAR(64) NOT NULL,
+      uploaded_at DATETIME NOT NULL,
+      metadata_json LONGTEXT NULL,
+      INDEX idx_chat_files_scope (scope),
+      INDEX idx_chat_files_uploaded_at (uploaded_at)
+    )`);
+    chatFilesSqlReady = true;
+  } catch (error) {
+    chatFilesSqlReady = false;
+    console.warn('Chat file SQL metadata unavailable, storing files without SQL metadata:', error.message);
+  }
+  return chatFilesSqlReady;
+};
+
+const writeSqlFileMetadata = async (file = {}) => {
+  if (!await ensureChatFilesSqlSchema()) return false;
+  await db.execute(
+    `INSERT INTO chat_files (id, scope, original_name, stored_name, url, thumbnail_url, mime_type, size_bytes, sha256, uploaded_at, metadata_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       scope = VALUES(scope),
+       original_name = VALUES(original_name),
+       stored_name = VALUES(stored_name),
+       url = VALUES(url),
+       thumbnail_url = VALUES(thumbnail_url),
+       mime_type = VALUES(mime_type),
+       size_bytes = VALUES(size_bytes),
+       sha256 = VALUES(sha256),
+       uploaded_at = VALUES(uploaded_at),
+       metadata_json = VALUES(metadata_json)`,
+    [
+      file.id,
+      file.scope,
+      file.originalName || file.name,
+      file.storedName,
+      file.url,
+      file.thumbnailUrl || null,
+      file.type,
+      file.size,
+      file.sha256,
+      new Date(file.uploadedAt || Date.now()),
+      JSON.stringify({ name: file.name, thumbnailUrl: file.thumbnailUrl || null })
+    ]
+  );
+  return true;
+};
+
+const getMultipartBoundary = (contentType = '') => {
+  const match = String(contentType).match(/boundary=(?:(?:"([^"]+)")|([^;]+))/i);
+  return match ? (match[1] || match[2] || '').trim() : '';
+};
+
+const parseContentDisposition = (value = '') => {
+  const result = {};
+  String(value).split(';').map((part) => part.trim()).forEach((part) => {
+    const match = part.match(/^([^=]+)="?([^"]*)"?$/);
+    if (match) result[match[1].toLowerCase()] = match[2];
+  });
+  return result;
+};
+
+const splitBuffer = (buffer, separator) => {
+  const parts = [];
+  let start = 0;
+  let index = buffer.indexOf(separator, start);
+  while (index !== -1) {
+    parts.push(buffer.slice(start, index));
+    start = index + separator.length;
+    index = buffer.indexOf(separator, start);
+  }
+  parts.push(buffer.slice(start));
+  return parts;
+};
+
+const trimPartBreaks = (buffer) => {
+  let start = 0;
+  let end = buffer.length;
+  if (buffer.slice(0, 2).equals(Buffer.from('\r\n'))) start = 2;
+  if (buffer.slice(end - 2, end).equals(Buffer.from('\r\n'))) end -= 2;
+  if (buffer.slice(end - 2, end).equals(Buffer.from('--'))) end -= 2;
+  return buffer.slice(start, end);
+};
+
+const hasAllowedMagicBytes = (buffer, mime = '', ext = '') => {
+  const safeMime = String(mime).toLowerCase();
+  const head = buffer.slice(0, 12);
+  if (safeMime === 'image/png') return head.slice(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  if (safeMime === 'image/jpeg' || safeMime === 'image/jpg') return head.slice(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]));
+  if (safeMime === 'image/gif') return head.slice(0, 4).toString('ascii') === 'GIF8';
+  if (safeMime === 'application/pdf') return head.slice(0, 4).toString('ascii') === '%PDF';
+  if (safeMime === 'text/plain') return buffer.slice(0, 512).indexOf(0) === -1;
+  if (['.zip', '.docx', '.xlsx'].includes(ext)) return head.slice(0, 2).toString('ascii') === 'PK';
+  return true;
+};
+
+const readMultipartRequestToTemp = async (req, tempPath) => new Promise((resolve, reject) => {
+  let total = 0;
+  const output = fsSync.createWriteStream(tempPath, { flags: 'wx' });
+  const fail = (error) => {
+    req.destroy();
+    output.destroy();
+    reject(error);
+  };
+
+  req.on('data', (chunk) => {
+    total += chunk.length;
+    if (total > MAX_UPLOAD_SIZE + 5 * 1024 * 1024) {
+      const error = new Error(`Файл должен быть не больше ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)} МБ`);
+      error.status = 413;
+      fail(error);
+    }
+  });
+  req.on('error', reject);
+  output.on('error', reject);
+  output.on('finish', () => resolve(total));
+  req.pipe(output);
+});
+
+const parseMultipartParts = (rawBuffer, boundary) => {
+  const boundaryBuffer = Buffer.from(`--${boundary}`);
+  const fields = {};
+  let filePart = null;
+
+  splitBuffer(rawBuffer, boundaryBuffer).forEach((rawPart) => {
+    const part = trimPartBreaks(rawPart);
+    if (!part.length) return;
+    const headerEnd = part.indexOf(Buffer.from('\r\n\r\n'));
+    if (headerEnd === -1) return;
+    const headerText = part.slice(0, headerEnd).toString('utf8');
+    const body = part.slice(headerEnd + 4);
+    const headers = Object.fromEntries(headerText.split('\r\n').map((line) => {
+      const separator = line.indexOf(':');
+      if (separator === -1) return ['', ''];
+      return [line.slice(0, separator).trim().toLowerCase(), line.slice(separator + 1).trim()];
+    }).filter(([key]) => key));
+    const disposition = parseContentDisposition(headers['content-disposition'] || '');
+    const fieldName = disposition.name;
+    if (!fieldName) return;
+    if (disposition.filename !== undefined) {
+      filePart = { fieldName, filename: disposition.filename || 'file', type: headers['content-type'] || 'application/octet-stream', buffer: trimPartBreaks(body) };
+    } else {
+      fields[fieldName] = trimPartBreaks(body).toString('utf8');
+    }
+  });
+
+  return { fields, filePart };
+};
+
+const saveMultipartUpload = async (req) => {
+  const boundary = getMultipartBoundary(req.headers['content-type']);
+  if (!boundary) {
+    const error = new Error('Неверный формат multipart/form-data');
     error.status = 400;
     throw error;
   }
 
-  const mime = type || parsed.mime || 'application/octet-stream';
-  if (!ALLOWED_UPLOAD_TYPES.test(mime)) {
-    const error = new Error('Этот тип файла запрещён');
-    error.status = 400;
-    throw error;
-  }
+  const tempDir = path.join(uploadsDir, 'tmp');
+  await fs.mkdir(tempDir, { recursive: true });
+  const tempPath = path.join(tempDir, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}.multipart`);
 
-  const safeOriginalName = sanitizeFileName(name);
-  const ext = path.extname(safeOriginalName).toLowerCase();
-  if (DANGEROUS_EXTENSIONS.has(ext)) {
-    const error = new Error('Этот тип файла запрещён');
-    error.status = 400;
-    throw error;
-  }
+  try {
+    await readMultipartRequestToTemp(req, tempPath);
+    const raw = await fs.readFile(tempPath);
+    const { fields, filePart } = parseMultipartParts(raw, boundary);
+    if (!filePart?.buffer?.length) {
+      const error = new Error('Файл не передан');
+      error.status = 400;
+      throw error;
+    }
 
-  const buffer = Buffer.from(parsed.payload, 'base64');
-  if (!buffer.length || buffer.length > MAX_UPLOAD_SIZE || Number(size || buffer.length) > MAX_UPLOAD_SIZE) {
-    const error = new Error(`Файл должен быть не больше ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)} МБ`);
-    error.status = 413;
-    throw error;
-  }
+    const safeScope = ALLOWED_UPLOAD_SCOPES.has(fields.scope) ? fields.scope : 'chat';
+    const mime = filePart.type || fields.type || 'application/octet-stream';
+    if (!ALLOWED_UPLOAD_TYPES.test(mime)) {
+      const error = new Error('Этот тип файла запрещён');
+      error.status = 400;
+      throw error;
+    }
 
-  const uploadDir = path.join(uploadsDir, safeScope);
-  await fs.mkdir(uploadDir, { recursive: true });
-  const storedName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}-${safeOriginalName}`;
-  const filePath = path.join(uploadDir, storedName);
-  await fs.writeFile(filePath, buffer);
-  const url = buildUploadUrl(safeScope, storedName);
-  let thumbnailUrl = url;
+    const safeOriginalName = sanitizeFileName(fields.name || filePart.filename || 'file');
+    const ext = path.extname(safeOriginalName).toLowerCase();
+    if (DANGEROUS_EXTENSIONS.has(ext) || !hasAllowedMagicBytes(filePart.buffer, mime, ext)) {
+      const error = new Error('Этот тип файла запрещён');
+      error.status = 400;
+      throw error;
+    }
 
-  if (String(mime).startsWith('image/') && thumbnailDataUrl) {
-    const thumbnailParsed = getDataUrlPayload(thumbnailDataUrl);
-    if (thumbnailParsed && String(thumbnailParsed.mime || '').startsWith('image/')) {
-      const thumbnailBuffer = Buffer.from(thumbnailParsed.payload, 'base64');
-      if (thumbnailBuffer.length > 0 && thumbnailBuffer.length <= MAX_UPLOAD_SIZE) {
-        const thumbnailName = `thumb-${storedName.replace(/\.[^.]+$/, '')}.jpg`;
-        await fs.writeFile(path.join(uploadDir, thumbnailName), thumbnailBuffer);
-        thumbnailUrl = buildUploadUrl(safeScope, thumbnailName);
+    if (filePart.buffer.length > MAX_UPLOAD_SIZE || Number(fields.size || filePart.buffer.length) > MAX_UPLOAD_SIZE) {
+      const error = new Error(`Файл должен быть не больше ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)} МБ`);
+      error.status = 413;
+      throw error;
+    }
+
+    const uploadDir = path.join(uploadsDir, safeScope);
+    await fs.mkdir(uploadDir, { recursive: true });
+    const storedName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}-${safeOriginalName}`;
+    await fs.writeFile(path.join(uploadDir, storedName), filePart.buffer);
+    const sha256 = crypto.createHash('sha256').update(filePart.buffer).digest('hex');
+    const url = buildUploadUrl(safeScope, storedName);
+    let thumbnailUrl = String(mime).startsWith('image/') || String(mime).startsWith('video/') ? url : '';
+
+    if ((String(mime).startsWith('image/') || String(mime).startsWith('video/')) && fields.thumbnailDataUrl) {
+      const thumbnailParsed = getDataUrlPayload(fields.thumbnailDataUrl);
+      if (thumbnailParsed && String(thumbnailParsed.mime || '').startsWith('image/')) {
+        const thumbnailBuffer = Buffer.from(thumbnailParsed.payload, 'base64');
+        if (thumbnailBuffer.length > 0 && thumbnailBuffer.length <= 2 * 1024 * 1024) {
+          const thumbnailName = `thumb-${storedName.replace(/\.[^.]+$/, '')}.jpg`;
+          await fs.writeFile(path.join(uploadDir, thumbnailName), thumbnailBuffer);
+          thumbnailUrl = buildUploadUrl(safeScope, thumbnailName);
+        }
       }
     }
-  }
 
-  return {
-    id: createId('file'),
-    name: safeOriginalName,
-    type: mime,
-    size: buffer.length,
-    url,
-    thumbnailUrl,
-    originalName: name
-  };
+    const file = {
+      id: createId('file'),
+      scope: safeScope,
+      name: safeOriginalName,
+      type: mime,
+      size: filePart.buffer.length,
+      url,
+      thumbnailUrl,
+      originalName: fields.name || filePart.filename,
+      storedName,
+      sha256,
+      uploadedAt: new Date().toISOString()
+    };
+
+    try {
+      await writeSqlFileMetadata(file);
+    } catch (error) {
+      console.warn('Chat file SQL metadata write failed:', error.message);
+    }
+
+    return file;
+  } finally {
+    await fs.unlink(tempPath).catch(() => {});
+  }
 };
 
 const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -390,14 +584,12 @@ router.post('/storage/recover', async (req, res) => {
 
 router.post('/uploads', async (req, res) => {
   try {
-    const file = await saveUploadedDataUrl({
-      scope: req.body?.scope,
-      name: req.body?.name,
-      type: req.body?.type,
-      size: req.body?.size,
-      dataUrl: req.body?.dataUrl,
-      thumbnailDataUrl: req.body?.thumbnailDataUrl
-    });
+    const contentType = String(req.headers['content-type'] || '');
+    if (!contentType.toLowerCase().includes('multipart/form-data')) {
+      return res.status(415).json({ message: 'Используйте multipart/form-data для загрузки файлов' });
+    }
+
+    const file = await saveMultipartUpload(req);
     res.status(201).json({ file });
   } catch (error) {
     console.error('Chat POST /uploads error:', error.message);

@@ -737,13 +737,6 @@ const fetchJsonWithRetry = async (url, options = {}, { attempts = 4, retryDelay 
   throw lastError || new Error(fallbackMessage);
 };
 
-const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
-  const reader = new FileReader();
-  reader.onload = () => resolve(String(reader.result || ''));
-  reader.onerror = reject;
-  reader.readAsDataURL(file);
-});
-
 const createImageThumbnailDataUrl = (file, maxSize = 480) => new Promise((resolve) => {
   if (!String(file?.type || '').startsWith('image/')) {
     resolve('');
@@ -1993,19 +1986,18 @@ const EmployeeChat = () => {
 
 
   const uploadAttachmentFile = async (file, scope = 'chat') => {
-    const dataUrl = await readFileAsDataUrl(file);
     const thumbnailDataUrl = await createAttachmentThumbnailDataUrl(file);
+    const formData = new FormData();
+    formData.append('scope', scope);
+    formData.append('name', file.name);
+    formData.append('type', file.type || 'application/octet-stream');
+    formData.append('size', String(file.size || 0));
+    if (thumbnailDataUrl) formData.append('thumbnailDataUrl', thumbnailDataUrl);
+    formData.append('file', file, file.name);
+
     const response = await fetch(`${API_BASE_URL}/chat/uploads`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        scope,
-        name: file.name,
-        type: file.type || 'application/octet-stream',
-        size: file.size,
-        dataUrl,
-        thumbnailDataUrl
-      })
+      body: formData
     });
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
