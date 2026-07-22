@@ -3858,7 +3858,33 @@ const EmployeeChat = () => {
         {activeTab === 'profile' && (
           <div className="profile-workspace">
             {profileViewLogin && profilePreview ? (
-              <div className="profile-preview-card"><button type="button" className="back-to-chat-btn" onClick={() => setProfileViewLogin('')}>← {t('myProfile')}</button><div className="profile-preview-head"><div className="profile-preview-avatar">{profilePreview.avatar ? <img src={profilePreview.avatar} alt="profile-avatar" /> : <span>{String(profilePreview.full_name || profilePreview.login || '?').slice(0, 1).toUpperCase()}</span>}</div><div><h3>{profilePreview.full_name || profilePreview.login}</h3><p>{formatVisibleLogin(profilePreview.login)}</p><small>{profilePreview.statusText || t('internalProfile')}</small></div></div><div className="profile-preview-grid"><div><strong>{t('position')}:</strong> {profilePreview.position || '—'}</div><div><strong>{t('department')}:</strong> {profilePreview.department || '—'}</div><div><strong>{t('room')}:</strong> {profilePreview.room || '—'}</div><div><strong>{t('phone')}:</strong> {profilePreview.phone || '—'}</div><div><strong>{t('website')}:</strong> {profilePreview.website || '—'}</div><div><strong>{t('bio')}:</strong> {profilePreview.bio || '—'}</div></div><button type="button" onClick={() => { setSelectedEmail(profilePreview.login); setProfileViewLogin(''); setActiveTab('chat'); }}>{t('openDialog')}</button></div>
+              <div className="profile-preview-card">
+                <button type="button" className="back-to-chat-btn profile-preview-back" onClick={() => setProfileViewLogin('')}>← {t('myProfile')}</button>
+                <div className="profile-preview-hero">
+                  <div className="profile-preview-avatar">{profilePreview.avatar ? <img src={profilePreview.avatar} alt="profile-avatar" /> : <span>{String(profilePreview.full_name || profilePreview.login || '?').slice(0, 1).toUpperCase()}</span>}</div>
+                  <div className="profile-preview-identity">
+                    <span className="profile-preview-kicker">{t('internalProfile')}</span>
+                    <h3>{profilePreview.full_name || profilePreview.login}</h3>
+                    <p>{formatVisibleLogin(profilePreview.login)}</p>
+                    <div className="profile-preview-badges">
+                      <span className="profile-status-pill">● {profilePreview.statusText || 'Work'}</span>
+                      {profilePreview.department && <span>{profilePreview.department}</span>}
+                      {profilePreview.room && <span>{t('room')} {profilePreview.room}</span>}
+                    </div>
+                  </div>
+                </div>
+                <div className="profile-preview-grid">
+                  <div><span>💼</span><strong>{t('position')}</strong><p>{profilePreview.position || '—'}</p></div>
+                  <div><span>🏢</span><strong>{t('department')}</strong><p>{profilePreview.department || '—'}</p></div>
+                  <div><span>🚪</span><strong>{t('room')}</strong><p>{profilePreview.room || '—'}</p></div>
+                  <div><span>☎️</span><strong>{t('phone')}</strong><p>{profilePreview.phone ? <a href={`tel:${profilePreview.phone}`}>{profilePreview.phone}</a> : '—'}</p></div>
+                  <div className="profile-preview-wide"><span>🌐</span><strong>{t('website')}</strong><p>{profilePreview.website ? <a href={profilePreview.website} target="_blank" rel="noreferrer">{profilePreview.website}</a> : '—'}</p></div>
+                  <div className="profile-preview-wide"><span>📝</span><strong>{t('bio')}</strong><p>{profilePreview.bio || '—'}</p></div>
+                </div>
+                <div className="profile-preview-actions">
+                  <button type="button" onClick={() => { setSelectedEmail(profilePreview.login); setProfileViewLogin(''); setActiveTab('chat'); }}>{t('openDialog')}</button>
+                </div>
+              </div>
             ) : (
               <div className="profile-settings-grid">
                 <section className="profile-panel"><h3>{t('myProfile')}</h3><form onSubmit={saveMyProfile} className="profile-form profile-form-labeled"><label><span>{t('fullName')}</span><input placeholder="Иванов Иван Иванович" value={profileForm.full_name} onChange={(e) => updateProfileField('full_name', e.target.value)} /></label><label><span>{t('login')}</span><input value={profileForm.full_name || user?.name || user?.username || ''} disabled /></label><label><span>{t('position')}</span><input placeholder="Например: инженер" value={profileForm.position} onChange={(e) => updateProfileField('position', e.target.value)} /></label><label><span>{t('department')}</span><input placeholder="Название отдела" value={profileForm.department} onChange={(e) => updateProfileField('department', e.target.value)} /></label><label><span>{t('room')}</span><input placeholder="Например: 214" value={profileForm.room} onChange={(e) => updateProfileField('room', e.target.value)} /></label><label><span>{t('phone')}</span><input placeholder="Например: 12-34" value={profileForm.phone} onChange={(e) => updateProfileField('phone', e.target.value)} /></label><label><span>{t('websiteVersion')}</span><select value={profileForm.websiteLanguage || DEFAULT_PROFILE_WEBSITE_LANGUAGE} onChange={(e) => updateProfileField('websiteLanguage', e.target.value)}>{PROFILE_LANGUAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><label><span>{t('website')}</span><input placeholder="https://..." value={profileForm.website} onChange={(e) => updateProfileField('website', e.target.value)} /></label><label><span>{t('status')}</span><input placeholder="Короткий статус" value={profileForm.statusText} onChange={(e) => updateProfileField('statusText', e.target.value)} /></label><label className="profile-field-wide"><span>{t('bio')}</span><textarea placeholder="Кратко о себе" rows={4} value={profileForm.bio} onChange={(e) => updateProfileField('bio', e.target.value)} /></label><button type="submit">{t('saveProfile')}</button></form></section>
