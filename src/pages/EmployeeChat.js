@@ -20,6 +20,8 @@ const QUICK_EMOJIS = ['😀', '🙂', '😅', '🙏', '👍', '✅', '👀', '�
 const EMPLOYEE_CUSTOM_TEMPLATES_KEY = 'employeeChatCustomTemplates';
 const MAX_ATTACHMENT_SIZE_MB = 100;
 const MAX_ATTACHMENT_SIZE = MAX_ATTACHMENT_SIZE_MB * 1024 * 1024;
+const CHAT_MESSAGES_PAGE_SIZE = 50;
+const FEED_POSTS_PAGE_SIZE = 50;
 const VIDEO_EXTENSION_PATTERN = /\.(mp4|webm|ogg|ogv|mov|m4v|avi|mkv)$/i;
 const EMPLOYEE_TABS = [
   { id: 'feed', label: 'Лента' },
@@ -65,6 +67,9 @@ const RUSSIAN_LABELS = {
   chooseDialogHint: 'Автовыбор убран: откройте нужного сотрудника слева или найдите контакт поиском.',
   dialog: 'Диалог',
   dialogSearch: 'Поиск в диалоге...',
+  loadPreviousMessages: 'Показать предыдущие сообщения',
+  showingLatestMessages: 'Показаны последние {shown} из {total}',
+  loadMoreFeed: 'Показать ещё записи',
   of: 'из',
   mediaFiles: 'Медиа / Файлы',
   dialogActions: 'Действия с диалогом',
@@ -227,6 +232,9 @@ const ENGLISH_LABELS = {
   chooseDialogHint: 'Auto-select is disabled: open an employee on the left or find a contact with search.',
   dialog: 'Dialog',
   dialogSearch: 'Search in dialog...',
+  loadPreviousMessages: 'Show previous messages',
+  showingLatestMessages: 'Showing latest {shown} of {total}',
+  loadMoreFeed: 'Show more posts',
   of: 'of',
   mediaFiles: 'Media / Files',
   dialogActions: 'Dialog actions',
@@ -1127,6 +1135,7 @@ const EmployeeChat = () => {
   const [dialogSearch, setDialogSearch] = useState('');
   const [dialogSearchIndex, setDialogSearchIndex] = useState(0);
   const [dialogFilter, setDialogFilter] = useState('all');
+  const [visibleDialogMessageCount, setVisibleDialogMessageCount] = useState(CHAT_MESSAGES_PAGE_SIZE);
   const [mediaPanelOpen, setMediaPanelOpen] = useState(false);
   const [conversationMenuOpen, setConversationMenuOpen] = useState(false);
   const [mediaPanelTab, setMediaPanelTab] = useState('media');
@@ -1156,6 +1165,7 @@ const EmployeeChat = () => {
   const [openFeedMenuId, setOpenFeedMenuId] = useState('');
   const [feedSearch, setFeedSearch] = useState('');
   const [feedFilter, setFeedFilter] = useState('all');
+  const [visibleFeedPostCount, setVisibleFeedPostCount] = useState(FEED_POSTS_PAGE_SIZE);
   const [feedCategory, setFeedCategory] = useState(() => readSavedFeedDraft(user?.username || 'guest').category);
   const [editingFeedPostId, setEditingFeedPostId] = useState('');
   const [editingFeedText, setEditingFeedText] = useState('');
@@ -1310,6 +1320,14 @@ const EmployeeChat = () => {
     currentConversationId ? (threads[currentConversationId] || []) : []
   ), [currentConversationId, threads]);
   const selectedThreadMessages = selectedThreadId ? (threads[selectedThreadId] || []) : [];
+
+  useEffect(() => {
+    setVisibleDialogMessageCount(CHAT_MESSAGES_PAGE_SIZE);
+  }, [currentConversationId, dialogFilter, dialogSearch]);
+
+  useEffect(() => {
+    setVisibleFeedPostCount(FEED_POSTS_PAGE_SIZE);
+  }, [feedFilter, feedSearch]);
 
   const pinnedMessages = useMemo(
     () => currentMessages.filter((message) => message.pinned && !message.deletedAt),
@@ -2914,9 +2932,15 @@ const EmployeeChat = () => {
     return true;
   }), [dialogMediaItems, mediaPanelSearch, mediaPanelTab]);
 
+  const paginatedVisibleMessages = useMemo(() => {
+    const startIndex = Math.max(0, visibleMessages.length - visibleDialogMessageCount);
+    return visibleMessages.slice(startIndex);
+  }, [visibleMessages, visibleDialogMessageCount]);
+  const hiddenDialogMessagesCount = Math.max(0, visibleMessages.length - paginatedVisibleMessages.length);
+
   const messagesWithDateSeparators = useMemo(() => {
     let lastDateKey = '';
-    return visibleMessages.flatMap((message) => {
+    return paginatedVisibleMessages.flatMap((message) => {
       const currentDateKey = getDateKey(message.createdAt);
       const items = [];
       if (currentDateKey !== lastDateKey) {
@@ -2926,7 +2950,7 @@ const EmployeeChat = () => {
       items.push({ type: 'message', id: message.id, message });
       return items;
     });
-  }, [visibleMessages]);
+  }, [paginatedVisibleMessages]);
 
 
   const visibleFeedPosts = useMemo(() => {
@@ -2955,6 +2979,8 @@ const EmployeeChat = () => {
 
   const pinnedFeedPosts = useMemo(() => visibleFeedPosts.filter((post) => post.pinned), [visibleFeedPosts]);
   const regularFeedPosts = useMemo(() => visibleFeedPosts.filter((post) => !post.pinned), [visibleFeedPosts]);
+  const paginatedRegularFeedPosts = useMemo(() => regularFeedPosts.slice(0, visibleFeedPostCount), [regularFeedPosts, visibleFeedPostCount]);
+  const hiddenFeedPostsCount = Math.max(0, regularFeedPosts.length - paginatedRegularFeedPosts.length);
 
   const sortComments = (comments = []) => {
     const visible = comments.filter((comment) => !comment.deletedAt);
@@ -3422,6 +3448,7 @@ const EmployeeChat = () => {
                     else if (selectedMessageId) setSelectedMessageId('');
                   }}
                 >
+                  {hiddenDialogMessagesCount > 0 && <button type="button" className="chat-pagination-button" onClick={() => setVisibleDialogMessageCount((prev) => prev + CHAT_MESSAGES_PAGE_SIZE)}>{t('loadPreviousMessages')} · {t('showingLatestMessages').replace('{shown}', String(paginatedVisibleMessages.length)).replace('{total}', String(visibleMessages.length))}</button>}
                   {messagesWithDateSeparators.length === 0 && <div className="empty-chat">{dialogSearch ? 'По запросу ничего не найдено.' : 'Сообщений пока нет.'}</div>}
                   {messagesWithDateSeparators.map((item) => {
                     if (item.type === 'date') return <div key={item.id} className="date-separator"><span>{item.label}</span></div>;
@@ -3789,7 +3816,7 @@ const EmployeeChat = () => {
               {!feedLoading && feedError && <button type="button" className="feed-retry" onClick={() => fetchFeed({ silent: false })}>Повторить загрузку</button>}
               {!feedLoading && visibleFeedPosts.length === 0 && <div className="feed-empty-card"><strong>{feedSearch.trim() ? t('noResults') : t('noPosts')}</strong><span>{feedSearch.trim() ? t('tryAnotherSearch') : t('firstPostHint')}</span></div>}
               {pinnedFeedPosts.length > 0 && <div className="feed-pinned-title">📌 Закреплено</div>}
-              {[...pinnedFeedPosts, ...regularFeedPosts].map((post) => {
+              {[...pinnedFeedPosts, ...paginatedRegularFeedPosts].map((post) => {
                 const canDeletePost = canManageFeedPost(post, user, isManager, isAdmin);
                 const authorLogin = formatFeedLogin(post.author);
                 const authorProfile = directoryEmployees.find((employee) => sameLogin(employee.login, authorLogin)) || {};
@@ -3851,6 +3878,7 @@ const EmployeeChat = () => {
                   </article>
                 );
               })}
+              {hiddenFeedPostsCount > 0 && <button type="button" className="chat-pagination-button feed-pagination-button" onClick={() => setVisibleFeedPostCount((prev) => prev + FEED_POSTS_PAGE_SIZE)}>{t('loadMoreFeed')} · {paginatedRegularFeedPosts.length}/{regularFeedPosts.length}</button>}
             </div>
           </section>
         )}

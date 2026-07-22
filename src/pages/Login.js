@@ -277,7 +277,8 @@ const Login = ({ mode = 'employee' }) => {
                   placeholder={t('usernamePlaceholder')}
                   value={formData.username}
                   onChange={(e) => { setSelectedLogin(''); setShowAllSuggestions(false); setFormData((prev) => ({ ...prev, username: e.target.value })); setSuggestionsOpen(true); }}
-                  onFocus={() => setSuggestionsOpen(true)}
+                  onFocus={() => { setShowAllSuggestions(true); setSuggestionsOpen(true); }}
+                  onClick={() => { setShowAllSuggestions(true); setSuggestionsOpen(true); }}
                   autoComplete="off"
                   spellCheck="false"
                   required
