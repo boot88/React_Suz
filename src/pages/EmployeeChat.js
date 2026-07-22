@@ -723,7 +723,6 @@ const fetchJsonWithRetry = async (url, options = {}, { attempts = 4, retryDelay 
   let lastError = null;
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    setIsLoadingOlderDialog(true);
     try {
       const response = await fetch(url, options);
       const data = await response.json().catch(() => ({}));
