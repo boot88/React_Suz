@@ -70,6 +70,7 @@ const RUSSIAN_LABELS = {
   loadPreviousMessages: 'Показать предыдущие сообщения',
   showingLatestMessages: 'Показаны последние {shown} из {total}',
   loadMoreFeed: 'Показать ещё записи',
+  loading: 'Загрузка',
   of: 'из',
   mediaFiles: 'Медиа / Файлы',
   dialogActions: 'Действия с диалогом',
@@ -235,6 +236,7 @@ const ENGLISH_LABELS = {
   loadPreviousMessages: 'Show previous messages',
   showingLatestMessages: 'Showing latest {shown} of {total}',
   loadMoreFeed: 'Show more posts',
+  loading: 'Loading',
   of: 'of',
   mediaFiles: 'Media / Files',
   dialogActions: 'Dialog actions',
@@ -904,6 +906,7 @@ const getFeedPostsSignature = (posts = []) => JSON.stringify((Array.isArray(post
   editedAt: post?.editedAt,
   deletedAt: post?.deletedAt,
   comments: Array.isArray(post?.comments) ? post.comments.length : 0,
+  commentCount: Number(post?.commentCount) || 0,
   attachments: getFeedAttachments(post).length,
   reactions: post?.reactions ? Object.values(post.reactions).map((items) => Array.isArray(items) ? items.length : 0).join(',') : ''
 })));
@@ -1169,6 +1172,9 @@ const EmployeeChat = () => {
   const [expandedCommentPosts, setExpandedCommentPosts] = useState({});
   const [feedLoading, setFeedLoading] = useState(false);
   const [feedRefreshing, setFeedRefreshing] = useState(false);
+  const [feedLoadingMore, setFeedLoadingMore] = useState(false);
+  const [feedHasMore, setFeedHasMore] = useState(false);
+  const [feedBefore, setFeedBefore] = useState('');
   const [viewerTouchStart, setViewerTouchStart] = useState(null);
   const [forwardSourceMessage, setForwardSourceMessage] = useState(null);
   const [forwardingTargetEmail, setForwardingTargetEmail] = useState('');
@@ -1509,11 +1515,14 @@ const EmployeeChat = () => {
     if (initialLoad) setFeedLoading(true);
     else if (!silent) setFeedRefreshing(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/feed`);
+      const response = await fetch(`${API_BASE_URL}/chat/feed?limit=${FEED_POSTS_PAGE_SIZE}&commentsLimit=3`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось загрузить ленту');
       const nextPosts = getVisibleFeedPosts(data?.posts);
       setFeedPosts((current) => (getFeedPostsSignature(current) === getFeedPostsSignature(nextPosts) ? current : nextPosts));
+      setFeedHasMore(Boolean(data?.hasMore));
+      setFeedBefore(data?.before || nextPosts[nextPosts.length - 1]?.createdAt || '');
+      setVisibleFeedPostCount(FEED_POSTS_PAGE_SIZE);
       setFeedError('');
     } catch (error) {
       const message = isNetworkFailure(error) ? getFriendlyNetworkMessage('Лента временно недоступна') : (error.message || 'Не удалось загрузить ленту');
@@ -1528,6 +1537,27 @@ const EmployeeChat = () => {
       if (!silent) setFeedRefreshing(false);
     }
   }, [feedPosts.length, notify]);
+
+  const loadMoreFeedPosts = useCallback(async () => {
+    if (feedLoadingMore || !feedHasMore || !feedBefore) return;
+    setFeedLoadingMore(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/chat/feed?limit=${FEED_POSTS_PAGE_SIZE}&commentsLimit=3&before=${encodeURIComponent(feedBefore)}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Не удалось загрузить ленту');
+      const nextPosts = getVisibleFeedPosts(data?.posts);
+      setFeedPosts((current) => {
+        const byId = new Map([...current, ...nextPosts].filter((post) => post?.id).map((post) => [post.id, post]));
+        return [...byId.values()].sort((a, b) => getFeedItemTimestamp(b) - getFeedItemTimestamp(a));
+      });
+      setFeedHasMore(Boolean(data?.hasMore));
+      setFeedBefore(data?.before || nextPosts[nextPosts.length - 1]?.createdAt || '');
+    } catch (error) {
+      notify(error.message || 'Не удалось загрузить ленту', 'Лента');
+    } finally {
+      setFeedLoadingMore(false);
+    }
+  }, [feedBefore, feedHasMore, feedLoadingMore, notify]);
 
   const fetchMyApplications = useCallback(async ({ silent = true } = {}) => {
     if (!user?.username) return;
@@ -3141,6 +3171,21 @@ const EmployeeChat = () => {
     return data.post;
   };
 
+  const loadFeedComments = async (postId) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments?limit=50`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Не удалось загрузить комментарии');
+      const comments = Array.isArray(data?.comments) ? data.comments : [];
+      setFeedPosts((current) => current.map((post) => (
+        post.id === postId ? { ...post, comments, commentCount: Math.max(Number(post.commentCount) || 0, comments.length) } : post
+      )));
+      setExpandedCommentPosts((prev) => ({ ...prev, [postId]: true }));
+    } catch (error) {
+      notify(error.message || 'Не удалось загрузить комментарии', 'Лента');
+    }
+  };
+
   const addCommentToPost = async (postId) => {
     const text = (commentDrafts[postId] || '').trim();
     if (!text) return;
@@ -3173,11 +3218,17 @@ const EmployeeChat = () => {
           text
         })
       }, { attempts: 1, fallbackMessage: 'Не удалось добавить комментарий' });
-      setFeedPosts(getVisibleFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts.map((post) => (
+      const savedComment = data.comment || optimisticComment;
+      setFeedPosts((current) => current.map((post) => (
         post.id === postId
-          ? { ...post, comments: [...(post.comments || []), data.comment || optimisticComment].filter(Boolean), updatedAt: new Date().toISOString() }
+          ? {
+            ...post,
+            comments: [...(post.comments || []).filter((comment) => comment.id !== optimisticComment.id), savedComment].filter(Boolean),
+            commentCount: Math.max(Number(post.commentCount) || 0, (post.comments || []).length) + 1,
+            updatedAt: new Date().toISOString()
+          }
           : post
-      ))));
+      )));
     } catch (error) {
       if (isNetworkFailure(error)) {
         fetchFeed({ silent: true });
@@ -3852,7 +3903,8 @@ const EmployeeChat = () => {
                 const previewComments = expandedCommentPosts[post.id]
                   ? sortedPostComments
                   : (commentSort === 'old' ? sortedPostComments.slice(-2) : sortedPostComments.slice(0, 2));
-                const hiddenCommentsCount = Math.max(0, sortedPostComments.length - previewComments.length);
+                const totalPostComments = Math.max(Number(post.commentCount) || 0, sortedPostComments.length);
+                const hiddenCommentsCount = Math.max(0, totalPostComments - previewComments.length);
                 return (
                   <article
                     key={post.id}
@@ -3896,13 +3948,13 @@ const EmployeeChat = () => {
                       <div className="employee-feed-comments-title">{t('comments')}</div>
                       {sortedPostComments.length === 0 && <small className="employee-feed-no-comments">{t('noComments')}</small>}
                       {previewComments.map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; const commentInitial = String(comment.authorName || comment.author || '?').slice(0, 1).toUpperCase(); const commentAvatar = getEmployeeAvatar(comment.author, comment.avatar, comment.authorAvatar, comment.authorPhoto, comment.author_photo); return <div key={comment.id} className="employee-feed-comment"><button type="button" className="feed-avatar comment-avatar profile-link-avatar" onClick={(event) => openEmployeeProfile(comment.author, event)}>{commentAvatar ? <img src={commentAvatar} alt={comment.authorName || comment.author || 'Комментарий'} /> : <span>{commentInitial}</span>}</button><div className="employee-feed-comment-body"><button type="button" className="comment-author-link" onClick={(event) => openEmployeeProfile(comment.author, event)}>{comment.authorName || formatFeedLogin(comment.author)}</button><span>{comment.text}</span><small>{new Date(comment.createdAt).toLocaleString(isEnglishInterface ? 'en-US' : 'ru-RU')}</small><div className="feed-comment-actions compact"><button type="button" onClick={() => setCommentDrafts((prev) => ({ ...prev, [post.id]: `@${formatFeedLogin(comment.author)} ` }))}>{t('reply')}</button>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>{t('delete')}</button>}</div></div></div>; })}
-                      {hiddenCommentsCount > 0 && !expandedCommentPosts[post.id] && <button type="button" className="feed-show-more-comments" onClick={() => setExpandedCommentPosts((prev) => ({ ...prev, [post.id]: true }))}>{t('showAllComments')} ({sortedPostComments.length})</button>}
+                      {hiddenCommentsCount > 0 && !expandedCommentPosts[post.id] && <button type="button" className="feed-show-more-comments" onClick={() => loadFeedComments(post.id)}>{t('showAllComments')} ({totalPostComments})</button>}
                       <div className="employee-feed-comment-form" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onFocus={(event) => event.stopPropagation()}><div className="feed-avatar comment-avatar feed-avatar-current">{avatarUrl ? <img src={avatarUrl} alt="Мой аватар" /> : <span>{String(profileForm.full_name || user?.name || user?.username || '?').slice(0, 1).toUpperCase()}</span>}</div><input placeholder={t('writeComment')} value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} />{(commentDrafts[post.id] || '').trim() && <button type="button" onClick={() => addCommentToPost(post.id)}>{t('sendComment')}</button>}</div>
                     </div>
                   </article>
                 );
               })}
-              {hiddenFeedPostsCount > 0 && <button type="button" className="chat-pagination-button feed-pagination-button" onClick={() => setVisibleFeedPostCount((prev) => prev + FEED_POSTS_PAGE_SIZE)}>{t('loadMoreFeed')} · {paginatedRegularFeedPosts.length}/{regularFeedPosts.length}</button>}
+              {(hiddenFeedPostsCount > 0 || feedHasMore) && <button type="button" className="chat-pagination-button feed-pagination-button" disabled={feedLoadingMore} onClick={() => { if (hiddenFeedPostsCount > 0) setVisibleFeedPostCount((prev) => prev + FEED_POSTS_PAGE_SIZE); else loadMoreFeedPosts(); }}>{feedLoadingMore ? t('loading') : t('loadMoreFeed')} · {paginatedRegularFeedPosts.length}/{regularFeedPosts.length}{feedHasMore ? '+' : ''}</button>}
             </div>
           </section>
         )}

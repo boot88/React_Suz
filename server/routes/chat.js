@@ -510,6 +510,199 @@ const writeFeed = async (posts, { allowEmpty = false } = {}) => {
   await feedWriteQueue;
 };
 
+
+let feedSqlReady = false;
+let feedSqlChecked = false;
+
+const normalizeFeedDate = (value = {}) => {
+  const date = new Date(value.createdAt || value.updatedAt || Date.now());
+  return Number.isNaN(date.getTime()) ? new Date() : date;
+};
+
+const ensureFeedSqlSchema = async () => {
+  if (feedSqlChecked) return feedSqlReady;
+  feedSqlChecked = true;
+  try {
+    if (!db?.execute) throw new Error('SQL execute is unavailable');
+    await db.execute(`CREATE TABLE IF NOT EXISTS feed_posts (
+      id VARCHAR(128) PRIMARY KEY,
+      author_login VARCHAR(255) NULL,
+      post_json LONGTEXT NOT NULL,
+      pinned TINYINT(1) NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      deleted_at DATETIME NULL,
+      INDEX idx_feed_posts_created (created_at),
+      INDEX idx_feed_posts_author (author_login),
+      INDEX idx_feed_posts_deleted (deleted_at)
+    )`);
+    await db.execute(`CREATE TABLE IF NOT EXISTS feed_comments (
+      id VARCHAR(128) PRIMARY KEY,
+      post_id VARCHAR(128) NOT NULL,
+      author_login VARCHAR(255) NULL,
+      comment_json LONGTEXT NOT NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      deleted_at DATETIME NULL,
+      INDEX idx_feed_comments_post_created (post_id, created_at),
+      INDEX idx_feed_comments_deleted (deleted_at)
+    )`);
+    await db.execute(`CREATE TABLE IF NOT EXISTS feed_reactions (
+      post_id VARCHAR(128) NOT NULL,
+      emoji VARCHAR(32) NOT NULL,
+      login VARCHAR(255) NOT NULL,
+      created_at DATETIME NOT NULL,
+      PRIMARY KEY (post_id, emoji, login),
+      INDEX idx_feed_reactions_post (post_id)
+    )`);
+    feedSqlReady = true;
+  } catch (error) {
+    feedSqlReady = false;
+    console.warn('Feed SQL storage unavailable, using JSON feed archive:', error.message);
+  }
+  return feedSqlReady;
+};
+
+const parseSqlJson = (value) => {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(value); } catch { return null; }
+};
+
+const compactFeedPostForSql = (post = {}) => {
+  const { comments, reactions, ...rest } = post;
+  return rest;
+};
+
+const writeSqlFeedPost = async (post = {}) => {
+  if (!await ensureFeedSqlSchema()) return false;
+  const createdAt = normalizeFeedDate(post);
+  const updatedAt = new Date(post.updatedAt || post.createdAt || Date.now());
+  const deletedAt = post.deletedAt ? new Date(post.deletedAt) : null;
+  await db.execute(
+    `INSERT INTO feed_posts (id, author_login, post_json, pinned, created_at, updated_at, deleted_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       author_login = VALUES(author_login),
+       post_json = VALUES(post_json),
+       pinned = VALUES(pinned),
+       created_at = VALUES(created_at),
+       updated_at = VALUES(updated_at),
+       deleted_at = VALUES(deleted_at)`,
+    [post.id, post.author || null, JSON.stringify(compactFeedPostForSql(post)), post.pinned ? 1 : 0, createdAt, updatedAt, deletedAt]
+  );
+  return true;
+};
+
+const writeSqlFeedComment = async (postId, comment = {}) => {
+  if (!await ensureFeedSqlSchema()) return false;
+  const createdAt = normalizeFeedDate(comment);
+  const updatedAt = new Date(comment.updatedAt || comment.createdAt || Date.now());
+  const deletedAt = comment.deletedAt ? new Date(comment.deletedAt) : null;
+  await db.execute(
+    `INSERT INTO feed_comments (id, post_id, author_login, comment_json, created_at, updated_at, deleted_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       post_id = VALUES(post_id),
+       author_login = VALUES(author_login),
+       comment_json = VALUES(comment_json),
+       created_at = VALUES(created_at),
+       updated_at = VALUES(updated_at),
+       deleted_at = VALUES(deleted_at)`,
+    [comment.id, postId, comment.author || null, JSON.stringify(comment), createdAt, updatedAt, deletedAt]
+  );
+  return true;
+};
+
+const deleteSqlFeedComment = async (postId, commentId, deletedBy = 'system') => {
+  if (!await ensureFeedSqlSchema()) return false;
+  const deletedAt = new Date();
+  const [rows] = await db.execute('SELECT comment_json FROM feed_comments WHERE post_id = ? AND id = ? LIMIT 1', [postId, commentId]);
+  const existing = parseSqlJson(rows?.[0]?.comment_json) || { id: commentId };
+  const nextComment = { ...existing, deletedAt: deletedAt.toISOString(), deletedBy, updatedAt: deletedAt.toISOString() };
+  await db.execute('UPDATE feed_comments SET comment_json = ?, updated_at = ?, deleted_at = ? WHERE post_id = ? AND id = ?', [JSON.stringify(nextComment), deletedAt, deletedAt, postId, commentId]);
+  return true;
+};
+
+const readSqlFeedReactions = async (postIds = []) => {
+  if (!postIds.length || !await ensureFeedSqlSchema()) return {};
+  const placeholders = postIds.map(() => '?').join(',');
+  const [rows] = await db.execute(`SELECT post_id, emoji, login FROM feed_reactions WHERE post_id IN (${placeholders})`, postIds);
+  return (rows || []).reduce((acc, row) => {
+    if (!acc[row.post_id]) acc[row.post_id] = {};
+    if (!acc[row.post_id][row.emoji]) acc[row.post_id][row.emoji] = [];
+    acc[row.post_id][row.emoji].push(row.login);
+    return acc;
+  }, {});
+};
+
+const readSqlFeedComments = async (postId, { limit = 3, before = '' } = {}) => {
+  if (!await ensureFeedSqlSchema()) return null;
+  const safeLimit = Math.min(100, Math.max(1, Number(limit) || 3));
+  const params = [postId];
+  let where = 'post_id = ? AND deleted_at IS NULL';
+  if (before) {
+    where += ' AND created_at < ?';
+    params.push(new Date(before));
+  }
+  params.push(safeLimit);
+  const [rows] = await db.execute(`SELECT comment_json FROM feed_comments WHERE ${where} ORDER BY created_at DESC LIMIT ?`, params);
+  return (rows || []).map((row) => parseSqlJson(row.comment_json)).filter(Boolean).reverse();
+};
+
+const countSqlFeedComments = async (postIds = []) => {
+  if (!postIds.length || !await ensureFeedSqlSchema()) return {};
+  const placeholders = postIds.map(() => '?').join(',');
+  const [rows] = await db.execute(`SELECT post_id, COUNT(*) AS total FROM feed_comments WHERE deleted_at IS NULL AND post_id IN (${placeholders}) GROUP BY post_id`, postIds);
+  return Object.fromEntries((rows || []).map((row) => [row.post_id, Number(row.total) || 0]));
+};
+
+const readSqlFeedPosts = async ({ limit = 50, before = '', commentsLimit = 3 } = {}) => {
+  if (!await ensureFeedSqlSchema()) return null;
+  const safeLimit = Math.min(100, Math.max(1, Number(limit) || 50));
+  const params = [];
+  let where = 'deleted_at IS NULL';
+  if (before) {
+    where += ' AND created_at < ?';
+    params.push(new Date(before));
+  }
+  params.push(safeLimit);
+  const [rows] = await db.execute(`SELECT post_json FROM feed_posts WHERE ${where} ORDER BY pinned DESC, created_at DESC LIMIT ?`, params);
+  const posts = (rows || []).map((row) => parseSqlJson(row.post_json)).filter(Boolean);
+  const postIds = posts.map((post) => post.id).filter(Boolean);
+  const [reactionsByPost, commentCounts] = await Promise.all([readSqlFeedReactions(postIds), countSqlFeedComments(postIds)]);
+  const commentsPairs = await Promise.all(postIds.map(async (postId) => [postId, await readSqlFeedComments(postId, { limit: commentsLimit })]));
+  const commentsByPost = Object.fromEntries(commentsPairs.filter(([, comments]) => Array.isArray(comments)));
+  return posts.map((post) => ({
+    ...post,
+    reactions: reactionsByPost[post.id] || {},
+    comments: commentsByPost[post.id] || [],
+    commentCount: commentCounts[post.id] || 0,
+    commentsPreviewLimit: commentsLimit
+  }));
+};
+
+const toggleSqlFeedReaction = async (postId, emoji, login) => {
+  if (!await ensureFeedSqlSchema()) return false;
+  const [rows] = await db.execute('SELECT post_id FROM feed_reactions WHERE post_id = ? AND emoji = ? AND login = ? LIMIT 1', [postId, emoji, login]);
+  if (rows?.length) {
+    await db.execute('DELETE FROM feed_reactions WHERE post_id = ? AND emoji = ? AND login = ?', [postId, emoji, login]);
+  } else {
+    await db.execute('INSERT INTO feed_reactions (post_id, emoji, login, created_at) VALUES (?, ?, ?, ?)', [postId, emoji, login, new Date()]);
+  }
+  return true;
+};
+
+const mergeFeedPosts = (archivePosts = [], sqlPosts = [], limit = 50) => {
+  const byId = new Map();
+  [...archivePosts, ...sqlPosts].forEach((post) => {
+    if (post?.id && !post.deletedAt) byId.set(post.id, post);
+  });
+  return [...byId.values()]
+    .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || normalizeFeedDate(b).getTime() - normalizeFeedDate(a).getTime())
+    .slice(0, limit);
+};
+
 const ensureStorage = async () => {
   if (!storageReadyPromise) {
     storageReadyPromise = ensureJsonFile(chatFilePath, {});
@@ -599,9 +792,20 @@ router.post('/uploads', async (req, res) => {
 
 router.get('/feed', async (req, res) => {
   try {
-    const posts = await readFeed();
+    const limit = Math.min(100, Math.max(1, Number(req.query?.limit) || 50));
+    const commentsLimit = Math.min(5, Math.max(2, Number(req.query?.commentsLimit) || 3));
+    const before = req.query?.before || '';
+    const archivePosts = getVisibleFeedPosts(await readFeed());
+    const filteredArchivePosts = before
+      ? archivePosts.filter((post) => normalizeFeedDate(post).getTime() < new Date(before).getTime())
+      : archivePosts;
+    const archivePage = filteredArchivePosts.slice(0, limit);
+    const sqlPosts = await readSqlFeedPosts({ limit, before, commentsLimit }).catch(() => null);
+    const posts = Array.isArray(sqlPosts) ? mergeFeedPosts(archivePage, sqlPosts, limit) : archivePage.slice(0, limit);
+    const earliest = posts[posts.length - 1]?.createdAt || '';
+    const hasMoreArchive = earliest ? archivePosts.some((post) => normalizeFeedDate(post).getTime() < new Date(earliest).getTime()) : false;
     res.set('Cache-Control', 'no-store');
-    res.json({ posts: getVisibleFeedPosts(posts) });
+    res.json({ posts, pageSize: limit, before: earliest, hasMore: hasMoreArchive || posts.length >= limit, storage: Array.isArray(sqlPosts) ? 'sql+json-archive' : 'json-archive' });
   } catch (error) {
     console.error('Chat GET /feed error:', error);
     res.status(500).json({ message: 'Не удалось загрузить ленту' });
@@ -653,6 +857,7 @@ router.post('/feed/posts', async (req, res) => {
       return res.status(400).json({ message: 'text или attachment обязателен' });
     }
 
+    try { await writeSqlFeedPost(post); } catch (error) { console.warn('Feed SQL post write failed:', error.message); }
     const posts = await mutateFeed((items) => [post, ...items]);
     res.status(201).json({ message: 'Публикация создана', post, posts: getVisibleFeedPosts(posts) });
   } catch (error) {
@@ -674,6 +879,7 @@ router.delete('/feed/posts/:postId', async (req, res) => {
     }));
 
     if (!found) return res.status(404).json({ message: 'Публикация не найдена' });
+    try { await writeSqlFeedPost({ id: postId, deletedAt: now, deletedBy, updatedAt: now }); } catch (error) { console.warn('Feed SQL post delete failed:', error.message); }
     res.json({ message: 'Публикация удалена', postId, deletedAt: now, deletedBy, posts: getVisibleFeedPosts(posts) });
   } catch (error) {
     console.error('Chat DELETE /feed/posts error:', error);
@@ -704,10 +910,35 @@ router.patch('/feed/posts/:postId', async (req, res) => {
     }));
 
     if (!updatedPost) return res.status(404).json({ message: 'Публикация не найдена' });
+    try { await writeSqlFeedPost(updatedPost); } catch (error) { console.warn('Feed SQL post patch failed:', error.message); }
     res.json({ message: 'Публикация обновлена', post: updatedPost, posts: getVisibleFeedPosts(posts) });
   } catch (error) {
     console.error('Chat PATCH /feed/posts error:', error);
     res.status(500).json({ message: 'Не удалось обновить публикацию' });
+  }
+});
+
+router.get('/feed/posts/:postId/comments', async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const limit = Math.min(100, Math.max(1, Number(req.query?.limit) || 50));
+    const before = req.query?.before || '';
+    const sqlComments = await readSqlFeedComments(postId, { limit, before }).catch(() => null);
+    if (Array.isArray(sqlComments)) {
+      const earliest = sqlComments[0]?.createdAt || '';
+      return res.json({ postId, comments: sqlComments, before: earliest, hasMore: sqlComments.length >= limit, storage: 'sql' });
+    }
+
+    const posts = await readFeed();
+    const post = posts.find((item) => item.id === postId);
+    if (!post) return res.status(404).json({ message: 'Публикация не найдена' });
+    const comments = (post.comments || []).filter((comment) => !comment.deletedAt);
+    const filtered = before ? comments.filter((comment) => normalizeFeedDate(comment).getTime() < new Date(before).getTime()) : comments;
+    const page = filtered.slice(-limit);
+    res.json({ postId, comments: page, before: page[0]?.createdAt || '', hasMore: filtered.length > page.length, storage: 'json-archive' });
+  } catch (error) {
+    console.error('Chat GET /feed/comments error:', error);
+    res.status(500).json({ message: 'Не удалось загрузить комментарии' });
   }
 });
 
@@ -734,6 +965,7 @@ router.post('/feed/posts/:postId/comments', async (req, res) => {
     }));
 
     if (!found) return res.status(404).json({ message: 'Публикация не найдена' });
+    try { await writeSqlFeedComment(postId, comment); } catch (error) { console.warn('Feed SQL comment write failed:', error.message); }
     res.status(201).json({ message: 'Комментарий добавлен', postId, comment, posts: getVisibleFeedPosts(posts) });
   } catch (error) {
     console.error('Chat POST /feed/posts/:postId/comments error:', error);
@@ -761,6 +993,7 @@ router.delete('/feed/posts/:postId/comments/:commentId', async (req, res) => {
     }));
 
     if (!found) return res.status(404).json({ message: 'Комментарий не найден' });
+    try { await deleteSqlFeedComment(postId, commentId, deletedBy); } catch (error) { console.warn('Feed SQL comment delete failed:', error.message); }
     res.json({ message: 'Комментарий удалён', postId, commentId, deletedAt: now, deletedBy, posts: getVisibleFeedPosts(posts) });
   } catch (error) {
     console.error('Chat DELETE /feed/comments error:', error);
@@ -789,6 +1022,7 @@ router.post('/feed/posts/:postId/reactions', async (req, res) => {
     }));
 
     if (!found) return res.status(404).json({ message: 'Публикация не найдена' });
+    try { await toggleSqlFeedReaction(postId, emoji, login); } catch (error) { console.warn('Feed SQL reaction update failed:', error.message); }
     res.json({ message: 'Реакция обновлена', posts: getVisibleFeedPosts(posts) });
   } catch (error) {
     console.error('Chat POST /feed/reactions error:', error);
@@ -809,6 +1043,8 @@ router.post('/feed/posts/:postId/pin', async (req, res) => {
     }));
 
     if (!found) return res.status(404).json({ message: 'Публикация не найдена' });
+    const updatedPost = posts.find((post) => post.id === postId);
+    try { if (updatedPost) await writeSqlFeedPost(updatedPost); } catch (error) { console.warn('Feed SQL pin update failed:', error.message); }
     res.json({ message: 'Закрепление обновлено', posts: getVisibleFeedPosts(posts) });
   } catch (error) {
     console.error('Chat POST /feed/pin error:', error);
