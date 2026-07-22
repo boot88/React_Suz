@@ -4890,3 +4890,18 @@ button:disabled {
     height: 96px;
   }
 }
+
+/* Keep comment form avatar clean: border should be on the input, not around avatar + form */
+.employee-feed-comment-form {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.employee-feed-comment-form .feed-avatar,
+.employee-feed-comment-form .comment-avatar,
+.employee-feed-comment-form .feed-avatar-current {
+  border: 0;
+  outline: 0;
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, .12);
+}
