@@ -4930,3 +4930,20 @@ button:disabled {
   max-width: 100%;
   margin-bottom: 24px;
 }
+
+/* Keep sender name readable on outgoing blue message bubbles */
+.message-row.mine .message-author-link,
+.message-row.mine .message-author-link span:last-child {
+  color: #ffffff;
+}
+
+.message-row.mine .message-author-link:hover span:last-child {
+  color: #e0f2fe;
+  text-decoration-color: rgba(224, 242, 254, .9);
+}
+
+.message-row.mine .message-author-link .feed-avatar {
+  background: rgba(255, 255, 255, .20);
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .38);
+}
