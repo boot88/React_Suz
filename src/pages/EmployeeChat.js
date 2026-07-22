@@ -723,6 +723,7 @@ const fetchJsonWithRetry = async (url, options = {}, { attempts = 4, retryDelay 
   let lastError = null;
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
+    setIsLoadingOlderDialog(true);
     try {
       const response = await fetch(url, options);
       const data = await response.json().catch(() => ({}));
@@ -1125,6 +1126,8 @@ const EmployeeChat = () => {
   const profileLoadedForRef = useRef('');
    
   const [threads, setThreads] = useState({});
+  const [threadHasMore, setThreadHasMore] = useState({});
+  const [isLoadingOlderDialog, setIsLoadingOlderDialog] = useState(false);
   const [selectedEmail, setSelectedEmail] = useState('');
   const [selectedThreadId, setSelectedThreadId] = useState('');
   const [draft, setDraft] = useState('');
@@ -1473,15 +1476,41 @@ const EmployeeChat = () => {
     if (Date.now() < suppressThreadsRefreshUntilRef.current) return;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/threads`);
+      const response = await fetch(`${API_BASE_URL}/chat/threads?limit=${CHAT_MESSAGES_PAGE_SIZE}`);
       if (!response.ok) return;
       const data = await response.json();
       if (Date.now() < suppressThreadsRefreshUntilRef.current) return;
-      setThreads(data?.threads && typeof data.threads === 'object' ? data.threads : {});
+      const nextThreads = data?.threads && typeof data.threads === 'object' ? data.threads : {};
+      setThreads(nextThreads);
+      setThreadHasMore(Object.fromEntries(Object.entries(nextThreads).map(([conversationId, messages]) => [conversationId, Array.isArray(messages) && messages.length >= CHAT_MESSAGES_PAGE_SIZE])));
     } catch (error) {
       console.error('Ошибка загрузки переписки:', error);
     }
   }, []);
+
+  const loadOlderDialogMessages = useCallback(async () => {
+    if (isLoadingOlderDialog || !currentConversationId || !currentMessages.length) return;
+    const before = currentMessages[0]?.createdAt || '';
+    setIsLoadingOlderDialog(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(currentConversationId)}/messages?limit=${CHAT_MESSAGES_PAGE_SIZE}&before=${encodeURIComponent(before)}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Не удалось загрузить предыдущие сообщения');
+      const olderMessages = Array.isArray(data?.messages) ? data.messages : [];
+      setThreads((prev) => {
+        const current = Array.isArray(prev[currentConversationId]) ? prev[currentConversationId] : [];
+        const byId = new Map([...olderMessages, ...current].filter((message) => message?.id).map((message) => [message.id, message]));
+        const merged = [...byId.values()].sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+        return { ...prev, [currentConversationId]: merged };
+      });
+      setThreadHasMore((prev) => ({ ...prev, [currentConversationId]: Boolean(data?.hasMore) && olderMessages.length >= CHAT_MESSAGES_PAGE_SIZE }));
+      setVisibleDialogMessageCount((prev) => prev + CHAT_MESSAGES_PAGE_SIZE);
+    } catch (error) {
+      notify(error.message || 'Не удалось загрузить предыдущие сообщения', 'Чат');
+    } finally {
+      setIsLoadingOlderDialog(false);
+    }
+  }, [currentConversationId, currentMessages, isLoadingOlderDialog, notify]);
 
   const fetchFeed = useCallback(async ({ silent = true } = {}) => {
     const initialLoad = !silent && feedPosts.length === 0;
@@ -3447,8 +3476,12 @@ const EmployeeChat = () => {
                     if (selectedMessageId && messageReactionExpanded) setMessageReactionExpanded(false);
                     else if (selectedMessageId) setSelectedMessageId('');
                   }}
+                  onScroll={(event) => {
+                    if (event.currentTarget.scrollTop > 32 || hiddenDialogMessagesCount > 0 || !threadHasMore[currentConversationId]) return;
+                    loadOlderDialogMessages();
+                  }}
                 >
-                  {hiddenDialogMessagesCount > 0 && <button type="button" className="chat-pagination-button" onClick={() => setVisibleDialogMessageCount((prev) => prev + CHAT_MESSAGES_PAGE_SIZE)}>{t('loadPreviousMessages')} · {t('showingLatestMessages').replace('{shown}', String(paginatedVisibleMessages.length)).replace('{total}', String(visibleMessages.length))}</button>}
+                  {(hiddenDialogMessagesCount > 0 || threadHasMore[currentConversationId]) && <button type="button" className="chat-pagination-button" disabled={isLoadingOlderDialog} onClick={() => hiddenDialogMessagesCount > 0 ? setVisibleDialogMessageCount((prev) => prev + CHAT_MESSAGES_PAGE_SIZE) : loadOlderDialogMessages()}>{t('loadPreviousMessages')} · {t('showingLatestMessages').replace('{shown}', String(paginatedVisibleMessages.length)).replace('{total}', String(threadHasMore[currentConversationId] ? `${visibleMessages.length}+` : visibleMessages.length))}</button>}
                   {messagesWithDateSeparators.length === 0 && <div className="empty-chat">{dialogSearch ? 'По запросу ничего не найдено.' : 'Сообщений пока нет.'}</div>}
                   {messagesWithDateSeparators.map((item) => {
                     if (item.type === 'date') return <div key={item.id} className="date-separator"><span>{item.label}</span></div>;
