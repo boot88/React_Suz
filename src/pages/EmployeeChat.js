@@ -951,11 +951,28 @@ const saveHiddenFeedPosts = (username = 'guest', postIds = []) => {
 
 const isImageAttachment = (file = {}) => String(file.type || '').startsWith('image/');
 const isMediaAttachment = (file = {}) => isImageAttachment(file) || isVideoAttachment(file);
+const getCurrentAttachmentLogin = () => {
+  try {
+    const authState = JSON.parse(localStorage.getItem('authState') || 'null');
+    return String(authState?.user?.username || '').trim();
+  } catch {
+    return '';
+  }
+};
+
+const appendAttachmentLogin = (url = '') => {
+  const login = getCurrentAttachmentLogin();
+  if (!login || !url.includes('/api/chat/files/')) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}login=${encodeURIComponent(login)}`;
+};
+
 const resolveAttachmentUrl = (url = '') => {
   if (!url) return '';
-  if (url.startsWith('data:') || url.startsWith('blob:') || /^https?:\/\//i.test(url)) return url;
+  if (url.startsWith('data:') || url.startsWith('blob:')) return url;
+  if (/^https?:\/\//i.test(url)) return appendAttachmentLogin(url);
   const fileBaseUrl = API_BASE_URL.replace(/\/api\/?$/, '');
-  return `${fileBaseUrl}${url.startsWith('/') ? url : `/${url}`}`;
+  return appendAttachmentLogin(`${fileBaseUrl}${url.startsWith('/') ? url : `/${url}`}`);
 };
 const getAttachmentUrl = (file = {}) => resolveAttachmentUrl(file.thumbnailUrl || file.previewUrl || file.url || file.dataUrl || '');
 const getOriginalAttachmentUrl = (file = {}) => resolveAttachmentUrl(file.url || file.dataUrl || file.previewUrl || file.thumbnailUrl || '');
@@ -2022,6 +2039,7 @@ const EmployeeChat = () => {
     formData.append('name', file.name);
     formData.append('type', file.type || 'application/octet-stream');
     formData.append('size', String(file.size || 0));
+    formData.append('uploadedBy', user?.username || '');
     if (thumbnailDataUrl) formData.append('thumbnailDataUrl', thumbnailDataUrl);
     formData.append('file', file, file.name);
 

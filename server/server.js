@@ -45,11 +45,6 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '150mb' })); // Увеличиваем лимит для изображений и видео-вложений
 app.use(express.urlencoded({ extended: true, limit: '150mb' }));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
-  maxAge: process.env.NODE_ENV === 'production' ? '7d' : 0,
-  fallthrough: false
-}));
-
 app.use('/api/employees', employeeRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);

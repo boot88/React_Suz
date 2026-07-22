@@ -140,7 +140,6 @@ const getDataUrlPayload = (dataUrl = '') => {
   return { mime: match[1] || 'application/octet-stream', payload: match[2] || '' };
 };
 
-const buildUploadUrl = (scope, fileName) => `/uploads/${scope}/${encodeURIComponent(fileName)}`;
 
 let chatFilesSqlReady = false;
 let chatFilesSqlChecked = false;
@@ -162,9 +161,15 @@ const ensureChatFilesSqlSchema = async () => {
       sha256 VARCHAR(64) NOT NULL,
       uploaded_at DATETIME NOT NULL,
       metadata_json LONGTEXT NULL,
+      uploaded_by VARCHAR(255) NULL,
+      is_verified TINYINT(1) NOT NULL DEFAULT 1,
+      deleted_at DATETIME NULL,
       INDEX idx_chat_files_scope (scope),
       INDEX idx_chat_files_uploaded_at (uploaded_at)
     )`);
+    await db.execute('ALTER TABLE chat_files ADD COLUMN uploaded_by VARCHAR(255) NULL').catch(() => {});
+    await db.execute('ALTER TABLE chat_files ADD COLUMN is_verified TINYINT(1) NOT NULL DEFAULT 1').catch(() => {});
+    await db.execute('ALTER TABLE chat_files ADD COLUMN deleted_at DATETIME NULL').catch(() => {});
     chatFilesSqlReady = true;
   } catch (error) {
     chatFilesSqlReady = false;
@@ -176,8 +181,8 @@ const ensureChatFilesSqlSchema = async () => {
 const writeSqlFileMetadata = async (file = {}) => {
   if (!await ensureChatFilesSqlSchema()) return false;
   await db.execute(
-    `INSERT INTO chat_files (id, scope, original_name, stored_name, url, thumbnail_url, mime_type, size_bytes, sha256, uploaded_at, metadata_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO chat_files (id, scope, original_name, stored_name, url, thumbnail_url, mime_type, size_bytes, sha256, uploaded_at, metadata_json, uploaded_by, is_verified, deleted_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        scope = VALUES(scope),
        original_name = VALUES(original_name),
@@ -188,7 +193,10 @@ const writeSqlFileMetadata = async (file = {}) => {
        size_bytes = VALUES(size_bytes),
        sha256 = VALUES(sha256),
        uploaded_at = VALUES(uploaded_at),
-       metadata_json = VALUES(metadata_json)`,
+       metadata_json = VALUES(metadata_json),
+       uploaded_by = VALUES(uploaded_by),
+       is_verified = VALUES(is_verified),
+       deleted_at = VALUES(deleted_at)`,
     [
       file.id,
       file.scope,
@@ -200,7 +208,10 @@ const writeSqlFileMetadata = async (file = {}) => {
       file.size,
       file.sha256,
       new Date(file.uploadedAt || Date.now()),
-      JSON.stringify({ name: file.name, thumbnailUrl: file.thumbnailUrl || null })
+      JSON.stringify({ name: file.name, thumbnailUrl: file.thumbnailUrl || null, thumbnailStoredName: file.thumbnailStoredName || '' }),
+      file.uploadedBy || null,
+      file.isVerified === false ? 0 : 1,
+      file.deletedAt ? new Date(file.deletedAt) : null
     ]
   );
   return true;
@@ -356,7 +367,9 @@ const saveMultipartUpload = async (req) => {
     const storedName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}-${safeOriginalName}`;
     await fs.writeFile(path.join(uploadDir, storedName), filePart.buffer);
     const sha256 = crypto.createHash('sha256').update(filePart.buffer).digest('hex');
-    const url = buildUploadUrl(safeScope, storedName);
+    const fileId = createId('file');
+    const url = `/api/chat/files/${encodeURIComponent(fileId)}/download`;
+    let thumbnailStoredName = '';
     let thumbnailUrl = String(mime).startsWith('image/') || String(mime).startsWith('video/') ? url : '';
 
     if ((String(mime).startsWith('image/') || String(mime).startsWith('video/')) && fields.thumbnailDataUrl) {
@@ -366,13 +379,14 @@ const saveMultipartUpload = async (req) => {
         if (thumbnailBuffer.length > 0 && thumbnailBuffer.length <= 2 * 1024 * 1024) {
           const thumbnailName = `thumb-${storedName.replace(/\.[^.]+$/, '')}.jpg`;
           await fs.writeFile(path.join(uploadDir, thumbnailName), thumbnailBuffer);
-          thumbnailUrl = buildUploadUrl(safeScope, thumbnailName);
+          thumbnailStoredName = thumbnailName;
+          thumbnailUrl = `/api/chat/files/${encodeURIComponent(fileId)}/download?variant=thumbnail`;
         }
       }
     }
 
     const file = {
-      id: createId('file'),
+      id: fileId,
       scope: safeScope,
       name: safeOriginalName,
       type: mime,
@@ -380,8 +394,11 @@ const saveMultipartUpload = async (req) => {
       url,
       thumbnailUrl,
       originalName: fields.name || filePart.filename,
+      uploadedBy: String(fields.uploadedBy || fields.login || '').trim().toLowerCase(),
       storedName,
+      thumbnailStoredName,
       sha256,
+      isVerified: true,
       uploadedAt: new Date().toISOString()
     };
 
@@ -395,6 +412,120 @@ const saveMultipartUpload = async (req) => {
   } finally {
     await fs.unlink(tempPath).catch(() => {});
   }
+};
+
+
+const getRequestLogin = (req) => String(req.headers['x-user-login'] || req.query?.login || '').trim().toLowerCase();
+
+const parseFileMetadataJson = (value) => {
+  const parsed = parseSqlJson(value);
+  return parsed && typeof parsed === 'object' ? parsed : {};
+};
+
+const readSqlFileMetadata = async (fileId) => {
+  if (!await ensureChatFilesSqlSchema()) return null;
+  const [rows] = await db.execute('SELECT * FROM chat_files WHERE id = ? LIMIT 1', [fileId]);
+  return rows?.[0] || null;
+};
+
+const getMessageAttachments = (message = {}) => [
+  ...(Array.isArray(message.attachments) ? message.attachments : []),
+  ...(Array.isArray(message.files) ? message.files : []),
+  message.attachment || null,
+  message.file || null
+].filter(Boolean);
+
+const fileMatchesAttachment = (attachment = {}, file = {}) => {
+  const values = new Set([
+    attachment.id,
+    attachment.fileId,
+    attachment.url,
+    attachment.thumbnailUrl,
+    attachment.previewUrl,
+    attachment.originalUrl
+  ].filter(Boolean).map(String));
+  return [file.id, file.url, file.thumbnail_url].filter(Boolean).some((value) => values.has(String(value)));
+};
+
+const isConversationParticipant = (conversationId = '', login = '') => conversationId
+  .toLowerCase()
+  .split('::')
+  .map((item) => item.trim())
+  .includes(String(login || '').toLowerCase());
+
+const findChatFileReference = async (file, login) => {
+  const archiveThreads = await readThreads();
+  const sqlThreads = await readSqlThreadsSnapshot(200).catch(() => null);
+  const threadIds = new Set([...Object.keys(archiveThreads || {}), ...Object.keys(sqlThreads || {})]);
+  for (const conversationId of threadIds) {
+    if (!isConversationParticipant(conversationId, login)) continue;
+    const messages = mergeThreadMessages(
+      Array.isArray(archiveThreads[conversationId]) ? archiveThreads[conversationId] : [],
+      Array.isArray(sqlThreads?.[conversationId]) ? sqlThreads[conversationId] : []
+    );
+    const found = messages.some((message) => !message.deletedAt && getMessageAttachments(message).some((attachment) => !attachment.deletedAt && fileMatchesAttachment(attachment, file)));
+    if (found) return { conversationId };
+  }
+  return null;
+};
+
+const findFeedFileReference = async (file) => {
+  const archivePosts = getVisibleFeedPosts(await readFeed());
+  const sqlPosts = await readSqlFeedPosts({ limit: 100, commentsLimit: 2 }).catch(() => null);
+  return [...archivePosts, ...(Array.isArray(sqlPosts) ? sqlPosts : [])].some((post) => (
+    post && !post.deletedAt && getFeedAttachmentsFromPost(post).some((attachment) => fileMatchesAttachment(attachment, file))
+  ));
+};
+
+const getFeedAttachmentsFromPost = (post = {}) => [
+  ...(Array.isArray(post.attachments) ? post.attachments : []),
+  post.attachment || null
+].filter(Boolean);
+
+const resolveStoredDownload = (file = {}, variant = '') => {
+  const metadata = parseFileMetadataJson(file.metadata_json);
+  const scope = ALLOWED_UPLOAD_SCOPES.has(file.scope) ? file.scope : 'chat';
+  const storedName = variant === 'thumbnail'
+    ? (metadata.thumbnailStoredName || path.basename(decodeURIComponent(String(file.thumbnail_url || '').split('?')[0] || '')))
+    : file.stored_name;
+  if (!storedName) return null;
+  const safeBase = path.basename(storedName);
+  const filePath = path.join(uploadsDir, scope, safeBase);
+  if (!filePath.startsWith(path.join(uploadsDir, scope))) return null;
+  return { filePath, fileName: variant === 'thumbnail' ? `thumb-${file.original_name || file.id}.jpg` : (file.original_name || file.id), mime: variant === 'thumbnail' ? 'image/jpeg' : file.mime_type };
+};
+
+const ensureFileDownloadAccess = async (req, fileId) => {
+  const login = getRequestLogin(req);
+  if (!login) {
+    const error = new Error('Требуется вход в систему');
+    error.status = 401;
+    throw error;
+  }
+
+  const file = await readSqlFileMetadata(fileId);
+  if (!file || file.deleted_at) {
+    const error = new Error('Файл не найден');
+    error.status = 404;
+    throw error;
+  }
+  if (file.is_verified === 0 || file.is_verified === false) {
+    const error = new Error('Файл не прошёл проверку безопасности');
+    error.status = 403;
+    throw error;
+  }
+
+  const isUploader = file.uploaded_by && String(file.uploaded_by).toLowerCase() === login;
+  const access = isUploader ? true : (file.scope === 'feed'
+    ? await findFeedFileReference(file)
+    : await findChatFileReference(file, login));
+  if (!access) {
+    const error = new Error('Нет прав на скачивание файла');
+    error.status = 403;
+    throw error;
+  }
+
+  return file;
 };
 
 const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -774,6 +905,24 @@ router.post('/storage/recover', async (req, res) => {
   }
 });
 
+
+router.get('/files/:fileId/download', async (req, res) => {
+  try {
+    const fileId = decodeURIComponent(req.params.fileId || '').trim();
+    if (!fileId) return res.status(400).json({ message: 'fileId обязателен' });
+    const file = await ensureFileDownloadAccess(req, fileId);
+    const download = resolveStoredDownload(file, req.query?.variant === 'thumbnail' ? 'thumbnail' : '');
+    if (!download) return res.status(404).json({ message: 'Файл не найден' });
+    await fs.access(download.filePath);
+    res.setHeader('Content-Type', download.mime || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(download.fileName)}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    fsSync.createReadStream(download.filePath).pipe(res);
+  } catch (error) {
+    console.error('Chat GET /files/download error:', error.message);
+    res.status(error.status || 500).json({ message: error.message || 'Не удалось скачать файл' });
+  }
+});
 
 router.post('/uploads', async (req, res) => {
   try {
