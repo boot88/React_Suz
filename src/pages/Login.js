@@ -7,6 +7,7 @@ import { API_BASE_URL } from '../utils/apiConfig';
 
 
 const LOGIN_LANGUAGE_KEY = 'loginLanguage';
+const LOGIN_DESIGN_KEY = 'loginDesign';
 const LOGIN_LABELS = {
   en: {
     back: '← back', adminEntry: 'administrator login', adminChip: 'Control panel', title: 'Login', subtitle: 'Enter login and password',
@@ -15,7 +16,12 @@ const LOGIN_LABELS = {
     loadingAuth: 'Checking authorization...', redirect: 'Redirecting...', warning: 'Check keyboard layout and password. After several wrong attempts login is temporarily blocked.',
     usernameLabel: 'Surname / login', usernamePlaceholder: 'Start typing a surname', showEmployees: 'Show employee list', departmentMissing: 'department —', room: 'room', phoneMissing: 'phone —',
     password: 'Password', passwordPlaceholder: 'Enter password', hidePassword: 'Hide password', showPassword: 'Show password', hide: 'Hide', show: 'Show', caps: 'Caps Lock is on.', checking: 'Checking...', signIn: 'Sign in',
-    register: 'Employee registration', sending: 'Sending...', forgot: 'Forgot password?', closeRecovery: 'Close recovery window', recoveryTitle: 'Access recovery', recoveryText: 'Enter the employee login. A new temporary password will be sent to responsible managers in the service chat.', recoveryLogin: 'Employee login', sendRequest: 'Send request'
+    register: 'Employee registration', sending: 'Sending...', forgot: 'Forgot password?', closeRecovery: 'Close recovery window', recoveryTitle: 'Access recovery', recoveryText: 'Enter the employee login. A new temporary password will be sent to responsible managers in the service chat.', recoveryLogin: 'Employee login', sendRequest: 'Send request',
+    designLabel: 'Page design', designCurrent: 'Current', designNew: 'New',
+    employeeKicker: 'Service access', employeeContextTitle: 'Requests without unnecessary steps', employeeContextText: 'Create a request, attach materials and follow each stage through to completion.',
+    employeeStepOne: 'New request', employeeStepOneMeta: 'Description and files', employeeStepTwo: 'Assigned', employeeStepTwoMeta: 'Specialist and status', employeeStepThree: 'Result', employeeStepThreeMeta: 'History is retained',
+    adminKicker: 'System management', adminContextTitle: 'Everything important under control', adminContextText: 'Manage the queue, deadlines and owners from one focused workspace.',
+    adminStepOne: 'Queue', adminStepOneMeta: 'New and urgent', adminStepTwo: 'Control', adminStepTwoMeta: 'Status and deadlines', adminStepThree: 'Archive', adminStepThreeMeta: 'Search and history'
   },
   ru: {
     back: '← назад', adminEntry: 'вход для администратора', adminChip: 'Панель управления', title: 'Вход', subtitle: 'Введите логин и пароль',
@@ -24,7 +30,12 @@ const LOGIN_LABELS = {
     loadingAuth: 'Проверка авторизации...', redirect: 'Перенаправление...', warning: 'Проверьте раскладку и правильность пароля. После нескольких неверных попыток вход временно блокируется.',
     usernameLabel: 'Фамилия / логин', usernamePlaceholder: 'Начните вводить фамилию', showEmployees: 'Показать список сотрудников', departmentMissing: 'отдел —', room: 'каб', phoneMissing: 'тел. —',
     password: 'Пароль', passwordPlaceholder: 'Введите пароль', hidePassword: 'Скрыть пароль', showPassword: 'Показать пароль', hide: 'Скрыть', show: 'Показать', caps: 'Включён Caps Lock.', checking: 'Проверяем...', signIn: 'Войти',
-    register: 'Регистрация сотрудника', sending: 'Отправка...', forgot: 'Забыли пароль?', closeRecovery: 'Закрыть окно восстановления', recoveryTitle: 'Восстановление доступа', recoveryText: 'Укажите логин сотрудника. Новый временный пароль будет передан ответственным менеджерам в служебном чате.', recoveryLogin: 'Логин сотрудника', sendRequest: 'Отправить запрос'
+    register: 'Регистрация сотрудника', sending: 'Отправка...', forgot: 'Забыли пароль?', closeRecovery: 'Закрыть окно восстановления', recoveryTitle: 'Восстановление доступа', recoveryText: 'Укажите логин сотрудника. Новый временный пароль будет передан ответственным менеджерам в служебном чате.', recoveryLogin: 'Логин сотрудника', sendRequest: 'Отправить запрос',
+    designLabel: 'Дизайн страницы', designCurrent: 'Текущий', designNew: 'Новый',
+    employeeKicker: 'Служебный доступ', employeeContextTitle: 'Обращения без лишних шагов', employeeContextText: 'Создавайте обращения, прикладывайте материалы и отслеживайте каждый этап до завершения.',
+    employeeStepOne: 'Новое обращение', employeeStepOneMeta: 'Описание и файлы', employeeStepTwo: 'Назначено', employeeStepTwoMeta: 'Исполнитель и статус', employeeStepThree: 'Результат', employeeStepThreeMeta: 'История сохраняется',
+    adminKicker: 'Управление системой', adminContextTitle: 'Всё важное под контролем', adminContextText: 'Управляйте очередью, сроками и ответственными в едином рабочем пространстве.',
+    adminStepOne: 'Очередь', adminStepOneMeta: 'Новые и срочные', adminStepTwo: 'Контроль', adminStepTwoMeta: 'Статусы и сроки', adminStepThree: 'Архив', adminStepThreeMeta: 'Поиск и история'
   }
 };
 
@@ -47,10 +58,15 @@ const Login = ({ mode = 'employee' }) => {
   const location = useLocation();
   const isAdminMode = mode === 'admin';
   const [language, setLanguage] = useState(() => localStorage.getItem(LOGIN_LANGUAGE_KEY) || 'en');
+  const [design, setDesign] = useState(() => localStorage.getItem(LOGIN_DESIGN_KEY) || 'current');
   const t = (key) => LOGIN_LABELS[language]?.[key] || LOGIN_LABELS.en[key] || key;
   const changeLanguage = (nextLanguage) => {
     localStorage.setItem(LOGIN_LANGUAGE_KEY, nextLanguage);
     setLanguage(nextLanguage);
+  };
+  const changeDesign = (nextDesign) => {
+    localStorage.setItem(LOGIN_DESIGN_KEY, nextDesign);
+    setDesign(nextDesign);
   };
 
   const [formData, setFormData] = useState({ username: '', password: '' });
@@ -246,12 +262,46 @@ const Login = ({ mode = 'employee' }) => {
   }
 
   return (
-    <div className={`jp-wrapper ${isAdminMode ? 'jp-wrapper--admin' : 'jp-wrapper--employee'}`}>
+    <div className={`jp-wrapper ${isAdminMode ? 'jp-wrapper--admin' : 'jp-wrapper--employee'} jp-wrapper--design-${design}`}>
       <Link className="jp-corner-link" to={isAdminMode ? '/login' : '/admin'}>
         {isAdminMode ? t('back') : t('adminEntry')}
       </Link>
 
       <div className="jp-login-shell">
+        <aside className="jp-context-panel">
+          <div className="jp-context-header">
+            <span className="jp-context-kicker">{t(isAdminMode ? 'adminKicker' : 'employeeKicker')}</span>
+            <svg className="jp-context-symbol" viewBox="0 0 64 64" aria-hidden="true">
+              <path d="M21 10h22l11 19-11 19H21L10 29 21 10Z" />
+              <circle cx="32" cy="29" r="6" />
+              <path d="M32 5v18M12 47l15-13m25 13L37 34" />
+            </svg>
+          </div>
+
+          <div className="jp-context-copy">
+            <span className="jp-context-index">{isAdminMode ? 'A—02' : 'S—01'}</span>
+            <h2>{t(isAdminMode ? 'adminContextTitle' : 'employeeContextTitle')}</h2>
+            <p>{t(isAdminMode ? 'adminContextText' : 'employeeContextText')}</p>
+          </div>
+
+          <div className="jp-process-list">
+            {[1, 2, 3].map((step) => {
+              const prefix = isAdminMode ? 'admin' : 'employee';
+              const numberKey = step === 1 ? 'One' : step === 2 ? 'Two' : 'Three';
+              return (
+                <div className="jp-process-item" key={step}>
+                  <span className="jp-process-number">0{step}</span>
+                  <span className="jp-process-line" />
+                  <span className="jp-process-copy">
+                    <strong>{t(`${prefix}Step${numberKey}`)}</strong>
+                    <small>{t(`${prefix}Step${numberKey}Meta`)}</small>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </aside>
+
         <main className="jp-content">
           <section className="jp-login-box" aria-labelledby="login-title">
             <div className="jp-card-topline" />
@@ -354,6 +404,18 @@ const Login = ({ mode = 'employee' }) => {
       <div className="jp-language-switch" aria-label="Language switch">
         <button type="button" className={language === 'en' ? 'active' : ''} onClick={() => changeLanguage('en')}>🇬🇧 ENG</button>
         <button type="button" className={language === 'ru' ? 'active' : ''} onClick={() => changeLanguage('ru')}>🇷🇺 RUS</button>
+      </div>
+
+      <div className="jp-design-switch" role="group" aria-label={t('designLabel')}>
+        <span>{t('designLabel')}</span>
+        <div>
+          <button type="button" className={design === 'current' ? 'active' : ''} onClick={() => changeDesign('current')}>
+            {t('designCurrent')}
+          </button>
+          <button type="button" className={design === 'new' ? 'active' : ''} onClick={() => changeDesign('new')}>
+            {t('designNew')}
+          </button>
+        </div>
       </div>
 
       {isRecoveryOpen && (
