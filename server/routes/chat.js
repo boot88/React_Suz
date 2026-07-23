@@ -370,7 +370,9 @@ const saveMultipartUpload = async (req) => {
     const fileId = createId('file');
     const url = `/api/chat/files/${encodeURIComponent(fileId)}/download`;
     let thumbnailStoredName = '';
-    let thumbnailUrl = String(mime).startsWith('image/') || String(mime).startsWith('video/') ? url : '';
+    // A video file itself is not a valid poster image. Keep the poster empty when
+    // client-side frame extraction failed so the browser can render the first frame.
+    let thumbnailUrl = String(mime).startsWith('image/') ? url : '';
 
     if ((String(mime).startsWith('image/') || String(mime).startsWith('video/')) && fields.thumbnailDataUrl) {
       const thumbnailParsed = getDataUrlPayload(fields.thumbnailDataUrl);

@@ -5773,3 +5773,454 @@ button:disabled {
     padding: 9px;
   }
 }
+
+/* Media interaction and contrast fixes shared by both interface themes. */
+.attachment-image-shell {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: inherit;
+  overflow: hidden;
+  background:
+    linear-gradient(110deg, transparent 28%, rgba(255, 255, 255, .10) 42%, transparent 56%),
+    #142329;
+  background-size: 220% 100%, auto;
+}
+
+.attachment-image-shell.is-loading {
+  animation: attachmentPreviewLoading 1.35s linear infinite;
+}
+
+.attachment-image-shell img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.attachment-image-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  color: rgba(255, 255, 255, .68);
+  pointer-events: none;
+}
+
+.attachment-image-placeholder > span {
+  font-size: 28px;
+}
+
+.attachment-image-placeholder small {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+@keyframes attachmentPreviewLoading {
+  to {
+    background-position: -220% 0, 0 0;
+  }
+}
+
+.message-photo-card {
+  display: block;
+  cursor: default;
+}
+
+.message-photo-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: inherit;
+  overflow: hidden;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: zoom-in;
+  padding: 0;
+}
+
+.message-photo-open .attachment-image-shell img {
+  object-fit: cover;
+}
+
+.media-reaction-trigger {
+  position: absolute;
+  z-index: 4;
+  left: 9px;
+  bottom: 8px;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, .36);
+  border-radius: 50%;
+  background: rgba(7, 20, 27, .72);
+  color: #fff;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .26);
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  opacity: .86;
+  backdrop-filter: blur(8px);
+}
+
+.media-reaction-trigger:hover,
+.media-reaction-trigger:focus-visible {
+  border-color: rgba(255, 255, 255, .74);
+  background: rgba(22, 52, 58, .92);
+  opacity: 1;
+}
+
+.message-attachments-grid:has(.video-attachment) {
+  grid-template-columns: minmax(0, max-content);
+}
+
+.message-attachment-card.video-attachment {
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  gap: 0;
+  padding: 0;
+}
+
+.playable-video-shell {
+  position: relative;
+  overflow: hidden;
+  background: #02090d;
+}
+
+.playable-video-shell.message {
+  width: min(420px, calc(100vw - 96px));
+  max-width: 100%;
+}
+
+.playable-video-shell.message.is-landscape {
+  width: min(560px, calc(100vw - 96px));
+}
+
+.playable-video-shell.message.is-portrait {
+  width: min(290px, calc(100vw - 96px));
+}
+
+.playable-video-shell.message.is-square {
+  width: min(420px, calc(100vw - 96px));
+}
+
+.playable-video-shell .attachment-video-player {
+  display: block;
+  width: 100%;
+  max-width: none;
+  max-height: 430px;
+  border-radius: 0;
+  background: #02090d;
+  object-fit: contain;
+}
+
+.playable-video-shell.message.is-portrait .attachment-video-player {
+  max-height: 470px;
+}
+
+.media-expand-button {
+  position: absolute;
+  z-index: 5;
+  top: 9px;
+  right: 9px;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, .34);
+  border-radius: 50%;
+  background: rgba(4, 14, 19, .72);
+  color: #fff;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .26);
+  cursor: pointer;
+  font-size: 21px;
+  line-height: 1;
+  backdrop-filter: blur(8px);
+}
+
+.media-expand-button:hover,
+.media-expand-button:focus-visible {
+  background: rgba(22, 52, 58, .94);
+}
+
+.media-attachment-reaction-zone {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 0;
+  border-top: 1px solid rgba(148, 163, 184, .22);
+  border-radius: 0;
+  background: rgba(255, 255, 255, .08);
+  color: inherit;
+  cursor: pointer;
+  padding: 9px 11px;
+  text-align: left;
+}
+
+.media-attachment-reaction-zone span {
+  overflow: hidden;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-attachment-reaction-zone b {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 16px;
+  opacity: .76;
+}
+
+.media-attachment-reaction-zone:hover,
+.media-attachment-reaction-zone:focus-visible {
+  background: rgba(37, 99, 235, .10);
+}
+
+.employee-chat-layout.theme-light .message-bubble.media-only .message-author-link,
+.employee-chat-layout.theme-light .message-bubble.media-only .message-author-link span:last-child {
+  color: #334155;
+}
+
+.employee-chat-layout.theme-light .message-row.mine .message-bubble.media-only .message-author-link,
+.employee-chat-layout.theme-light .message-row.mine .message-bubble.media-only .message-author-link span:last-child {
+  color: #1e3a8a;
+}
+
+.employee-chat-layout.theme-light .message-row.mine .message-bubble.media-only .message-author-link .feed-avatar {
+  border-color: rgba(30, 64, 175, .18);
+  background: rgba(219, 234, 254, .94);
+  color: #1e40af;
+  box-shadow: inset 0 0 0 1px rgba(30, 64, 175, .10);
+}
+
+.employee-chat-layout.theme-dark .request-form-actions button {
+  border: 1px solid rgba(207, 132, 85, .30);
+  border-radius: 5px;
+  background: rgba(18, 51, 54, .94);
+  color: #edf0e7;
+  box-shadow: none;
+}
+
+.employee-chat-layout.theme-dark .request-form-actions button:hover,
+.employee-chat-layout.theme-dark .request-form-actions button:focus-visible {
+  border-color: rgba(207, 132, 85, .62);
+  background: rgba(207, 132, 85, .15);
+  color: #ffd6ba;
+}
+
+.employee-chat-layout.theme-dark .comment-author-link {
+  border: 0;
+  background: transparent;
+  color: #f2eee4;
+  box-shadow: none;
+}
+
+.employee-chat-layout.theme-dark .comment-author-link:hover,
+.employee-chat-layout.theme-dark .comment-author-link:focus-visible {
+  background: transparent;
+  color: #ffc7a1;
+}
+
+/* Modern feed media layout: originals for photos, native controls for video. */
+.employee-feed-media-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  border-radius: 14px;
+}
+
+.employee-feed-media-grid.media-count-1 {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.employee-feed-media-grid.media-count-3 {
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, .75fr);
+  grid-template-rows: repeat(2, minmax(150px, 220px));
+}
+
+.employee-feed-media-grid.media-count-3 > .employee-feed-media-tile:first-of-type {
+  grid-row: 1 / 3;
+}
+
+.employee-feed-media-tile {
+  position: relative;
+  display: block;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, .18);
+  border-radius: 12px;
+  background: #071418;
+}
+
+.employee-feed-media-grid:not(.media-count-1) .employee-feed-media-tile {
+  aspect-ratio: 4 / 3;
+}
+
+.feed-media-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+  padding: 0;
+}
+
+.employee-feed-media-tile .attachment-image-shell {
+  position: relative;
+  inset: auto;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border-radius: 0;
+  background-color: #142329;
+  font-size: inherit;
+  text-align: initial;
+  white-space: normal;
+}
+
+.employee-feed-media-tile .attachment-image-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: center;
+  white-space: normal;
+}
+
+.employee-feed-media-tile .attachment-image-placeholder > span {
+  position: static;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 28px;
+  white-space: normal;
+}
+
+.feed-media-open .attachment-image-shell,
+.employee-feed-media-grid:not(.single-photo) .feed-media-open .attachment-image-shell {
+  height: 100%;
+  min-height: 100%;
+}
+
+.employee-feed-media-grid:not(.single-photo) .feed-media-open .attachment-image-shell img {
+  height: 100%;
+  object-fit: cover;
+}
+
+.employee-feed-media-grid.single-photo .employee-feed-media-tile {
+  display: grid;
+  max-height: 620px;
+  place-items: center;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(74, 103, 105, .22), transparent 65%),
+    #071418;
+}
+
+.employee-feed-media-grid.single-photo .feed-media-open {
+  display: grid;
+  max-height: 620px;
+  place-items: center;
+}
+
+.employee-feed-media-grid.single-photo .attachment-image-shell {
+  display: grid;
+  height: auto;
+  min-height: 220px;
+  max-height: 620px;
+  place-items: center;
+}
+
+.employee-feed-media-grid.single-photo .attachment-image-shell img {
+  width: 100%;
+  height: auto;
+  max-height: 620px;
+  object-fit: contain;
+}
+
+.playable-video-shell.feed {
+  width: 100%;
+  height: 100%;
+}
+
+.playable-video-shell.feed .attachment-video-player {
+  width: 100%;
+  height: 100%;
+  min-height: 220px;
+  max-height: 560px;
+  object-fit: contain;
+}
+
+.employee-feed-media-tile .feed-media-caption {
+  position: absolute;
+  z-index: 3;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(3, 13, 18, .70);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 750;
+  padding: 5px 8px;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.employee-feed-media-tile.video .feed-media-caption {
+  position: static;
+  display: block;
+  border-radius: 0;
+  background: rgba(3, 13, 18, .92);
+}
+
+.employee-chat-layout.theme-dark .employee-feed-media-tile {
+  border-color: rgba(199, 126, 79, .22);
+  background: #031214;
+}
+
+@media (max-width: 720px) {
+  .playable-video-shell.message,
+  .playable-video-shell.message.is-landscape,
+  .playable-video-shell.message.is-square {
+    width: min(100%, calc(100vw - 64px));
+  }
+
+  .playable-video-shell.message.is-portrait {
+    width: min(280px, calc(100vw - 64px));
+  }
+
+  .employee-feed-media-grid.media-count-3 {
+    grid-template-rows: repeat(2, minmax(112px, 160px));
+  }
+
+  .employee-feed-media-grid.single-photo .attachment-image-shell,
+  .employee-feed-media-grid.single-photo .feed-media-open {
+    min-height: 180px;
+    max-height: 480px;
+  }
+
+  .employee-feed-media-grid.single-photo .attachment-image-shell img {
+    max-height: 480px;
+  }
+}

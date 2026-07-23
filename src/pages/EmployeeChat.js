@@ -1318,7 +1318,12 @@ const resolveAttachmentUrl = (url = '') => {
 };
 const getAttachmentUrl = (file = {}) => resolveAttachmentUrl(file.thumbnailUrl || file.previewUrl || file.url || file.dataUrl || '');
 const getOriginalAttachmentUrl = (file = {}) => resolveAttachmentUrl(file.url || file.dataUrl || file.previewUrl || file.thumbnailUrl || '');
-const getVideoPosterUrl = (file = {}) => resolveAttachmentUrl(file.posterUrl || file.thumbnailUrl || file.previewUrl || '');
+const getVideoPosterUrl = (file = {}) => {
+  const originalSources = new Set([file.url, file.dataUrl].filter(Boolean));
+  const posterSource = [file.posterUrl, file.thumbnailUrl, file.previewUrl]
+    .find((source) => source && !originalSources.has(source));
+  return resolveAttachmentUrl(posterSource || '');
+};
 const getPostShareUrl = (postId = '') => `${window.location.origin}${window.location.pathname}?feedPost=${encodeURIComponent(postId)}`;
 const isPostAuthor = (post = {}, currentUser = {}) => sameLogin(post.author, currentUser?.username || '') || sameLogin(post.login, currentUser?.username || '') || sameLogin(post.sender, currentUser?.username || '');
 
@@ -1332,6 +1337,90 @@ const canManageFeedPost = (post = {}, currentUser = {}, isManager = false, isAdm
     || sameLogin(post.sender, username);
 };
 
+const AttachmentPreviewImage = ({ file, alt, useOriginal = false, eager = false, isEnglish = false }) => {
+  const preferredSource = useOriginal ? getOriginalAttachmentUrl(file) : getAttachmentUrl(file);
+  const fallbackSource = getOriginalAttachmentUrl(file);
+  const [source, setSource] = useState(preferredSource || fallbackSource);
+  const [state, setState] = useState('loading');
+
+  useEffect(() => {
+    setSource(preferredSource || fallbackSource);
+    setState('loading');
+  }, [fallbackSource, preferredSource]);
+
+  const handleError = () => {
+    if (fallbackSource && source !== fallbackSource) {
+      setSource(fallbackSource);
+      setState('loading');
+      return;
+    }
+    setState('error');
+  };
+
+  return (
+    <span className={`attachment-image-shell is-${state}`}>
+      {source && state !== 'error' && (
+        <img
+          src={source}
+          alt={alt}
+          loading={eager ? 'eager' : 'lazy'}
+          decoding="async"
+          onLoad={() => setState('ready')}
+          onError={handleError}
+        />
+      )}
+      {state !== 'ready' && (
+        <span className="attachment-image-placeholder" aria-hidden="true">
+          <span>{state === 'error' ? '🖼' : ''}</span>
+          <small>{state === 'error' ? (isEnglish ? 'Preview unavailable' : 'Превью недоступно') : ''}</small>
+        </span>
+      )}
+    </span>
+  );
+};
+
+const PlayableVideo = ({ file, className = '', onExpand, isEnglish = false, variant = 'message' }) => {
+  const [orientation, setOrientation] = useState('unknown');
+
+  const handleMetadata = (event) => {
+    const video = event.currentTarget;
+    const ratio = Number(video.videoWidth || 0) / Math.max(1, Number(video.videoHeight || 0));
+    setOrientation(ratio < 0.82 ? 'portrait' : ratio > 1.2 ? 'landscape' : 'square');
+    nudgeVideoToFirstFrame(event);
+  };
+
+  return (
+    <div className={`playable-video-shell ${variant} is-${orientation} ${className}`}>
+      <video
+        className="attachment-video-player"
+        src={getOriginalAttachmentUrl(file)}
+        poster={getVideoPosterUrl(file) || undefined}
+        controls
+        preload="metadata"
+        playsInline
+        onLoadedMetadata={handleMetadata}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {isEnglish ? 'Your browser does not support video playback.' : 'Ваш браузер не поддерживает просмотр этого видео.'}
+      </video>
+      {onExpand && (
+        <button
+          type="button"
+          className="media-expand-button"
+          aria-label={isEnglish ? 'Open video viewer' : 'Открыть видео на весь экран'}
+          title={isEnglish ? 'Open viewer' : 'Развернуть'}
+          onClick={(event) => {
+            event.stopPropagation();
+            onExpand(event);
+          }}
+        >
+          ⛶
+        </button>
+      )}
+    </div>
+  );
+};
+
 const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, onQuickReaction, metaLabel = '', statusLabel = '', isEnglish = false }) => {
   const fileName = file?.name || (isEnglish ? 'File' : 'Файл');
   const fileType = String(file?.type || '');
@@ -1341,29 +1430,44 @@ const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, 
 
   if (variant === 'message' && isImage) {
     return (
-      <button
-        key={cardKey}
-        type="button"
-        className="message-photo-card"
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpen?.(event);
-        }}
-        onDoubleClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          onQuickReaction?.(event);
-        }}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          onSelect?.(event);
-        }}
-        aria-label={`${isEnglish ? 'Open photo' : 'Открыть фото'} ${fileName}`}
-      >
-        <img src={getAttachmentUrl(file)} alt={fileName} loading="lazy" decoding="async" />
-        {(metaLabel || statusLabel) && <span className="message-photo-meta">{metaLabel} {statusLabel}</span>}
-      </button>
+      <div key={cardKey} className="message-photo-card">
+        <button
+          type="button"
+          className="message-photo-open"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpen?.(event);
+          }}
+          onDoubleClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onQuickReaction?.(event);
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onSelect?.(event);
+          }}
+          aria-label={`${isEnglish ? 'Open photo' : 'Открыть фото'} ${fileName}`}
+        >
+          <AttachmentPreviewImage file={file} alt={fileName} eager isEnglish={isEnglish} />
+          {(metaLabel || statusLabel) && <span className="message-photo-meta">{metaLabel} {statusLabel}</span>}
+        </button>
+        {onSelect && (
+          <button
+            type="button"
+            className="media-reaction-trigger"
+            aria-label={isEnglish ? 'Open photo reactions' : 'Открыть реакции к фото'}
+            title={isEnglish ? 'Reactions' : 'Реакции'}
+            onClick={(event) => {
+              event.stopPropagation();
+              onSelect(event);
+            }}
+          >
+            ♡
+          </button>
+        )}
+      </div>
     );
   }
 
@@ -1371,36 +1475,29 @@ const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, 
     <div
       key={cardKey}
       className={cardClassName}
-      onClick={isVideo ? (event) => {
-        event.stopPropagation();
-        onOpen?.(event);
-      } : undefined}
+      onClick={isVideo ? (event) => event.stopPropagation() : undefined}
     >
       {isVideo ? (
-        <video
-          className="attachment-video-player"
-          src={getOriginalAttachmentUrl(file)}
-          poster={getVideoPosterUrl(file) || getAttachmentUrl(file)}
-          controls
-          preload="metadata"
-          playsInline
-          onLoadedMetadata={nudgeVideoToFirstFrame}
-          onClick={(event) => {
-            event.stopPropagation();
-            onOpen?.(event);
-          }}
-          onMouseDown={(event) => event.stopPropagation()}
-          onDoubleClick={(event) => event.stopPropagation()}
-          onContextMenu={(event) => event.stopPropagation()}
-        >
-          {isEnglish ? 'Your browser does not support video playback.' : 'Ваш браузер не поддерживает просмотр этого видео.'}
-        </video>
+        <PlayableVideo file={file} onExpand={onOpen} isEnglish={isEnglish} variant={variant} />
       ) : isImage ? (
-        <img src={getAttachmentUrl(file)} alt={fileName} loading="lazy" decoding="async" />
+        <AttachmentPreviewImage file={file} alt={fileName} useOriginal={variant === 'feed'} isEnglish={isEnglish} />
       ) : (
         <span className="file-icon">{getFileIcon(fileType)}</span>
       )}
-      {(variant !== 'message' || !isImage) && <small>{fileName} · {formatFileSize(file?.size)}</small>}
+      {variant === 'message' && isVideo ? (
+        <button
+          type="button"
+          className="media-attachment-reaction-zone"
+          aria-label={isEnglish ? `Open reactions for ${fileName}` : `Открыть реакции к ${fileName}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onSelect?.(event);
+          }}
+        >
+          <span>{fileName} · {formatFileSize(file?.size)}</span>
+          <b aria-hidden="true">☺</b>
+        </button>
+      ) : (variant !== 'message' || !isImage) && <small>{fileName} · {formatFileSize(file?.size)}</small>}
       {variant !== 'message' && (
         <div className="attachment-card-actions">
           <a href={getOriginalAttachmentUrl(file)} download={fileName}>{isEnglish ? 'Download' : 'Скачать'}</a>
@@ -1413,6 +1510,37 @@ const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, 
           <button type="button" onClick={() => openAttachmentInNewTab(file)}>{isEnglish ? 'Open' : 'Открыть'}</button>
         </div>
       )}
+    </div>
+  );
+};
+
+const FeedMediaCard = ({ file, onOpen, onQuickReaction, isEnglish = false }) => {
+  const isVideo = isVideoAttachment(file);
+  const fileName = file?.name || (isEnglish ? 'Media' : 'Медиа');
+
+  return (
+    <div className={`employee-feed-media-tile ${isVideo ? 'video' : 'photo'}`}>
+      {isVideo ? (
+        <PlayableVideo file={file} onExpand={onOpen} isEnglish={isEnglish} variant="feed" />
+      ) : (
+        <button
+          type="button"
+          className="feed-media-open"
+          aria-label={`${isEnglish ? 'Open photo' : 'Открыть фото'} ${fileName}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpen?.(event);
+          }}
+          onDoubleClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onQuickReaction?.(event);
+          }}
+        >
+          <AttachmentPreviewImage file={file} alt={fileName} useOriginal isEnglish={isEnglish} />
+        </button>
+      )}
+      <span className="feed-media-caption">{fileName} · {formatFileSize(file?.size)}</span>
     </div>
   );
 };
@@ -3560,8 +3688,10 @@ const EmployeeChat = () => {
     setFeedAttachments((prev) => prev.filter((file, index) => (file.id || `${file.name}-${index}`) !== attachmentId));
   };
 
-  const openFeedMediaViewer = (post, file, fileIndex) => {
-    if (!getAttachmentUrl(file)) return;
+  const openFeedMediaViewer = (post, file) => {
+    if (!getOriginalAttachmentUrl(file)) return;
+    const mediaFiles = getFeedAttachments(post).filter(isMediaAttachment);
+    const fileIndex = Math.max(0, mediaFiles.findIndex((item) => item === file || (item.id && item.id === file.id)));
     setMediaViewer({ source: 'feed', post, file, fileIndex });
     setSelectedFeedPostId('');
     setFeedReactionExpanded(false);
@@ -4312,6 +4442,9 @@ const EmployeeChat = () => {
                   : (commentSort === 'old' ? sortedPostComments.slice(-2) : sortedPostComments.slice(0, 2));
                 const totalPostComments = Math.max(Number(post.commentCount) || 0, sortedPostComments.length);
                 const hiddenCommentsCount = Math.max(0, totalPostComments - previewComments.length);
+                const postAttachments = getFeedAttachments(post);
+                const postMediaAttachments = postAttachments.filter(isMediaAttachment);
+                const singlePhotoPost = postMediaAttachments.length === 1 && isImageAttachment(postMediaAttachments[0]);
                 return (
                   <article
                     key={post.id}
@@ -4343,7 +4476,29 @@ const EmployeeChat = () => {
                       {openFeedMenuId === post.id && <div className="feed-post-menu" onClick={(event) => event.stopPropagation()}>{canDeletePost && <button type="button" onClick={() => startEditFeedPost(post)}>{t('editText')}</button>}{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? t('unpin') : t('pin')}</button>}<button type="button" onClick={() => copyFeedPostLink(post.id)}>{t('copyLink')}</button><button type="button" onClick={() => shareFeedPostToChat(post)}>{t('sharePost')}</button><button type="button" onClick={() => quoteFeedPost(post)}>{t('quotePost')}</button><button type="button" onClick={() => hideFeedPost(post.id)}>{t('hidePost')}</button>{!isPostAuthor(post, user) && <button type="button" onClick={() => reportFeedPost(post.id)}>{t('report')}</button>}{(isManager || isAdmin) && <button type="button" onClick={() => notify((post.audit || []).length ? 'История есть в аудите' : 'История изменений пуста', 'Лента')}>{t('changeHistory')}</button>}{canDeletePost && <button type="button" className="danger-action" onClick={() => deleteFeedPost(post.id)}>{t('delete')}</button>}</div>}
                     </header>
                     {editingFeedPostId === post.id ? <div className="feed-edit-box"><textarea rows={3} value={editingFeedText} onChange={(e) => setEditingFeedText(e.target.value)} /><div><button type="button" onClick={() => saveFeedPostEdit(post.id)}>{t('saveActionButton')}</button><button type="button" onClick={() => setEditingFeedPostId('')}>{t('cancel')}</button></div></div> : post.text && <p className="employee-feed-post-text">{post.text}</p>}
-                    {getFeedAttachments(post).length > 0 && <div className="employee-feed-media-grid">{getFeedAttachments(post).map((file, index) => { const isMedia = String(file.type || '').startsWith('image/') || isVideoAttachment(file); return isMedia ? <button key={file.id || `${post.id}-feed-media-${index}`} type="button" className={`employee-feed-media-tile ${isVideoAttachment(file) ? 'video' : ''}`} onClick={(event) => { event.stopPropagation(); openFeedMediaViewer(post, file, index); }} onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); toggleFeedReaction(post.id, '👍'); }} aria-label={`${t('openAttachment')} ${file.name || t('media')}`}>{isVideoAttachment(file) ? <video src={getOriginalAttachmentUrl(file)} poster={getVideoPosterUrl(file) || getAttachmentUrl(file)} preload="metadata" muted playsInline onLoadedMetadata={nudgeVideoToFirstFrame} /> : <img src={getAttachmentUrl(file)} alt={file.name || t('attachmentAlt')} loading="lazy" decoding="async" />}<span>{file.name} · {formatFileSize(file.size)}</span></button> : <AttachmentCard key={file.id || `${post.id}-feed-file-${index}`} cardKey={`${post.id}-feed-file-${index}`} file={file} variant="feed" isEnglish={isEnglishInterface} />; })}</div>}
+                    {postAttachments.length > 0 && (
+                      <div className={`employee-feed-media-grid media-count-${Math.min(postMediaAttachments.length, 4)} ${singlePhotoPost ? 'single-photo' : ''}`}>
+                        {postAttachments.map((file, index) => (
+                          isMediaAttachment(file) ? (
+                            <FeedMediaCard
+                              key={file.id || `${post.id}-feed-media-${index}`}
+                              file={file}
+                              isEnglish={isEnglishInterface}
+                              onOpen={() => openFeedMediaViewer(post, file)}
+                              onQuickReaction={() => toggleFeedReaction(post.id, '👍')}
+                            />
+                          ) : (
+                            <AttachmentCard
+                              key={file.id || `${post.id}-feed-file-${index}`}
+                              cardKey={`${post.id}-feed-file-${index}`}
+                              file={file}
+                              variant="feed"
+                              isEnglish={isEnglishInterface}
+                            />
+                          )
+                        ))}
+                      </div>
+                    )}
                     <div className="message-reactions-inline feed-reactions-inline">{REACTION_EMOJIS.filter((emoji) => (post.reactions?.[emoji] || []).length > 0).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={(event) => { event.stopPropagation(); toggleFeedReaction(post.id, emoji); }} title={(post.reactions?.[emoji] || []).join(', ')}>{emoji} {(post.reactions?.[emoji] || []).length}</button>; })}</div>
                     {selectedFeedPostId === post.id && (
                       <div className="feed-selected-menu compact-feed-selected-menu" onClick={(event) => event.stopPropagation()}>
