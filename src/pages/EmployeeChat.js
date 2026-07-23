@@ -666,6 +666,9 @@ const RUNTIME_TEXT_EN = {
   'Не удалось удалить комментарий': 'Could not delete the comment',
   'Не удалось обновить реакцию': 'Could not update the reaction',
   'Не удалось закрепить публикацию': 'Could not pin the post',
+  'Не удалось удалить вложение': 'Could not delete the attachment',
+  'Фото удалено': 'Photo deleted',
+  'Видео удалено': 'Video deleted',
   'История есть в аудите': 'Change history is available in the audit log',
   'История изменений пуста': 'There is no change history'
 };
@@ -674,6 +677,13 @@ const translateRuntimeText = (value, isEnglish = false) => {
   const text = String(value || '');
   if (!isEnglish || !text) return text;
   if (RUNTIME_TEXT_EN[text]) return RUNTIME_TEXT_EN[text];
+  const networkSuffix = '. Проверьте соединение и попробуйте ещё раз.';
+  if (text.endsWith(networkSuffix)) {
+    const translatedBase = RUNTIME_TEXT_EN[text.slice(0, -networkSuffix.length)];
+    return translatedBase
+      ? `${translatedBase}. Check your connection and try again.`
+      : 'The action could not be completed. Check your connection and try again.';
+  }
 
   const dynamicPatterns = [
     [/^Отправить (\d+) файлов одним сообщением\?$/, 'Send $1 files in one message?'],
@@ -1070,11 +1080,17 @@ const fetchJsonWithRetry = async (url, options = {}, { attempts = 4, retryDelay 
     try {
       const response = await fetch(url, options);
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || data.error || fallbackMessage);
+      if (!response.ok) {
+        const responseError = new Error(data.message || data.error || fallbackMessage);
+        responseError.status = response.status;
+        throw responseError;
+      }
       return data;
     } catch (error) {
       lastError = error;
-      if (attempt < attempts - 1) await sleep(retryDelay + attempt * 350);
+      const retryable = isNetworkFailure(error) || Number(error?.status || 0) >= 500;
+      if (!retryable || attempt >= attempts - 1) break;
+      await sleep(retryDelay + attempt * 350);
     }
   }
 
@@ -1244,16 +1260,33 @@ const getFeedAttachments = (post = {}) => {
 
 const getFeedPostsSignature = (posts = []) => JSON.stringify((Array.isArray(posts) ? posts : []).map((post) => ({
   id: post?.id,
+  author: post?.author,
+  authorName: post?.authorName,
+  text: post?.text,
+  category: post?.category,
+  pinned: Boolean(post?.pinned),
   updatedAt: post?.updatedAt,
   editedAt: post?.editedAt,
   deletedAt: post?.deletedAt,
-  comments: Array.isArray(post?.comments) ? post.comments.length : 0,
+  comments: Array.isArray(post?.comments) ? post.comments.map((comment) => `${comment?.id}:${comment?.updatedAt || ''}:${comment?.deletedAt || ''}`).join('|') : '',
   commentCount: Number(post?.commentCount) || 0,
-  attachments: getFeedAttachments(post).length,
-  reactions: post?.reactions ? Object.values(post.reactions).map((items) => Array.isArray(items) ? items.length : 0).join(',') : ''
+  attachments: getFeedAttachments(post).map((file) => file?.id || file?.url || file?.name || '').join('|'),
+  reactions: post?.reactions
+    ? Object.entries(post.reactions).sort(([left], [right]) => left.localeCompare(right)).map(([emoji, items]) => `${emoji}:${Array.isArray(items) ? [...items].sort().join(',') : ''}`).join('|')
+    : ''
 })));
 
 const getVisibleFeedPosts = (posts = []) => (Array.isArray(posts) ? posts.filter((post) => post && !post.deletedAt) : []);
+
+const setFeedReactionForUser = (post = {}, emoji, login, active) => {
+  const reactions = { ...(post.reactions || {}) };
+  const users = new Set(Array.isArray(reactions[emoji]) ? reactions[emoji] : []);
+  if (active) users.add(login);
+  else users.delete(login);
+  if (users.size) reactions[emoji] = [...users];
+  else delete reactions[emoji];
+  return { ...post, reactions };
+};
 
 const sameLogin = (left = '', right = '') => formatFeedLogin(left).trim().toLowerCase() === formatFeedLogin(right).trim().toLowerCase();
 
@@ -1716,6 +1749,7 @@ const EmployeeChat = () => {
   const [applicationsError, setApplicationsError] = useState('');
   const [clockTick, setClockTick] = useState(0);
   const [feedPosts, setFeedPosts] = useState([]);
+  const [pendingFeedActions, setPendingFeedActions] = useState([]);
   const [feedError, setFeedError] = useState('');
   const [feedDraft, setFeedDraft] = useState(() => readSavedFeedDraft(user?.username || 'guest').text);
   const [feedAttachments, setFeedAttachments] = useState([]);
@@ -1724,6 +1758,12 @@ const EmployeeChat = () => {
   const modalResolverRef = useRef(null);
   const messagesWrapRef = useRef(null);
   const feedListRef = useRef(null);
+  const feedPostsRef = useRef([]);
+  const pendingFeedActionsRef = useRef(new Set());
+  const pendingFeedPostIdsRef = useRef(new Set());
+  const feedMutationVersionRef = useRef(0);
+  const feedFetchSequenceRef = useRef(0);
+  const feedFetchControllerRef = useRef(null);
   const forceScrollRef = useRef(false);
   const suppressThreadsRefreshUntilRef = useRef(0);
 
@@ -1747,6 +1787,34 @@ const EmployeeChat = () => {
   const notify = useCallback((message, title = 'Готово') => {
     setModal({ type: 'info', title: localizeRuntimeText(title), message: localizeRuntimeText(message) });
   }, [localizeRuntimeText]);
+
+  const beginFeedAction = useCallback((key, postId = '') => {
+    if (
+      !key
+      || pendingFeedActionsRef.current.has(key)
+      || (postId && pendingFeedPostIdsRef.current.has(postId))
+    ) return false;
+    pendingFeedActionsRef.current.add(key);
+    if (postId) pendingFeedPostIdsRef.current.add(postId);
+    feedMutationVersionRef.current += 1;
+    setPendingFeedActions([...pendingFeedActionsRef.current]);
+    return true;
+  }, []);
+
+  const endFeedAction = useCallback((key, postId = '') => {
+    pendingFeedActionsRef.current.delete(key);
+    if (postId) pendingFeedPostIdsRef.current.delete(postId);
+    setPendingFeedActions([...pendingFeedActionsRef.current]);
+  }, []);
+
+  const isFeedPostPending = (postId) => pendingFeedPostIdsRef.current.has(postId);
+
+  const updateFeedPostFromServer = useCallback((postId, serverPost) => {
+    if (!postId || !serverPost) return;
+    setFeedPosts((current) => current.map((post) => (
+      post.id === postId ? { ...post, ...serverPost } : post
+    )));
+  }, []);
 
   const confirmAction = useCallback((message, title = 'Подтверждение') => openModal({ type: 'confirm', title, message }), [openModal]);
 
@@ -1861,6 +1929,14 @@ const EmployeeChat = () => {
   useEffect(() => {
     saveFeedDraft(user?.username || 'guest', { text: feedDraft, category: feedCategory });
   }, [feedCategory, feedDraft, user?.username]);
+
+  useEffect(() => {
+    feedPostsRef.current = feedPosts;
+  }, [feedPosts]);
+
+  useEffect(() => () => {
+    feedFetchControllerRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     if (!openFeedMenuId || typeof document === 'undefined') return undefined;
@@ -2019,14 +2095,26 @@ const EmployeeChat = () => {
     }
   }, [currentConversationId, currentMessages, isLoadingOlderDialog, notify]);
 
-  const fetchFeed = useCallback(async ({ silent = true } = {}) => {
-    const initialLoad = !silent && feedPosts.length === 0;
+  const fetchFeed = useCallback(async ({ silent = true, force = false } = {}) => {
+    if (!force && pendingFeedActionsRef.current.size > 0) return;
+    const requestSequence = feedFetchSequenceRef.current + 1;
+    feedFetchSequenceRef.current = requestSequence;
+    const mutationVersionAtStart = feedMutationVersionRef.current;
+    feedFetchControllerRef.current?.abort();
+    const controller = new AbortController();
+    feedFetchControllerRef.current = controller;
+    const initialLoad = !silent && feedPostsRef.current.length === 0;
     if (initialLoad) setFeedLoading(true);
     else if (!silent) setFeedRefreshing(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/feed?limit=${FEED_POSTS_PAGE_SIZE}&commentsLimit=3`);
+      const response = await fetch(`${API_BASE_URL}/chat/feed?limit=${FEED_POSTS_PAGE_SIZE}&commentsLimit=3`, { signal: controller.signal });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось загрузить ленту');
+      if (
+        requestSequence !== feedFetchSequenceRef.current
+        || mutationVersionAtStart !== feedMutationVersionRef.current
+        || pendingFeedActionsRef.current.size > 0
+      ) return;
       const nextPosts = getVisibleFeedPosts(data?.posts);
       setFeedPosts((current) => (getFeedPostsSignature(current) === getFeedPostsSignature(nextPosts) ? current : nextPosts));
       setFeedHasMore(Boolean(data?.hasMore));
@@ -2034,26 +2122,31 @@ const EmployeeChat = () => {
       setVisibleFeedPostCount(FEED_POSTS_PAGE_SIZE);
       setFeedError('');
     } catch (error) {
+      if (error?.name === 'AbortError') return;
       const message = isNetworkFailure(error) ? getFriendlyNetworkMessage('Лента временно недоступна') : (error.message || 'Не удалось загрузить ленту');
       console.error('Ошибка загрузки ленты:', error);
-      if (!silent && feedPosts.length === 0) {
+      if (!silent && feedPostsRef.current.length === 0) {
         setFeedError(message);
         notify(message, 'Лента');
         return;
       }
     } finally {
-      if (initialLoad) setFeedLoading(false);
-      if (!silent) setFeedRefreshing(false);
+      if (requestSequence === feedFetchSequenceRef.current) {
+        if (initialLoad) setFeedLoading(false);
+        if (!silent) setFeedRefreshing(false);
+      }
     }
-  }, [feedPosts.length, notify]);
+  }, [notify]);
 
   const loadMoreFeedPosts = useCallback(async () => {
-    if (feedLoadingMore || !feedHasMore || !feedBefore) return;
+    if (feedLoadingMore || !feedHasMore || !feedBefore || pendingFeedActionsRef.current.size > 0) return;
+    const mutationVersionAtStart = feedMutationVersionRef.current;
     setFeedLoadingMore(true);
     try {
       const response = await fetch(`${API_BASE_URL}/chat/feed?limit=${FEED_POSTS_PAGE_SIZE}&commentsLimit=3&before=${encodeURIComponent(feedBefore)}`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось загрузить ленту');
+      if (mutationVersionAtStart !== feedMutationVersionRef.current || pendingFeedActionsRef.current.size > 0) return;
       const nextPosts = getVisibleFeedPosts(data?.posts);
       setFeedPosts((current) => {
         const byId = new Map([...current, ...nextPosts].filter((post) => post?.id).map((post) => [post.id, post]));
@@ -3258,13 +3351,23 @@ const EmployeeChat = () => {
 
   const deleteViewedMedia = async () => {
     if (mediaViewer?.source === 'feed') {
-      const { post, fileIndex = 0 } = mediaViewer;
-      if (!post?.id) return;
-      const currentAttachments = getFeedAttachments(post);
-      const targetFile = currentAttachments[fileIndex] || {};
-      const nextAttachments = currentAttachments.filter((_, index) => index !== fileIndex);
+      const { post, file } = mediaViewer;
+      if (!post?.id || !file) return;
+      const currentPost = feedPostsRef.current.find((item) => item.id === post.id) || post;
+      const currentAttachments = getFeedAttachments(currentPost);
+      const targetIndex = currentAttachments.findIndex((item) => (
+        (file.id && item.id === file.id)
+        || (file.url && item.url === file.url)
+        || (item.name === file.name && item.type === file.type && item.size === file.size)
+      ));
+      if (targetIndex < 0) {
+        setMediaViewer(null);
+        return;
+      }
+      const targetFile = currentAttachments[targetIndex];
+      const nextAttachments = currentAttachments.filter((_, index) => index !== targetIndex);
       const fileLabel = targetFile.name || (isVideoAttachment(targetFile) ? 'видео' : 'фото');
-      const postHasText = Boolean(String(post.text || '').trim());
+      const postHasText = Boolean(String(currentPost.text || '').trim());
       let confirmed = await confirmAction(t('deleteMediaFromPost').replace('{type}', isVideoAttachment(targetFile) ? t('deleteVideoType') : t('deletePhotoType')).replace('{name}', fileLabel), t('deleteAttachmentTitle'));
       if (!confirmed) return;
       if (!nextAttachments.length && !postHasText) {
@@ -3274,7 +3377,8 @@ const EmployeeChat = () => {
         await deleteFeedPost(post.id, { skipConfirm: true });
         return;
       }
-      const previousPosts = feedPosts;
+      const actionKey = `media-delete:${post.id}:${targetFile.id || targetFile.url || targetIndex}`;
+      if (!beginFeedAction(actionKey, post.id)) return;
       setMediaViewer(null);
       setFeedPosts((current) => current.map((item) => (
         item.id === post.id
@@ -3285,12 +3389,13 @@ const EmployeeChat = () => {
         await patchFeedPost(post.id, { attachment: nextAttachments[0] || null, attachments: nextAttachments, editedAt: new Date().toISOString() });
         notify(`${isVideoAttachment(targetFile) ? 'Видео' : 'Фото'} удалено`, 'Лента');
       } catch (error) {
-        if (isNetworkFailure(error)) {
-          fetchFeed({ silent: true });
-          return;
-        }
-        setFeedPosts(previousPosts);
-        notify(error.message || 'Не удалось удалить вложение', 'Лента');
+        setFeedPosts((current) => current.map((item) => (item.id === currentPost.id ? currentPost : item)));
+        notify(
+          isNetworkFailure(error) ? getFriendlyNetworkMessage('Не удалось удалить вложение') : (error.message || 'Не удалось удалить вложение'),
+          'Лента'
+        );
+      } finally {
+        endFeedAction(actionKey, post.id);
       }
       return;
     }
@@ -3628,6 +3733,8 @@ const EmployeeChat = () => {
       updatedAt: new Date().toISOString(),
       deliveryStatus: 'sending'
     };
+    const actionKey = `post-create:${optimisticPost.id}`;
+    beginFeedAction(actionKey, optimisticPost.id);
 
     setFeedPosts((current) => [optimisticPost, ...current.filter((post) => post.id !== optimisticPost.id)]);
     setFeedDraft('');
@@ -3641,28 +3748,24 @@ const EmployeeChat = () => {
         body: JSON.stringify(optimisticPost)
       }, { attempts: 2, fallbackMessage: 'Не удалось опубликовать запись' });
 
-      const serverPosts = Array.isArray(data?.posts) ? getVisibleFeedPosts(data.posts) : null;
       const serverPost = data?.post ? { ...data.post, deliveryStatus: 'sent' } : null;
       setFeedPosts((current) => {
-        const nextPosts = serverPosts || current.map((post) => (post.id === optimisticPost.id ? (serverPost || { ...post, deliveryStatus: 'sent' }) : post));
+        const nextPosts = current.map((post) => (post.id === optimisticPost.id ? (serverPost || { ...post, deliveryStatus: 'sent' }) : post));
         return getFeedPostsSignature(current) === getFeedPostsSignature(nextPosts) ? current : nextPosts;
       });
       window.requestAnimationFrame(() => {
         feedListRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
       });
     } catch (error) {
-      if (isNetworkFailure(error)) {
-        setFeedPosts((current) => current.map((post) => (
-          post.id === optimisticPost.id ? { ...post, deliveryStatus: 'waiting' } : post
-        )));
-        fetchFeed({ silent: true });
-        return;
-      }
       setFeedPosts((current) => current.filter((post) => post.id !== optimisticPost.id));
       setFeedDraft(previousDraft);
       setFeedAttachments(previousAttachments);
-      notify(error.message || 'Не удалось опубликовать запись', 'Лента');
+      notify(
+        isNetworkFailure(error) ? getFriendlyNetworkMessage('Не удалось опубликовать запись') : (error.message || 'Не удалось опубликовать запись'),
+        'Лента'
+      );
     } finally {
+      endFeedAction(actionKey, optimisticPost.id);
       setIsPublishingFeed(false);
     }
   };
@@ -3702,12 +3805,20 @@ const EmployeeChat = () => {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch)
-    }, { fallbackMessage: 'Не удалось обновить публикацию' });
-    setFeedPosts(getVisibleFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts.map((post) => (post.id === postId ? { ...post, ...data.post } : post))));
+    }, { attempts: 2, fallbackMessage: 'Не удалось обновить публикацию' });
+    updateFeedPostFromServer(postId, {
+      ...patch,
+      updatedAt: data?.post?.updatedAt || new Date().toISOString()
+    });
     return data.post;
   };
 
   const loadFeedComments = async (postId) => {
+    const hasPendingCommentChange = [...pendingFeedActionsRef.current].some((key) => (
+      key === `comment-add:${postId}` || key.startsWith(`comment-delete:${postId}:`)
+    ));
+    const actionKey = `comments-load:${postId}`;
+    if (hasPendingCommentChange || !beginFeedAction(actionKey, postId)) return;
     try {
       const response = await fetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments?limit=50`);
       const data = await response.json().catch(() => ({}));
@@ -3718,13 +3829,20 @@ const EmployeeChat = () => {
       )));
       setExpandedCommentPosts((prev) => ({ ...prev, [postId]: true }));
     } catch (error) {
-      notify(error.message || 'Не удалось загрузить комментарии', 'Лента');
+      notify(
+        isNetworkFailure(error) ? getFriendlyNetworkMessage('Не удалось загрузить комментарии') : (error.message || 'Не удалось загрузить комментарии'),
+        'Лента'
+      );
+    } finally {
+      endFeedAction(actionKey, postId);
     }
   };
 
   const addCommentToPost = async (postId) => {
     const text = (commentDrafts[postId] || '').trim();
     if (!text) return;
+    const actionKey = `comment-add:${postId}`;
+    if (!beginFeedAction(actionKey, postId)) return;
 
     const optimisticComment = {
       id: createMessageId(),
@@ -3734,12 +3852,21 @@ const EmployeeChat = () => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
-    const previousPosts = feedPosts;
+    const previousPost = feedPostsRef.current.find((post) => post.id === postId);
+    const previousCommentCount = Math.max(
+      Number(previousPost?.commentCount) || 0,
+      (previousPost?.comments || []).filter((comment) => !comment.deletedAt).length
+    );
 
     setCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
     setFeedPosts((current) => current.map((post) => (
       post.id === postId
-        ? { ...post, comments: [...(post.comments || []), optimisticComment], updatedAt: optimisticComment.updatedAt }
+        ? {
+          ...post,
+          comments: [...(post.comments || []), optimisticComment],
+          commentCount: previousCommentCount + 1,
+          updatedAt: optimisticComment.updatedAt
+        }
         : post
     )));
 
@@ -3753,26 +3880,37 @@ const EmployeeChat = () => {
           authorName: optimisticComment.authorName,
           text
         })
-      }, { attempts: 1, fallbackMessage: 'Не удалось добавить комментарий' });
+      }, { attempts: 2, fallbackMessage: 'Не удалось добавить комментарий' });
       const savedComment = data.comment || optimisticComment;
+      setFeedPosts((current) => current.map((post) => (
+        post.id !== postId ? post : (() => {
+          const comments = [...(post.comments || []).filter((comment) => comment.id !== optimisticComment.id), savedComment].filter(Boolean);
+          return {
+            ...post,
+            comments,
+            commentCount: Number(data?.post?.commentCount) || Math.max(previousCommentCount + 1, comments.filter((comment) => !comment.deletedAt).length),
+            updatedAt: data?.post?.updatedAt || savedComment.updatedAt || new Date().toISOString()
+          };
+        })()
+      )));
+    } catch (error) {
       setFeedPosts((current) => current.map((post) => (
         post.id === postId
           ? {
             ...post,
-            comments: [...(post.comments || []).filter((comment) => comment.id !== optimisticComment.id), savedComment].filter(Boolean),
-            commentCount: Math.max(Number(post.commentCount) || 0, (post.comments || []).length) + 1,
-            updatedAt: new Date().toISOString()
+            comments: (post.comments || []).filter((comment) => comment.id !== optimisticComment.id),
+            commentCount: previousCommentCount,
+            updatedAt: previousPost?.updatedAt || post.updatedAt
           }
           : post
       )));
-    } catch (error) {
-      if (isNetworkFailure(error)) {
-        fetchFeed({ silent: true });
-        return;
-      }
-      setFeedPosts(previousPosts);
       setCommentDrafts((prev) => ({ ...prev, [postId]: text }));
-      notify(error.message || 'Не удалось добавить комментарий', 'Лента');
+      notify(
+        isNetworkFailure(error) ? getFriendlyNetworkMessage('Не удалось добавить комментарий') : (error.message || 'Не удалось добавить комментарий'),
+        'Лента'
+      );
+    } finally {
+      endFeedAction(actionKey, postId);
     }
   };
 
@@ -3784,15 +3922,25 @@ const EmployeeChat = () => {
 
   const saveFeedPostEdit = async (postId) => {
     const text = editingFeedText.trim();
-    const previousPosts = feedPosts;
-    setFeedPosts((current) => current.map((post) => (post.id === postId ? { ...post, text, editedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } : post)));
+    const previousPost = feedPostsRef.current.find((post) => post.id === postId);
+    if (!previousPost) return;
+    const actionKey = `post-edit:${postId}`;
+    if (!beginFeedAction(actionKey, postId)) return;
+    const editedAt = new Date().toISOString();
+    setFeedPosts((current) => current.map((post) => (post.id === postId ? { ...post, text, editedAt, updatedAt: editedAt } : post)));
     setEditingFeedPostId('');
     try {
-      await patchFeedPost(postId, { text, editedAt: new Date().toISOString() });
+      await patchFeedPost(postId, { text, editedAt });
       notify('Публикация изменена', 'Лента');
     } catch (error) {
-      setFeedPosts(previousPosts);
+      setFeedPosts((current) => current.map((post) => (
+        post.id === postId
+          ? { ...post, text: previousPost.text, editedAt: previousPost.editedAt, updatedAt: previousPost.updatedAt }
+          : post
+      )));
       notify(error.message || 'Не удалось изменить публикацию', 'Лента');
+    } finally {
+      endFeedAction(actionKey, postId);
     }
   };
 
@@ -3847,7 +3995,9 @@ const EmployeeChat = () => {
 
 
   const deleteFeedPost = async (postId, options = {}) => {
-    const post = feedPosts.find((item) => item.id === postId);
+    const currentPosts = feedPostsRef.current;
+    const postIndex = currentPosts.findIndex((item) => item.id === postId);
+    const post = currentPosts[postIndex];
     if (!post) return;
 
     const canDeletePost = canManageFeedPost(post, user, isManager, isAdmin);
@@ -3857,76 +4007,151 @@ const EmployeeChat = () => {
       if (!confirmed) return;
     }
 
-    const previousPosts = feedPosts;
+    const actionKey = `post-delete:${postId}`;
+    if (!beginFeedAction(actionKey, postId)) return;
     setFeedPosts((current) => current.filter((item) => item.id !== postId));
 
     try {
-      const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}?deletedBy=${encodeURIComponent(user?.username || 'employee')}`, { method: 'DELETE' }, { attempts: 4, fallbackMessage: 'Не удалось удалить публикацию' });
-      setFeedPosts(getVisibleFeedPosts(Array.isArray(data?.posts) ? data.posts : previousPosts.filter((item) => item.id !== postId)));
+      await fetchJsonWithRetry(
+        `${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}?deletedBy=${encodeURIComponent(user?.username || 'employee')}`,
+        { method: 'DELETE' },
+        { attempts: 2, fallbackMessage: 'Не удалось удалить публикацию' }
+      );
     } catch (error) {
-      if (isNetworkFailure(error)) {
-        fetchFeed({ silent: true });
-        return;
-      }
-      setFeedPosts(previousPosts);
-      notify(error.message || 'Не удалось удалить публикацию', 'Лента');
+      setFeedPosts((current) => {
+        if (current.some((item) => item.id === postId)) return current;
+        const next = [...current];
+        next.splice(Math.max(0, Math.min(postIndex, next.length)), 0, post);
+        return next;
+      });
+      notify(
+        isNetworkFailure(error) ? getFriendlyNetworkMessage('Не удалось удалить публикацию') : (error.message || 'Не удалось удалить публикацию'),
+        'Лента'
+      );
+    } finally {
+      endFeedAction(actionKey, postId);
     }
   };
 
   const deleteFeedComment = async (postId, commentId) => {
-    const post = feedPosts.find((item) => item.id === postId);
+    const post = feedPostsRef.current.find((item) => item.id === postId);
     const comment = post?.comments?.find((item) => item.id === commentId);
     if (!post || !comment) return;
 
     const canDeleteComment = isManager || isAdmin || comment.author === user?.username;
     if (!canDeleteComment) return;
 
+    const actionKey = `comment-delete:${postId}:${commentId}`;
+    if (!beginFeedAction(actionKey, postId)) return;
+    const optimisticDeletedAt = new Date().toISOString();
+    setFeedPosts((current) => current.map((item) => (
+      item.id === postId
+        ? {
+          ...item,
+          comments: (item.comments || []).map((row) => (
+            row.id === commentId
+              ? { ...row, deletedAt: optimisticDeletedAt, deletedBy: user?.username, updatedAt: optimisticDeletedAt }
+              : row
+          )),
+          commentCount: Math.max(0, Number(item.commentCount || 0) - 1)
+        }
+        : item
+    )));
+
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}?deletedBy=${encodeURIComponent(user?.username || 'employee')}`, { method: 'DELETE' });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || 'Не удалось удалить комментарий');
-      setFeedPosts(getVisibleFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts.map((item) => (
+      const data = await fetchJsonWithRetry(
+        `${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}?deletedBy=${encodeURIComponent(user?.username || 'employee')}`,
+        { method: 'DELETE' },
+        { attempts: 2, fallbackMessage: 'Не удалось удалить комментарий' }
+      );
+      setFeedPosts((current) => current.map((item) => (
         item.id === postId
           ? {
             ...item,
             comments: (item.comments || []).map((row) => (
-              row.id === commentId ? { ...row, deletedAt: data.deletedAt || new Date().toISOString(), deletedBy: data.deletedBy || user?.username } : row
+              row.id === commentId
+                ? { ...row, deletedAt: data.deletedAt || optimisticDeletedAt, deletedBy: data.deletedBy || user?.username }
+                : row
             ))
           }
           : item
-      ))));
+      )));
     } catch (error) {
-      notify(error.message || 'Не удалось удалить комментарий', 'Лента');
+      setFeedPosts((current) => current.map((item) => (
+        item.id === postId
+          ? {
+            ...item,
+            comments: (item.comments || []).map((row) => (row.id === commentId ? comment : row)),
+            commentCount: Number(post.commentCount) || (post.comments || []).filter((row) => !row.deletedAt).length
+          }
+          : item
+      )));
+      notify(
+        isNetworkFailure(error) ? getFriendlyNetworkMessage('Не удалось удалить комментарий') : (error.message || 'Не удалось удалить комментарий'),
+        'Лента'
+      );
+    } finally {
+      endFeedAction(actionKey, postId);
     }
   };
 
   const toggleFeedReaction = async (postId, emoji) => {
+    const login = user?.username || 'employee';
+    const post = feedPostsRef.current.find((item) => item.id === postId);
+    if (!post) return;
+    const actionKey = `reaction:${postId}:${emoji}`;
+    if (!beginFeedAction(actionKey, postId)) return;
+    const wasActive = (post.reactions?.[emoji] || []).includes(login);
+    const active = !wasActive;
+    setFeedPosts((current) => current.map((item) => (
+      item.id === postId ? setFeedReactionForUser(item, emoji, login, active) : item
+    )));
+
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/reactions`, {
+      const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/reactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emoji, login: user?.username || 'employee' })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || 'Не удалось обновить реакцию');
-      setFeedPosts(getVisibleFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts));
+        body: JSON.stringify({ emoji, login, active })
+      }, { attempts: 2, fallbackMessage: 'Не удалось обновить реакцию' });
+      setFeedPosts((current) => current.map((item) => (
+        item.id === postId
+          ? { ...item, reactions: data?.reactions || data?.post?.reactions || item.reactions }
+          : item
+      )));
     } catch (error) {
-      notify(error.message || 'Не удалось обновить реакцию', 'Лента');
+      setFeedPosts((current) => current.map((item) => (
+        item.id === postId ? setFeedReactionForUser(item, emoji, login, wasActive) : item
+      )));
+      notify(
+        isNetworkFailure(error) ? getFriendlyNetworkMessage('Не удалось обновить реакцию') : (error.message || 'Не удалось обновить реакцию'),
+        'Лента'
+      );
+    } finally {
+      endFeedAction(actionKey, postId);
     }
   };
 
   const toggleFeedPinned = async (postId, pinned) => {
+    const post = feedPostsRef.current.find((item) => item.id === postId);
+    if (!post) return;
+    const actionKey = `pin:${postId}`;
+    if (!beginFeedAction(actionKey, postId)) return;
+    setFeedPosts((current) => current.map((item) => (item.id === postId ? { ...item, pinned } : item)));
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/pin`, {
+      const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/pin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pinned })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || 'Не удалось закрепить публикацию');
-      setFeedPosts(getVisibleFeedPosts(Array.isArray(data?.posts) ? data.posts : feedPosts));
+      }, { attempts: 2, fallbackMessage: 'Не удалось закрепить публикацию' });
+      updateFeedPostFromServer(postId, data?.post ? { pinned: data.post.pinned, updatedAt: data.post.updatedAt } : { pinned });
     } catch (error) {
-      notify(error.message || 'Не удалось закрепить публикацию', 'Лента');
+      setFeedPosts((current) => current.map((item) => (item.id === postId ? { ...item, pinned: post.pinned } : item)));
+      notify(
+        isNetworkFailure(error) ? getFriendlyNetworkMessage('Не удалось закрепить публикацию') : (error.message || 'Не удалось закрепить публикацию'),
+        'Лента'
+      );
+    } finally {
+      endFeedAction(actionKey, postId);
     }
   };
 
@@ -4398,7 +4623,7 @@ const EmployeeChat = () => {
               <article className="employee-feed-post feed-composer-post">
                 <header className="employee-feed-header compact-feed-header feed-composer-post-header">
                   <div><h2>{t('feedTitle')}</h2><p>{t('feedSubtitle')}</p></div>
-                  <button type="button" onClick={() => fetchFeed({ silent: false })}>{feedRefreshing ? t('refreshing') : t('refresh')}</button>
+                  <button type="button" disabled={feedRefreshing || pendingFeedActions.length > 0} onClick={() => fetchFeed({ silent: false })}>{feedRefreshing ? t('refreshing') : t('refresh')}</button>
                 </header>
                 {feedError && <div className="feed-status-warning">{t('feedUnavailable')}: {localizeRuntimeText(feedError)}</div>}
                 <form className="employee-feed-composer compact-feed-composer vk-feed-composer" onSubmit={addFeedPost}>
@@ -4445,6 +4670,7 @@ const EmployeeChat = () => {
                 const postAttachments = getFeedAttachments(post);
                 const postMediaAttachments = postAttachments.filter(isMediaAttachment);
                 const singlePhotoPost = postMediaAttachments.length === 1 && isImageAttachment(postMediaAttachments[0]);
+                const postMutationPending = isFeedPostPending(post.id);
                 return (
                   <article
                     key={post.id}
@@ -4473,9 +4699,9 @@ const EmployeeChat = () => {
                         <span>{authorMeta}{post.editedAt && ` · ${t('changed')}`}</span>
                       </button>
                       <button type="button" className="feed-post-menu-button" onClick={(event) => { event.stopPropagation(); setOpenFeedMenuId(openFeedMenuId === post.id ? '' : post.id); }}>⋯</button>
-                      {openFeedMenuId === post.id && <div className="feed-post-menu" onClick={(event) => event.stopPropagation()}>{canDeletePost && <button type="button" onClick={() => startEditFeedPost(post)}>{t('editText')}</button>}{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? t('unpin') : t('pin')}</button>}<button type="button" onClick={() => copyFeedPostLink(post.id)}>{t('copyLink')}</button><button type="button" onClick={() => shareFeedPostToChat(post)}>{t('sharePost')}</button><button type="button" onClick={() => quoteFeedPost(post)}>{t('quotePost')}</button><button type="button" onClick={() => hideFeedPost(post.id)}>{t('hidePost')}</button>{!isPostAuthor(post, user) && <button type="button" onClick={() => reportFeedPost(post.id)}>{t('report')}</button>}{(isManager || isAdmin) && <button type="button" onClick={() => notify((post.audit || []).length ? 'История есть в аудите' : 'История изменений пуста', 'Лента')}>{t('changeHistory')}</button>}{canDeletePost && <button type="button" className="danger-action" onClick={() => deleteFeedPost(post.id)}>{t('delete')}</button>}</div>}
+                      {openFeedMenuId === post.id && <div className="feed-post-menu" onClick={(event) => event.stopPropagation()}>{canDeletePost && <button type="button" disabled={postMutationPending} onClick={() => startEditFeedPost(post)}>{t('editText')}</button>}{isManager && <button type="button" disabled={postMutationPending} onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? t('unpin') : t('pin')}</button>}<button type="button" onClick={() => copyFeedPostLink(post.id)}>{t('copyLink')}</button><button type="button" onClick={() => shareFeedPostToChat(post)}>{t('sharePost')}</button><button type="button" onClick={() => quoteFeedPost(post)}>{t('quotePost')}</button><button type="button" onClick={() => hideFeedPost(post.id)}>{t('hidePost')}</button>{!isPostAuthor(post, user) && <button type="button" onClick={() => reportFeedPost(post.id)}>{t('report')}</button>}{(isManager || isAdmin) && <button type="button" onClick={() => notify((post.audit || []).length ? 'История есть в аудите' : 'История изменений пуста', 'Лента')}>{t('changeHistory')}</button>}{canDeletePost && <button type="button" className="danger-action" disabled={postMutationPending} onClick={() => deleteFeedPost(post.id)}>{t('delete')}</button>}</div>}
                     </header>
-                    {editingFeedPostId === post.id ? <div className="feed-edit-box"><textarea rows={3} value={editingFeedText} onChange={(e) => setEditingFeedText(e.target.value)} /><div><button type="button" onClick={() => saveFeedPostEdit(post.id)}>{t('saveActionButton')}</button><button type="button" onClick={() => setEditingFeedPostId('')}>{t('cancel')}</button></div></div> : post.text && <p className="employee-feed-post-text">{post.text}</p>}
+                    {editingFeedPostId === post.id ? <div className="feed-edit-box"><textarea rows={3} value={editingFeedText} onChange={(e) => setEditingFeedText(e.target.value)} /><div><button type="button" disabled={postMutationPending} onClick={() => saveFeedPostEdit(post.id)}>{t('saveActionButton')}</button><button type="button" disabled={postMutationPending} onClick={() => setEditingFeedPostId('')}>{t('cancel')}</button></div></div> : post.text && <p className="employee-feed-post-text">{post.text}</p>}
                     {postAttachments.length > 0 && (
                       <div className={`employee-feed-media-grid media-count-${Math.min(postMediaAttachments.length, 4)} ${singlePhotoPost ? 'single-photo' : ''}`}>
                         {postAttachments.map((file, index) => (
@@ -4485,7 +4711,9 @@ const EmployeeChat = () => {
                               file={file}
                               isEnglish={isEnglishInterface}
                               onOpen={() => openFeedMediaViewer(post, file)}
-                              onQuickReaction={() => toggleFeedReaction(post.id, '👍')}
+                              onQuickReaction={() => {
+                                if (!postMutationPending) toggleFeedReaction(post.id, '👍');
+                              }}
                             />
                           ) : (
                             <AttachmentCard
@@ -4499,24 +4727,24 @@ const EmployeeChat = () => {
                         ))}
                       </div>
                     )}
-                    <div className="message-reactions-inline feed-reactions-inline">{REACTION_EMOJIS.filter((emoji) => (post.reactions?.[emoji] || []).length > 0).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={(event) => { event.stopPropagation(); toggleFeedReaction(post.id, emoji); }} title={(post.reactions?.[emoji] || []).join(', ')}>{emoji} {(post.reactions?.[emoji] || []).length}</button>; })}</div>
+                    <div className="message-reactions-inline feed-reactions-inline">{REACTION_EMOJIS.filter((emoji) => (post.reactions?.[emoji] || []).length > 0).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} disabled={postMutationPending} aria-busy={postMutationPending} onClick={(event) => { event.stopPropagation(); toggleFeedReaction(post.id, emoji); }} title={(post.reactions?.[emoji] || []).join(', ')}>{emoji} {(post.reactions?.[emoji] || []).length}</button>; })}</div>
                     {selectedFeedPostId === post.id && (
                       <div className="feed-selected-menu compact-feed-selected-menu" onClick={(event) => event.stopPropagation()}>
-                        <div className="selected-reaction-row feed-reaction-picker">{(feedReactionExpanded ? REACTION_EMOJIS : REACTION_EMOJIS.slice(0, 7)).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => toggleFeedReaction(post.id, emoji)}>{emoji}</button>; })}{!feedReactionExpanded && <button type="button" className="more-reactions" onClick={() => setFeedReactionExpanded(true)}>⌄</button>}</div>
-                        <div className="selected-actions-row feed-actions-row">{isManager && <button type="button" onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? t('unpin') : t('pin')}</button>}</div>
+                        <div className="selected-reaction-row feed-reaction-picker">{(feedReactionExpanded ? REACTION_EMOJIS : REACTION_EMOJIS.slice(0, 7)).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} disabled={postMutationPending} aria-busy={postMutationPending} onClick={() => toggleFeedReaction(post.id, emoji)}>{emoji}</button>; })}{!feedReactionExpanded && <button type="button" className="more-reactions" onClick={() => setFeedReactionExpanded(true)}>⌄</button>}</div>
+                        <div className="selected-actions-row feed-actions-row">{isManager && <button type="button" disabled={postMutationPending} onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? t('unpin') : t('pin')}</button>}</div>
                       </div>
                     )}
                     <div className="employee-feed-comments">
                       <div className="employee-feed-comments-title">{t('comments')}</div>
                       {sortedPostComments.length === 0 && <small className="employee-feed-no-comments">{t('noComments')}</small>}
-                      {previewComments.map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; const commentInitial = String(comment.authorName || comment.author || '?').slice(0, 1).toUpperCase(); const commentAvatar = getEmployeeAvatar(comment.author, comment.avatar, comment.authorAvatar, comment.authorPhoto, comment.author_photo); return <div key={comment.id} className="employee-feed-comment"><button type="button" className="feed-avatar comment-avatar profile-link-avatar" onClick={(event) => openEmployeeProfile(comment.author, event)}>{commentAvatar ? <img src={commentAvatar} alt={comment.authorName || comment.author || t('comments')} loading="lazy" decoding="async" /> : <span>{commentInitial}</span>}</button><div className="employee-feed-comment-body"><button type="button" className="comment-author-link" onClick={(event) => openEmployeeProfile(comment.author, event)}>{comment.authorName || formatFeedLogin(comment.author)}</button><span>{comment.text}</span><small>{new Date(comment.createdAt).toLocaleString(interfaceLocale)}</small><div className="feed-comment-actions compact"><button type="button" onClick={() => setCommentDrafts((prev) => ({ ...prev, [post.id]: `@${formatFeedLogin(comment.author)} ` }))}>{t('reply')}</button>{canDeleteComment && <button type="button" onClick={() => deleteFeedComment(post.id, comment.id)}>{t('delete')}</button>}</div></div></div>; })}
-                      {hiddenCommentsCount > 0 && !expandedCommentPosts[post.id] && <button type="button" className="feed-show-more-comments" onClick={() => loadFeedComments(post.id)}>{t('showAllComments')} ({totalPostComments})</button>}
-                      <div className="employee-feed-comment-form" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onFocus={(event) => event.stopPropagation()}><div className="feed-avatar comment-avatar feed-avatar-current">{avatarUrl ? <img src={avatarUrl} alt={t('myAvatar')} loading="lazy" decoding="async" /> : <span>{String(profileForm.full_name || user?.name || user?.username || '?').slice(0, 1).toUpperCase()}</span>}</div><input placeholder={t('writeComment')} value={commentDrafts[post.id] || ''} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} />{(commentDrafts[post.id] || '').trim() && <button type="button" onClick={() => addCommentToPost(post.id)}>{t('sendComment')}</button>}</div>
+                      {previewComments.map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; const commentInitial = String(comment.authorName || comment.author || '?').slice(0, 1).toUpperCase(); const commentAvatar = getEmployeeAvatar(comment.author, comment.avatar, comment.authorAvatar, comment.authorPhoto, comment.author_photo); return <div key={comment.id} className="employee-feed-comment"><button type="button" className="feed-avatar comment-avatar profile-link-avatar" onClick={(event) => openEmployeeProfile(comment.author, event)}>{commentAvatar ? <img src={commentAvatar} alt={comment.authorName || comment.author || t('comments')} loading="lazy" decoding="async" /> : <span>{commentInitial}</span>}</button><div className="employee-feed-comment-body"><button type="button" className="comment-author-link" onClick={(event) => openEmployeeProfile(comment.author, event)}>{comment.authorName || formatFeedLogin(comment.author)}</button><span>{comment.text}</span><small>{new Date(comment.createdAt).toLocaleString(interfaceLocale)}</small><div className="feed-comment-actions compact"><button type="button" onClick={() => setCommentDrafts((prev) => ({ ...prev, [post.id]: `@${formatFeedLogin(comment.author)} ` }))}>{t('reply')}</button>{canDeleteComment && <button type="button" disabled={postMutationPending} aria-busy={postMutationPending} onClick={() => deleteFeedComment(post.id, comment.id)}>{t('delete')}</button>}</div></div></div>; })}
+                      {hiddenCommentsCount > 0 && !expandedCommentPosts[post.id] && <button type="button" className="feed-show-more-comments" disabled={postMutationPending} onClick={() => loadFeedComments(post.id)}>{t('showAllComments')} ({totalPostComments})</button>}
+                      <div className="employee-feed-comment-form" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onFocus={(event) => event.stopPropagation()}><div className="feed-avatar comment-avatar feed-avatar-current">{avatarUrl ? <img src={avatarUrl} alt={t('myAvatar')} loading="lazy" decoding="async" /> : <span>{String(profileForm.full_name || user?.name || user?.username || '?').slice(0, 1).toUpperCase()}</span>}</div><input placeholder={t('writeComment')} value={commentDrafts[post.id] || ''} disabled={postMutationPending} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} />{(commentDrafts[post.id] || '').trim() && <button type="button" disabled={postMutationPending} onClick={() => addCommentToPost(post.id)}>{t('sendComment')}</button>}</div>
                     </div>
                   </article>
                 );
               })}
-              {(hiddenFeedPostsCount > 0 || feedHasMore) && <button type="button" className="chat-pagination-button feed-pagination-button" disabled={feedLoadingMore} onClick={() => { if (hiddenFeedPostsCount > 0) setVisibleFeedPostCount((prev) => prev + FEED_POSTS_PAGE_SIZE); else loadMoreFeedPosts(); }}>{feedLoadingMore ? t('loading') : t('loadMoreFeed')} · {paginatedRegularFeedPosts.length}/{regularFeedPosts.length}{feedHasMore ? '+' : ''}</button>}
+              {(hiddenFeedPostsCount > 0 || feedHasMore) && <button type="button" className="chat-pagination-button feed-pagination-button" disabled={feedLoadingMore || pendingFeedActions.length > 0} onClick={() => { if (hiddenFeedPostsCount > 0) setVisibleFeedPostCount((prev) => prev + FEED_POSTS_PAGE_SIZE); else loadMoreFeedPosts(); }}>{feedLoadingMore ? t('loading') : t('loadMoreFeed')} · {paginatedRegularFeedPosts.length}/{regularFeedPosts.length}{feedHasMore ? '+' : ''}</button>}
             </div>
           </section>
         )}
@@ -4672,7 +4900,7 @@ const EmployeeChat = () => {
                 {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={replyToViewedMedia}>{t('reply')}</button>}
                 {mediaViewer.message && mediaViewer.source !== 'feed' && <button type="button" onClick={shareViewedMedia}>{t('share')}</button>}
                 {mediaViewer.source === 'feed' && <button type="button" onClick={shareViewedFeedMedia}>{t('share')}</button>}
-                {mediaViewer.source === 'feed' && canManageFeedPost(mediaViewer.post, user, isManager, isAdmin) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>{t('delete')}</button>}
+                {mediaViewer.source === 'feed' && canManageFeedPost(mediaViewer.post, user, isManager, isAdmin) && <button type="button" className="danger-action" disabled={isFeedPostPending(mediaViewer.post?.id)} onClick={deleteViewedMedia}>{t('delete')}</button>}
                 {mediaViewer.message && mediaViewer.source !== 'feed' && (isManager || mediaViewer.message?.sender === user.username) && <button type="button" className="danger-action" onClick={deleteViewedMedia}>{t('delete')}</button>}
               </div>
             </details>
