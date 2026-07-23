@@ -10,6 +10,10 @@ const {
   mergeFeedPosts,
   setReactionState
 } = require('../utils/feedState');
+const {
+  getDatabaseDialect,
+  mergeThreadMessages
+} = require('../utils/chatState');
 
 const router = express.Router();
 
@@ -27,7 +31,6 @@ const DANGEROUS_EXTENSIONS = new Set(['.exe', '.bat', '.cmd', '.com', '.scr', '.
 
 let cachedThreads = null;
 let storageReadyPromise = null;
-let writeQueue = Promise.resolve();
 let feedSqlWriteQueue = Promise.resolve();
 const streamClients = new Set();
 
@@ -36,7 +39,8 @@ const createId = (prefix = 'item') => `${prefix}_${Date.now()}_${crypto.randomBy
 
 
 let chatSqlReady = false;
-let chatSqlChecked = false;
+let chatSqlCheckPromise = null;
+let chatSqlRetryAt = 0;
 
 const normalizeMessageDate = (message = {}) => {
   const date = new Date(message.createdAt || message.updatedAt || Date.now());
@@ -44,27 +48,55 @@ const normalizeMessageDate = (message = {}) => {
 };
 
 const ensureChatSqlSchema = async () => {
-  if (chatSqlChecked) return chatSqlReady;
-  chatSqlChecked = true;
-  try {
-    if (!db?.execute) throw new Error('SQL execute is unavailable');
-    await db.execute(`CREATE TABLE IF NOT EXISTS chat_messages (
-      id VARCHAR(128) PRIMARY KEY,
-      conversation_id VARCHAR(255) NOT NULL,
-      sender_login VARCHAR(255) NULL,
-      message_json JSON NOT NULL,
-      created_at DATETIME NOT NULL,
-      updated_at DATETIME NOT NULL,
-      deleted_at DATETIME NULL,
-      INDEX idx_chat_messages_conversation_created (conversation_id, created_at),
-      INDEX idx_chat_messages_sender (sender_login)
-    )`);
+  if (chatSqlReady) return true;
+  if (chatSqlCheckPromise) return chatSqlCheckPromise;
+  if (Date.now() < chatSqlRetryAt) return false;
+
+  chatSqlCheckPromise = (async () => {
+    const dialect = getDatabaseDialect(db);
+    if (!dialect) throw new Error('SQL client is unavailable');
+
+    if (dialect === 'postgres') {
+      await db.query(`CREATE TABLE IF NOT EXISTS chat_messages (
+        id VARCHAR(128) PRIMARY KEY,
+        conversation_id VARCHAR(255) NOT NULL,
+        sender_login VARCHAR(255) NULL,
+        message_json JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        deleted_at TIMESTAMPTZ NULL
+      )`);
+      await db.query('CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation_created ON chat_messages (conversation_id, created_at)');
+      await db.query('CREATE INDEX IF NOT EXISTS idx_chat_messages_sender ON chat_messages (sender_login)');
+    } else {
+      await db.execute(`CREATE TABLE IF NOT EXISTS chat_messages (
+        id VARCHAR(128) PRIMARY KEY,
+        conversation_id VARCHAR(255) NOT NULL,
+        sender_login VARCHAR(255) NULL,
+        message_json JSON NOT NULL,
+        created_at DATETIME NOT NULL,
+        updated_at DATETIME NOT NULL,
+        deleted_at DATETIME NULL,
+        INDEX idx_chat_messages_conversation_created (conversation_id, created_at),
+        INDEX idx_chat_messages_sender (sender_login)
+      )`);
+    }
+
     chatSqlReady = true;
-  } catch (error) {
-    chatSqlReady = false;
-    console.warn('Chat SQL storage unavailable, falling back to JSON archive:', error.message);
-  }
-  return chatSqlReady;
+    chatSqlRetryAt = 0;
+    return true;
+  })()
+    .catch((error) => {
+      chatSqlReady = false;
+      chatSqlRetryAt = Date.now() + 5000;
+      console.warn('Chat SQL storage unavailable, falling back to JSON archive:', error.message);
+      return false;
+    })
+    .finally(() => {
+      chatSqlCheckPromise = null;
+    });
+
+  return chatSqlCheckPromise;
 };
 
 const parseSqlMessage = (value) => {
@@ -78,18 +110,35 @@ const writeSqlMessage = async (conversationId, message = {}) => {
   const createdAt = normalizeMessageDate(message);
   const updatedAt = new Date(message.updatedAt || message.editedAt || message.createdAt || Date.now());
   const deletedAt = message.deletedAt ? new Date(message.deletedAt) : null;
-  await db.execute(
-    `INSERT INTO chat_messages (id, conversation_id, sender_login, message_json, created_at, updated_at, deleted_at)
-     VALUES (?, ?, ?, CAST(? AS JSON), ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
-       conversation_id = VALUES(conversation_id),
-       sender_login = VALUES(sender_login),
-       message_json = VALUES(message_json),
-       created_at = VALUES(created_at),
-       updated_at = VALUES(updated_at),
-       deleted_at = VALUES(deleted_at)`,
-    [message.id, conversationId, message.sender || null, JSON.stringify(message), createdAt, updatedAt, deletedAt]
-  );
+  const params = [message.id, conversationId, message.sender || null, JSON.stringify(message), createdAt, updatedAt, deletedAt];
+
+  if (getDatabaseDialect(db) === 'postgres') {
+    await db.query(
+      `INSERT INTO chat_messages (id, conversation_id, sender_login, message_json, created_at, updated_at, deleted_at)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
+       ON CONFLICT (id) DO UPDATE SET
+         conversation_id = EXCLUDED.conversation_id,
+         sender_login = EXCLUDED.sender_login,
+         message_json = EXCLUDED.message_json,
+         created_at = EXCLUDED.created_at,
+         updated_at = EXCLUDED.updated_at,
+         deleted_at = EXCLUDED.deleted_at`,
+      params
+    );
+  } else {
+    await db.execute(
+      `INSERT INTO chat_messages (id, conversation_id, sender_login, message_json, created_at, updated_at, deleted_at)
+       VALUES (?, ?, ?, CAST(? AS JSON), ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         conversation_id = VALUES(conversation_id),
+         sender_login = VALUES(sender_login),
+         message_json = VALUES(message_json),
+         created_at = VALUES(created_at),
+         updated_at = VALUES(updated_at),
+         deleted_at = VALUES(deleted_at)`,
+      params
+    );
+  }
   return true;
 };
 
@@ -97,23 +146,46 @@ const readSqlConversationMessages = async (conversationId, { limit = CHAT_SQL_PA
   if (!await ensureChatSqlSchema()) return null;
   const safeLimit = Math.min(200, Math.max(1, Number(limit) || CHAT_SQL_PAGE_SIZE));
   const params = [conversationId];
-  let where = 'conversation_id = ?';
-  if (before) {
-    where += ' AND created_at < ?';
-    params.push(new Date(before));
+  let rows;
+
+  if (getDatabaseDialect(db) === 'postgres') {
+    let where = 'conversation_id = $1';
+    if (before) {
+      params.push(new Date(before));
+      where += ` AND created_at < $${params.length}`;
+    }
+    params.push(safeLimit);
+    const result = await db.query(
+      `SELECT message_json FROM chat_messages WHERE ${where} ORDER BY created_at DESC LIMIT $${params.length}`,
+      params
+    );
+    rows = result.rows;
+  } else {
+    let where = 'conversation_id = ?';
+    if (before) {
+      where += ' AND created_at < ?';
+      params.push(new Date(before));
+    }
+    params.push(safeLimit);
+    [rows] = await db.execute(
+      `SELECT message_json FROM chat_messages WHERE ${where} ORDER BY created_at DESC LIMIT ?`,
+      params
+    );
   }
-  params.push(safeLimit);
-  const [rows] = await db.execute(
-    `SELECT message_json FROM chat_messages WHERE ${where} ORDER BY created_at DESC LIMIT ?`,
-    params
-  );
+
   return (rows || []).map((row) => parseSqlMessage(row.message_json)).filter(Boolean).reverse();
 };
 
 const readSqlThreadsSnapshot = async (limit = CHAT_SQL_PAGE_SIZE) => {
   if (!await ensureChatSqlSchema()) return null;
   const safeLimit = Math.min(200, Math.max(1, Number(limit) || CHAT_SQL_PAGE_SIZE));
-  const [conversationRows] = await db.execute('SELECT DISTINCT conversation_id FROM chat_messages ORDER BY conversation_id LIMIT 1000');
+  let conversationRows;
+  if (getDatabaseDialect(db) === 'postgres') {
+    const result = await db.query('SELECT DISTINCT conversation_id FROM chat_messages ORDER BY conversation_id LIMIT 1000');
+    conversationRows = result.rows;
+  } else {
+    [conversationRows] = await db.execute('SELECT DISTINCT conversation_id FROM chat_messages ORDER BY conversation_id LIMIT 1000');
+  }
   const pairs = await Promise.all((conversationRows || []).map(async (row) => [
     row.conversation_id,
     await readSqlConversationMessages(row.conversation_id, { limit: safeLimit })
@@ -121,12 +193,14 @@ const readSqlThreadsSnapshot = async (limit = CHAT_SQL_PAGE_SIZE) => {
   return Object.fromEntries(pairs.filter(([, messages]) => messages && messages.length));
 };
 
-const mergeThreadMessages = (archiveMessages = [], sqlMessages = []) => {
-  const byId = new Map();
-  [...archiveMessages, ...sqlMessages].forEach((message) => {
-    if (message?.id) byId.set(message.id, message);
-  });
-  return [...byId.values()].sort((a, b) => normalizeMessageDate(a).getTime() - normalizeMessageDate(b).getTime());
+const deleteSqlConversation = async (conversationId) => {
+  if (!await ensureChatSqlSchema()) return false;
+  if (getDatabaseDialect(db) === 'postgres') {
+    await db.query('DELETE FROM chat_messages WHERE conversation_id = $1', [conversationId]);
+  } else {
+    await db.execute('DELETE FROM chat_messages WHERE conversation_id = ?', [conversationId]);
+  }
+  return true;
 };
 
 
@@ -875,23 +949,32 @@ const broadcastThreads = () => {
   });
 };
 
+const persistThreadsSnapshot = async (threads) => {
+  const nextThreads = cloneThreads(threads);
+  await ensureStorage();
+  await atomicWriteJson(chatFilePath, nextThreads);
+  cachedThreads = cloneThreads(nextThreads);
+  broadcastThreads();
+};
+
+const threadMutationQueue = createSerialMutationQueue({
+  read: readThreadsFromDisk,
+  write: persistThreadsSnapshot
+});
+
 const writeThreads = async (threads) => {
   const nextThreads = cloneThreads(threads);
-  writeQueue = writeQueue
-    .catch(() => {})
-    .then(async () => {
-      await ensureStorage();
-      const currentThreads = await readThreadsFromDisk();
-      if (Object.keys(nextThreads).length === 0 && Object.keys(currentThreads).length > 0) {
-        throw new Error('Защита чата: отказано в перезаписи непустой истории пустым объектом');
-      }
-      await atomicWriteJson(chatFilePath, nextThreads);
-      cachedThreads = cloneThreads(nextThreads);
-      broadcastThreads();
-    });
-
-  await writeQueue;
+  return threadMutationQueue.replace(nextThreads, (next, current) => {
+    if (Object.keys(next).length === 0 && Object.keys(current).length > 0) {
+      throw new Error('Защита чата: отказано в перезаписи непустой истории пустым объектом');
+    }
+  });
 };
+
+const mutateThreads = async (mutator) => threadMutationQueue.mutate(async (threads) => {
+  const nextThreads = await mutator(cloneThreads(threads));
+  return cloneThreads(nextThreads);
+});
 
 
 
@@ -1263,7 +1346,10 @@ router.get('/threads', async (req, res) => {
   try {
     const limit = Math.min(200, Math.max(1, Number(req.query?.limit) || CHAT_SQL_PAGE_SIZE));
     const archiveThreads = await readThreads();
-    const sqlThreads = await readSqlThreadsSnapshot(limit);
+    const sqlThreads = await readSqlThreadsSnapshot(limit).catch((error) => {
+      console.warn('Chat SQL snapshot read failed, using JSON archive:', error.message);
+      return null;
+    });
     const threadIds = new Set([...Object.keys(archiveThreads || {}), ...Object.keys(sqlThreads || {})]);
     const threads = {};
     threadIds.forEach((conversationId) => {
@@ -1349,15 +1435,22 @@ router.post('/threads/:conversationId/messages', async (req, res) => {
       return false;
     });
 
-    const threads = await readThreads();
-    const currentMessages = Array.isArray(threads[conversationId]) ? threads[conversationId] : [];
-    const exists = currentMessages.some((item) => item.id === message.id);
-    threads[conversationId] = exists
-      ? currentMessages.map((item) => (item.id === message.id ? { ...item, ...message } : item))
-      : [...currentMessages, message];
+    let exists = false;
+    let savedItem = message;
+    await mutateThreads((threads) => {
+      const currentMessages = Array.isArray(threads[conversationId]) ? threads[conversationId] : [];
+      exists = currentMessages.some((item) => item.id === message.id);
+      threads[conversationId] = exists
+        ? currentMessages.map((item) => {
+          if (item.id !== message.id) return item;
+          savedItem = { ...item, ...message };
+          return savedItem;
+        })
+        : [...currentMessages, message];
+      return threads;
+    });
 
-    await writeThreads(threads);
-    res.status(exists ? 200 : 201).json({ message: exists ? 'Сообщение обновлено' : 'Сообщение добавлено', conversationId, item: message });
+    res.status(exists ? 200 : 201).json({ message: exists ? 'Сообщение обновлено' : 'Сообщение добавлено', conversationId, item: savedItem });
   } catch (error) {
     console.error('Chat POST /threads/messages error:', error);
     res.status(500).json({ message: 'Не удалось сохранить сообщение' });
@@ -1378,18 +1471,21 @@ router.patch('/threads/:conversationId/messages/:messageId', async (req, res) =>
       return res.status(400).json({ message: 'message или patch обязателен' });
     }
 
-    const threads = await readThreads();
-    const currentMessages = Array.isArray(threads[conversationId]) ? threads[conversationId] : [];
     let found = false;
-    threads[conversationId] = currentMessages.map((item) => {
-      if (item.id !== messageId) return item;
-      found = true;
-      return { ...item, ...patch, id: item.id };
+    let updatedItem = null;
+    await mutateThreads((threads) => {
+      const currentMessages = Array.isArray(threads[conversationId]) ? threads[conversationId] : [];
+      threads[conversationId] = currentMessages.map((item) => {
+        if (item.id !== messageId) return item;
+        found = true;
+        updatedItem = { ...item, ...patch, id: item.id };
+        return updatedItem;
+      });
+      return threads;
     });
 
     if (!found) return res.status(404).json({ message: 'Сообщение не найдено' });
 
-    const updatedItem = threads[conversationId].find((item) => item.id === messageId);
     if (updatedItem) {
       await writeSqlMessage(conversationId, updatedItem).catch((error) => {
         console.warn('Chat SQL patch write failed, keeping JSON archive only:', error.message);
@@ -1397,7 +1493,6 @@ router.patch('/threads/:conversationId/messages/:messageId', async (req, res) =>
       });
     }
 
-    await writeThreads(threads);
     res.json({ message: 'Сообщение обновлено', conversationId, item: updatedItem });
   } catch (error) {
     console.error('Chat PATCH /threads/messages error:', error);
@@ -1423,9 +1518,10 @@ router.put('/threads/:conversationId', async (req, res) => {
       return false;
     })));
 
-    const threads = await readThreads();
-    threads[conversationId] = messages;
-    await writeThreads(threads);
+    const threads = await mutateThreads((items) => ({
+      ...items,
+      [conversationId]: messages
+    }));
 
     res.json({ message: 'Сохранено', threads });
   } catch (error) {
@@ -1441,9 +1537,15 @@ router.delete('/threads/:conversationId', async (req, res) => {
       return res.status(400).json({ message: 'conversationId обязателен' });
     }
 
-    const threads = await readThreads();
-    delete threads[conversationId];
-    await writeThreads(threads);
+    await deleteSqlConversation(conversationId).catch((error) => {
+      console.warn('Chat SQL conversation delete failed, deleting JSON archive only:', error.message);
+      return false;
+    });
+
+    const threads = await mutateThreads((items) => {
+      delete items[conversationId];
+      return items;
+    });
 
     res.json({ message: 'Переписка удалена', threads });
   } catch (error) {
