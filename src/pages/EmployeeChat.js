@@ -1019,8 +1019,10 @@ const readProfileDraft = (username) => {
 
 const getProfileValue = (profile, fallback, ...keys) => {
   for (const key of keys) {
-    const value = profile?.[key];
-    if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+    if (Object.prototype.hasOwnProperty.call(profile || {}, key)) {
+      const value = profile?.[key];
+      return value === undefined || value === null ? '' : value;
+    }
   }
   for (const key of keys) {
     const value = fallback?.[key];
@@ -1766,6 +1768,7 @@ const EmployeeChat = () => {
   const feedFetchControllerRef = useRef(null);
   const forceScrollRef = useRef(false);
   const suppressThreadsRefreshUntilRef = useRef(0);
+  const settingsSyncTimerRef = useRef(null);
 
   const openModal = useCallback((config) => new Promise((resolve) => {
     modalResolverRef.current = resolve;
@@ -1787,6 +1790,32 @@ const EmployeeChat = () => {
   const notify = useCallback((message, title = 'Готово') => {
     setModal({ type: 'info', title: localizeRuntimeText(title), message: localizeRuntimeText(message) });
   }, [localizeRuntimeText]);
+
+  const queueChatSettingsSync = useCallback((settings) => {
+    const login = user?.username;
+    if (!login) return;
+    if (settingsSyncTimerRef.current) clearTimeout(settingsSyncTimerRef.current);
+    settingsSyncTimerRef.current = setTimeout(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/profile/preferences`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ login, preferences: settings }),
+          keepalive: true
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.message || 'Не удалось синхронизировать настройки');
+        }
+      } catch (error) {
+        console.error('Chat settings sync error:', error);
+      }
+    }, 350);
+  }, [user?.username]);
+
+  useEffect(() => () => {
+    if (settingsSyncTimerRef.current) clearTimeout(settingsSyncTimerRef.current);
+  }, []);
 
   const beginFeedAction = useCallback((key, postId = '') => {
     if (
@@ -2027,6 +2056,20 @@ const EmployeeChat = () => {
     if (!mergedProfile.phone) mergedProfile.phone = directoryProfile.phone || directoryProfile.internal_phone || directoryProfile.N_tel || '';
     if (!mergedProfile.room) mergedProfile.room = directoryProfile.room || directoryProfile.cabinet || '';
     if (mode === 'form') {
+      const serverPreferences = profile.preferences && typeof profile.preferences === 'object'
+        ? profile.preferences
+        : null;
+      if (serverPreferences && Object.keys(serverPreferences).length > 0) {
+        const syncedSettings = {
+          ...readChatLocalSettings(login),
+          ...serverPreferences
+        };
+        setChatLocalSettings(syncedSettings);
+        saveChatLocalSettings(login, syncedSettings);
+      } else if (serverPreferences) {
+        queueChatSettingsSync(readChatLocalSettings(login));
+      }
+
       const shouldHydrateForm = !profileDirtyRef.current || profileLoadedForRef.current !== login;
 
       if (shouldHydrateForm) {
@@ -2053,7 +2096,7 @@ const EmployeeChat = () => {
     }
 
     setProfilePreview({ ...mergedProfile, login: profile.login || login });
-  }, [directoryEmployees, user.username]);
+  }, [directoryEmployees, queueChatSettingsSync, user.username]);
 
   const fetchThreads = useCallback(async () => {
     if (Date.now() < suppressThreadsRefreshUntilRef.current) return;
@@ -2192,12 +2235,23 @@ const EmployeeChat = () => {
       const employees = Array.isArray(data?.employees) ? data.employees : [];
       setDirectoryEmployees(employees);
       saveDirectoryCache(employees);
+      const ownEmployee = employees.find((employee) => sameLogin(employee.login, user?.username || ''));
+      if (ownEmployee) {
+        const currentAvatar = ownEmployee.avatar || ownEmployee.profile?.avatar || '';
+        setAvatarUrl(currentAvatar);
+        if (currentAvatar) localStorage.setItem(getAvatarKey(user.username), currentAvatar);
+        else localStorage.removeItem(getAvatarKey(user.username));
+        saveProfileDraft(user.username, {
+          ...readProfileDraft(user.username),
+          avatar: currentAvatar
+        });
+      }
     } catch (error) {
       console.error('Ошибка загрузки сотрудников:', error);
     } finally {
       setIsDirectoryLoaded(true);
     }
-  }, []);
+  }, [user?.username]);
 
   const persistThreadMessages = useCallback(async (conversationId, messages) => {
     const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}`, {
@@ -2529,7 +2583,6 @@ const EmployeeChat = () => {
 
     try {
       const optimizedAvatar = await processAvatar(file);
-      setAvatarUrl(optimizedAvatar);
       const response = await fetch(`${API_BASE_URL}/auth/profile`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -2543,9 +2596,15 @@ const EmployeeChat = () => {
       if (!response.ok) {
         throw new Error(data.message || 'Не удалось сохранить аватар');
       }
-      localStorage.setItem(getAvatarKey(user.username), optimizedAvatar);
-    } catch {
-      notify('Не удалось обработать изображение. Попробуйте другое фото.', 'Фото профиля');
+      const savedAvatar = data?.profile?.avatar || optimizedAvatar;
+      setAvatarUrl(savedAvatar);
+      localStorage.setItem(getAvatarKey(user.username), savedAvatar);
+      saveProfileDraft(user.username, { ...profileForm, avatar: savedAvatar });
+      await fetchEmployees();
+    } catch (error) {
+      notify(error.message || 'Не удалось обработать изображение. Попробуйте другое фото.', 'Фото профиля');
+    } finally {
+      event.target.value = '';
     }
   };
 
@@ -2566,6 +2625,8 @@ const EmployeeChat = () => {
     }
     setAvatarUrl('');
     localStorage.removeItem(getAvatarKey(user.username));
+    saveProfileDraft(user.username, { ...profileForm, avatar: '' });
+    await fetchEmployees();
   };
 
   const queuePendingMessage = (conversationId, message) => {
@@ -2916,6 +2977,7 @@ const EmployeeChat = () => {
     setChatLocalSettings((prev) => {
       const next = updater(prev);
       saveChatLocalSettings(user?.username || 'guest', next);
+      queueChatSettingsSync(next);
       return next;
     });
   };

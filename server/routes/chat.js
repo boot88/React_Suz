@@ -222,78 +222,164 @@ const getDataUrlPayload = (dataUrl = '') => {
 
 
 let chatFilesSqlReady = false;
-let chatFilesSqlChecked = false;
+let chatFilesSqlCheckPromise = null;
+let chatFilesSqlRetryAt = 0;
 
 const ensureChatFilesSqlSchema = async () => {
-  if (chatFilesSqlChecked) return chatFilesSqlReady;
-  chatFilesSqlChecked = true;
-  try {
-    if (!db?.execute) throw new Error('SQL execute is unavailable');
-    await db.execute(`CREATE TABLE IF NOT EXISTS chat_files (
-      id VARCHAR(128) PRIMARY KEY,
-      scope VARCHAR(32) NOT NULL,
-      original_name VARCHAR(255) NOT NULL,
-      stored_name VARCHAR(255) NOT NULL,
-      url VARCHAR(512) NOT NULL,
-      thumbnail_url VARCHAR(512) NULL,
-      mime_type VARCHAR(255) NOT NULL,
-      size_bytes BIGINT NOT NULL,
-      sha256 VARCHAR(64) NOT NULL,
-      uploaded_at DATETIME NOT NULL,
-      metadata_json LONGTEXT NULL,
-      uploaded_by VARCHAR(255) NULL,
-      is_verified TINYINT(1) NOT NULL DEFAULT 1,
-      deleted_at DATETIME NULL,
-      INDEX idx_chat_files_scope (scope),
-      INDEX idx_chat_files_uploaded_at (uploaded_at)
-    )`);
-    await db.execute('ALTER TABLE chat_files ADD COLUMN uploaded_by VARCHAR(255) NULL').catch(() => {});
-    await db.execute('ALTER TABLE chat_files ADD COLUMN is_verified TINYINT(1) NOT NULL DEFAULT 1').catch(() => {});
-    await db.execute('ALTER TABLE chat_files ADD COLUMN deleted_at DATETIME NULL').catch(() => {});
+  if (chatFilesSqlReady) return true;
+  if (chatFilesSqlCheckPromise) return chatFilesSqlCheckPromise;
+  if (Date.now() < chatFilesSqlRetryAt) return false;
+
+  chatFilesSqlCheckPromise = (async () => {
+    const dialect = getDatabaseDialect(db);
+    if (!dialect) throw new Error('SQL client is unavailable');
+
+    if (dialect === 'postgres') {
+      await db.query(`CREATE TABLE IF NOT EXISTS chat_files (
+        id VARCHAR(128) PRIMARY KEY,
+        scope VARCHAR(32) NOT NULL,
+        original_name VARCHAR(255) NOT NULL,
+        stored_name VARCHAR(255) NOT NULL,
+        url VARCHAR(512) NOT NULL,
+        thumbnail_url VARCHAR(512) NULL,
+        mime_type VARCHAR(255) NOT NULL,
+        size_bytes BIGINT NOT NULL,
+        sha256 VARCHAR(64) NOT NULL,
+        uploaded_at TIMESTAMPTZ NOT NULL,
+        metadata_json JSONB NULL,
+        uploaded_by VARCHAR(255) NULL,
+        is_verified BOOLEAN NOT NULL DEFAULT TRUE,
+        deleted_at TIMESTAMPTZ NULL,
+        file_data BYTEA NULL,
+        thumbnail_data BYTEA NULL
+      )`);
+      await db.query('ALTER TABLE chat_files ADD COLUMN IF NOT EXISTS uploaded_by VARCHAR(255) NULL');
+      await db.query('ALTER TABLE chat_files ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT TRUE');
+      await db.query('ALTER TABLE chat_files ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL');
+      await db.query('ALTER TABLE chat_files ADD COLUMN IF NOT EXISTS file_data BYTEA NULL');
+      await db.query('ALTER TABLE chat_files ADD COLUMN IF NOT EXISTS thumbnail_data BYTEA NULL');
+      await db.query('CREATE INDEX IF NOT EXISTS idx_chat_files_scope ON chat_files (scope)');
+      await db.query('CREATE INDEX IF NOT EXISTS idx_chat_files_uploaded_at ON chat_files (uploaded_at)');
+    } else {
+      await db.execute(`CREATE TABLE IF NOT EXISTS chat_files (
+        id VARCHAR(128) PRIMARY KEY,
+        scope VARCHAR(32) NOT NULL,
+        original_name VARCHAR(255) NOT NULL,
+        stored_name VARCHAR(255) NOT NULL,
+        url VARCHAR(512) NOT NULL,
+        thumbnail_url VARCHAR(512) NULL,
+        mime_type VARCHAR(255) NOT NULL,
+        size_bytes BIGINT NOT NULL,
+        sha256 VARCHAR(64) NOT NULL,
+        uploaded_at DATETIME NOT NULL,
+        metadata_json LONGTEXT NULL,
+        uploaded_by VARCHAR(255) NULL,
+        is_verified TINYINT(1) NOT NULL DEFAULT 1,
+        deleted_at DATETIME NULL,
+        file_data LONGBLOB NULL,
+        thumbnail_data LONGBLOB NULL,
+        INDEX idx_chat_files_scope (scope),
+        INDEX idx_chat_files_uploaded_at (uploaded_at)
+      )`);
+      await db.execute('ALTER TABLE chat_files ADD COLUMN uploaded_by VARCHAR(255) NULL').catch(() => {});
+      await db.execute('ALTER TABLE chat_files ADD COLUMN is_verified TINYINT(1) NOT NULL DEFAULT 1').catch(() => {});
+      await db.execute('ALTER TABLE chat_files ADD COLUMN deleted_at DATETIME NULL').catch(() => {});
+      await db.execute('ALTER TABLE chat_files ADD COLUMN file_data LONGBLOB NULL').catch(() => {});
+      await db.execute('ALTER TABLE chat_files ADD COLUMN thumbnail_data LONGBLOB NULL').catch(() => {});
+    }
+
     chatFilesSqlReady = true;
-  } catch (error) {
-    chatFilesSqlReady = false;
-    console.warn('Chat file SQL metadata unavailable, storing files without SQL metadata:', error.message);
-  }
-  return chatFilesSqlReady;
+    chatFilesSqlRetryAt = 0;
+    return true;
+  })()
+    .catch((error) => {
+      chatFilesSqlReady = false;
+      chatFilesSqlRetryAt = Date.now() + 5000;
+      console.warn('Chat file SQL storage unavailable:', error.message);
+      return false;
+    })
+    .finally(() => {
+      chatFilesSqlCheckPromise = null;
+    });
+
+  return chatFilesSqlCheckPromise;
 };
 
 const writeSqlFileMetadata = async (file = {}) => {
   if (!await ensureChatFilesSqlSchema()) return false;
-  await db.execute(
-    `INSERT INTO chat_files (id, scope, original_name, stored_name, url, thumbnail_url, mime_type, size_bytes, sha256, uploaded_at, metadata_json, uploaded_by, is_verified, deleted_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
-       scope = VALUES(scope),
-       original_name = VALUES(original_name),
-       stored_name = VALUES(stored_name),
-       url = VALUES(url),
-       thumbnail_url = VALUES(thumbnail_url),
-       mime_type = VALUES(mime_type),
-       size_bytes = VALUES(size_bytes),
-       sha256 = VALUES(sha256),
-       uploaded_at = VALUES(uploaded_at),
-       metadata_json = VALUES(metadata_json),
-       uploaded_by = VALUES(uploaded_by),
-       is_verified = VALUES(is_verified),
-       deleted_at = VALUES(deleted_at)`,
-    [
-      file.id,
-      file.scope,
-      file.originalName || file.name,
-      file.storedName,
-      file.url,
-      file.thumbnailUrl || null,
-      file.type,
-      file.size,
-      file.sha256,
-      new Date(file.uploadedAt || Date.now()),
-      JSON.stringify({ name: file.name, thumbnailUrl: file.thumbnailUrl || null, thumbnailStoredName: file.thumbnailStoredName || '' }),
-      file.uploadedBy || null,
-      file.isVerified === false ? 0 : 1,
-      file.deletedAt ? new Date(file.deletedAt) : null
-    ]
-  );
+  const metadata = JSON.stringify({ name: file.name, thumbnailUrl: file.thumbnailUrl || null, thumbnailStoredName: file.thumbnailStoredName || '' });
+  const params = [
+    file.id,
+    file.scope,
+    file.originalName || file.name,
+    file.storedName,
+    file.url,
+    file.thumbnailUrl || null,
+    file.type,
+    file.size,
+    file.sha256,
+    new Date(file.uploadedAt || Date.now()),
+    metadata,
+    file.uploadedBy || null,
+    file.isVerified !== false,
+    file.deletedAt ? new Date(file.deletedAt) : null,
+    file.fileData || null,
+    file.thumbnailData || null
+  ];
+
+  if (getDatabaseDialect(db) === 'postgres') {
+    await db.query(
+      `INSERT INTO chat_files (
+        id, scope, original_name, stored_name, url, thumbnail_url, mime_type, size_bytes,
+        sha256, uploaded_at, metadata_json, uploaded_by, is_verified, deleted_at, file_data, thumbnail_data
+      )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16)
+       ON CONFLICT (id) DO UPDATE SET
+         scope = EXCLUDED.scope,
+         original_name = EXCLUDED.original_name,
+         stored_name = EXCLUDED.stored_name,
+         url = EXCLUDED.url,
+         thumbnail_url = EXCLUDED.thumbnail_url,
+         mime_type = EXCLUDED.mime_type,
+         size_bytes = EXCLUDED.size_bytes,
+         sha256 = EXCLUDED.sha256,
+         uploaded_at = EXCLUDED.uploaded_at,
+         metadata_json = EXCLUDED.metadata_json,
+         uploaded_by = EXCLUDED.uploaded_by,
+         is_verified = EXCLUDED.is_verified,
+         deleted_at = EXCLUDED.deleted_at,
+         file_data = COALESCE(EXCLUDED.file_data, chat_files.file_data),
+         thumbnail_data = COALESCE(EXCLUDED.thumbnail_data, chat_files.thumbnail_data)`,
+      params
+    );
+  } else {
+    const mysqlParams = [...params];
+    mysqlParams[12] = file.isVerified === false ? 0 : 1;
+    await db.execute(
+      `INSERT INTO chat_files (
+        id, scope, original_name, stored_name, url, thumbnail_url, mime_type, size_bytes,
+        sha256, uploaded_at, metadata_json, uploaded_by, is_verified, deleted_at, file_data, thumbnail_data
+      )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         scope = VALUES(scope),
+         original_name = VALUES(original_name),
+         stored_name = VALUES(stored_name),
+         url = VALUES(url),
+         thumbnail_url = VALUES(thumbnail_url),
+         mime_type = VALUES(mime_type),
+         size_bytes = VALUES(size_bytes),
+         sha256 = VALUES(sha256),
+         uploaded_at = VALUES(uploaded_at),
+         metadata_json = VALUES(metadata_json),
+         uploaded_by = VALUES(uploaded_by),
+         is_verified = VALUES(is_verified),
+         deleted_at = VALUES(deleted_at),
+         file_data = COALESCE(VALUES(file_data), file_data),
+         thumbnail_data = COALESCE(VALUES(thumbnail_data), thumbnail_data)`,
+      mysqlParams
+    );
+  }
   return true;
 };
 
@@ -450,6 +536,7 @@ const saveMultipartUpload = async (req) => {
     const fileId = createId('file');
     const url = `/api/chat/files/${encodeURIComponent(fileId)}/download`;
     let thumbnailStoredName = '';
+    let thumbnailData = null;
     // A video file itself is not a valid poster image. Keep the poster empty when
     // client-side frame extraction failed so the browser can render the first frame.
     let thumbnailUrl = String(mime).startsWith('image/') ? url : '';
@@ -457,12 +544,14 @@ const saveMultipartUpload = async (req) => {
     if ((String(mime).startsWith('image/') || String(mime).startsWith('video/')) && fields.thumbnailDataUrl) {
       const thumbnailParsed = getDataUrlPayload(fields.thumbnailDataUrl);
       if (thumbnailParsed && String(thumbnailParsed.mime || '').startsWith('image/')) {
-        const thumbnailBuffer = Buffer.from(thumbnailParsed.payload, 'base64');
-        if (thumbnailBuffer.length > 0 && thumbnailBuffer.length <= 2 * 1024 * 1024) {
+        thumbnailData = Buffer.from(thumbnailParsed.payload, 'base64');
+        if (thumbnailData.length > 0 && thumbnailData.length <= 2 * 1024 * 1024) {
           const thumbnailName = `thumb-${storedName.replace(/\.[^.]+$/, '')}.jpg`;
-          await fs.writeFile(path.join(uploadDir, thumbnailName), thumbnailBuffer);
+          await fs.writeFile(path.join(uploadDir, thumbnailName), thumbnailData);
           thumbnailStoredName = thumbnailName;
           thumbnailUrl = `/api/chat/files/${encodeURIComponent(fileId)}/download?variant=thumbnail`;
+        } else {
+          thumbnailData = null;
         }
       }
     }
@@ -480,17 +569,23 @@ const saveMultipartUpload = async (req) => {
       storedName,
       thumbnailStoredName,
       sha256,
+      fileData: filePart.buffer,
+      thumbnailData,
       isVerified: true,
       uploadedAt: new Date().toISOString()
     };
 
-    try {
-      await writeSqlFileMetadata(file);
-    } catch (error) {
-      console.warn('Chat file SQL metadata write failed:', error.message);
+    const sqlSaved = await writeSqlFileMetadata(file);
+    if (!sqlSaved) {
+      const error = new Error('Постоянное хранилище файлов временно недоступно');
+      error.status = 503;
+      throw error;
     }
 
-    return file;
+    const publicFile = { ...file };
+    delete publicFile.fileData;
+    delete publicFile.thumbnailData;
+    return publicFile;
   } finally {
     await fs.unlink(tempPath).catch(() => {});
   }
@@ -506,7 +601,13 @@ const parseFileMetadataJson = (value) => {
 
 const readSqlFileMetadata = async (fileId) => {
   if (!await ensureChatFilesSqlSchema()) return null;
-  const [rows] = await db.execute('SELECT * FROM chat_files WHERE id = ? LIMIT 1', [fileId]);
+  let rows;
+  if (getDatabaseDialect(db) === 'postgres') {
+    const result = await db.query('SELECT * FROM chat_files WHERE id = $1 LIMIT 1', [fileId]);
+    rows = result.rows;
+  } else {
+    [rows] = await db.execute('SELECT * FROM chat_files WHERE id = ? LIMIT 1', [fileId]);
+  }
   return rows?.[0] || null;
 };
 
@@ -567,14 +668,21 @@ const getFeedAttachmentsFromPost = (post = {}) => [
 const resolveStoredDownload = (file = {}, variant = '') => {
   const metadata = parseFileMetadataJson(file.metadata_json);
   const scope = ALLOWED_UPLOAD_SCOPES.has(file.scope) ? file.scope : 'chat';
+  const storedData = variant === 'thumbnail' ? file.thumbnail_data : file.file_data;
+  const data = Buffer.isBuffer(storedData)
+    ? storedData
+    : (storedData?.data && Array.isArray(storedData.data) ? Buffer.from(storedData.data) : null);
   const storedName = variant === 'thumbnail'
     ? (metadata.thumbnailStoredName || path.basename(decodeURIComponent(String(file.thumbnail_url || '').split('?')[0] || '')))
     : file.stored_name;
+  const fileName = variant === 'thumbnail' ? `thumb-${file.original_name || file.id}.jpg` : (file.original_name || file.id);
+  const mime = variant === 'thumbnail' ? 'image/jpeg' : file.mime_type;
+  if (data?.length) return { data, fileName, mime };
   if (!storedName) return null;
   const safeBase = path.basename(storedName);
   const filePath = path.join(uploadsDir, scope, safeBase);
   if (!filePath.startsWith(path.join(uploadsDir, scope))) return null;
-  return { filePath, fileName: variant === 'thumbnail' ? `thumb-${file.original_name || file.id}.jpg` : (file.original_name || file.id), mime: variant === 'thumbnail' ? 'image/jpeg' : file.mime_type };
+  return { filePath, fileName, mime };
 };
 
 const ensureFileDownloadAccess = async (req, fileId) => {
@@ -1001,10 +1109,14 @@ router.get('/files/:fileId/download', async (req, res) => {
     const file = await ensureFileDownloadAccess(req, fileId);
     const download = resolveStoredDownload(file, req.query?.variant === 'thumbnail' ? 'thumbnail' : '');
     if (!download) return res.status(404).json({ message: 'Файл не найден' });
-    await fs.access(download.filePath);
     res.setHeader('Content-Type', download.mime || 'application/octet-stream');
     res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(download.fileName)}"`);
     res.setHeader('Cache-Control', 'private, no-store');
+    if (download.data) {
+      res.setHeader('Content-Length', download.data.length);
+      return res.send(download.data);
+    }
+    await fs.access(download.filePath);
     fsSync.createReadStream(download.filePath).pipe(res);
   } catch (error) {
     console.error('Chat GET /files/download error:', error.message);
