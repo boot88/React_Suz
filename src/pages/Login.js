@@ -21,7 +21,8 @@ const LOGIN_LABELS = {
     employeeKicker: 'Service access', employeeContextTitle: 'Requests without unnecessary steps', employeeContextText: 'Create a request, attach materials and follow each stage through to completion.',
     employeeStepOne: 'New request', employeeStepOneMeta: 'Description and files', employeeStepTwo: 'Assigned', employeeStepTwoMeta: 'Specialist and status', employeeStepThree: 'Result', employeeStepThreeMeta: 'History is retained',
     adminKicker: 'System management', adminContextTitle: 'Everything important under control', adminContextText: 'Manage the queue, deadlines and owners from one focused workspace.',
-    adminStepOne: 'Queue', adminStepOneMeta: 'New and urgent', adminStepTwo: 'Control', adminStepTwoMeta: 'Status and deadlines', adminStepThree: 'Archive', adminStepThreeMeta: 'Search and history'
+    adminStepOne: 'Queue', adminStepOneMeta: 'New and urgent', adminStepTwo: 'Control', adminStepTwoMeta: 'Status and deadlines', adminStepThree: 'Archive', adminStepThreeMeta: 'Search and history',
+    employeeDirectory: 'Employee directory', adminDirectory: 'Access directory', directoryFound: 'found', directoryEmployeeHint: 'Choose your surname', directoryAdminHint: 'Choose an administrator', directoryEmpty: 'No matching records', directoryFooter: 'Start typing a surname to narrow the list', adminAccess: 'Management access'
   },
   ru: {
     back: '← назад', adminEntry: 'вход для администратора', adminChip: 'Панель управления', title: 'Вход', subtitle: 'Введите логин и пароль',
@@ -35,7 +36,8 @@ const LOGIN_LABELS = {
     employeeKicker: 'Служебный доступ', employeeContextTitle: 'Обращения без лишних шагов', employeeContextText: 'Создавайте обращения, прикладывайте материалы и отслеживайте каждый этап до завершения.',
     employeeStepOne: 'Новое обращение', employeeStepOneMeta: 'Описание и файлы', employeeStepTwo: 'Назначено', employeeStepTwoMeta: 'Исполнитель и статус', employeeStepThree: 'Результат', employeeStepThreeMeta: 'История сохраняется',
     adminKicker: 'Управление системой', adminContextTitle: 'Всё важное под контролем', adminContextText: 'Управляйте очередью, сроками и ответственными в едином рабочем пространстве.',
-    adminStepOne: 'Очередь', adminStepOneMeta: 'Новые и срочные', adminStepTwo: 'Контроль', adminStepTwoMeta: 'Статусы и сроки', adminStepThree: 'Архив', adminStepThreeMeta: 'Поиск и история'
+    adminStepOne: 'Очередь', adminStepOneMeta: 'Новые и срочные', adminStepTwo: 'Контроль', adminStepTwoMeta: 'Статусы и сроки', adminStepThree: 'Архив', adminStepThreeMeta: 'Поиск и история',
+    employeeDirectory: 'Сотрудники', adminDirectory: 'Доступ к управлению', directoryFound: 'найдено', directoryEmployeeHint: 'Выберите свою фамилию', directoryAdminHint: 'Выберите администратора', directoryEmpty: 'Совпадений не найдено', directoryFooter: 'Начните вводить фамилию, чтобы сократить список', adminAccess: 'Управление системой'
   }
 };
 
@@ -334,10 +336,22 @@ const Login = ({ mode = 'employee' }) => {
                   required
                   disabled={isSubmitting}
                 />
-                <button type="button" className="login-suggestions-toggle" onClick={() => { setShowAllSuggestions(true); setSuggestionsOpen((prev) => !prev); }} disabled={isSubmitting} aria-label={t('showEmployees')}>
-                  ▾
+                <button
+                  type="button"
+                  className={`login-suggestions-toggle ${suggestionsOpen ? 'is-open' : ''}`}
+                  onClick={() => { setShowAllSuggestions(true); setSuggestionsOpen((prev) => !prev); }}
+                  disabled={isSubmitting}
+                  aria-label={t('showEmployees')}
+                  aria-haspopup="listbox"
+                  aria-expanded={suggestionsOpen}
+                >
+                  {design === 'new' ? (
+                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                      <path d="m5 7.5 5 5 5-5" />
+                    </svg>
+                  ) : '▾'}
                 </button>
-                {suggestionsOpen && loginSuggestions.length > 0 && (
+                {suggestionsOpen && design === 'current' && loginSuggestions.length > 0 && (
                   <div className="login-suggestions">
                     {loginSuggestions.map((suggestion) => (
                       <button key={suggestion.id || suggestion.login} type="button" onMouseDown={(event) => { event.preventDefault(); applyLoginSuggestion(suggestion); }}>
@@ -345,6 +359,66 @@ const Login = ({ mode = 'employee' }) => {
                         {!isAdminMode && <span>{suggestion.department || t('departmentMissing')} · {t('room')}. {suggestion.room || '—'} · {suggestion.phone || t('phoneMissing')}</span>}
                       </button>
                     ))}
+                  </div>
+                )}
+                {suggestionsOpen && design === 'new' && (
+                  <div className="login-directory" role="listbox" aria-label={t(isAdminMode ? 'adminDirectory' : 'employeeDirectory')}>
+                    <div className="login-directory-header">
+                      <span>
+                        <strong>{t(isAdminMode ? 'adminDirectory' : 'employeeDirectory')}</strong>
+                        <small>{t(isAdminMode ? 'directoryAdminHint' : 'directoryEmployeeHint')}</small>
+                      </span>
+                      <span className="login-directory-count">
+                        {loginSuggestions.length}
+                        <small>{t('directoryFound')}</small>
+                      </span>
+                    </div>
+
+                    <div className="login-directory-list">
+                      {loginSuggestions.length > 0 ? loginSuggestions.map((suggestion) => {
+                        const displayName = formatSuggestionName(suggestion.display_name || suggestion.full_name || suggestion.login);
+                        const initials = displayName
+                          .split(/\s+/)
+                          .filter(Boolean)
+                          .slice(0, 2)
+                          .map((part) => part.charAt(0).toUpperCase())
+                          .join('');
+                        const isSelected = selectedLogin === suggestion.login;
+
+                        return (
+                          <button
+                            key={suggestion.id || suggestion.login}
+                            type="button"
+                            role="option"
+                            aria-selected={isSelected}
+                            className={isSelected ? 'is-selected' : ''}
+                            onMouseDown={(event) => { event.preventDefault(); applyLoginSuggestion(suggestion); }}
+                          >
+                            <span className="login-directory-avatar">{initials || '—'}</span>
+                            <span className="login-directory-identity">
+                              <strong>{displayName}</strong>
+                              <span>{isAdminMode ? t('adminAccess') : (suggestion.department || t('departmentMissing'))}</span>
+                              {!isAdminMode && (
+                                <small>
+                                  <span>{t('room')}. {suggestion.room || '—'}</span>
+                                  <span>{suggestion.phone || t('phoneMissing')}</span>
+                                </small>
+                              )}
+                            </span>
+                            <span className="login-directory-mark" aria-hidden="true">
+                              {isSelected ? '✓' : '→'}
+                            </span>
+                          </button>
+                        );
+                      }) : (
+                        <div className="login-directory-empty">
+                          <span>—</span>
+                          <strong>{t('directoryEmpty')}</strong>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="login-directory-footer">{t('directoryFooter')}</div>
                   </div>
                 )}
               </div>
