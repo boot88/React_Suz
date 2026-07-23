@@ -72,7 +72,7 @@ const Register = () => {
     if (/[^A-Za-zА-Яа-я0-9]/.test(password)) score += 1;
     return score;
   }, [formData.password]);
-  const passwordStrengthLabel = ['Слабый', 'Слабый', 'Нормальный', 'Хороший', 'Надёжный'][passwordScore];
+  const passwordStrengthLabel = ['Weak', 'Weak', 'Normal', 'Good', 'Strong'][passwordScore];
   const hasPasswordPair = formData.password.length > 0 && formData.confirmPassword.length > 0;
   const passwordsMatch = hasPasswordPair && formData.password === formData.confirmPassword;
 
@@ -105,12 +105,12 @@ const Register = () => {
     setSuccessMessage('');
 
     if (formData.password.length < 8) {
-      setError('Пароль должен содержать минимум 8 символов.');
+      setError('Password must contain at least 8 characters.');
       return;
     }
 
     if (formData.password !== formData.confirmPassword) {
-      setError('Пароли не совпадают.');
+      setError('Passwords do not match.');
       return;
     }
 
@@ -124,10 +124,10 @@ const Register = () => {
         internalPhone: formData.internalPhone,
         password: formData.password
       });
-      setSuccessMessage('Сотрудник зарегистрирован. Теперь можно войти с указанным логином и паролем.');
+      setSuccessMessage('Employee registered. You can now sign in with the specified login and password.');
       setTimeout(() => navigate('/login'), 1000);
     } catch (err) {
-      setError(err.message || 'Ошибка регистрации');
+      setError(err.message || 'Registration error');
     } finally {
       setIsLoading(false);
     }
@@ -143,13 +143,13 @@ const Register = () => {
         <main className="register-content">
           <div className="register-card">
             <div className="register-header">
-              <h2>Регистрация сотрудника</h2>
-              <p className="register-subtitle">Заполните данные сотрудника для создания аккаунта</p>
+              <h2>Employee registration</h2>
+              <p className="register-subtitle">Fill in employee data to create an account</p>
             </div>
 
             <form onSubmit={handleRegister} className="register-form">
           <label>
-            ФИО сотрудника *
+            Full name *
             <input
               type="text"
               name="fullName"
@@ -165,7 +165,7 @@ const Register = () => {
             <div className="name-hints">
               {nameHints.map((hint) => (
                 <button key={`${hint.full_name}-${hint.email || hint.room}`} type="button" onClick={() => applyHint(hint)}>
-                  {hint.full_name} · {hint.department || 'без отдела'} · {hint.room || '—'}
+                  {hint.full_name} · {hint.department || 'no department'} · {hint.room || '—'}
                 </button>
               ))}
             </div>
@@ -173,14 +173,14 @@ const Register = () => {
 
           <div className="grid-two">
             <label>
-              Отдел
+              Department
               <select
                 name="department"
                 value={formData.department}
                 onChange={handleChange}
                 disabled={isLoading}
               >
-                <option value="">Выберите отдел</option>
+                <option value="">Select department</option>
                 {departments.map((department) => (
                   <option key={department} value={department}>{department}</option>
                 ))}
@@ -188,7 +188,7 @@ const Register = () => {
             </label>
 
             <label>
-              Кабинет
+              Room
               <input
                 type="text"
                 name="room"
@@ -201,7 +201,7 @@ const Register = () => {
 
           <div className="grid-two">
             <label>
-              Внутренний телефон
+              Internal phone
               <input
                 type="text"
                 name="internalPhone"
@@ -212,7 +212,7 @@ const Register = () => {
             </label>
 
             <label>
-              Email (логин) *
+              Email (login) *
               <input
                 type="email"
                 name="email"
@@ -226,7 +226,7 @@ const Register = () => {
 
           <div className="grid-two password-grid">
             <label>
-              Пароль *
+              Password *
               <input
                 type={showPassword ? 'text' : 'password'}
                 name="password"
@@ -236,12 +236,12 @@ const Register = () => {
                 disabled={isLoading}
                 autoComplete="new-password"
                 minLength={8}
-                placeholder="Минимум 8 символов"
+                placeholder="Minimum 8 characters"
               />
             </label>
 
             <label>
-              Повторите пароль *
+              Confirm password *
               <input
                 type={showPassword ? 'text' : 'password'}
                 name="confirmPassword"
@@ -251,7 +251,7 @@ const Register = () => {
                 disabled={isLoading}
                 autoComplete="new-password"
                 minLength={8}
-                placeholder="Введите пароль ещё раз"
+                placeholder="Enter password again"
               />
             </label>
           </div>
@@ -264,11 +264,11 @@ const Register = () => {
                 onChange={(e) => setShowPassword(e.target.checked)}
                 disabled={isLoading}
               />
-              Показать пароль
+              Show password
             </label>
             {hasPasswordPair && (
               <span className={`password-match ${passwordsMatch ? 'match' : 'mismatch'}`}>
-                {passwordsMatch ? 'Пароли совпадают' : 'Пароли не совпадают'}
+                {passwordsMatch ? 'Passwords match' : 'Passwords do not match'}
               </span>
             )}
           </div>
@@ -279,15 +279,15 @@ const Register = () => {
                 <span key={item} className={item <= passwordScore ? 'active' : ''} />
               ))}
             </div>
-            <span>{formData.password ? `Надёжность: ${passwordStrengthLabel}` : 'Придумайте пароль и повторите его во втором поле.'}</span>
+            <span>{formData.password ? `Strength: ${passwordStrengthLabel}` : 'Create a password and repeat it in the second field.'}</span>
           </div>
 
           <p className="register-note">
-            Пароль задаётся сразу при регистрации. Если сотрудник забудет его позже, восстановление через «Забыли пароль?» на странице входа продолжит работать.
+            The password is set during registration. If an employee forgets it later, recovery via “Forgot password?” on the login page will still work.
           </p>
 
           <button type="submit" disabled={isLoading}>
-            {isLoading ? 'Регистрация...' : 'Зарегистрировать сотрудника'}
+            {isLoading ? 'Registering...' : 'Register employee'}
           </button>
         </form>
 
@@ -295,7 +295,7 @@ const Register = () => {
             {successMessage && <div className="register-success">{successMessage}</div>}
 
             <div className="register-footer">
-              <p>Уже есть аккаунт? <Link to="/login">Войти</Link></p>
+              <p>Already have an account? <Link to="/login">Sign in</Link></p>
             </div>
           </div>
         </main>

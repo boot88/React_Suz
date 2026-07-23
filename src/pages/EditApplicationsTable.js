@@ -82,8 +82,8 @@ function EditApplicationsTable() {
       case 'N_tel':
         if (value && value.length > 15) {
           error = 'Максимум 15 символов';
-        } else if (value && !/^[0-9\s\-]+$/.test(value)) {
-          error = 'Только цифры, пробел и дефис';
+        } else if (value && !/^[0-9\s,-]+$/.test(value)) {
+          error = 'Только цифры, пробел, запятые и дефис';
         }
         break;
         

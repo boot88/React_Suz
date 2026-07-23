@@ -168,10 +168,6 @@ export const AuthProvider = ({ children }) => {
       return managerUser;
     }
 
-    if (loginScope === 'admin') {
-      throw new Error('Неверный логин/email или пароль');
-    }
-
     const response = await fetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
       headers: {
@@ -188,9 +184,11 @@ export const AuthProvider = ({ children }) => {
       throw new Error(data.message || 'Неверный логин/email или пароль');
     }
 
+    const serverRole = data?.user?.role || 'employee';
     const employeeUser = {
       username: data?.user?.login || loginValue,
-      role: data?.user?.role || 'employee',
+      role: loginScope === 'employee' && serverRole === 'admin' ? 'manager' : serverRole,
+      serverRole,
       name: data?.user?.full_name || data?.user?.login || loginValue
     };
 

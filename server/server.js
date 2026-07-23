@@ -39,17 +39,12 @@ app.use(cors({
     if (isAllowedCorsOrigin(origin)) return callback(null, true);
     return callback(new Error('CORS origin is not allowed'));
   },
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   credentials: true,
   exposedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json({ limit: '150mb' })); // Увеличиваем лимит для изображений и видео-вложений
 app.use(express.urlencoded({ extended: true, limit: '150mb' }));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
-  maxAge: process.env.NODE_ENV === 'production' ? '7d' : 0,
-  fallthrough: false
-}));
-
 app.use('/api/employees', employeeRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
@@ -259,6 +254,27 @@ const safeParseImages = (imagesString) => {
     return [];
   }
 };
+
+const NETWORK_MAP_SOURCE_URL = process.env.NETWORK_MAP_SOURCE_URL || 'http://nioch.nioch.nsc.ru/nioch/nioch.txt';
+
+app.get('/api/network-map', async (req, res) => {
+  try {
+    const response = await fetch(NETWORK_MAP_SOURCE_URL);
+    if (!response.ok) {
+      return res.status(response.status).json({ error: `Не удалось загрузить сетку: ${response.status}` });
+    }
+
+    const zoneText = await response.text();
+    res.json({
+      sourceUrl: NETWORK_MAP_SOURCE_URL,
+      fetchedAt: new Date().toISOString(),
+      zoneText
+    });
+  } catch (error) {
+    console.error('Error fetching network map:', error);
+    res.status(500).json({ error: 'Не удалось загрузить сетку' });
+  }
+});
 
 // API для базы знаний - ОБНОВЛЕННЫЕ МАРШРУТЫ С БЕЗОПАСНЫМ ПАРСИНГОМ
 app.get('/api/knowledge-base', async (req, res) => {

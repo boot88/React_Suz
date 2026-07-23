@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { searchEmployees, getDepartments, syncEmployees } from '../services/employeeService';
 import './EmployeeSearch.css'; // Импортируем CSS файл
-//import { API_BASE_URL } from '../config';
 
 const EmployeeSearch = () => {
   const [searchTerm, setSearchTerm] = useState('');

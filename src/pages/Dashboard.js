@@ -114,6 +114,7 @@ const getWaitingSeconds = (app = {}) => {
 
 const getWorkSeconds = (app = {}) => {
   const status = app.status || (app.fl ? 'done' : 'new');
+  const isDone = app.fl || status === 'done';
   if (app.sla_paused_at && ['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(status)) return app.sla_paused_seconds ?? null;
   if (app.work_seconds != null) {
     if (!app.fl && ['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(status)) {
@@ -121,9 +122,10 @@ const getWorkSeconds = (app = {}) => {
     }
     return app.work_seconds;
   }
-  const startedAt = app.work_started_at || app.accepted_at || app.start_data;
+  const startedAt = app.work_started_at || app.accepted_at || app.start_data || (isDone && !isEmployeeCreatedApplication(app) ? (app.created_at || app.data) : null);
   const finishedAt = app.resolved_at || app.end_data || app.employee_confirmed_at;
   if (startedAt && finishedAt) return secondsBetweenValues(startedAt, finishedAt);
+  if (isDone && !isEmployeeCreatedApplication(app)) return 30 * 60;
   if (startedAt && ['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(status) && !app.fl) return secondsSince(startedAt);
   return null;
 };
@@ -592,27 +594,36 @@ const Dashboard = () => {
     });
   };
 
+  const isDateOnlyValue = (dateString) => typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateString.trim());
+  const isMidnightValue = (date) => date.getHours() === 0 && date.getMinutes() === 0 && date.getSeconds() === 0 && date.getMilliseconds() === 0;
+
   const formatCreatedAt = (dateString) => {
     if (!dateString) return 'Ручная подача · дата —';
     const date = new Date(dateString);
     if (Number.isNaN(date.getTime())) return 'Ручная подача · дата —';
-    return date.toLocaleString('ru-RU', {
+    const dateFormat = {
       day: '2-digit',
       month: '2-digit',
-      year: '2-digit',
+      year: '2-digit'
+    };
+    if (isDateOnlyValue(dateString) || isMidnightValue(date)) return date.toLocaleDateString('ru-RU', dateFormat);
+    return date.toLocaleString('ru-RU', {
+      ...dateFormat,
       hour: '2-digit',
       minute: '2-digit'
     });
   };
 
   const formatTimeRange = (app) => {
-    const startValue = app.start_data || app.work_started_at || app.accepted_at;
+    const status = app.status || (app.fl ? 'done' : 'new');
+    const isDone = app.fl || status === 'done';
+    const startValue = app.start_data || app.work_started_at || app.accepted_at || (isDone && !isEmployeeCreatedApplication(app) ? (app.created_at || app.data) : null);
     const displayWorkSeconds = getDisplayWorkSeconds(app);
     const calculatedEnd = startValue && displayWorkSeconds != null
       ? new Date(new Date(startValue).getTime() + displayWorkSeconds * 1000)
       : null;
     const start = formatTime(startValue);
-    const end = formatTime(calculatedEnd || app.end_data || app.resolved_at);
+    const end = formatTime(app.end_data || app.resolved_at || calculatedEnd);
     if (start === '—' && end === '—') return '—';
     if (start !== '—' && end !== '—') return `${start} — ${end}`;
     if (start !== '—') return `${start} — …`;
@@ -1301,7 +1312,7 @@ const Dashboard = () => {
           <div className="side-panel-head">
             <span>{getStatusLabel(selectedApplication)}</span>
             <h2>Заявка #{selectedApplication.id}</h2>
-            <p>{selectedApplication.name} · каб. {selectedApplication.cabinet || '—'} · {selectedApplication.N_tel || 'телефон —'}</p>
+            <p>{selectedApplication.name} · каб. {selectedApplication.cabinet || '—'} · тел: {selectedApplication.N_tel || '—'}</p>
           </div>
           <div className={`sla-card sla-${getSlaState(selectedApplication).level}`}>
             <strong>{getSlaState(selectedApplication).label}</strong>
@@ -1319,7 +1330,7 @@ const Dashboard = () => {
             <div><strong>Создана</strong><span>{formatCreatedAt(selectedApplication.data)}</span></div>
             <div><strong>Рабочий интервал</strong><span>{formatTimeRange(selectedApplication)}</span></div>
             {getWaitingSeconds(selectedApplication) != null && <div><strong>Ожидание</strong><span>{formatDuration(getWaitingSeconds(selectedApplication))}</span></div>}
-            <div><strong>Работа</strong><span>{formatDuration(getDisplayWorkSeconds(selectedApplication))}</span></div>
+            {!(selectedApplication.fl || selectedApplication.status === 'done') && <div><strong>Работа</strong><span>{formatDuration(getDisplayWorkSeconds(selectedApplication))}</span></div>}
           </div>
           {selectedApplication.admin_comment && (
             <div className="side-panel-section">
