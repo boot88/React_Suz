@@ -210,6 +210,7 @@ const RUSSIAN_LABELS = {
   delete: 'Удалить',
   sendComment: 'Отправить',
   showAllComments: 'Показать все комментарии',
+  hideComments: 'Скрыть комментарии',
   comments: 'Комментарии',
   noComments: 'Комментариев пока нет.',
   writeComment: 'Написать комментарий…',
@@ -466,6 +467,7 @@ const ENGLISH_LABELS = {
   delete: 'Delete',
   sendComment: 'Send',
   showAllComments: 'Show all comments',
+  hideComments: 'Hide comments',
   comments: 'Comments',
   noComments: 'No comments yet.',
   writeComment: 'Write a comment…',
@@ -3942,7 +3944,7 @@ const EmployeeChat = () => {
           authorName: optimisticComment.authorName,
           text
         })
-      }, { attempts: 2, fallbackMessage: 'Не удалось добавить комментарий' });
+      }, { attempts: 4, fallbackMessage: 'Не удалось добавить комментарий' });
       const savedComment = data.comment || optimisticComment;
       setFeedPosts((current) => current.map((post) => (
         post.id !== postId ? post : (() => {
@@ -4124,7 +4126,7 @@ const EmployeeChat = () => {
       const data = await fetchJsonWithRetry(
         `${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}?deletedBy=${encodeURIComponent(user?.username || 'employee')}`,
         { method: 'DELETE' },
-        { attempts: 2, fallbackMessage: 'Не удалось удалить комментарий' }
+        { attempts: 4, fallbackMessage: 'Не удалось удалить комментарий' }
       );
       setFeedPosts((current) => current.map((item) => (
         item.id === postId
@@ -4174,7 +4176,7 @@ const EmployeeChat = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emoji, login, active })
-      }, { attempts: 2, fallbackMessage: 'Не удалось обновить реакцию' });
+      }, { attempts: 4, fallbackMessage: 'Не удалось обновить реакцию' });
       setFeedPosts((current) => current.map((item) => (
         item.id === postId
           ? { ...item, reactions: data?.reactions || data?.post?.reactions || item.reactions }
@@ -4797,10 +4799,26 @@ const EmployeeChat = () => {
                       </div>
                     )}
                     <div className="employee-feed-comments">
-                      <div className="employee-feed-comments-title">{t('comments')}</div>
+                      <div className="employee-feed-comments-title">{t('comments')} · {totalPostComments}</div>
                       {sortedPostComments.length === 0 && <small className="employee-feed-no-comments">{t('noComments')}</small>}
                       {previewComments.map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; const commentInitial = String(comment.authorName || comment.author || '?').slice(0, 1).toUpperCase(); const commentAvatar = getEmployeeAvatar(comment.author, comment.avatar, comment.authorAvatar, comment.authorPhoto, comment.author_photo); return <div key={comment.id} className="employee-feed-comment"><button type="button" className="feed-avatar comment-avatar profile-link-avatar" onClick={(event) => openEmployeeProfile(comment.author, event)}>{commentAvatar ? <img src={commentAvatar} alt={comment.authorName || comment.author || t('comments')} loading="lazy" decoding="async" /> : <span>{commentInitial}</span>}</button><div className="employee-feed-comment-body"><button type="button" className="comment-author-link" onClick={(event) => openEmployeeProfile(comment.author, event)}>{comment.authorName || formatFeedLogin(comment.author)}</button><span>{comment.text}</span><small>{new Date(comment.createdAt).toLocaleString(interfaceLocale)}</small><div className="feed-comment-actions compact"><button type="button" onClick={() => setCommentDrafts((prev) => ({ ...prev, [post.id]: `@${formatFeedLogin(comment.author)} ` }))}>{t('reply')}</button>{canDeleteComment && <button type="button" disabled={postMutationPending} aria-busy={postMutationPending} onClick={() => deleteFeedComment(post.id, comment.id)}>{t('delete')}</button>}</div></div></div>; })}
-                      {hiddenCommentsCount > 0 && !expandedCommentPosts[post.id] && <button type="button" className="feed-show-more-comments" disabled={postMutationPending} onClick={() => loadFeedComments(post.id)}>{t('showAllComments')} ({totalPostComments})</button>}
+                      {(hiddenCommentsCount > 0 || (expandedCommentPosts[post.id] && totalPostComments > 2)) && (
+                        <button
+                          type="button"
+                          className="feed-show-more-comments"
+                          disabled={postMutationPending}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (expandedCommentPosts[post.id]) {
+                              setExpandedCommentPosts((prev) => ({ ...prev, [post.id]: false }));
+                            } else {
+                              loadFeedComments(post.id);
+                            }
+                          }}
+                        >
+                          {expandedCommentPosts[post.id] ? t('hideComments') : t('showAllComments')} ({totalPostComments})
+                        </button>
+                      )}
                       <div className="employee-feed-comment-form" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onFocus={(event) => event.stopPropagation()}><div className="feed-avatar comment-avatar feed-avatar-current">{avatarUrl ? <img src={avatarUrl} alt={t('myAvatar')} loading="lazy" decoding="async" /> : <span>{String(profileForm.full_name || user?.name || user?.username || '?').slice(0, 1).toUpperCase()}</span>}</div><input placeholder={t('writeComment')} value={commentDrafts[post.id] || ''} disabled={postMutationPending} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} />{(commentDrafts[post.id] || '').trim() && <button type="button" disabled={postMutationPending} onClick={() => addCommentToPost(post.id)}>{t('sendComment')}</button>}</div>
                     </div>
                   </article>
