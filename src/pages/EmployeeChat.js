@@ -657,6 +657,8 @@ const RUNTIME_TEXT_EN = {
   'Не удалось опубликовать запись': 'Could not publish the post',
   'Не удалось обновить публикацию': 'Could not update the post',
   'Не удалось загрузить комментарии': 'Could not load comments',
+  'Не удалось загрузить ленту: сервер вернул страницу сайта вместо данных API': 'Could not load the feed because the server returned the website page instead of API data.',
+  'Не удалось загрузить сообщения: сервер вернул страницу сайта вместо данных API': 'Could not load messages because the server returned the website page instead of API data.',
   'Не удалось добавить комментарий': 'Could not add the comment',
   'Публикация изменена': 'Post updated',
   'Не удалось изменить публикацию': 'Could not update the post',
@@ -1077,19 +1079,38 @@ const isNetworkFailure = (error) => {
 
 const getFriendlyNetworkMessage = (fallback = 'Не удалось выполнить действие') => `${fallback}. Проверьте соединение и попробуйте ещё раз.`;
 
+const readApiJson = async (response, fallbackMessage = 'Ошибка API') => {
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  if (!contentType.includes('application/json')) {
+    const error = new Error(`${fallbackMessage}: сервер вернул страницу сайта вместо данных API`);
+    error.status = response.status;
+    error.code = 'INVALID_API_RESPONSE';
+    throw error;
+  }
+
+  const data = await response.json().catch(() => {
+    const error = new Error(`${fallbackMessage}: сервер вернул повреждённый JSON`);
+    error.status = response.status;
+    error.code = 'INVALID_API_JSON';
+    throw error;
+  });
+
+  if (!response.ok) {
+    const error = new Error(data?.message || data?.error || fallbackMessage);
+    error.status = response.status;
+    throw error;
+  }
+
+  return data;
+};
+
 const fetchJsonWithRetry = async (url, options = {}, { attempts = 4, retryDelay = 450, fallbackMessage = 'Ошибка сети' } = {}) => {
   let lastError = null;
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
       const response = await fetch(url, options);
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        const responseError = new Error(data.message || data.error || fallbackMessage);
-        responseError.status = response.status;
-        throw responseError;
-      }
-      return data;
+      return await readApiJson(response, fallbackMessage);
     } catch (error) {
       lastError = error;
       const retryable = isNetworkFailure(error) || Number(error?.status || 0) >= 500;
@@ -2105,8 +2126,7 @@ const EmployeeChat = () => {
 
     try {
       const response = await fetch(`${API_BASE_URL}/chat/threads?limit=${CHAT_MESSAGES_PAGE_SIZE}`);
-      if (!response.ok) return;
-      const data = await response.json();
+      const data = await readApiJson(response, 'Не удалось загрузить сообщения');
       if (Date.now() < suppressThreadsRefreshUntilRef.current) return;
       const nextThreads = data?.threads && typeof data.threads === 'object' ? data.threads : {};
       setThreads(nextThreads);
@@ -2153,8 +2173,7 @@ const EmployeeChat = () => {
     else if (!silent) setFeedRefreshing(true);
     try {
       const response = await fetch(`${API_BASE_URL}/chat/feed?limit=${FEED_POSTS_PAGE_SIZE}&commentsLimit=3`, { signal: controller.signal });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || 'Не удалось загрузить ленту');
+      const data = await readApiJson(response, 'Не удалось загрузить ленту');
       if (
         requestSequence !== feedFetchSequenceRef.current
         || mutationVersionAtStart !== feedMutationVersionRef.current
@@ -2189,8 +2208,7 @@ const EmployeeChat = () => {
     setFeedLoadingMore(true);
     try {
       const response = await fetch(`${API_BASE_URL}/chat/feed?limit=${FEED_POSTS_PAGE_SIZE}&commentsLimit=3&before=${encodeURIComponent(feedBefore)}`);
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || 'Не удалось загрузить ленту');
+      const data = await readApiJson(response, 'Не удалось загрузить ленту');
       if (mutationVersionAtStart !== feedMutationVersionRef.current || pendingFeedActionsRef.current.size > 0) return;
       const nextPosts = getVisibleFeedPosts(data?.posts);
       setFeedPosts((current) => {

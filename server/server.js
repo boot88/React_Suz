@@ -1106,7 +1106,21 @@ app.delete('/api/applications/:id', async (req, res) => {
 });
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', message: 'Сервер работает', timestamp: new Date() });
+  res.json({
+    status: 'OK',
+    message: 'Сервер работает',
+    timestamp: new Date(),
+    commit: process.env.RENDER_GIT_COMMIT || process.env.SOURCE_VERSION || null,
+    branch: process.env.RENDER_GIT_BRANCH || null
+  });
+});
+
+// API-запрос никогда не должен проваливаться в React index.html: клиент ожидает JSON.
+app.use('/api', (req, res) => {
+  res.status(404).json({
+    error: 'API route not found',
+    path: req.originalUrl
+  });
 });
 
 app.use((err, req, res, next) => {
