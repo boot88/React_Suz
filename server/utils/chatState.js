@@ -10,11 +10,7 @@ const getChatTimestamp = (message = {}) => {
     .filter(Number.isFinite));
 };
 
-const getDatabaseDialect = (database) => {
-  if (typeof database?.execute === 'function') return 'mysql';
-  if (typeof database?.query === 'function') return 'postgres';
-  return '';
-};
+const isMysqlDatabase = (database) => typeof database?.execute === 'function';
 
 const mergeThreadMessages = (archiveMessages = [], sqlMessages = []) => {
   const byId = new Map();
@@ -34,6 +30,6 @@ const mergeThreadMessages = (archiveMessages = [], sqlMessages = []) => {
 
 module.exports = {
   getChatTimestamp,
-  getDatabaseDialect,
+  isMysqlDatabase,
   mergeThreadMessages
 };

@@ -1,17 +1,17 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  getDatabaseDialect,
+  isMysqlDatabase,
   mergeThreadMessages
 } = require('./chatState');
 const { createSerialMutationQueue } = require('./feedState');
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
-test('recognizes the PostgreSQL pool used in production', () => {
-  assert.equal(getDatabaseDialect({ query() {} }), 'postgres');
-  assert.equal(getDatabaseDialect({ execute() {} }), 'mysql');
-  assert.equal(getDatabaseDialect({}), '');
+test('recognizes the MySQL pool used in every environment', () => {
+  assert.equal(isMysqlDatabase({ execute() {} }), true);
+  assert.equal(isMysqlDatabase({ query() {} }), false);
+  assert.equal(isMysqlDatabase({}), false);
 });
 
 test('newer archive messages win over stale SQL rows', () => {

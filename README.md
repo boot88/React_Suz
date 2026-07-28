@@ -70,6 +70,28 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/d
 This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
 # React_Suz
 
+## MySQL
+
+Сервер использует только MySQL/MariaDB через `mysql2`. Для production можно передать одну строку подключения:
+
+```env
+MYSQL_URL=mysql://user:password@host:3306/database
+```
+
+Либо отдельные переменные:
+
+```env
+DB_HOST=mysql-host
+DB_PORT=3306
+DB_NAME=its
+DB_USER=mysql-user
+DB_PASSWORD=mysql-password
+```
+
+Также поддерживаются стандартные переменные `MYSQLHOST`, `MYSQLPORT`, `MYSQLDATABASE`, `MYSQLUSER` и `MYSQLPASSWORD`. Если провайдер требует TLS, добавьте `DB_SSL=true`.
+
+`DATABASE_URL` принимается только со схемой `mysql://`; строка подключения к другой СУБД намеренно игнорируется.
+
 ## Восстановление пароля
 
 Отправка через email отключена.  

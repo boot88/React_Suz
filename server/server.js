@@ -690,9 +690,7 @@ app.get('/api/applications', async (req, res) => {
       LIMIT ? OFFSET ?
     `;
 
-    // Формируем запрос с параметрами
-    const query = pool.format(applicationsQuery, [...queryParams, limit, offset]);
-    const [applications] = await pool.query(query);
+    const [applications] = await pool.execute(applicationsQuery, [...queryParams, limit, offset]);
 
     const formattedApplications = applications.map(normalizeApplication);
 

@@ -4,7 +4,7 @@ const fs = require('fs/promises');
 const path = require('path');
 const router = express.Router();
 const db = require('../config/database');
-const { getDatabaseDialect } = require('../utils/chatState');
+const { isMysqlDatabase } = require('../utils/chatState');
 const {
   getRequestValue,
   mergeProfileMaps
@@ -436,23 +436,14 @@ const ensureProfilesSqlSchema = async () => {
   if (Date.now() < profilesSqlRetryAt) return false;
 
   profilesSqlCheckPromise = (async () => {
-    const dialect = getDatabaseDialect(db);
-    if (!dialect) throw new Error('SQL client is unavailable');
+    if (!isMysqlDatabase(db)) throw new Error('MySQL client is unavailable');
 
-    if (dialect === 'postgres') {
-      await db.query(`CREATE TABLE IF NOT EXISTS employee_profiles (
-        login VARCHAR(255) PRIMARY KEY,
-        profile_json JSONB NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL
-      )`);
-    } else {
-      await db.execute(`CREATE TABLE IF NOT EXISTS employee_profiles (
-        login VARCHAR(255) PRIMARY KEY,
-        profile_json LONGTEXT NOT NULL,
-        updated_at DATETIME NOT NULL,
-        INDEX idx_employee_profiles_updated (updated_at)
-      )`);
-    }
+    await db.execute(`CREATE TABLE IF NOT EXISTS employee_profiles (
+      login VARCHAR(255) PRIMARY KEY,
+      profile_json LONGTEXT NOT NULL,
+      updated_at DATETIME NOT NULL,
+      INDEX idx_employee_profiles_updated (updated_at)
+    )`);
 
     profilesSqlReady = true;
     profilesSqlRetryAt = 0;
@@ -473,14 +464,7 @@ const ensureProfilesSqlSchema = async () => {
 
 const readSqlProfiles = async () => {
   if (!await ensureProfilesSqlSchema()) return null;
-  let rows;
-
-  if (getDatabaseDialect(db) === 'postgres') {
-    const result = await db.query('SELECT login, profile_json FROM employee_profiles');
-    rows = result.rows;
-  } else {
-    [rows] = await db.execute('SELECT login, profile_json FROM employee_profiles');
-  }
+  const [rows] = await db.execute('SELECT login, profile_json FROM employee_profiles');
 
   return Object.fromEntries((rows || [])
     .map((row) => [normalizeLogin(row.login), parseProfileJson(row.profile_json)])
@@ -501,25 +485,14 @@ const writeSqlProfile = async (login, profile = {}) => {
   };
   const params = [normalizedLogin, JSON.stringify(nextProfile), updatedAt];
 
-  if (getDatabaseDialect(db) === 'postgres') {
-    await db.query(
-      `INSERT INTO employee_profiles (login, profile_json, updated_at)
-       VALUES ($1, $2::jsonb, $3)
-       ON CONFLICT (login) DO UPDATE SET
-         profile_json = EXCLUDED.profile_json,
-         updated_at = EXCLUDED.updated_at`,
-      params
-    );
-  } else {
-    await db.execute(
-      `INSERT INTO employee_profiles (login, profile_json, updated_at)
-       VALUES (?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         profile_json = VALUES(profile_json),
-         updated_at = VALUES(updated_at)`,
-      params
-    );
-  }
+  await db.execute(
+    `INSERT INTO employee_profiles (login, profile_json, updated_at)
+     VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       profile_json = VALUES(profile_json),
+       updated_at = VALUES(updated_at)`,
+    params
+  );
 
   return nextProfile;
 };

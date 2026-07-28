@@ -11,7 +11,7 @@ const {
   setReactionState
 } = require('../utils/feedState');
 const {
-  getDatabaseDialect,
+  isMysqlDatabase,
   mergeThreadMessages
 } = require('../utils/chatState');
 
@@ -53,34 +53,19 @@ const ensureChatSqlSchema = async () => {
   if (Date.now() < chatSqlRetryAt) return false;
 
   chatSqlCheckPromise = (async () => {
-    const dialect = getDatabaseDialect(db);
-    if (!dialect) throw new Error('SQL client is unavailable');
+    if (!isMysqlDatabase(db)) throw new Error('MySQL client is unavailable');
 
-    if (dialect === 'postgres') {
-      await db.query(`CREATE TABLE IF NOT EXISTS chat_messages (
-        id VARCHAR(128) PRIMARY KEY,
-        conversation_id VARCHAR(255) NOT NULL,
-        sender_login VARCHAR(255) NULL,
-        message_json JSONB NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL,
-        deleted_at TIMESTAMPTZ NULL
-      )`);
-      await db.query('CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation_created ON chat_messages (conversation_id, created_at)');
-      await db.query('CREATE INDEX IF NOT EXISTS idx_chat_messages_sender ON chat_messages (sender_login)');
-    } else {
-      await db.execute(`CREATE TABLE IF NOT EXISTS chat_messages (
-        id VARCHAR(128) PRIMARY KEY,
-        conversation_id VARCHAR(255) NOT NULL,
-        sender_login VARCHAR(255) NULL,
-        message_json JSON NOT NULL,
-        created_at DATETIME NOT NULL,
-        updated_at DATETIME NOT NULL,
-        deleted_at DATETIME NULL,
-        INDEX idx_chat_messages_conversation_created (conversation_id, created_at),
-        INDEX idx_chat_messages_sender (sender_login)
-      )`);
-    }
+    await db.execute(`CREATE TABLE IF NOT EXISTS chat_messages (
+      id VARCHAR(128) PRIMARY KEY,
+      conversation_id VARCHAR(255) NOT NULL,
+      sender_login VARCHAR(255) NULL,
+      message_json LONGTEXT NOT NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      deleted_at DATETIME NULL,
+      INDEX idx_chat_messages_conversation_created (conversation_id, created_at),
+      INDEX idx_chat_messages_sender (sender_login)
+    )`);
 
     chatSqlReady = true;
     chatSqlRetryAt = 0;
@@ -112,33 +97,18 @@ const writeSqlMessage = async (conversationId, message = {}) => {
   const deletedAt = message.deletedAt ? new Date(message.deletedAt) : null;
   const params = [message.id, conversationId, message.sender || null, JSON.stringify(message), createdAt, updatedAt, deletedAt];
 
-  if (getDatabaseDialect(db) === 'postgres') {
-    await db.query(
-      `INSERT INTO chat_messages (id, conversation_id, sender_login, message_json, created_at, updated_at, deleted_at)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
-       ON CONFLICT (id) DO UPDATE SET
-         conversation_id = EXCLUDED.conversation_id,
-         sender_login = EXCLUDED.sender_login,
-         message_json = EXCLUDED.message_json,
-         created_at = EXCLUDED.created_at,
-         updated_at = EXCLUDED.updated_at,
-         deleted_at = EXCLUDED.deleted_at`,
-      params
-    );
-  } else {
-    await db.execute(
-      `INSERT INTO chat_messages (id, conversation_id, sender_login, message_json, created_at, updated_at, deleted_at)
-       VALUES (?, ?, ?, CAST(? AS JSON), ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         conversation_id = VALUES(conversation_id),
-         sender_login = VALUES(sender_login),
-         message_json = VALUES(message_json),
-         created_at = VALUES(created_at),
-         updated_at = VALUES(updated_at),
-         deleted_at = VALUES(deleted_at)`,
-      params
-    );
-  }
+  await db.execute(
+    `INSERT INTO chat_messages (id, conversation_id, sender_login, message_json, created_at, updated_at, deleted_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       conversation_id = VALUES(conversation_id),
+       sender_login = VALUES(sender_login),
+       message_json = VALUES(message_json),
+       created_at = VALUES(created_at),
+       updated_at = VALUES(updated_at),
+       deleted_at = VALUES(deleted_at)`,
+    params
+  );
   return true;
 };
 
@@ -148,30 +118,16 @@ const readSqlConversationMessages = async (conversationId, { limit = CHAT_SQL_PA
   const params = [conversationId];
   let rows;
 
-  if (getDatabaseDialect(db) === 'postgres') {
-    let where = 'conversation_id = $1';
-    if (before) {
-      params.push(new Date(before));
-      where += ` AND created_at < $${params.length}`;
-    }
-    params.push(safeLimit);
-    const result = await db.query(
-      `SELECT message_json FROM chat_messages WHERE ${where} ORDER BY created_at DESC LIMIT $${params.length}`,
-      params
-    );
-    rows = result.rows;
-  } else {
-    let where = 'conversation_id = ?';
-    if (before) {
-      where += ' AND created_at < ?';
-      params.push(new Date(before));
-    }
-    params.push(safeLimit);
-    [rows] = await db.execute(
-      `SELECT message_json FROM chat_messages WHERE ${where} ORDER BY created_at DESC LIMIT ?`,
-      params
-    );
+  let where = 'conversation_id = ?';
+  if (before) {
+    where += ' AND created_at < ?';
+    params.push(new Date(before));
   }
+  params.push(safeLimit);
+  [rows] = await db.execute(
+    `SELECT message_json FROM chat_messages WHERE ${where} ORDER BY created_at DESC LIMIT ?`,
+    params
+  );
 
   return (rows || []).map((row) => parseSqlMessage(row.message_json)).filter(Boolean).reverse();
 };
@@ -179,13 +135,7 @@ const readSqlConversationMessages = async (conversationId, { limit = CHAT_SQL_PA
 const readSqlThreadsSnapshot = async (limit = CHAT_SQL_PAGE_SIZE) => {
   if (!await ensureChatSqlSchema()) return null;
   const safeLimit = Math.min(200, Math.max(1, Number(limit) || CHAT_SQL_PAGE_SIZE));
-  let conversationRows;
-  if (getDatabaseDialect(db) === 'postgres') {
-    const result = await db.query('SELECT DISTINCT conversation_id FROM chat_messages ORDER BY conversation_id LIMIT 1000');
-    conversationRows = result.rows;
-  } else {
-    [conversationRows] = await db.execute('SELECT DISTINCT conversation_id FROM chat_messages ORDER BY conversation_id LIMIT 1000');
-  }
+  const [conversationRows] = await db.execute('SELECT DISTINCT conversation_id FROM chat_messages ORDER BY conversation_id LIMIT 1000');
   const pairs = await Promise.all((conversationRows || []).map(async (row) => [
     row.conversation_id,
     await readSqlConversationMessages(row.conversation_id, { limit: safeLimit })
@@ -195,11 +145,7 @@ const readSqlThreadsSnapshot = async (limit = CHAT_SQL_PAGE_SIZE) => {
 
 const deleteSqlConversation = async (conversationId) => {
   if (!await ensureChatSqlSchema()) return false;
-  if (getDatabaseDialect(db) === 'postgres') {
-    await db.query('DELETE FROM chat_messages WHERE conversation_id = $1', [conversationId]);
-  } else {
-    await db.execute('DELETE FROM chat_messages WHERE conversation_id = ?', [conversationId]);
-  }
+  await db.execute('DELETE FROM chat_messages WHERE conversation_id = ?', [conversationId]);
   return true;
 };
 
@@ -231,62 +177,33 @@ const ensureChatFilesSqlSchema = async () => {
   if (Date.now() < chatFilesSqlRetryAt) return false;
 
   chatFilesSqlCheckPromise = (async () => {
-    const dialect = getDatabaseDialect(db);
-    if (!dialect) throw new Error('SQL client is unavailable');
+    if (!isMysqlDatabase(db)) throw new Error('MySQL client is unavailable');
 
-    if (dialect === 'postgres') {
-      await db.query(`CREATE TABLE IF NOT EXISTS chat_files (
-        id VARCHAR(128) PRIMARY KEY,
-        scope VARCHAR(32) NOT NULL,
-        original_name VARCHAR(255) NOT NULL,
-        stored_name VARCHAR(255) NOT NULL,
-        url VARCHAR(512) NOT NULL,
-        thumbnail_url VARCHAR(512) NULL,
-        mime_type VARCHAR(255) NOT NULL,
-        size_bytes BIGINT NOT NULL,
-        sha256 VARCHAR(64) NOT NULL,
-        uploaded_at TIMESTAMPTZ NOT NULL,
-        metadata_json JSONB NULL,
-        uploaded_by VARCHAR(255) NULL,
-        is_verified BOOLEAN NOT NULL DEFAULT TRUE,
-        deleted_at TIMESTAMPTZ NULL,
-        file_data BYTEA NULL,
-        thumbnail_data BYTEA NULL
-      )`);
-      await db.query('ALTER TABLE chat_files ADD COLUMN IF NOT EXISTS uploaded_by VARCHAR(255) NULL');
-      await db.query('ALTER TABLE chat_files ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT TRUE');
-      await db.query('ALTER TABLE chat_files ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL');
-      await db.query('ALTER TABLE chat_files ADD COLUMN IF NOT EXISTS file_data BYTEA NULL');
-      await db.query('ALTER TABLE chat_files ADD COLUMN IF NOT EXISTS thumbnail_data BYTEA NULL');
-      await db.query('CREATE INDEX IF NOT EXISTS idx_chat_files_scope ON chat_files (scope)');
-      await db.query('CREATE INDEX IF NOT EXISTS idx_chat_files_uploaded_at ON chat_files (uploaded_at)');
-    } else {
-      await db.execute(`CREATE TABLE IF NOT EXISTS chat_files (
-        id VARCHAR(128) PRIMARY KEY,
-        scope VARCHAR(32) NOT NULL,
-        original_name VARCHAR(255) NOT NULL,
-        stored_name VARCHAR(255) NOT NULL,
-        url VARCHAR(512) NOT NULL,
-        thumbnail_url VARCHAR(512) NULL,
-        mime_type VARCHAR(255) NOT NULL,
-        size_bytes BIGINT NOT NULL,
-        sha256 VARCHAR(64) NOT NULL,
-        uploaded_at DATETIME NOT NULL,
-        metadata_json LONGTEXT NULL,
-        uploaded_by VARCHAR(255) NULL,
-        is_verified TINYINT(1) NOT NULL DEFAULT 1,
-        deleted_at DATETIME NULL,
-        file_data LONGBLOB NULL,
-        thumbnail_data LONGBLOB NULL,
-        INDEX idx_chat_files_scope (scope),
-        INDEX idx_chat_files_uploaded_at (uploaded_at)
-      )`);
-      await db.execute('ALTER TABLE chat_files ADD COLUMN uploaded_by VARCHAR(255) NULL').catch(() => {});
-      await db.execute('ALTER TABLE chat_files ADD COLUMN is_verified TINYINT(1) NOT NULL DEFAULT 1').catch(() => {});
-      await db.execute('ALTER TABLE chat_files ADD COLUMN deleted_at DATETIME NULL').catch(() => {});
-      await db.execute('ALTER TABLE chat_files ADD COLUMN file_data LONGBLOB NULL').catch(() => {});
-      await db.execute('ALTER TABLE chat_files ADD COLUMN thumbnail_data LONGBLOB NULL').catch(() => {});
-    }
+    await db.execute(`CREATE TABLE IF NOT EXISTS chat_files (
+      id VARCHAR(128) PRIMARY KEY,
+      scope VARCHAR(32) NOT NULL,
+      original_name VARCHAR(255) NOT NULL,
+      stored_name VARCHAR(255) NOT NULL,
+      url VARCHAR(512) NOT NULL,
+      thumbnail_url VARCHAR(512) NULL,
+      mime_type VARCHAR(255) NOT NULL,
+      size_bytes BIGINT NOT NULL,
+      sha256 VARCHAR(64) NOT NULL,
+      uploaded_at DATETIME NOT NULL,
+      metadata_json LONGTEXT NULL,
+      uploaded_by VARCHAR(255) NULL,
+      is_verified TINYINT(1) NOT NULL DEFAULT 1,
+      deleted_at DATETIME NULL,
+      file_data LONGBLOB NULL,
+      thumbnail_data LONGBLOB NULL,
+      INDEX idx_chat_files_scope (scope),
+      INDEX idx_chat_files_uploaded_at (uploaded_at)
+    )`);
+    await db.execute('ALTER TABLE chat_files ADD COLUMN uploaded_by VARCHAR(255) NULL').catch(() => {});
+    await db.execute('ALTER TABLE chat_files ADD COLUMN is_verified TINYINT(1) NOT NULL DEFAULT 1').catch(() => {});
+    await db.execute('ALTER TABLE chat_files ADD COLUMN deleted_at DATETIME NULL').catch(() => {});
+    await db.execute('ALTER TABLE chat_files ADD COLUMN file_data LONGBLOB NULL').catch(() => {});
+    await db.execute('ALTER TABLE chat_files ADD COLUMN thumbnail_data LONGBLOB NULL').catch(() => {});
 
     chatFilesSqlReady = true;
     chatFilesSqlRetryAt = 0;
@@ -327,59 +244,32 @@ const writeSqlFileMetadata = async (file = {}) => {
     file.thumbnailData || null
   ];
 
-  if (getDatabaseDialect(db) === 'postgres') {
-    await db.query(
-      `INSERT INTO chat_files (
-        id, scope, original_name, stored_name, url, thumbnail_url, mime_type, size_bytes,
-        sha256, uploaded_at, metadata_json, uploaded_by, is_verified, deleted_at, file_data, thumbnail_data
-      )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16)
-       ON CONFLICT (id) DO UPDATE SET
-         scope = EXCLUDED.scope,
-         original_name = EXCLUDED.original_name,
-         stored_name = EXCLUDED.stored_name,
-         url = EXCLUDED.url,
-         thumbnail_url = EXCLUDED.thumbnail_url,
-         mime_type = EXCLUDED.mime_type,
-         size_bytes = EXCLUDED.size_bytes,
-         sha256 = EXCLUDED.sha256,
-         uploaded_at = EXCLUDED.uploaded_at,
-         metadata_json = EXCLUDED.metadata_json,
-         uploaded_by = EXCLUDED.uploaded_by,
-         is_verified = EXCLUDED.is_verified,
-         deleted_at = EXCLUDED.deleted_at,
-         file_data = COALESCE(EXCLUDED.file_data, chat_files.file_data),
-         thumbnail_data = COALESCE(EXCLUDED.thumbnail_data, chat_files.thumbnail_data)`,
-      params
-    );
-  } else {
-    const mysqlParams = [...params];
-    mysqlParams[12] = file.isVerified === false ? 0 : 1;
-    await db.execute(
-      `INSERT INTO chat_files (
-        id, scope, original_name, stored_name, url, thumbnail_url, mime_type, size_bytes,
-        sha256, uploaded_at, metadata_json, uploaded_by, is_verified, deleted_at, file_data, thumbnail_data
-      )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         scope = VALUES(scope),
-         original_name = VALUES(original_name),
-         stored_name = VALUES(stored_name),
-         url = VALUES(url),
-         thumbnail_url = VALUES(thumbnail_url),
-         mime_type = VALUES(mime_type),
-         size_bytes = VALUES(size_bytes),
-         sha256 = VALUES(sha256),
-         uploaded_at = VALUES(uploaded_at),
-         metadata_json = VALUES(metadata_json),
-         uploaded_by = VALUES(uploaded_by),
-         is_verified = VALUES(is_verified),
-         deleted_at = VALUES(deleted_at),
-         file_data = COALESCE(VALUES(file_data), file_data),
-         thumbnail_data = COALESCE(VALUES(thumbnail_data), thumbnail_data)`,
-      mysqlParams
-    );
-  }
+  const mysqlParams = [...params];
+  mysqlParams[12] = file.isVerified === false ? 0 : 1;
+  await db.execute(
+    `INSERT INTO chat_files (
+      id, scope, original_name, stored_name, url, thumbnail_url, mime_type, size_bytes,
+      sha256, uploaded_at, metadata_json, uploaded_by, is_verified, deleted_at, file_data, thumbnail_data
+    )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       scope = VALUES(scope),
+       original_name = VALUES(original_name),
+       stored_name = VALUES(stored_name),
+       url = VALUES(url),
+       thumbnail_url = VALUES(thumbnail_url),
+       mime_type = VALUES(mime_type),
+       size_bytes = VALUES(size_bytes),
+       sha256 = VALUES(sha256),
+       uploaded_at = VALUES(uploaded_at),
+       metadata_json = VALUES(metadata_json),
+       uploaded_by = VALUES(uploaded_by),
+       is_verified = VALUES(is_verified),
+       deleted_at = VALUES(deleted_at),
+       file_data = COALESCE(VALUES(file_data), file_data),
+       thumbnail_data = COALESCE(VALUES(thumbnail_data), thumbnail_data)`,
+    mysqlParams
+  );
   return true;
 };
 
@@ -601,13 +491,7 @@ const parseFileMetadataJson = (value) => {
 
 const readSqlFileMetadata = async (fileId) => {
   if (!await ensureChatFilesSqlSchema()) return null;
-  let rows;
-  if (getDatabaseDialect(db) === 'postgres') {
-    const result = await db.query('SELECT * FROM chat_files WHERE id = $1 LIMIT 1', [fileId]);
-    rows = result.rows;
-  } else {
-    [rows] = await db.execute('SELECT * FROM chat_files WHERE id = ? LIMIT 1', [fileId]);
-  }
+  const [rows] = await db.execute('SELECT * FROM chat_files WHERE id = ? LIMIT 1', [fileId]);
   return rows?.[0] || null;
 };
 
@@ -859,74 +743,39 @@ const ensureFeedSqlSchema = async () => {
   if (Date.now() < feedSqlRetryAt) return false;
 
   feedSqlCheckPromise = (async () => {
-    const dialect = getDatabaseDialect(db);
-    if (!dialect) throw new Error('SQL client is unavailable');
+    if (!isMysqlDatabase(db)) throw new Error('MySQL client is unavailable');
 
-    if (dialect === 'postgres') {
-      await db.query(`CREATE TABLE IF NOT EXISTS feed_posts (
-        id VARCHAR(128) PRIMARY KEY,
-        author_login VARCHAR(255) NULL,
-        post_json JSONB NOT NULL,
-        pinned BOOLEAN NOT NULL DEFAULT FALSE,
-        created_at TIMESTAMPTZ NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL,
-        deleted_at TIMESTAMPTZ NULL
-      )`);
-      await db.query(`CREATE TABLE IF NOT EXISTS feed_comments (
-        id VARCHAR(128) PRIMARY KEY,
-        post_id VARCHAR(128) NOT NULL,
-        author_login VARCHAR(255) NULL,
-        comment_json JSONB NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL,
-        deleted_at TIMESTAMPTZ NULL
-      )`);
-      await db.query(`CREATE TABLE IF NOT EXISTS feed_reactions (
-        post_id VARCHAR(128) NOT NULL,
-        emoji VARCHAR(32) NOT NULL,
-        login VARCHAR(255) NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL,
-        PRIMARY KEY (post_id, emoji, login)
-      )`);
-      await db.query('CREATE INDEX IF NOT EXISTS idx_feed_posts_created ON feed_posts (created_at)');
-      await db.query('CREATE INDEX IF NOT EXISTS idx_feed_posts_author ON feed_posts (author_login)');
-      await db.query('CREATE INDEX IF NOT EXISTS idx_feed_posts_deleted ON feed_posts (deleted_at)');
-      await db.query('CREATE INDEX IF NOT EXISTS idx_feed_comments_post_created ON feed_comments (post_id, created_at)');
-      await db.query('CREATE INDEX IF NOT EXISTS idx_feed_comments_deleted ON feed_comments (deleted_at)');
-      await db.query('CREATE INDEX IF NOT EXISTS idx_feed_reactions_post ON feed_reactions (post_id)');
-    } else {
-      await db.execute(`CREATE TABLE IF NOT EXISTS feed_posts (
-        id VARCHAR(128) PRIMARY KEY,
-        author_login VARCHAR(255) NULL,
-        post_json LONGTEXT NOT NULL,
-        pinned TINYINT(1) NOT NULL DEFAULT 0,
-        created_at DATETIME NOT NULL,
-        updated_at DATETIME NOT NULL,
-        deleted_at DATETIME NULL,
-        INDEX idx_feed_posts_created (created_at),
-        INDEX idx_feed_posts_author (author_login),
-        INDEX idx_feed_posts_deleted (deleted_at)
-      )`);
-      await db.execute(`CREATE TABLE IF NOT EXISTS feed_comments (
-        id VARCHAR(128) PRIMARY KEY,
-        post_id VARCHAR(128) NOT NULL,
-        author_login VARCHAR(255) NULL,
-        comment_json LONGTEXT NOT NULL,
-        created_at DATETIME NOT NULL,
-        updated_at DATETIME NOT NULL,
-        deleted_at DATETIME NULL,
-        INDEX idx_feed_comments_post_created (post_id, created_at),
-        INDEX idx_feed_comments_deleted (deleted_at)
-      )`);
-      await db.execute(`CREATE TABLE IF NOT EXISTS feed_reactions (
-        post_id VARCHAR(128) NOT NULL,
-        emoji VARCHAR(32) NOT NULL,
-        login VARCHAR(255) NOT NULL,
-        created_at DATETIME NOT NULL,
-        PRIMARY KEY (post_id, emoji, login),
-        INDEX idx_feed_reactions_post (post_id)
-      )`);
-    }
+    await db.execute(`CREATE TABLE IF NOT EXISTS feed_posts (
+      id VARCHAR(128) PRIMARY KEY,
+      author_login VARCHAR(255) NULL,
+      post_json LONGTEXT NOT NULL,
+      pinned TINYINT(1) NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      deleted_at DATETIME NULL,
+      INDEX idx_feed_posts_created (created_at),
+      INDEX idx_feed_posts_author (author_login),
+      INDEX idx_feed_posts_deleted (deleted_at)
+    )`);
+    await db.execute(`CREATE TABLE IF NOT EXISTS feed_comments (
+      id VARCHAR(128) PRIMARY KEY,
+      post_id VARCHAR(128) NOT NULL,
+      author_login VARCHAR(255) NULL,
+      comment_json LONGTEXT NOT NULL,
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      deleted_at DATETIME NULL,
+      INDEX idx_feed_comments_post_created (post_id, created_at),
+      INDEX idx_feed_comments_deleted (deleted_at)
+    )`);
+    await db.execute(`CREATE TABLE IF NOT EXISTS feed_reactions (
+      post_id VARCHAR(128) NOT NULL,
+      emoji VARCHAR(32) NOT NULL,
+      login VARCHAR(255) NOT NULL,
+      created_at DATETIME NOT NULL,
+      PRIMARY KEY (post_id, emoji, login),
+      INDEX idx_feed_reactions_post (post_id)
+    )`);
 
     feedSqlReady = true;
     feedSqlRetryAt = 0;
@@ -962,21 +811,6 @@ const writeSqlFeedPost = async (post = {}) => {
   const updatedAt = new Date(post.updatedAt || post.createdAt || Date.now());
   const deletedAt = post.deletedAt ? new Date(post.deletedAt) : null;
   const values = [post.id, post.author || null, JSON.stringify(compactFeedPostForSql(post)), Boolean(post.pinned), createdAt, updatedAt, deletedAt];
-  if (getDatabaseDialect(db) === 'postgres') {
-    await db.query(
-      `INSERT INTO feed_posts (id, author_login, post_json, pinned, created_at, updated_at, deleted_at)
-       VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7)
-       ON CONFLICT (id) DO UPDATE SET
-         author_login = EXCLUDED.author_login,
-         post_json = EXCLUDED.post_json,
-         pinned = EXCLUDED.pinned,
-         created_at = EXCLUDED.created_at,
-         updated_at = EXCLUDED.updated_at,
-         deleted_at = EXCLUDED.deleted_at`,
-      values
-    );
-    return true;
-  }
   await db.execute(
     `INSERT INTO feed_posts (id, author_login, post_json, pinned, created_at, updated_at, deleted_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -998,21 +832,6 @@ const writeSqlFeedComment = async (postId, comment = {}) => {
   const updatedAt = new Date(comment.updatedAt || comment.createdAt || Date.now());
   const deletedAt = comment.deletedAt ? new Date(comment.deletedAt) : null;
   const values = [comment.id, postId, comment.author || null, JSON.stringify(comment), createdAt, updatedAt, deletedAt];
-  if (getDatabaseDialect(db) === 'postgres') {
-    await db.query(
-      `INSERT INTO feed_comments (id, post_id, author_login, comment_json, created_at, updated_at, deleted_at)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
-       ON CONFLICT (id) DO UPDATE SET
-         post_id = EXCLUDED.post_id,
-         author_login = EXCLUDED.author_login,
-         comment_json = EXCLUDED.comment_json,
-         created_at = EXCLUDED.created_at,
-         updated_at = EXCLUDED.updated_at,
-         deleted_at = EXCLUDED.deleted_at`,
-      values
-    );
-    return true;
-  }
   await db.execute(
     `INSERT INTO feed_comments (id, post_id, author_login, comment_json, created_at, updated_at, deleted_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -1031,13 +850,7 @@ const writeSqlFeedComment = async (postId, comment = {}) => {
 const deleteSqlFeedComment = async (postId, commentId, deletedBy = 'system') => {
   if (!await ensureFeedSqlSchema()) return false;
   const deletedAt = new Date();
-  let rows;
-  if (getDatabaseDialect(db) === 'postgres') {
-    const result = await db.query('SELECT comment_json FROM feed_comments WHERE post_id = $1 AND id = $2 LIMIT 1', [postId, commentId]);
-    rows = result.rows;
-  } else {
-    [rows] = await db.execute('SELECT comment_json FROM feed_comments WHERE post_id = ? AND id = ? LIMIT 1', [postId, commentId]);
-  }
+  const [rows] = await db.execute('SELECT comment_json FROM feed_comments WHERE post_id = ? AND id = ? LIMIT 1', [postId, commentId]);
   const existing = parseSqlJson(rows?.[0]?.comment_json) || { id: commentId };
   const nextComment = { ...existing, deletedAt: deletedAt.toISOString(), deletedBy, updatedAt: deletedAt.toISOString() };
   return writeSqlFeedComment(postId, nextComment);
@@ -1045,14 +858,8 @@ const deleteSqlFeedComment = async (postId, commentId, deletedBy = 'system') => 
 
 const readSqlFeedReactions = async (postIds = []) => {
   if (!postIds.length || !await ensureFeedSqlSchema()) return {};
-  let rows;
-  if (getDatabaseDialect(db) === 'postgres') {
-    const result = await db.query('SELECT post_id, emoji, login FROM feed_reactions WHERE post_id = ANY($1::varchar[])', [postIds]);
-    rows = result.rows;
-  } else {
-    const placeholders = postIds.map(() => '?').join(',');
-    [rows] = await db.execute(`SELECT post_id, emoji, login FROM feed_reactions WHERE post_id IN (${placeholders})`, postIds);
-  }
+  const placeholders = postIds.map(() => '?').join(',');
+  const [rows] = await db.execute(`SELECT post_id, emoji, login FROM feed_reactions WHERE post_id IN (${placeholders})`, postIds);
   return (rows || []).reduce((acc, row) => {
     if (!acc[row.post_id]) acc[row.post_id] = {};
     if (!acc[row.post_id][row.emoji]) acc[row.post_id][row.emoji] = [];
@@ -1064,20 +871,6 @@ const readSqlFeedReactions = async (postIds = []) => {
 const readSqlFeedComments = async (postId, { limit = 3, before = '' } = {}) => {
   if (!await ensureFeedSqlSchema()) return null;
   const safeLimit = Math.min(100, Math.max(1, Number(limit) || 3));
-  if (getDatabaseDialect(db) === 'postgres') {
-    const params = [postId];
-    let where = 'post_id = $1 AND deleted_at IS NULL';
-    if (before) {
-      params.push(new Date(before));
-      where += ` AND created_at < $${params.length}`;
-    }
-    params.push(safeLimit);
-    const result = await db.query(
-      `SELECT comment_json FROM feed_comments WHERE ${where} ORDER BY created_at DESC LIMIT $${params.length}`,
-      params
-    );
-    return (result.rows || []).map((row) => parseSqlJson(row.comment_json)).filter(Boolean).reverse();
-  }
   const params = [postId];
   let where = 'post_id = ? AND deleted_at IS NULL';
   if (before) {
@@ -1091,17 +884,8 @@ const readSqlFeedComments = async (postId, { limit = 3, before = '' } = {}) => {
 
 const countSqlFeedComments = async (postIds = []) => {
   if (!postIds.length || !await ensureFeedSqlSchema()) return {};
-  let rows;
-  if (getDatabaseDialect(db) === 'postgres') {
-    const result = await db.query(
-      'SELECT post_id, COUNT(*) AS total FROM feed_comments WHERE deleted_at IS NULL AND post_id = ANY($1::varchar[]) GROUP BY post_id',
-      [postIds]
-    );
-    rows = result.rows;
-  } else {
-    const placeholders = postIds.map(() => '?').join(',');
-    [rows] = await db.execute(`SELECT post_id, COUNT(*) AS total FROM feed_comments WHERE deleted_at IS NULL AND post_id IN (${placeholders}) GROUP BY post_id`, postIds);
-  }
+  const placeholders = postIds.map(() => '?').join(',');
+  const [rows] = await db.execute(`SELECT post_id, COUNT(*) AS total FROM feed_comments WHERE deleted_at IS NULL AND post_id IN (${placeholders}) GROUP BY post_id`, postIds);
   return Object.fromEntries((rows || []).map((row) => [row.post_id, Number(row.total) || 0]));
 };
 
@@ -1109,29 +893,14 @@ const readSqlFeedPosts = async ({ limit = 50, before = '', commentsLimit = 3 } =
   if (!await ensureFeedSqlSchema()) return null;
   const safeLimit = Math.min(100, Math.max(1, Number(limit) || 50));
   let rows;
-  if (getDatabaseDialect(db) === 'postgres') {
-    const params = [];
-    let where = 'deleted_at IS NULL';
-    if (before) {
-      params.push(new Date(before));
-      where += ` AND created_at < $${params.length}`;
-    }
-    params.push(safeLimit);
-    const result = await db.query(
-      `SELECT post_json FROM feed_posts WHERE ${where} ORDER BY pinned DESC, created_at DESC LIMIT $${params.length}`,
-      params
-    );
-    rows = result.rows;
-  } else {
-    const params = [];
-    let where = 'deleted_at IS NULL';
-    if (before) {
-      where += ' AND created_at < ?';
-      params.push(new Date(before));
-    }
-    params.push(safeLimit);
-    [rows] = await db.execute(`SELECT post_json FROM feed_posts WHERE ${where} ORDER BY pinned DESC, created_at DESC LIMIT ?`, params);
+  const params = [];
+  let where = 'deleted_at IS NULL';
+  if (before) {
+    where += ' AND created_at < ?';
+    params.push(new Date(before));
   }
+  params.push(safeLimit);
+  [rows] = await db.execute(`SELECT post_json FROM feed_posts WHERE ${where} ORDER BY pinned DESC, created_at DESC LIMIT ?`, params);
   const posts = (rows || []).map((row) => parseSqlJson(row.post_json)).filter(Boolean);
   const postIds = posts.map((post) => post.id).filter(Boolean);
   const [reactionsByPost, commentCounts] = await Promise.all([readSqlFeedReactions(postIds), countSqlFeedComments(postIds)]);
@@ -1148,19 +917,6 @@ const readSqlFeedPosts = async ({ limit = 50, before = '', commentsLimit = 3 } =
 
 const setSqlFeedReaction = async (postId, emoji, login, active) => {
   if (!await ensureFeedSqlSchema()) return false;
-  if (getDatabaseDialect(db) === 'postgres') {
-    if (active) {
-      await db.query(
-        `INSERT INTO feed_reactions (post_id, emoji, login, created_at)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (post_id, emoji, login) DO NOTHING`,
-        [postId, emoji, login, new Date()]
-      );
-    } else {
-      await db.query('DELETE FROM feed_reactions WHERE post_id = $1 AND emoji = $2 AND login = $3', [postId, emoji, login]);
-    }
-    return true;
-  }
   const [rows] = await db.execute('SELECT post_id FROM feed_reactions WHERE post_id = ? AND emoji = ? AND login = ? LIMIT 1', [postId, emoji, login]);
   if (!active && rows?.length) {
     await db.execute('DELETE FROM feed_reactions WHERE post_id = ? AND emoji = ? AND login = ?', [postId, emoji, login]);
