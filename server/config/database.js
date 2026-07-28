@@ -1,16 +1,40 @@
 const mysql = require('mysql2/promise');
+const fs = require('fs');
+const path = require('path');
+
+const loadLocalMysqlEnv = () => {
+  const envFile = process.env.MYSQL_ENV_FILE || path.resolve(__dirname, '../../.env');
+  let source = '';
+
+  try {
+    source = fs.readFileSync(envFile, 'utf8');
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      console.warn(`Could not read local MySQL environment file: ${error.message}`);
+    }
+    return;
+  }
+
+  source.split(/\r?\n/).forEach((line) => {
+    const match = line.match(/^\s*([A-Z][A-Z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (!match) return;
+
+    const [, key, rawValue] = match;
+    if (!/^(MYSQL|DB)_/.test(key) || process.env[key] !== undefined) return;
+
+    const quoted = rawValue.match(/^(["'])(.*)\1$/);
+    process.env[key] = quoted ? quoted[2] : rawValue;
+  });
+};
+
+loadLocalMysqlEnv();
 
 const firstDefined = (...values) => values.find((value) => value !== undefined && value !== '');
 const isEnabled = (value) => /^(1|true|yes)$/i.test(String(value || ''));
 
 const mysqlUrl = firstDefined(process.env.MYSQL_URL, process.env.MYSQL_PUBLIC_URL);
-const databaseUrl = firstDefined(mysqlUrl, process.env.DATABASE_URL);
-const hasMysqlUrl = /^mysql:\/\//i.test(databaseUrl || '');
-const parsedMysqlUrl = hasMysqlUrl ? new URL(databaseUrl) : null;
-
-if (databaseUrl && !hasMysqlUrl) {
-  console.warn('Ignoring DATABASE_URL because it is not a MySQL URL. Configure MYSQL_URL or the DB_* variables.');
-}
+const hasMysqlUrl = /^mysql:\/\//i.test(mysqlUrl || '');
+const parsedMysqlUrl = hasMysqlUrl ? new URL(mysqlUrl) : null;
 
 const poolOptions = {
   waitForConnections: true,

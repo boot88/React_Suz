@@ -90,7 +90,7 @@ DB_PASSWORD=mysql-password
 
 Также поддерживаются стандартные переменные `MYSQLHOST`, `MYSQLPORT`, `MYSQLDATABASE`, `MYSQLUSER` и `MYSQLPASSWORD`. Если провайдер требует TLS, добавьте `DB_SSL=true`.
 
-`DATABASE_URL` принимается только со схемой `mysql://`; строка подключения к другой СУБД намеренно игнорируется.
+Для локального запуска скопируйте `.env.example` в `.env`, укажите пароль MySQL и перезапустите `npm run dev`. Файл `.env` не попадает в Git.
 
 ## Восстановление пароля
 
