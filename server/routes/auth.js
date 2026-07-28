@@ -4,6 +4,7 @@ const fs = require('fs/promises');
 const path = require('path');
 const router = express.Router();
 const db = require('../config/database');
+const employeeRoutes = require('./employees');
 const { isMysqlDatabase } = require('../utils/chatState');
 const {
   getRequestValue,
@@ -128,6 +129,42 @@ const ADMIN_FULL_NAMES = [
 ];
 let lastProvisionAt = 0;
 let missingProvisionPasswordsWarned = false;
+let usersSchemaReady = false;
+let usersSchemaPromise = null;
+
+const ensureUsersSchema = async () => {
+  if (usersSchemaReady) return;
+  if (usersSchemaPromise) return usersSchemaPromise;
+
+  usersSchemaPromise = (async () => {
+    await db.execute(`CREATE TABLE IF NOT EXISTS users (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      login VARCHAR(255) NOT NULL,
+      password VARCHAR(255) NOT NULL,
+      role VARCHAR(40) NOT NULL DEFAULT 'employee',
+      full_name VARCHAR(255) NOT NULL,
+      department VARCHAR(255) NULL,
+      phone VARCHAR(100) NULL,
+      room VARCHAR(100) NULL,
+      provisioned_from_directory TINYINT(1) NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_users_login (login),
+      INDEX idx_users_role_name (role, full_name)
+    )`);
+
+    const [columns] = await db.execute('SHOW COLUMNS FROM users');
+    const existing = new Set((columns || []).map((column) => column.Field));
+    if (!existing.has('provisioned_from_directory')) {
+      await db.execute('ALTER TABLE users ADD COLUMN provisioned_from_directory TINYINT(1) NOT NULL DEFAULT 0');
+    }
+    usersSchemaReady = true;
+  })().finally(() => {
+    usersSchemaPromise = null;
+  });
+
+  return usersSchemaPromise;
+};
 
 const normalizePersonName = (value = '') => String(value)
   .toLowerCase()
@@ -210,6 +247,7 @@ const sanitizeProfilePreferences = (preferences = {}) => {
 };
 
 const provisionUsersFromPhoneBook = async () => {
+  await ensureUsersSchema();
   if (!DEFAULT_EMPLOYEE_PASSWORD || !DEFAULT_ADMIN_PASSWORD) {
     const error = new Error('Для синхронизации пользователей задайте DEFAULT_EMPLOYEE_PASSWORD и DEFAULT_ADMIN_PASSWORD в переменных окружения');
     error.status = 503;
@@ -274,19 +312,23 @@ const provisionUsersFromPhoneBook = async () => {
 
   const desiredLogins = desiredUsers.map((item) => item.login);
 
-  await db.execute('DELETE FROM users WHERE login NOT IN (?)', [desiredLogins.length ? desiredLogins : ['__none__']]);
+  await db.execute(
+    'DELETE FROM users WHERE provisioned_from_directory = 1 AND login NOT IN (?)',
+    [desiredLogins.length ? desiredLogins : ['__none__']]
+  );
 
   for (const user of desiredUsers) {
     await db.execute(
-      `INSERT INTO users (login, password, role, full_name, department, phone, room)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO users (login, password, role, full_name, department, phone, room, provisioned_from_directory)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1)
        ON DUPLICATE KEY UPDATE
          password = VALUES(password),
          role = VALUES(role),
          full_name = VALUES(full_name),
          department = VALUES(department),
          phone = VALUES(phone),
-         room = VALUES(room)`,
+         room = VALUES(room),
+         provisioned_from_directory = 1`,
       [user.login, user.password, user.role, user.full_name, user.department, user.phone, user.room]
     );
   }
@@ -689,6 +731,7 @@ router.post('/provision-from-phone-book', async (req, res) => {
 
 router.get('/login-suggestions', async (req, res) => {
   try {
+    await ensureUsersProvisionedFromPhoneBook();
     const query = normalizeLogin(req.query?.query || '');
     const role = req.query?.role === 'admin' ? 'admin' : 'employee';
     const like = `${query}%`;
@@ -710,15 +753,19 @@ router.get('/login-suggestions', async (req, res) => {
 
 
 const ensureUsersProvisionedFromPhoneBook = async () => {
-  const provisionTtlMs = 5 * 60 * 1000;
-  if (lastProvisionAt && Date.now() - lastProvisionAt < provisionTtlMs) return null;
+  await ensureUsersSchema();
+  const [rows] = await db.execute('SELECT COUNT(*) AS total FROM users');
+  if (Number(rows?.[0]?.total || 0) > 0) return null;
   if (!DEFAULT_EMPLOYEE_PASSWORD || !DEFAULT_ADMIN_PASSWORD) {
     if (!missingProvisionPasswordsWarned) {
       missingProvisionPasswordsWarned = true;
       console.warn('Automatic user provisioning is disabled until DEFAULT_EMPLOYEE_PASSWORD and DEFAULT_ADMIN_PASSWORD are configured.');
     }
-    return null;
+    const error = new Error('Для первого запуска задайте DEFAULT_EMPLOYEE_PASSWORD и DEFAULT_ADMIN_PASSWORD в переменных окружения Render.');
+    error.status = 503;
+    throw error;
   }
+  await employeeRoutes.ensurePhoneBookData();
   return provisionUsersFromPhoneBook();
 };
 
@@ -1157,7 +1204,12 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ message: 'Неверный логин или пароль' });
     }
 
-    await ensureUsersProvisionedFromPhoneBook();
+    try {
+      await ensureUsersProvisionedFromPhoneBook();
+    } catch (error) {
+      console.error('Initial user provisioning error:', error);
+      return res.status(error.status || 503).json({ message: error.message || 'Не удалось подготовить список учётных записей' });
+    }
 
     const [users] = await db.execute(
       `SELECT * FROM users

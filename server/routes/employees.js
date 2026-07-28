@@ -339,6 +339,23 @@ const syncEmployees = async (employees) => {
   }
 };
 
+const ensurePhoneBookData = async () => {
+  await ensurePhoneBookSchema();
+  const [rows] = await pool.execute('SELECT COUNT(*) AS total FROM phone_book WHERE is_active = 1');
+  const total = Number(rows?.[0]?.total || 0);
+  if (total > 0) return { total, synced: false };
+
+  const { employees, pages, expectedPages, lastStart } = await fetchAllPhoneBookEmployees();
+  if (employees.length < MIN_SYNC_EMPLOYEES) {
+    const error = new Error(`Из справочника получено слишком мало записей: ${employees.length}`);
+    error.status = 503;
+    throw error;
+  }
+
+  const stats = await syncEmployees(employees);
+  return { total: stats.activeAfter, synced: true, pages, expectedPages, lastStart };
+};
+
 // Поиск сотрудников
 router.get('/search', async (req, res) => {
   console.log('Поиск сотрудников вызван:', new Date().toISOString());
@@ -420,4 +437,5 @@ router.post('/sync', async (req, res) => {
   }
 });
 
+router.ensurePhoneBookData = ensurePhoneBookData;
 module.exports = router;

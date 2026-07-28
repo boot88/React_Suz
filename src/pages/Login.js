@@ -98,7 +98,11 @@ const Login = ({ mode = 'employee' }) => {
     const loadSuggestions = async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/auth/login-suggestions?role=${role}&query=`);
-        if (!response.ok) return;
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          if (!isCancelled) setError(data.message || t('genericError'));
+          return;
+        }
         const data = await response.json();
         if (isCancelled) return;
         const suggestions = Array.isArray(data?.suggestions) ? data.suggestions : [];
@@ -110,7 +114,10 @@ const Login = ({ mode = 'employee' }) => {
           setFormData((prev) => prev.username ? prev : { ...prev, username: formatSuggestionName(suggestions[0].display_name || suggestions[0].full_name || suggestions[0].login) });
         }
       } catch {
-        if (!isCancelled) setAllLoginSuggestions([]);
+        if (!isCancelled) {
+          setAllLoginSuggestions([]);
+          setError(t('genericError'));
+        }
       }
     };
 
