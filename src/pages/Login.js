@@ -22,7 +22,7 @@ const LOGIN_LABELS = {
     employeeStepOne: 'New request', employeeStepOneMeta: 'Description and files', employeeStepTwo: 'Assigned', employeeStepTwoMeta: 'Specialist and status', employeeStepThree: 'Result', employeeStepThreeMeta: 'History is retained',
     adminKicker: 'System management', adminContextTitle: 'Everything important under control', adminContextText: 'Manage the queue, deadlines and owners from one focused workspace.',
     adminStepOne: 'Queue', adminStepOneMeta: 'New and urgent', adminStepTwo: 'Control', adminStepTwoMeta: 'Status and deadlines', adminStepThree: 'Archive', adminStepThreeMeta: 'Search and history',
-    employeeDirectory: 'Employee directory', adminDirectory: 'Access directory', directoryFound: 'found', directoryEmployeeHint: 'Choose your surname', directoryAdminHint: 'Choose an administrator', directoryEmpty: 'No matching records', directoryFooter: 'Start typing a surname to narrow the list', adminAccess: 'Management access'
+    employeeDirectory: 'Employee directory', adminDirectory: 'Access directory', directoryFound: 'found', directoryEmployeeHint: 'Choose your surname', directoryAdminHint: 'Choose an administrator', directoryEmpty: 'No matching records', directoryLoadError: 'The directory is temporarily unavailable. Try again in a moment.', directoryFooter: 'Start typing a surname to narrow the list', adminAccess: 'Management access'
   },
   ru: {
     back: '← назад', adminEntry: 'вход для администратора', adminChip: 'Панель управления', title: 'Вход', subtitle: 'Введите логин и пароль',
@@ -37,7 +37,7 @@ const LOGIN_LABELS = {
     employeeStepOne: 'Новое обращение', employeeStepOneMeta: 'Описание и файлы', employeeStepTwo: 'Назначено', employeeStepTwoMeta: 'Исполнитель и статус', employeeStepThree: 'Результат', employeeStepThreeMeta: 'История сохраняется',
     adminKicker: 'Управление системой', adminContextTitle: 'Всё важное под контролем', adminContextText: 'Управляйте очередью, сроками и ответственными в едином рабочем пространстве.',
     adminStepOne: 'Очередь', adminStepOneMeta: 'Новые и срочные', adminStepTwo: 'Контроль', adminStepTwoMeta: 'Статусы и сроки', adminStepThree: 'Архив', adminStepThreeMeta: 'Поиск и история',
-    employeeDirectory: 'Сотрудники', adminDirectory: 'Доступ к управлению', directoryFound: 'найдено', directoryEmployeeHint: 'Выберите свою фамилию', directoryAdminHint: 'Выберите администратора', directoryEmpty: 'Совпадений не найдено', directoryFooter: 'Начните вводить фамилию, чтобы сократить список', adminAccess: 'Управление системой'
+    employeeDirectory: 'Сотрудники', adminDirectory: 'Доступ к управлению', directoryFound: 'найдено', directoryEmployeeHint: 'Выберите свою фамилию', directoryAdminHint: 'Выберите администратора', directoryEmpty: 'Нет подходящих записей', directoryLoadError: 'Список временно недоступен. Попробуйте ещё раз через несколько секунд.', directoryFooter: 'Начните вводить фамилию, чтобы сократить список', adminAccess: 'Управление системой'
   }
 };
 
@@ -84,6 +84,7 @@ const Login = ({ mode = 'employee' }) => {
   const [capsLockOn, setCapsLockOn] = useState(false);
   const [allLoginSuggestions, setAllLoginSuggestions] = useState([]);
   const [loginSuggestions, setLoginSuggestions] = useState([]);
+  const [suggestionsError, setSuggestionsError] = useState('');
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [showAllSuggestions, setShowAllSuggestions] = useState(false);
   const [selectedLogin, setSelectedLogin] = useState('');
@@ -99,14 +100,17 @@ const Login = ({ mode = 'employee' }) => {
       try {
         const response = await fetch(`${API_BASE_URL}/auth/login-suggestions?role=${role}&query=`);
         if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          if (!isCancelled) setError(data.message || t('genericError'));
+          if (!isCancelled) {
+            setAllLoginSuggestions([]);
+            setSuggestionsError(t('directoryLoadError'));
+          }
           return;
         }
         const data = await response.json();
         if (isCancelled) return;
         const suggestions = Array.isArray(data?.suggestions) ? data.suggestions : [];
         setAllLoginSuggestions(suggestions);
+        setSuggestionsError('');
 
         if (!defaultLoginAppliedRef.current && suggestions[0]?.login) {
           defaultLoginAppliedRef.current = true;
@@ -116,7 +120,7 @@ const Login = ({ mode = 'employee' }) => {
       } catch {
         if (!isCancelled) {
           setAllLoginSuggestions([]);
-          setError(t('genericError'));
+          setSuggestionsError(t('directoryLoadError'));
         }
       }
     };
@@ -124,6 +128,7 @@ const Login = ({ mode = 'employee' }) => {
     defaultLoginAppliedRef.current = false;
     setAllLoginSuggestions([]);
     setLoginSuggestions([]);
+    setSuggestionsError('');
     loadSuggestions();
 
     return () => { isCancelled = true; };
@@ -420,7 +425,7 @@ const Login = ({ mode = 'employee' }) => {
                       }) : (
                         <div className="login-directory-empty">
                           <span>—</span>
-                          <strong>{t('directoryEmpty')}</strong>
+                          <strong>{suggestionsError || t('directoryEmpty')}</strong>
                         </div>
                       )}
                     </div>

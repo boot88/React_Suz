@@ -9,7 +9,6 @@ const pool = require('./config/database');
 
 const app = express();
 const PORT = Number(process.env.PORT || 5000);
-const MAX_PORT_RETRIES = 10;
 
 app.options('*', cors());
 
@@ -1135,22 +1134,20 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Запуск сервера с автоматическим переключением порта, если порт занят
-const startServer = (port, retriesLeft = MAX_PORT_RETRIES) => {
+// Клиент разработки обращается к API на порту 5000. Не переключаемся на другой
+// порт молча: иначе новый интерфейс начинает работать со старым сервером.
+const startServer = (port) => {
   const server = app.listen(port, '0.0.0.0', () => {
     console.log(`✅ Сервер запущен на порту ${port}`);
     console.log(`✅ Режим: ${process.env.NODE_ENV || 'development'}`);
   });
 
   server.on('error', (error) => {
-    if (error.code === 'EADDRINUSE' && retriesLeft > 0) {
-      const nextPort = port + 1;
-      console.warn(`⚠️ Порт ${port} занят. Пробую порт ${nextPort}...`);
-      startServer(nextPort, retriesLeft - 1);
-      return;
+    if (error.code === 'EADDRINUSE') {
+      console.error(`❌ Порт ${port} занят. Остановите предыдущий запуск проекта и запустите npm run dev снова.`);
+    } else {
+      console.error('❌ Не удалось запустить сервер:', error.message);
     }
-
-    console.error('❌ Не удалось запустить сервер:', error.message);
     process.exit(1);
   });
 };
