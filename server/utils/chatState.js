@@ -28,8 +28,22 @@ const mergeThreadMessages = (archiveMessages = [], sqlMessages = []) => {
   ));
 };
 
+const groupThreadSnapshotRows = (rows = []) => (rows || []).reduce((threads, row) => {
+  const conversationId = String(row?.conversation_id || '').trim();
+  const message = typeof row?.message === 'object'
+    ? row.message
+    : (() => {
+        try { return JSON.parse(row?.message_json || ''); } catch { return null; }
+      })();
+  if (!conversationId || !message?.id) return threads;
+  if (!threads[conversationId]) threads[conversationId] = [];
+  threads[conversationId].push(message);
+  return threads;
+}, {});
+
 module.exports = {
   getChatTimestamp,
   isMysqlDatabase,
-  mergeThreadMessages
+  mergeThreadMessages,
+  groupThreadSnapshotRows
 };

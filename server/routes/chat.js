@@ -12,7 +12,8 @@ const {
 } = require('../utils/feedState');
 const {
   isMysqlDatabase,
-  mergeThreadMessages
+  mergeThreadMessages,
+  groupThreadSnapshotRows
 } = require('../utils/chatState');
 
 const router = express.Router();
@@ -135,12 +136,18 @@ const readSqlConversationMessages = async (conversationId, { limit = CHAT_SQL_PA
 const readSqlThreadsSnapshot = async (limit = CHAT_SQL_PAGE_SIZE) => {
   if (!await ensureChatSqlSchema()) return null;
   const safeLimit = Math.min(200, Math.max(1, Number(limit) || CHAT_SQL_PAGE_SIZE));
-  const [conversationRows] = await db.execute('SELECT DISTINCT conversation_id FROM chat_messages ORDER BY conversation_id LIMIT 1000');
-  const pairs = await Promise.all((conversationRows || []).map(async (row) => [
-    row.conversation_id,
-    await readSqlConversationMessages(row.conversation_id, { limit: safeLimit })
-  ]));
-  return Object.fromEntries(pairs.filter(([, messages]) => messages && messages.length));
+  const [rows] = await db.execute(
+    `SELECT conversation_id, message_json
+     FROM (
+       SELECT conversation_id, message_json, created_at, id,
+         ROW_NUMBER() OVER (PARTITION BY conversation_id ORDER BY created_at DESC, id DESC) AS message_rank
+       FROM chat_messages
+     ) AS ranked_messages
+     WHERE message_rank <= ?
+     ORDER BY conversation_id, created_at ASC, id ASC`,
+    [safeLimit]
+  );
+  return groupThreadSnapshotRows(rows);
 };
 
 const deleteSqlConversation = async (conversationId) => {
@@ -670,23 +677,19 @@ const atomicWriteJson = async (filePath, value) => {
   await fs.rename(tmpPath, filePath);
 };
 
-const ensureJsonFile = async (filePath, fallback) => {
-  await fs.mkdir(dataDir, { recursive: true });
-  try {
-    await fs.access(filePath);
-  } catch {
-    await atomicWriteJson(filePath, fallback);
-  }
-};
-
 const readJsonWithRecovery = async (filePath, fallback, validate, label, { throwOnUnrecoverable = false } = {}) => {
-  await ensureJsonFile(filePath, fallback);
   try {
     const raw = await fs.readFile(filePath, 'utf-8');
     const parsed = JSON.parse(raw || JSON.stringify(fallback));
     if (validate(parsed)) return parsed;
     throw new Error(`${label} имеет неверный формат`);
   } catch (error) {
+    if (error.code === 'ENOENT') {
+      const restored = await restoreJsonBackup(filePath, validate);
+      if (restored) return restored;
+      await atomicWriteJson(filePath, fallback);
+      return fallback;
+    }
     console.error(`${label} read error, trying backup:`, error.message);
     const restored = await restoreJsonBackup(filePath, validate);
     if (restored) return restored;
@@ -928,7 +931,7 @@ const setSqlFeedReaction = async (postId, emoji, login, active) => {
 
 const ensureStorage = async () => {
   if (!storageReadyPromise) {
-    storageReadyPromise = ensureJsonFile(chatFilePath, {});
+    storageReadyPromise = fs.mkdir(dataDir, { recursive: true });
   }
 
   return storageReadyPromise;
@@ -987,6 +990,61 @@ const writeThreads = async (threads) => {
 const mutateThreads = async (mutator) => threadMutationQueue.mutate(async (threads) => {
   const nextThreads = await mutator(cloneThreads(threads));
   return cloneThreads(nextThreads);
+});
+
+let archiveMigrationPromise = null;
+
+const runWithConcurrency = async (items, worker, concurrency = 8) => {
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const item = items[nextIndex];
+      nextIndex += 1;
+      await worker(item);
+    }
+  });
+  await Promise.all(workers);
+};
+
+const migrateArchiveToMysql = async () => {
+  if (archiveMigrationPromise) return archiveMigrationPromise;
+
+  archiveMigrationPromise = (async () => {
+    const [threads, posts] = await Promise.all([readThreads(), readFeed()]);
+    const messages = Object.entries(threads || {}).flatMap(([conversationId, items]) => (
+      (Array.isArray(items) ? items : [])
+        .filter((message) => message?.id)
+        .map((message) => ({ conversationId, message }))
+    ));
+    const feedPosts = (Array.isArray(posts) ? posts : []).filter((post) => post?.id);
+
+    await runWithConcurrency(messages, async ({ conversationId, message }) => {
+      await writeSqlMessage(conversationId, message);
+    });
+
+    await runWithConcurrency(feedPosts, async (post) => {
+      await writeSqlFeedPost(post);
+      await runWithConcurrency((post.comments || []).filter((comment) => comment?.id), (comment) => writeSqlFeedComment(post.id, comment), 4);
+      const reactions = Object.entries(post.reactions || {}).flatMap(([emoji, logins]) => (
+        [...new Set(Array.isArray(logins) ? logins : [])]
+          .filter(Boolean)
+          .map((login) => ({ emoji, login }))
+      ));
+      await runWithConcurrency(reactions, ({ emoji, login }) => setSqlFeedReaction(post.id, emoji, login, true), 4);
+    });
+
+    if (messages.length || feedPosts.length) {
+      console.log(`MySQL archive migration completed: ${messages.length} messages, ${feedPosts.length} feed posts.`);
+    }
+  })().catch((error) => {
+    console.warn('MySQL archive migration skipped:', error.message);
+  });
+
+  return archiveMigrationPromise;
+};
+
+setImmediate(() => {
+  migrateArchiveToMysql();
 });
 
 

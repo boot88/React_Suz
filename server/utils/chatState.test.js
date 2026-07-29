@@ -2,7 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   isMysqlDatabase,
-  mergeThreadMessages
+  mergeThreadMessages,
+  groupThreadSnapshotRows
 } = require('./chatState');
 const { createSerialMutationQueue } = require('./feedState');
 
@@ -22,6 +23,17 @@ test('newer archive messages win over stale SQL rows', () => {
 
   assert.equal(messages.length, 1);
   assert.equal(messages[0].text, 'edited');
+});
+
+test('groups a single MySQL thread snapshot without per-dialog requests', () => {
+  const threads = groupThreadSnapshotRows([
+    { conversation_id: 'anna::boris', message_json: '{"id":"message-1","text":"one"}' },
+    { conversation_id: 'anna::boris', message_json: '{"id":"message-2","text":"two"}' },
+    { conversation_id: 'claire::dmitry', message_json: '{"id":"message-3","text":"three"}' }
+  ]);
+
+  assert.deepEqual(Object.keys(threads), ['anna::boris', 'claire::dmitry']);
+  assert.deepEqual(threads['anna::boris'].map((message) => message.id), ['message-1', 'message-2']);
 });
 
 test('serial chat mutations do not lose messages sent together', async () => {
