@@ -84,6 +84,34 @@ const getMessageAttachmentFileIds = (message = {}) => [...new Set(
     .filter(Boolean)
 )];
 
+const buildConversationMessagesPageQuery = (conversationId, { limit = 50, before = '' } = {}) => {
+  const safeLimit = Math.min(200, Math.max(1, Number(limit) || 50));
+  const params = [conversationId];
+  let where = 'conversation_id = ?';
+
+  if (before) {
+    const beforeDate = new Date(before);
+    if (Number.isNaN(beforeDate.getTime())) {
+      const error = new Error('Некорректный курсор пагинации сообщений');
+      error.status = 400;
+      error.code = 'INVALID_MESSAGE_CURSOR';
+      throw error;
+    }
+    where += ' AND created_at < ?';
+    params.push(beforeDate);
+  }
+
+  return {
+    sql: `SELECT message_json
+     FROM chat_messages
+     WHERE ${where}
+     ORDER BY created_at DESC
+     LIMIT ${safeLimit}`,
+    params,
+    safeLimit
+  };
+};
+
 const mergeThreadMessages = (archiveMessages = [], sqlMessages = []) => {
   const byId = new Map();
 
@@ -119,6 +147,7 @@ module.exports = {
   normalizeMessageAttachments,
   getAttachmentFileId,
   getMessageAttachmentFileIds,
+  buildConversationMessagesPageQuery,
   mergeThreadMessages,
   groupThreadSnapshotRows
 };

@@ -666,6 +666,11 @@ const RUNTIME_TEXT_EN = {
   'Не удалось опубликовать запись': 'Could not publish the post',
   'Не удалось обновить публикацию': 'Could not update the post',
   'Не удалось загрузить комментарии': 'Could not load comments',
+  'Не удалось загрузить сообщения': 'Could not load messages',
+  'Хранилище сообщений временно недоступно': 'Message storage is temporarily unavailable',
+  'Для доступа к переписке требуется вход': 'Please sign in again to access this conversation',
+  'Нет доступа к этой переписке': 'You do not have access to this conversation',
+  'Некорректный курсор пагинации сообщений': 'The message pagination cursor is invalid',
   'Не удалось загрузить ленту: сервер вернул страницу сайта вместо данных API': 'Could not load the feed because the server returned the website page instead of API data.',
   'Не удалось загрузить сообщения: сервер вернул страницу сайта вместо данных API': 'Could not load messages because the server returned the website page instead of API data.',
   'Не удалось добавить комментарий': 'Could not add the comment',
@@ -1107,6 +1112,7 @@ const readApiJson = async (response, fallbackMessage = 'Ошибка API') => {
   if (!response.ok) {
     const error = new Error(data?.message || data?.error || fallbackMessage);
     error.status = response.status;
+    error.code = data?.code || '';
     throw error;
   }
 

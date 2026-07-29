@@ -13,7 +13,8 @@ const {
 const {
   isMysqlDatabase,
   normalizeMessageAttachments,
-  getMessageAttachmentFileIds
+  getMessageAttachmentFileIds,
+  buildConversationMessagesPageQuery
 } = require('../utils/chatState');
 const { verifyAccessToken } = require('../utils/accessToken');
 
@@ -157,20 +158,11 @@ const writeSqlMessage = async (conversationId, message = {}) => {
 
 const readSqlConversationMessages = async (conversationId, { limit = CHAT_SQL_PAGE_SIZE, before = '' } = {}) => {
   if (!await ensureChatSqlSchema()) return null;
-  const safeLimit = Math.min(200, Math.max(1, Number(limit) || CHAT_SQL_PAGE_SIZE));
-  const params = [conversationId];
-  let rows;
+  const { sql, params } = buildConversationMessagesPageQuery(conversationId, { limit, before });
 
-  let where = 'conversation_id = ?';
-  if (before) {
-    where += ' AND created_at < ?';
-    params.push(new Date(before));
-  }
-  params.push(safeLimit);
-  [rows] = await db.execute(
-    `SELECT message_json FROM chat_messages WHERE ${where} ORDER BY created_at DESC LIMIT ?`,
-    params
-  );
+  // The limit is a server-clamped integer. Keeping it out of the prepared
+  // statement avoids MySQL 8.4/mysql2 LIMIT marker incompatibilities.
+  const [rows] = await db.query(sql, params);
 
   return (rows || []).map((row) => parseSqlMessage(row.message_json)).filter(Boolean).reverse();
 };
@@ -1886,8 +1878,15 @@ router.get('/threads/:conversationId/messages', async (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json({ conversationId, messages: publicMessages, hasMore: messages.length >= limit, before: earliest, storage: 'mysql' });
   } catch (error) {
-    console.error('Chat GET /threads/messages error:', error);
-    res.status(500).json({ message: 'Не удалось загрузить сообщения' });
+    console.error('Chat GET /threads/messages error:', {
+      code: error.code || 'CHAT_MESSAGES_QUERY_FAILED',
+      message: error.message,
+      conversationId: req.params.conversationId
+    });
+    res.status(error.status || 500).json({
+      message: error.status === 400 ? error.message : 'Не удалось загрузить сообщения',
+      code: error.code || 'CHAT_MESSAGES_QUERY_FAILED'
+    });
   }
 });
 

@@ -4,6 +4,7 @@ const {
   isMysqlDatabase,
   normalizeMessageAttachments,
   getMessageAttachmentFileIds,
+  buildConversationMessagesPageQuery,
   mergeThreadMessages,
   groupThreadSnapshotRows
 } = require('./chatState');
@@ -62,6 +63,27 @@ test('extracts unique file ids for indexed chat access checks', () => {
     ],
     attachment: { id: 'file-1' }
   }), ['file-1', 'file-2']);
+});
+
+test('builds a MySQL 8.4 compatible conversation page query', () => {
+  const page = buildConversationMessagesPageQuery('anna::boris', { limit: 50 });
+  assert.match(page.sql, /LIMIT 50$/);
+  assert.doesNotMatch(page.sql, /LIMIT \?/);
+  assert.deepEqual(page.params, ['anna::boris']);
+});
+
+test('clamps message page size and validates the cursor', () => {
+  const page = buildConversationMessagesPageQuery('anna::boris', {
+    limit: 1000,
+    before: '2026-07-29T10:00:00.000Z'
+  });
+  assert.match(page.sql, /created_at < \?/);
+  assert.match(page.sql, /LIMIT 200$/);
+  assert.equal(page.params[1].toISOString(), '2026-07-29T10:00:00.000Z');
+  assert.throws(
+    () => buildConversationMessagesPageQuery('anna::boris', { before: 'not-a-date' }),
+    (error) => error.code === 'INVALID_MESSAGE_CURSOR' && error.status === 400
+  );
 });
 
 test('groups a single MySQL thread snapshot without per-dialog requests', () => {
