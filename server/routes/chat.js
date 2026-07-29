@@ -1426,11 +1426,14 @@ router.get('/threads', async (req, res) => {
       return null;
     });
 
-    // MySQL is the source of truth. Reading and parsing the entire legacy JSON
-    // archive here made only the first chat opening take several seconds.
-    const threads = sqlThreads || await readThreads();
+    // MySQL is the main source. On installations where the one-time archive
+    // migration has not finished yet, an empty MySQL snapshot must not hide
+    // the existing conversations stored in the durable JSON backup.
+    const hasSqlMessages = sqlThreads && Object.values(sqlThreads)
+      .some((messages) => Array.isArray(messages) && messages.length > 0);
+    const threads = hasSqlMessages ? sqlThreads : await readThreads();
     res.set('Cache-Control', 'no-store');
-    res.json({ threads, pageSize: limit, storage: sqlThreads ? 'mysql' : 'json-archive-fallback' });
+    res.json({ threads, pageSize: limit, storage: hasSqlMessages ? 'mysql' : 'json-archive-fallback' });
   } catch (error) {
     console.error('Chat GET /threads error:', error);
     res.status(500).json({ message: 'Не удалось загрузить сообщения' });
