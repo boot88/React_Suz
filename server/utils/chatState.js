@@ -12,6 +12,50 @@ const getChatTimestamp = (message = {}) => {
 
 const isMysqlDatabase = (database) => typeof database?.execute === 'function';
 
+const getAttachmentAliases = (attachment = {}) => [
+  attachment.id,
+  attachment.fileId,
+  attachment.sha256,
+  attachment.url,
+  attachment.originalUrl,
+  attachment.dataUrl,
+  attachment.previewUrl,
+  attachment.thumbnailUrl,
+  attachment.posterUrl,
+  attachment.storedName
+]
+  .filter(Boolean)
+  .map((value) => String(value));
+
+const normalizeMessageAttachments = (message = {}) => {
+  const candidates = [
+    ...(Array.isArray(message.attachments) ? message.attachments : []),
+    ...(Array.isArray(message.files) ? message.files : []),
+    message.attachment || null,
+    message.file || null
+  ].filter(Boolean);
+  const seenAliases = new Set();
+  const seenFallbacks = new Set();
+
+  return candidates.filter((attachment) => {
+    const aliases = getAttachmentAliases(attachment);
+    const fallback = aliases.length
+      ? ''
+      : JSON.stringify([
+        attachment.name || attachment.originalName || '',
+        attachment.type || '',
+        Number(attachment.size) || 0,
+        attachment.uploadedAt || ''
+      ]);
+    const duplicate = aliases.some((alias) => seenAliases.has(alias))
+      || (!aliases.length && seenFallbacks.has(fallback));
+
+    aliases.forEach((alias) => seenAliases.add(alias));
+    if (!aliases.length) seenFallbacks.add(fallback);
+    return !duplicate;
+  });
+};
+
 const mergeThreadMessages = (archiveMessages = [], sqlMessages = []) => {
   const byId = new Map();
 
@@ -44,6 +88,7 @@ const groupThreadSnapshotRows = (rows = []) => (rows || []).reduce((threads, row
 module.exports = {
   getChatTimestamp,
   isMysqlDatabase,
+  normalizeMessageAttachments,
   mergeThreadMessages,
   groupThreadSnapshotRows
 };

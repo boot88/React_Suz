@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   isMysqlDatabase,
+  normalizeMessageAttachments,
   mergeThreadMessages,
   groupThreadSnapshotRows
 } = require('./chatState');
@@ -23,6 +24,32 @@ test('newer archive messages win over stale SQL rows', () => {
 
   assert.equal(messages.length, 1);
   assert.equal(messages[0].text, 'edited');
+});
+
+test('normalizes legacy attachment fields without multiplying media', () => {
+  const photo = { id: 'file-1', name: 'photo.jpg', type: 'image/jpeg', url: '/files/file-1' };
+  const video = { id: 'file-2', name: 'video.mp4', type: 'video/mp4', url: '/files/file-2' };
+  const attachments = normalizeMessageAttachments({
+    attachments: [photo, photo, video],
+    attachment: photo,
+    files: [{ ...video }],
+    file: { ...photo }
+  });
+
+  assert.deepEqual(attachments.map((attachment) => attachment.id), ['file-1', 'file-2']);
+});
+
+test('deduplicates old inline attachments that do not have an id', () => {
+  const inline = {
+    name: 'legacy.jpg',
+    type: 'image/jpeg',
+    dataUrl: 'data:image/jpeg;base64,AAAA'
+  };
+
+  assert.equal(normalizeMessageAttachments({
+    attachments: [inline],
+    attachment: { ...inline }
+  }).length, 1);
 });
 
 test('groups a single MySQL thread snapshot without per-dialog requests', () => {

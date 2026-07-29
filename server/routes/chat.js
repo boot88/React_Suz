@@ -12,6 +12,7 @@ const {
 } = require('../utils/feedState');
 const {
   isMysqlDatabase,
+  normalizeMessageAttachments,
   mergeThreadMessages,
   groupThreadSnapshotRows
 } = require('../utils/chatState');
@@ -656,6 +657,12 @@ const prepareMessageForResponse = async (message = {}) => {
 
   const prepared = await Promise.all(attachments.map((attachment) => materializeLegacyAttachment(attachment, 'chat')));
   const nextAttachments = prepared.map((item) => item.attachment).filter(Boolean);
+  const existingAttachments = Array.isArray(message.attachments)
+    ? message.attachments.filter(Boolean).map(stripInlinePayloads)
+    : [];
+  const attachmentShapeChanged = JSON.stringify(existingAttachments) !== JSON.stringify(nextAttachments)
+    || Boolean(message.file)
+    || (Array.isArray(message.files) && message.files.length > 0);
   const nextMessage = {
     ...message,
     attachment: nextAttachments[0] || null,
@@ -665,7 +672,7 @@ const prepareMessageForResponse = async (message = {}) => {
   delete nextMessage.files;
   return {
     message: stripInlinePayloads(nextMessage),
-    changed: prepared.some((item) => item.changed)
+    changed: attachmentShapeChanged || prepared.some((item) => item.changed)
   };
 };
 
@@ -737,12 +744,7 @@ const readSqlFileMetadata = async (fileId) => {
   return rows?.[0] || null;
 };
 
-const getMessageAttachments = (message = {}) => [
-  ...(Array.isArray(message.attachments) ? message.attachments : []),
-  ...(Array.isArray(message.files) ? message.files : []),
-  message.attachment || null,
-  message.file || null
-].filter(Boolean);
+const getMessageAttachments = (message = {}) => normalizeMessageAttachments(message);
 
 const fileMatchesAttachment = (attachment = {}, file = {}) => {
   const values = new Set([
