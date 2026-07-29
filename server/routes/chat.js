@@ -1043,6 +1043,12 @@ const migrateArchiveToMysql = async () => {
   return archiveMigrationPromise;
 };
 
+// Load the legacy backup before the first visitor opens the chat. This keeps
+// the fallback instant while MySQL is being populated in the background.
+setImmediate(() => {
+  readThreads().catch((error) => console.warn('Chat archive preload skipped:', error.message));
+});
+
 setTimeout(() => {
   migrateArchiveToMysql();
 }, 30000);

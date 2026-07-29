@@ -2451,22 +2451,11 @@ const EmployeeChat = () => {
         profile.N_tel
       ].some((value) => normalizeText(value).includes(normalizedSearch));
     }).sort((a, b) => {
-      const aConversationId = getConversationId(user.username, a.email);
-      const bConversationId = getConversationId(user.username, b.email);
-      const aPinned = (chatLocalSettings.pinned || []).includes(aConversationId);
-      const bPinned = (chatLocalSettings.pinned || []).includes(bConversationId);
-      if (aPinned !== bPinned) return aPinned ? -1 : 1;
-      const aLastReadAt = readState[aConversationId] ? new Date(readState[aConversationId]).getTime() : 0;
-      const bLastReadAt = readState[bConversationId] ? new Date(readState[bConversationId]).getTime() : 0;
-      const aUnread = (threads[aConversationId] || []).filter((message) => message.sender !== user.username && new Date(message.createdAt).getTime() > aLastReadAt).length;
-      const bUnread = (threads[bConversationId] || []).filter((message) => message.sender !== user.username && new Date(message.createdAt).getTime() > bLastReadAt).length;
-      if (aUnread !== bUnread) return bUnread - aUnread;
-      const aLast = getThreadActivityMeta(threads[aConversationId] || []).lastTimestamp || 0;
-      const bLast = getThreadActivityMeta(threads[bConversationId] || []).lastTimestamp || 0;
-      if (aLast !== bLast) return bLast - aLast;
-      return a.email.localeCompare(b.email);
+      const aName = a.profile?.full_name || a.email;
+      const bName = b.profile?.full_name || b.email;
+      return aName.localeCompare(bName, 'ru', { sensitivity: 'base' });
     });
-  }, [chatCandidates, search, contactFilter, readState, threads, user.username, chatLocalSettings.favorites, chatLocalSettings.pinned, myApplications, profileForm.department]);
+  }, [chatCandidates, search, contactFilter, readState, threads, user.username, chatLocalSettings.favorites, myApplications, profileForm.department]);
 
   const unreadByEmail = useMemo(() => {
     const map = {};
