@@ -513,6 +513,26 @@ const readSqlProfiles = async () => {
     .filter(([login, profile]) => login && profile));
 };
 
+const readSqlProfile = async (login) => {
+  if (!await ensureProfilesSqlSchema()) return null;
+  const [rows] = await db.execute(
+    'SELECT profile_json FROM employee_profiles WHERE login = ? LIMIT 1',
+    [normalizeLogin(login)]
+  );
+  return parseProfileJson(rows?.[0]?.profile_json);
+};
+
+const readProfileByLogin = async (login) => {
+  const sqlProfile = await readSqlProfile(login).catch((error) => {
+    console.warn('Profile SQL read failed during login:', error.message);
+    return null;
+  });
+  if (sqlProfile) return sqlProfile;
+
+  const archiveProfiles = await readProfilesArchive();
+  return archiveProfiles[normalizeLogin(login)] || {};
+};
+
 const writeSqlProfile = async (login, profile = {}) => {
   if (!await ensureProfilesSqlSchema()) {
     const error = new Error('Постоянное хранилище профилей временно недоступно');
@@ -1238,10 +1258,15 @@ router.post('/login', async (req, res) => {
       await db.execute('UPDATE users SET password = ? WHERE id = ?', [hashPassword(passwordValue), user.id]);
     }
 
+    const profile = await readProfileByLogin(user.login);
+
     res.json({
       message: 'Вход успешен',
       token: null,
-      user: mapUser(user)
+      user: {
+        ...mapUser(user),
+        position: profile.position || ''
+      }
     });
   } catch (error) {
     console.error('Login error:', error);

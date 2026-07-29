@@ -189,7 +189,8 @@ export const AuthProvider = ({ children }) => {
       username: data?.user?.login || loginValue,
       role: loginScope === 'employee' && serverRole === 'admin' ? 'manager' : serverRole,
       serverRole,
-      name: data?.user?.full_name || data?.user?.login || loginValue
+      name: data?.user?.full_name || data?.user?.login || loginValue,
+      position: data?.user?.position || ''
     };
 
     if (loginScope === 'employee' && !['employee', 'manager'].includes(employeeUser.role)) {

@@ -994,7 +994,7 @@ const mutateThreads = async (mutator) => threadMutationQueue.mutate(async (threa
 
 let archiveMigrationPromise = null;
 
-const runWithConcurrency = async (items, worker, concurrency = 8) => {
+const runWithConcurrency = async (items, worker, concurrency = 2) => {
   let nextIndex = 0;
   const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
     while (nextIndex < items.length) {
@@ -1024,13 +1024,13 @@ const migrateArchiveToMysql = async () => {
 
     await runWithConcurrency(feedPosts, async (post) => {
       await writeSqlFeedPost(post);
-      await runWithConcurrency((post.comments || []).filter((comment) => comment?.id), (comment) => writeSqlFeedComment(post.id, comment), 4);
+      await runWithConcurrency((post.comments || []).filter((comment) => comment?.id), (comment) => writeSqlFeedComment(post.id, comment), 2);
       const reactions = Object.entries(post.reactions || {}).flatMap(([emoji, logins]) => (
         [...new Set(Array.isArray(logins) ? logins : [])]
           .filter(Boolean)
           .map((login) => ({ emoji, login }))
       ));
-      await runWithConcurrency(reactions, ({ emoji, login }) => setSqlFeedReaction(post.id, emoji, login, true), 4);
+      await runWithConcurrency(reactions, ({ emoji, login }) => setSqlFeedReaction(post.id, emoji, login, true), 2);
     });
 
     if (messages.length || feedPosts.length) {
@@ -1043,9 +1043,9 @@ const migrateArchiveToMysql = async () => {
   return archiveMigrationPromise;
 };
 
-setImmediate(() => {
+setTimeout(() => {
   migrateArchiveToMysql();
-});
+}, 30000);
 
 
 
@@ -1421,20 +1421,16 @@ router.post('/feed/posts/:postId/pin', async (req, res) => {
 router.get('/threads', async (req, res) => {
   try {
     const limit = Math.min(200, Math.max(1, Number(req.query?.limit) || CHAT_SQL_PAGE_SIZE));
-    const archiveThreads = await readThreads();
     const sqlThreads = await readSqlThreadsSnapshot(limit).catch((error) => {
-      console.warn('Chat SQL snapshot read failed, using JSON archive:', error.message);
+      console.warn('Chat SQL snapshot read failed, using JSON archive fallback:', error.message);
       return null;
     });
-    const threadIds = new Set([...Object.keys(archiveThreads || {}), ...Object.keys(sqlThreads || {})]);
-    const threads = {};
-    threadIds.forEach((conversationId) => {
-      const archiveMessages = Array.isArray(archiveThreads[conversationId]) ? archiveThreads[conversationId].slice(-limit) : [];
-      const sqlMessages = Array.isArray(sqlThreads?.[conversationId]) ? sqlThreads[conversationId] : [];
-      threads[conversationId] = mergeThreadMessages(archiveMessages, sqlMessages).slice(-limit);
-    });
+
+    // MySQL is the source of truth. Reading and parsing the entire legacy JSON
+    // archive here made only the first chat opening take several seconds.
+    const threads = sqlThreads || await readThreads();
     res.set('Cache-Control', 'no-store');
-    res.json({ threads, pageSize: limit, storage: sqlThreads ? 'sql+json-archive' : 'json-archive' });
+    res.json({ threads, pageSize: limit, storage: sqlThreads ? 'mysql' : 'json-archive-fallback' });
   } catch (error) {
     console.error('Chat GET /threads error:', error);
     res.status(500).json({ message: 'Не удалось загрузить сообщения' });

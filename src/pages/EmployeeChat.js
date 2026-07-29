@@ -1743,11 +1743,11 @@ const EmployeeChat = () => {
   const [profileViewLogin, setProfileViewLogin] = useState('');
   const [profilePreview, setProfilePreview] = useState(null);
   const [profileForm, setProfileForm] = useState({
-    full_name: '',
+    full_name: user?.name || '',
     department: '',
     phone: '',
     room: '',
-    position: '',
+    position: user?.position || '',
     bio: '',
     websiteLanguage: DEFAULT_PROFILE_WEBSITE_LANGUAGE,
     website: getWebsiteByLanguage(),
@@ -2034,10 +2034,9 @@ const EmployeeChat = () => {
     const hasSeenGreeting = sessionStorage.getItem(getGreetingKey(user.username)) === '1';
     if (hasSeenGreeting) return undefined;
 
-    const greeting = isEnglishInterface ? `Hello, ${baseDisplayName}!` : `Здравствуйте, ${baseDisplayName}!`;
-    setWelcomeNotice(greeting);
+    setWelcomeNotice(baseDisplayName);
     sessionStorage.setItem(getGreetingKey(user.username), '1');
-    const timer = setTimeout(() => setWelcomeNotice(''), 1800);
+    const timer = setTimeout(() => setWelcomeNotice(''), 3200);
     return () => clearTimeout(timer);
   }, [baseDisplayName, isEnglishInterface, user?.username]);
 
@@ -4242,7 +4241,14 @@ const EmployeeChat = () => {
       onDragLeave={handleDragLeave}
     >
       {isDraggingFiles && <div className="drop-zone-overlay"><strong>📎 {t('dropFiles')}</strong><span>{t('dropFilesHint')}</span></div>}
-      {welcomeNotice && <div className="chat-welcome-notice" role="status"><span>{welcomeNotice}</span></div>}
+      {welcomeNotice && (
+        <div className="chat-welcome-notice" role="status">
+          <span>
+            <small>{isEnglishInterface ? 'Welcome back' : 'С возвращением'}</small>
+            <strong>{welcomeNotice}</strong>
+          </span>
+        </div>
+      )}
       <input ref={avatarInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={handleAvatarUpload} hidden />
       
       <aside className="employee-chat-sidebar">
@@ -4252,7 +4258,7 @@ const EmployeeChat = () => {
           </button>
           <div className="employee-brand-meta">
             <strong>{profileForm.full_name || baseDisplayName}</strong>
-            <span>{profileForm.position || profileForm.department || t('workingChat')}</span>
+            <span>{profileForm.position || user?.position || profileForm.department || t('workingChat')}</span>
           </div>
           <div className="brand-actions"><button type="button" className="icon-btn" onClick={() => { setActiveTab('profile'); setProfileViewLogin(''); }}>{t('profile')}</button></div>
         </div>
