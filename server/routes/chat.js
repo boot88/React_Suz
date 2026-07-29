@@ -13,8 +13,7 @@ const {
 const {
   isMysqlDatabase,
   normalizeMessageAttachments,
-  mergeThreadMessages,
-  groupThreadSnapshotRows
+  getMessageAttachmentFileIds
 } = require('../utils/chatState');
 const { verifyAccessToken } = require('../utils/accessToken');
 
@@ -85,6 +84,17 @@ const ensureChatSqlSchema = async () => {
     await db.execute(
       'CREATE INDEX idx_chat_messages_participant_b_created ON chat_messages (participant_b, created_at)'
     ).catch(() => {});
+    await db.execute(`CREATE TABLE IF NOT EXISTS chat_message_files (
+      message_id VARCHAR(128) NOT NULL,
+      file_id VARCHAR(128) NOT NULL,
+      conversation_id VARCHAR(255) NOT NULL,
+      participant_a VARCHAR(255) NOT NULL,
+      participant_b VARCHAR(255) NOT NULL,
+      PRIMARY KEY (message_id, file_id),
+      INDEX idx_chat_message_files_file_a (file_id, participant_a),
+      INDEX idx_chat_message_files_file_b (file_id, participant_b),
+      INDEX idx_chat_message_files_conversation (conversation_id)
+    )`);
 
     chatSqlReady = true;
     chatSqlRetryAt = 0;
@@ -128,6 +138,20 @@ const writeSqlMessage = async (conversationId, message = {}) => {
        deleted_at = VALUES(deleted_at)`,
     params
   );
+  const [participantA = '', participantB = ''] = String(conversationId || '')
+    .toLowerCase()
+    .split('::')
+    .map((item) => item.trim());
+  const fileIds = message.deletedAt ? [] : getMessageAttachmentFileIds(message);
+  await db.execute('DELETE FROM chat_message_files WHERE message_id = ?', [message.id]);
+  if (fileIds.length && participantA && participantB) {
+    await db.query(
+      `INSERT IGNORE INTO chat_message_files
+       (message_id, file_id, conversation_id, participant_a, participant_b)
+       VALUES ?`,
+      [fileIds.map((fileId) => [message.id, fileId, conversationId, participantA, participantB])]
+    );
+  }
   return true;
 };
 
@@ -149,6 +173,18 @@ const readSqlConversationMessages = async (conversationId, { limit = CHAT_SQL_PA
   );
 
   return (rows || []).map((row) => parseSqlMessage(row.message_json)).filter(Boolean).reverse();
+};
+
+const readSqlMessageById = async (conversationId, messageId) => {
+  if (!await ensureChatSqlSchema()) return null;
+  const [rows] = await db.execute(
+    `SELECT message_json
+     FROM chat_messages
+     WHERE conversation_id = ? AND id = ?
+     LIMIT 1`,
+    [conversationId, messageId]
+  );
+  return parseSqlMessage(rows?.[0]?.message_json);
 };
 
 const readSqlThreadSummaries = async (login) => {
@@ -201,6 +237,7 @@ const readSqlThreadSummaries = async (login) => {
 
 const deleteSqlConversation = async (conversationId) => {
   if (!await ensureChatSqlSchema()) return false;
+  await db.execute('DELETE FROM chat_message_files WHERE conversation_id = ?', [conversationId]);
   await db.execute('DELETE FROM chat_messages WHERE conversation_id = ?', [conversationId]);
   return true;
 };
@@ -280,7 +317,15 @@ const ensureChatFilesSqlSchema = async () => {
 
 const writeSqlFileMetadata = async (file = {}) => {
   if (!await ensureChatFilesSqlSchema()) return false;
-  const metadata = JSON.stringify({ name: file.name, thumbnailUrl: file.thumbnailUrl || null, thumbnailStoredName: file.thumbnailStoredName || '' });
+  const metadata = JSON.stringify({
+    name: file.name,
+    thumbnailUrl: file.thumbnailUrl || null,
+    thumbnailStoredName: file.thumbnailStoredName || '',
+    width: Number(file.width) || 0,
+    height: Number(file.height) || 0,
+    aspectRatio: Number(file.aspectRatio) || 0,
+    duration: Number(file.duration) || 0
+  });
   const params = [
     file.id,
     file.scope,
@@ -517,6 +562,10 @@ const saveMultipartUpload = async (req) => {
       sha256,
       fileData: filePart.buffer,
       thumbnailData,
+      width: Math.max(0, Number(fields.width) || 0),
+      height: Math.max(0, Number(fields.height) || 0),
+      aspectRatio: Math.max(0, Number(fields.aspectRatio) || 0),
+      duration: Math.max(0, Number(fields.duration) || 0),
       isVerified: true,
       uploadedAt: new Date().toISOString()
     };
@@ -738,9 +787,18 @@ const parseFileMetadataJson = (value) => {
   return parsed && typeof parsed === 'object' ? parsed : {};
 };
 
+const CHAT_FILE_METADATA_COLUMNS = [
+  'id', 'scope', 'original_name', 'stored_name', 'url', 'thumbnail_url',
+  'mime_type', 'size_bytes', 'sha256', 'uploaded_at', 'metadata_json',
+  'uploaded_by', 'is_verified', 'deleted_at'
+].join(', ');
+
 const readSqlFileMetadata = async (fileId) => {
   if (!await ensureChatFilesSqlSchema()) return null;
-  const [rows] = await db.execute('SELECT * FROM chat_files WHERE id = ? LIMIT 1', [fileId]);
+  const [rows] = await db.execute(
+    `SELECT ${CHAT_FILE_METADATA_COLUMNS} FROM chat_files WHERE id = ? LIMIT 1`,
+    [fileId]
+  );
   return rows?.[0] || null;
 };
 
@@ -764,40 +822,24 @@ const isConversationParticipant = (conversationId = '', login = '') => conversat
   .map((item) => item.trim())
   .includes(String(login || '').toLowerCase());
 
-const findChatFileReference = async (file, login) => {
-  const archiveThreads = await ensureThreadsCache();
-  const fileNeedles = [file.id, file.url, file.thumbnail_url].filter(Boolean).map(String);
-  const sqlRows = fileNeedles.length && await ensureChatSqlSchema()
-    ? await db.execute(
-      `SELECT conversation_id, message_json
-       FROM chat_messages
-       WHERE (participant_a = ? OR participant_b = ?)
-         AND (${fileNeedles.map(() => 'message_json LIKE ?').join(' OR ')})`,
-      [login, login, ...fileNeedles.map((value) => `%${value.replace(/[\\%_]/g, '\\$&')}%`)]
-    ).then(([rows]) => rows).catch(() => [])
-    : [];
-  const sqlThreads = groupThreadSnapshotRows(sqlRows);
-  const threadIds = new Set([
-    ...Object.keys(archiveThreads || {}).filter((conversationId) => isConversationParticipant(conversationId, login)),
-    ...Object.keys(sqlThreads || {})
-  ]);
-  for (const conversationId of threadIds) {
-    const messages = mergeThreadMessages(
-      Array.isArray(archiveThreads[conversationId]) ? archiveThreads[conversationId] : [],
-      Array.isArray(sqlThreads?.[conversationId]) ? sqlThreads[conversationId] : []
-    );
-    const found = messages.some((message) => !message.deletedAt && getMessageAttachments(message).some((attachment) => !attachment.deletedAt && fileMatchesAttachment(attachment, file)));
-    if (found) return { conversationId };
-  }
-  return null;
-};
-
 const findFeedFileReference = async (file) => {
   const archivePosts = getVisibleFeedPosts(await readFeed());
   const sqlPosts = await readSqlFeedPosts({ limit: 100, commentsLimit: 2 }).catch(() => null);
   return [...archivePosts, ...(Array.isArray(sqlPosts) ? sqlPosts : [])].some((post) => (
     post && !post.deletedAt && getFeedAttachmentsFromPost(post).some((attachment) => fileMatchesAttachment(attachment, file))
   ));
+};
+
+const hasIndexedChatFileAccess = async (fileId, login) => {
+  if (!await ensureChatSqlSchema()) return false;
+  const [rows] = await db.execute(
+    `SELECT 1
+     FROM chat_message_files
+     WHERE file_id = ? AND (participant_a = ? OR participant_b = ?)
+     LIMIT 1`,
+    [fileId, login, login]
+  );
+  return Boolean(rows?.length);
 };
 
 const getFeedAttachmentsFromPost = (post = {}) => [
@@ -808,16 +850,11 @@ const getFeedAttachmentsFromPost = (post = {}) => [
 const resolveStoredDownload = (file = {}, variant = '') => {
   const metadata = parseFileMetadataJson(file.metadata_json);
   const scope = ALLOWED_UPLOAD_SCOPES.has(file.scope) ? file.scope : 'chat';
-  const storedData = variant === 'thumbnail' ? file.thumbnail_data : file.file_data;
-  const data = Buffer.isBuffer(storedData)
-    ? storedData
-    : (storedData?.data && Array.isArray(storedData.data) ? Buffer.from(storedData.data) : null);
   const storedName = variant === 'thumbnail'
     ? (metadata.thumbnailStoredName || path.basename(decodeURIComponent(String(file.thumbnail_url || '').split('?')[0] || '')))
     : file.stored_name;
   const fileName = variant === 'thumbnail' ? `thumb-${file.original_name || file.id}.jpg` : (file.original_name || file.id);
   const mime = variant === 'thumbnail' ? 'image/jpeg' : file.mime_type;
-  if (data?.length) return { data, fileName, mime };
   if (!storedName) return null;
   const safeBase = path.basename(storedName);
   const filePath = path.join(uploadsDir, scope, safeBase);
@@ -848,7 +885,7 @@ const ensureFileDownloadAccess = async (req, fileId) => {
   const isUploader = file.uploaded_by && String(file.uploaded_by).toLowerCase() === login;
   const access = isUploader ? true : (file.scope === 'feed'
     ? await findFeedFileReference(file)
-    : await findChatFileReference(file, login));
+    : await hasIndexedChatFileAccess(file.id, login));
   if (!access) {
     const error = new Error('Нет прав на скачивание файла');
     error.status = 403;
@@ -856,6 +893,56 @@ const ensureFileDownloadAccess = async (req, fileId) => {
   }
 
   return file;
+};
+
+const parseByteRange = (headerValue = '', totalSize = 0) => {
+  const match = String(headerValue).match(/^bytes=(\d*)-(\d*)$/i);
+  if (!match || !totalSize) return null;
+  let start = match[1] ? Number(match[1]) : null;
+  let end = match[2] ? Number(match[2]) : null;
+  if (start === null && end !== null) {
+    start = Math.max(0, totalSize - end);
+    end = totalSize - 1;
+  } else {
+    start = start ?? 0;
+    end = Math.min(end ?? totalSize - 1, totalSize - 1);
+  }
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || start > end || start >= totalSize) return null;
+  return { start, end };
+};
+
+const streamFileWithRange = async (req, res, filePath) => {
+  const stats = await fs.stat(filePath);
+  const range = parseByteRange(req.headers.range, stats.size);
+  res.setHeader('Accept-Ranges', 'bytes');
+  if (req.headers.range && !range) {
+    res.status(416);
+    res.setHeader('Content-Range', `bytes */${stats.size}`);
+    res.end();
+    return;
+  }
+  let stream;
+  if (!range) {
+    res.setHeader('Content-Length', stats.size);
+    stream = fsSync.createReadStream(filePath);
+  } else {
+    res.status(206);
+    res.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${stats.size}`);
+    res.setHeader('Content-Length', range.end - range.start + 1);
+    stream = fsSync.createReadStream(filePath, { start: range.start, end: range.end });
+  }
+  await new Promise((resolve, reject) => {
+    stream.once('error', reject);
+    res.once('finish', resolve);
+    res.once('close', resolve);
+    stream.pipe(res);
+  });
+};
+
+const getSqlPayloadBuffer = (value) => {
+  if (Buffer.isBuffer(value)) return value;
+  if (value?.data && Array.isArray(value.data)) return Buffer.from(value.data);
+  return null;
 };
 
 const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -1211,40 +1298,19 @@ const ensureThreadsCache = async () => {
   return cachedThreads || {};
 };
 
-const readArchiveConversation = async (conversationId) => {
-  const threads = await ensureThreadsCache();
-  return cloneThreads(Array.isArray(threads[conversationId]) ? threads[conversationId] : []);
+const writeStreamEvent = (res, eventName, payload) => {
+  res.write(`event: ${eventName}\ndata: ${JSON.stringify(stripInlinePayloads(payload))}\n\n`);
 };
 
-const readArchiveThreadSummaries = async (login) => {
-  const threads = await ensureThreadsCache();
-  return Object.fromEntries(Object.entries(threads)
-    .filter(([conversationId]) => isConversationParticipant(conversationId, login))
-    .map(([conversationId, messages]) => {
-      const items = Array.isArray(messages) ? messages : [];
-      const lastMessage = [...items].sort((left, right) => (
-        new Date(left?.createdAt || 0).getTime() - new Date(right?.createdAt || 0).getTime()
-      )).at(-1) || null;
-      return [conversationId, {
-        conversationId,
-        lastMessage,
-        lastAt: lastMessage?.createdAt || '',
-        lastTimestamp: new Date(lastMessage?.createdAt || 0).getTime() || 0,
-        messageCount: items.length,
-        deletedCount: items.filter((message) => Boolean(message?.deletedAt)).length,
-        attachmentsCount: items.filter((message) => getMessageAttachments(message).length > 0).length
-      }];
-    }));
-};
-
-const broadcastThreads = () => {
+const broadcastThreadEvent = (eventName, conversationId, payload = {}) => {
   if (!streamClients.size) return;
   streamClients.forEach((client) => {
-    readArchiveThreadSummaries(client.login)
-      .then((summaries) => {
-        client.res.write(`event: threads\ndata: ${JSON.stringify({ summaries: stripInlinePayloads(summaries) })}\n\n`);
-      })
-      .catch(() => {});
+    if (!isConversationParticipant(conversationId, client.login)) return;
+    try {
+      writeStreamEvent(client.res, eventName, { conversationId, ...payload });
+    } catch {
+      streamClients.delete(client);
+    }
   });
 };
 
@@ -1253,7 +1319,6 @@ const persistThreadsSnapshot = async (threads) => {
   await ensureStorage();
   await atomicWriteJson(chatFilePath, nextThreads);
   cachedThreads = cloneThreads(nextThreads);
-  broadcastThreads();
 };
 
 const threadMutationQueue = createSerialMutationQueue({
@@ -1275,6 +1340,31 @@ const mutateThreads = async (mutator) => threadMutationQueue.mutate(async (threa
   return cloneThreads(nextThreads);
 });
 
+const backupMessageToArchive = (conversationId, message) => {
+  mutateThreads((threads) => {
+    const currentMessages = Array.isArray(threads[conversationId]) ? threads[conversationId] : [];
+    const exists = currentMessages.some((item) => item.id === message.id);
+    threads[conversationId] = exists
+      ? currentMessages.map((item) => (item.id === message.id ? { ...item, ...message } : item))
+      : [...currentMessages, message];
+    return threads;
+  }).catch((error) => {
+    console.warn('Chat JSON backup write failed:', error.message);
+  });
+};
+
+const replaceArchiveConversation = (conversationId, messages) => {
+  mutateThreads((threads) => ({ ...threads, [conversationId]: messages }))
+    .catch((error) => console.warn('Chat JSON backup replace failed:', error.message));
+};
+
+const removeArchiveConversation = (conversationId) => {
+  mutateThreads((threads) => {
+    delete threads[conversationId];
+    return threads;
+  }).catch((error) => console.warn('Chat JSON backup delete failed:', error.message));
+};
+
 let archiveMigrationPromise = null;
 
 const runWithConcurrency = async (items, worker, concurrency = 2) => {
@@ -1293,7 +1383,37 @@ const migrateArchiveToMysql = async () => {
   if (archiveMigrationPromise) return archiveMigrationPromise;
 
   archiveMigrationPromise = (async () => {
+    let migratedFiles = 0;
+    if (await ensureChatFilesSqlSchema()) {
+      const [fileRows] = await db.execute(
+        `SELECT id, scope, stored_name, metadata_json, file_data, thumbnail_data
+         FROM chat_files
+         WHERE deleted_at IS NULL
+           AND (file_data IS NOT NULL OR thumbnail_data IS NOT NULL)`
+      );
+      await runWithConcurrency(fileRows || [], async (row) => {
+        const scope = ALLOWED_UPLOAD_SCOPES.has(row.scope) ? row.scope : 'chat';
+        const uploadDir = path.join(uploadsDir, scope);
+        await fs.mkdir(uploadDir, { recursive: true });
+        const metadata = parseFileMetadataJson(row.metadata_json);
+        const payloads = [
+          { name: row.stored_name, data: getSqlPayloadBuffer(row.file_data) },
+          { name: metadata.thumbnailStoredName, data: getSqlPayloadBuffer(row.thumbnail_data) }
+        ];
+        await Promise.all(payloads.map(async ({ name, data }) => {
+          if (!name || !data?.length) return;
+          const safeName = path.basename(name);
+          const targetPath = path.join(uploadDir, safeName);
+          await fs.access(targetPath).catch(async () => {
+            await fs.writeFile(targetPath, data);
+            migratedFiles += 1;
+          });
+        }));
+      });
+    }
+
     const [threads, posts] = await Promise.all([readThreads(), readFeed()]);
+    const migratedThreads = cloneThreads(threads);
     const messages = Object.entries(threads || {}).flatMap(([conversationId, items]) => (
       (Array.isArray(items) ? items : [])
         .filter((message) => message?.id)
@@ -1302,7 +1422,24 @@ const migrateArchiveToMysql = async () => {
     const feedPosts = (Array.isArray(posts) ? posts : []).filter((post) => post?.id);
 
     await runWithConcurrency(messages, async ({ conversationId, message }) => {
-      await writeSqlMessage(conversationId, message);
+      const preparedMessage = (await prepareMessageForResponse(message)).message;
+      await writeSqlMessage(conversationId, preparedMessage);
+      const items = Array.isArray(migratedThreads[conversationId]) ? migratedThreads[conversationId] : [];
+      migratedThreads[conversationId] = items.map((item) => (
+        item?.id === preparedMessage.id ? preparedMessage : item
+      ));
+    });
+    if (messages.length) await writeThreads(migratedThreads);
+
+    const [sqlMessageRows] = await db.execute(
+      'SELECT conversation_id, message_json FROM chat_messages'
+    );
+    await runWithConcurrency(sqlMessageRows || [], async (row) => {
+      const message = parseSqlMessage(row.message_json);
+      if (message?.id && row.conversation_id) {
+        const preparedMessage = (await prepareMessageForResponse(message)).message;
+        await writeSqlMessage(row.conversation_id, preparedMessage);
+      }
     });
 
     await runWithConcurrency(feedPosts, async (post) => {
@@ -1316,25 +1453,16 @@ const migrateArchiveToMysql = async () => {
       await runWithConcurrency(reactions, ({ emoji, login }) => setSqlFeedReaction(post.id, emoji, login, true), 2);
     });
 
-    if (messages.length || feedPosts.length) {
-      console.log(`MySQL archive migration completed: ${messages.length} messages, ${feedPosts.length} feed posts.`);
+    if (migratedFiles || messages.length || feedPosts.length) {
+      console.log(`MySQL archive migration completed: ${messages.length} archived messages, ${(sqlMessageRows || []).length} indexed messages, ${feedPosts.length} feed posts, ${migratedFiles} stored files.`);
     }
   })().catch((error) => {
-    console.warn('MySQL archive migration skipped:', error.message);
+    archiveMigrationPromise = null;
+    throw error;
   });
 
   return archiveMigrationPromise;
 };
-
-// Load the legacy backup before the first visitor opens the chat. This keeps
-// the fallback instant while MySQL is being populated in the background.
-setImmediate(() => {
-  readThreads().catch((error) => console.warn('Chat archive preload skipped:', error.message));
-});
-
-setTimeout(() => {
-  migrateArchiveToMysql();
-}, 30000);
 
 
 
@@ -1359,19 +1487,30 @@ router.get('/files/:fileId/download', async (req, res) => {
     const fileId = decodeURIComponent(req.params.fileId || '').trim();
     if (!fileId) return res.status(400).json({ message: 'fileId обязателен' });
     const file = await ensureFileDownloadAccess(req, fileId);
-    const download = resolveStoredDownload(file, req.query?.variant === 'thumbnail' ? 'thumbnail' : '');
+    const variant = req.query?.variant === 'thumbnail' ? 'thumbnail' : '';
+    const download = resolveStoredDownload(file, variant);
     if (!download) return res.status(404).json({ message: 'Файл не найден' });
     res.setHeader('Content-Type', download.mime || 'application/octet-stream');
     res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(download.fileName)}"`);
-    res.setHeader('Cache-Control', 'private, no-store');
-    if (download.data) {
-      res.setHeader('Content-Length', download.data.length);
-      return res.send(download.data);
-    }
-    await fs.access(download.filePath);
-    fsSync.createReadStream(download.filePath).pipe(res);
+    res.setHeader(
+      'Cache-Control',
+      variant === 'thumbnail'
+        ? 'private, max-age=604800, immutable'
+        : 'private, max-age=3600'
+    );
+    await fs.access(download.filePath).catch(() => {
+      const error = new Error('Файл не найден. Выполните одноразовую миграцию хранилища.');
+      error.status = 404;
+      throw error;
+    });
+    await streamFileWithRange(req, res, download.filePath);
+    return;
   } catch (error) {
     console.error('Chat GET /files/download error:', error.message);
+    if (res.headersSent) {
+      res.destroy(error);
+      return;
+    }
     res.status(error.status || 500).json({ message: error.message || 'Не удалось скачать файл' });
   }
 });
@@ -1712,40 +1851,19 @@ router.get('/threads', async (req, res) => {
     const login = getRequestLogin(req);
     if (!login) return res.status(401).json({ message: 'Для загрузки диалогов требуется вход' });
 
-    const [sqlSummaries, archiveSummaries] = await Promise.all([
-      readSqlThreadSummaries(login).catch((error) => {
-        console.warn('Chat SQL summaries failed, using JSON archive fallback:', error.message);
-        return null;
-      }),
-      readArchiveThreadSummaries(login)
-    ]);
-    const conversationIds = new Set([
-      ...Object.keys(archiveSummaries || {}),
-      ...Object.keys(sqlSummaries || {})
-    ]);
-    const summaries = {};
-
-    conversationIds.forEach((conversationId) => {
-      const archiveSummary = archiveSummaries?.[conversationId];
-      const sqlSummary = sqlSummaries?.[conversationId];
-      const latest = (sqlSummary?.lastTimestamp || 0) >= (archiveSummary?.lastTimestamp || 0)
-        ? (sqlSummary || archiveSummary)
-        : archiveSummary;
-      if (!latest) return;
-      summaries[conversationId] = {
-        ...latest,
-        lastMessage: stripInlinePayloads(latest.lastMessage),
-        messageCount: Math.max(sqlSummary?.messageCount || 0, archiveSummary?.messageCount || 0),
-        deletedCount: Math.max(sqlSummary?.deletedCount || 0, archiveSummary?.deletedCount || 0),
-        attachmentsCount: Math.max(sqlSummary?.attachmentsCount || 0, archiveSummary?.attachmentsCount || 0)
-      };
-    });
+    const sqlSummaries = await readSqlThreadSummaries(login);
+    if (!sqlSummaries) {
+      return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
+    }
+    const summaries = Object.fromEntries(
+      Object.entries(sqlSummaries).map(([conversationId, summary]) => [
+        conversationId,
+        { ...summary, lastMessage: stripInlinePayloads(summary.lastMessage) }
+      ])
+    );
 
     res.set('Cache-Control', 'no-store');
-    res.json({
-      summaries,
-      storage: sqlSummaries ? 'mysql+json-archive-summary' : 'json-archive-summary'
-    });
+    res.json({ summaries, storage: 'mysql' });
   } catch (error) {
     console.error('Chat GET /threads error:', error);
     res.status(500).json({ message: 'Не удалось загрузить сообщения' });
@@ -1759,20 +1877,14 @@ router.get('/threads/:conversationId/messages', async (req, res) => {
     if (!requireConversationAccess(req, res, conversationId)) return;
     const limit = Math.min(200, Math.max(1, Number(req.query?.limit) || CHAT_SQL_PAGE_SIZE));
     const before = req.query?.before || '';
-    const archiveMessages = await readArchiveConversation(conversationId);
-    const archivePage = before
-      ? archiveMessages.filter((message) => normalizeMessageDate(message).getTime() < new Date(before).getTime()).slice(-limit)
-      : archiveMessages.slice(-limit);
-    const sqlMessages = await readSqlConversationMessages(conversationId, { limit, before }).catch(() => null);
-    const messages = mergeThreadMessages(archivePage, Array.isArray(sqlMessages) ? sqlMessages : []).slice(-limit);
-    const publicMessages = await prepareConversationForResponse(conversationId, messages).catch((error) => {
-      console.warn('Inline attachment migration skipped for this response:', error.message);
-      return stripInlinePayloads(messages);
-    });
+    const messages = await readSqlConversationMessages(conversationId, { limit, before });
+    if (!Array.isArray(messages)) {
+      return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
+    }
+    const publicMessages = stripInlinePayloads(messages);
     const earliest = messages[0]?.createdAt || '';
-    const archiveHasMore = earliest ? archiveMessages.some((message) => normalizeMessageDate(message).getTime() < new Date(earliest).getTime()) : false;
     res.set('Cache-Control', 'no-store');
-    res.json({ conversationId, messages: publicMessages, hasMore: archiveHasMore || messages.length >= limit, before: earliest });
+    res.json({ conversationId, messages: publicMessages, hasMore: messages.length >= limit, before: earliest, storage: 'mysql' });
   } catch (error) {
     console.error('Chat GET /threads/messages error:', error);
     res.status(500).json({ message: 'Не удалось загрузить сообщения' });
@@ -1783,7 +1895,6 @@ router.get('/threads/stream', async (req, res) => {
   try {
     const login = getRequestLogin(req);
     if (!login) return res.status(401).json({ message: 'Для загрузки диалогов требуется вход' });
-    const summaries = await readArchiveThreadSummaries(login);
 
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -1792,7 +1903,7 @@ router.get('/threads/stream', async (req, res) => {
       'X-Accel-Buffering': 'no'
     });
 
-    res.write(`event: threads\ndata: ${JSON.stringify({ summaries: stripInlinePayloads(summaries) })}\n\n`);
+    writeStreamEvent(res, 'ready', { connectedAt: new Date().toISOString() });
     const streamClient = { res, login };
     streamClients.add(streamClient);
 
@@ -1826,26 +1937,14 @@ router.post('/threads/:conversationId/messages', async (req, res) => {
     }
     const preparedMessage = (await prepareMessageForResponse(message)).message;
 
-    await writeSqlMessage(conversationId, preparedMessage).catch((error) => {
-      console.warn('Chat SQL message write failed, keeping JSON archive only:', error.message);
-      return false;
-    });
+    const existingMessage = await readSqlMessageById(conversationId, preparedMessage.id);
+    const exists = Boolean(existingMessage);
+    const savedItem = existingMessage ? { ...existingMessage, ...preparedMessage } : preparedMessage;
+    const stored = await writeSqlMessage(conversationId, savedItem);
+    if (!stored) return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
+    backupMessageToArchive(conversationId, savedItem);
 
-    let exists = false;
-    let savedItem = preparedMessage;
-    await mutateThreads((threads) => {
-      const currentMessages = Array.isArray(threads[conversationId]) ? threads[conversationId] : [];
-      exists = currentMessages.some((item) => item.id === preparedMessage.id);
-      threads[conversationId] = exists
-        ? currentMessages.map((item) => {
-          if (item.id !== preparedMessage.id) return item;
-          savedItem = { ...item, ...preparedMessage };
-          return savedItem;
-        })
-        : [...currentMessages, preparedMessage];
-      return threads;
-    });
-
+    broadcastThreadEvent(exists ? 'message-updated' : 'message-created', conversationId, { item: savedItem });
     res.status(exists ? 200 : 201).json({ message: exists ? 'Сообщение обновлено' : 'Сообщение добавлено', conversationId, item: savedItem });
   } catch (error) {
     console.error('Chat POST /threads/messages error:', error);
@@ -1869,28 +1968,14 @@ router.patch('/threads/:conversationId/messages/:messageId', async (req, res) =>
     }
     const preparedPatch = (await prepareMessageForResponse(patch)).message;
 
-    let found = false;
-    let updatedItem = null;
-    await mutateThreads((threads) => {
-      const currentMessages = Array.isArray(threads[conversationId]) ? threads[conversationId] : [];
-      threads[conversationId] = currentMessages.map((item) => {
-        if (item.id !== messageId) return item;
-        found = true;
-        updatedItem = { ...item, ...preparedPatch, id: item.id };
-        return updatedItem;
-      });
-      return threads;
-    });
+    const existingMessage = await readSqlMessageById(conversationId, messageId);
+    if (!existingMessage) return res.status(404).json({ message: 'Сообщение не найдено' });
+    const updatedItem = { ...existingMessage, ...preparedPatch, id: existingMessage.id };
+    const stored = await writeSqlMessage(conversationId, updatedItem);
+    if (!stored) return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
+    backupMessageToArchive(conversationId, updatedItem);
 
-    if (!found) return res.status(404).json({ message: 'Сообщение не найдено' });
-
-    if (updatedItem) {
-      await writeSqlMessage(conversationId, updatedItem).catch((error) => {
-        console.warn('Chat SQL patch write failed, keeping JSON archive only:', error.message);
-        return false;
-      });
-    }
-
+    broadcastThreadEvent('message-updated', conversationId, { item: updatedItem });
     res.json({ message: 'Сообщение обновлено', conversationId, item: updatedItem });
   } catch (error) {
     console.error('Chat PATCH /threads/messages error:', error);
@@ -1915,16 +2000,17 @@ router.put('/threads/:conversationId', async (req, res) => {
       (await prepareMessageForResponse(message)).message
     )));
 
-    await Promise.all(preparedMessages.filter((message) => message?.id).map((message) => writeSqlMessage(conversationId, message).catch((error) => {
-      console.warn('Chat SQL bulk write failed for message:', error.message);
-      return false;
-    })));
+    const writeResults = await Promise.all(
+      preparedMessages
+        .filter((message) => message?.id)
+        .map((message) => writeSqlMessage(conversationId, message))
+    );
+    if (writeResults.some((stored) => !stored)) {
+      return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
+    }
+    replaceArchiveConversation(conversationId, preparedMessages);
 
-    await mutateThreads((items) => ({
-      ...items,
-      [conversationId]: preparedMessages
-    }));
-
+    broadcastThreadEvent('conversation-refresh', conversationId);
     res.json({ message: 'Сохранено', conversationId });
   } catch (error) {
     console.error('Chat PUT /threads error:', error);
@@ -1940,21 +2026,18 @@ router.delete('/threads/:conversationId', async (req, res) => {
     }
     if (!requireConversationAccess(req, res, conversationId)) return;
 
-    await deleteSqlConversation(conversationId).catch((error) => {
-      console.warn('Chat SQL conversation delete failed, deleting JSON archive only:', error.message);
-      return false;
-    });
+    const deleted = await deleteSqlConversation(conversationId);
+    if (!deleted) return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
+    removeArchiveConversation(conversationId);
 
-    await mutateThreads((items) => {
-      delete items[conversationId];
-      return items;
-    });
-
+    broadcastThreadEvent('conversation-delete', conversationId);
     res.json({ message: 'Переписка удалена', conversationId });
   } catch (error) {
     console.error('Chat DELETE /threads error:', error);
     res.status(500).json({ message: 'Не удалось удалить переписку' });
   }
 });
+
+router.runChatStorageMigration = migrateArchiveToMysql;
 
 module.exports = router;

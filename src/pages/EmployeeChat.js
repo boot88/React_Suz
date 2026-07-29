@@ -3,6 +3,15 @@ import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { MANAGER_CREDENTIALS } from '../config/authConfig';
+import {
+  readCachedConversation,
+  writeCachedConversation,
+  removeCachedConversation
+} from '../utils/chatMessageCache';
+import ChatContacts from '../components/employeeChat/ChatContacts';
+import ChatComposerForm from '../components/employeeChat/ChatComposerForm';
+import ChatDialogHeader from '../components/employeeChat/ChatDialogHeader';
+import ChatLoadingOverlay from '../components/employeeChat/ChatLoadingOverlay';
 import './EmployeeChat.css';
 
 const CHAT_READ_STATE_KEY = 'chatReadState';
@@ -1124,27 +1133,35 @@ const fetchJsonWithRetry = async (url, options = {}, { attempts = 4, retryDelay 
 
 const createImageThumbnailDataUrl = (file, maxSize = 480) => new Promise((resolve) => {
   if (!String(file?.type || '').startsWith('image/')) {
-    resolve('');
+    resolve({ thumbnailDataUrl: '', width: 0, height: 0, aspectRatio: 0, duration: 0 });
     return;
   }
 
   const reader = new FileReader();
-  reader.onerror = () => resolve('');
+  reader.onerror = () => resolve({ thumbnailDataUrl: '', width: 0, height: 0, aspectRatio: 0, duration: 0 });
   reader.onload = () => {
     const image = new Image();
-    image.onerror = () => resolve('');
+    image.onerror = () => resolve({ thumbnailDataUrl: '', width: 0, height: 0, aspectRatio: 0, duration: 0 });
     image.onload = () => {
-      const ratio = Math.min(1, maxSize / Math.max(image.width || maxSize, image.height || maxSize));
+      const width = image.naturalWidth || image.width || maxSize;
+      const height = image.naturalHeight || image.height || maxSize;
+      const ratio = Math.min(1, maxSize / Math.max(width, height));
       const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round((image.width || maxSize) * ratio));
-      canvas.height = Math.max(1, Math.round((image.height || maxSize) * ratio));
+      canvas.width = Math.max(1, Math.round(width * ratio));
+      canvas.height = Math.max(1, Math.round(height * ratio));
       const context = canvas.getContext('2d');
       if (!context) {
-        resolve('');
+        resolve({ thumbnailDataUrl: '', width, height, aspectRatio: width / Math.max(1, height), duration: 0 });
         return;
       }
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL('image/jpeg', 0.76));
+      resolve({
+        thumbnailDataUrl: canvas.toDataURL('image/jpeg', 0.76),
+        width,
+        height,
+        aspectRatio: width / Math.max(1, height),
+        duration: 0
+      });
     };
     image.src = String(reader.result || '');
   };
@@ -1153,27 +1170,36 @@ const createImageThumbnailDataUrl = (file, maxSize = 480) => new Promise((resolv
 
 const createVideoThumbnailDataUrl = (file, maxSize = 640) => new Promise((resolve) => {
   if (!isVideoAttachment(file)) {
-    resolve('');
+    resolve({ thumbnailDataUrl: '', width: 0, height: 0, aspectRatio: 0, duration: 0 });
     return;
   }
 
   const video = document.createElement('video');
   const objectUrl = URL.createObjectURL(file);
   let settled = false;
+  let mediaMetadata = { width: 0, height: 0, aspectRatio: 0, duration: 0 };
   const cleanup = () => {
     URL.revokeObjectURL(objectUrl);
   };
-  const finish = (value = '') => {
+  const finish = (thumbnailDataUrl = '') => {
     if (settled) return;
     settled = true;
     cleanup();
-    resolve(value);
+    resolve({ thumbnailDataUrl, ...mediaMetadata });
   };
 
   video.muted = true;
   video.playsInline = true;
   video.preload = 'metadata';
   video.onloadedmetadata = () => {
+    const width = video.videoWidth || 0;
+    const height = video.videoHeight || 0;
+    mediaMetadata = {
+      width,
+      height,
+      aspectRatio: width / Math.max(1, height),
+      duration: Number.isFinite(video.duration) ? video.duration : 0
+    };
     try {
       video.currentTime = Math.min(0.25, Math.max(0, (video.duration || 1) / 20));
     } catch {
@@ -1203,7 +1229,7 @@ const createVideoThumbnailDataUrl = (file, maxSize = 640) => new Promise((resolv
 const createAttachmentThumbnailDataUrl = async (file) => {
   if (String(file?.type || '').startsWith('image/')) return createImageThumbnailDataUrl(file);
   if (isVideoAttachment(file)) return createVideoThumbnailDataUrl(file);
-  return '';
+  return { thumbnailDataUrl: '', width: 0, height: 0, aspectRatio: 0, duration: 0 };
 };
 
 const nudgeVideoToFirstFrame = (event) => {
@@ -1385,6 +1411,12 @@ const getVideoPosterUrl = (file = {}) => {
     .find((source) => source && !originalSources.has(source));
   return resolveAttachmentUrl(posterSource || '');
 };
+const getAttachmentAspectRatio = (file = {}, fallback = 4 / 3) => {
+  const storedRatio = Number(file.aspectRatio)
+    || (Number(file.width) / Math.max(1, Number(file.height)));
+  if (!Number.isFinite(storedRatio) || storedRatio <= 0) return fallback;
+  return Math.min(3, Math.max(0.35, storedRatio));
+};
 const getPostShareUrl = (postId = '') => `${window.location.origin}${window.location.pathname}?feedPost=${encodeURIComponent(postId)}`;
 const isPostAuthor = (post = {}, currentUser = {}) => sameLogin(post.author, currentUser?.username || '') || sameLogin(post.login, currentUser?.username || '') || sameLogin(post.sender, currentUser?.username || '');
 
@@ -1398,7 +1430,7 @@ const canManageFeedPost = (post = {}, currentUser = {}, isManager = false, isAdm
     || sameLogin(post.sender, username);
 };
 
-const AttachmentPreviewImage = ({ file, alt, useOriginal = false, eager = false, isEnglish = false }) => {
+const AttachmentPreviewImage = React.memo(function AttachmentPreviewImage({ file, alt, useOriginal = false, eager = false, isEnglish = false }) {
   const preferredSource = useOriginal ? getOriginalAttachmentUrl(file) : getAttachmentUrl(file);
   const fallbackSource = getOriginalAttachmentUrl(file);
   const [source, setSource] = useState(preferredSource || fallbackSource);
@@ -1438,10 +1470,16 @@ const AttachmentPreviewImage = ({ file, alt, useOriginal = false, eager = false,
       )}
     </span>
   );
-};
+});
 
-const PlayableVideo = ({ file, className = '', onExpand, isEnglish = false, variant = 'message' }) => {
-  const [orientation, setOrientation] = useState('unknown');
+const PlayableVideo = React.memo(function PlayableVideo({ file, className = '', onExpand, isEnglish = false, variant = 'message' }) {
+  const storedRatio = getAttachmentAspectRatio(file, 16 / 9);
+  const getOrientation = (ratio) => ratio < 0.82 ? 'portrait' : ratio > 1.2 ? 'landscape' : 'square';
+  const [orientation, setOrientation] = useState(() => getOrientation(storedRatio));
+
+  useEffect(() => {
+    setOrientation(getOrientation(getAttachmentAspectRatio(file, 16 / 9)));
+  }, [file]);
 
   const handleMetadata = (event) => {
     const video = event.currentTarget;
@@ -1451,7 +1489,7 @@ const PlayableVideo = ({ file, className = '', onExpand, isEnglish = false, vari
   };
 
   return (
-    <div className={`playable-video-shell ${variant} is-${orientation} ${className}`}>
+    <div className={`playable-video-shell ${variant} is-${orientation} ${className}`} style={{ aspectRatio: storedRatio }}>
       <video
         className="attachment-video-player"
         src={getOriginalAttachmentUrl(file)}
@@ -1480,9 +1518,9 @@ const PlayableVideo = ({ file, className = '', onExpand, isEnglish = false, vari
       )}
     </div>
   );
-};
+});
 
-const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, onQuickReaction, metaLabel = '', statusLabel = '', isEnglish = false }) => {
+const AttachmentCard = React.memo(function AttachmentCard({ file, cardKey, variant = 'message', onOpen, onSelect, onQuickReaction, metaLabel = '', statusLabel = '', isEnglish = false }) {
   const fileName = file?.name || (isEnglish ? 'File' : 'Файл');
   const fileType = String(file?.type || '');
   const isImage = fileType.startsWith('image/');
@@ -1491,7 +1529,7 @@ const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, 
 
   if (variant === 'message' && isImage) {
     return (
-      <div key={cardKey} className="message-photo-card">
+      <div key={cardKey} className="message-photo-card" style={{ aspectRatio: getAttachmentAspectRatio(file) }}>
         <button
           type="button"
           className="message-photo-open"
@@ -1573,7 +1611,7 @@ const AttachmentCard = ({ file, cardKey, variant = 'message', onOpen, onSelect, 
       )}
     </div>
   );
-};
+});
 
 const FeedMediaCard = ({ file, onOpen, onQuickReaction, isEnglish = false }) => {
   const isVideo = isVideoAttachment(file);
@@ -1677,6 +1715,8 @@ const EmployeeChat = () => {
   const messageTextareaRef = useRef(null);
   const profileDirtyRef = useRef(false);
   const profileLoadedForRef = useRef('');
+  const notifyRef = useRef(() => {});
+  const directoryEmployeesRef = useRef([]);
    
   const [threads, setThreads] = useState({});
   const [threadSummaries, setThreadSummaries] = useState({});
@@ -1792,11 +1832,13 @@ const EmployeeChat = () => {
   const messagesWrapRef = useRef(null);
   const feedListRef = useRef(null);
   const feedPostsRef = useRef([]);
+  const threadsRef = useRef({});
   const pendingFeedActionsRef = useRef(new Set());
   const pendingFeedPostIdsRef = useRef(new Set());
   const feedMutationVersionRef = useRef(0);
   const feedFetchSequenceRef = useRef(0);
   const feedFetchControllerRef = useRef(null);
+  const conversationFetchControllerRef = useRef(null);
   const forceScrollRef = useRef(false);
   const suppressThreadsRefreshUntilRef = useRef(0);
   const settingsSyncTimerRef = useRef(null);
@@ -1821,6 +1863,10 @@ const EmployeeChat = () => {
   const notify = useCallback((message, title = 'Готово') => {
     setModal({ type: 'info', title: localizeRuntimeText(title), message: localizeRuntimeText(message) });
   }, [localizeRuntimeText]);
+
+  useEffect(() => {
+    notifyRef.current = notify;
+  }, [notify]);
 
   const queueChatSettingsSync = useCallback((settings) => {
     const login = user?.username;
@@ -1998,6 +2044,14 @@ const EmployeeChat = () => {
     feedPostsRef.current = feedPosts;
   }, [feedPosts]);
 
+  useEffect(() => {
+    threadsRef.current = threads;
+  }, [threads]);
+
+  useEffect(() => {
+    directoryEmployeesRef.current = directoryEmployees;
+  }, [directoryEmployees]);
+
   useEffect(() => () => {
     feedFetchControllerRef.current?.abort();
   }, []);
@@ -2068,7 +2122,7 @@ const EmployeeChat = () => {
 
     const profile = data?.profile || {};
     const cachedProfile = readProfileDraft(login);
-    const directoryProfile = directoryEmployees.find((employee) => employee.login === login) || {};
+    const directoryProfile = directoryEmployeesRef.current.find((employee) => employee.login === login) || {};
     const mergedProfile = {
       full_name: getProfileValue(profile, cachedProfile, 'full_name', 'fullName', 'name'),
       department: getProfileValue(profile, cachedProfile, 'department'),
@@ -2127,7 +2181,7 @@ const EmployeeChat = () => {
     }
 
     setProfilePreview({ ...mergedProfile, login: profile.login || login });
-  }, [directoryEmployees, queueChatSettingsSync, user.username]);
+  }, [queueChatSettingsSync, user.username]);
 
   const fetchThreads = useCallback(async () => {
     if (Date.now() < suppressThreadsRefreshUntilRef.current) return;
@@ -2144,33 +2198,37 @@ const EmployeeChat = () => {
     }
   }, [chatAuthHeaders, user.username]);
 
-  const fetchConversationMessages = useCallback(async (conversationId, { silent = false } = {}) => {
+  const fetchConversationMessages = useCallback(async (conversationId, { silent = false, signal } = {}) => {
     if (!conversationId || Date.now() < suppressThreadsRefreshUntilRef.current) return;
     if (!silent) setLoadingConversationIds((prev) => ({ ...prev, [conversationId]: true }));
     try {
       const response = await fetch(
         `${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages?limit=${CHAT_MESSAGES_PAGE_SIZE}&login=${encodeURIComponent(user.username)}`,
-        { headers: chatAuthHeaders }
+        { headers: chatAuthHeaders, signal }
       );
       const data = await readApiJson(response, 'Не удалось загрузить сообщения');
       const messages = Array.isArray(data?.messages) ? data.messages : [];
       setThreads((prev) => ({ ...prev, [conversationId]: messages }));
+      writeCachedConversation(user.username, conversationId, messages);
       setThreadHasMore((prev) => ({
         ...prev,
         [conversationId]: Boolean(data?.hasMore) && messages.length >= CHAT_MESSAGES_PAGE_SIZE
       }));
+      return messages;
     } catch (error) {
+      if (error?.name === 'AbortError') return null;
       console.error('Ошибка загрузки выбранного диалога:', error);
       setThreads((prev) => (
         Object.prototype.hasOwnProperty.call(prev, conversationId)
           ? prev
           : { ...prev, [conversationId]: [] }
       ));
-      if (!silent) notify(error.message || 'Не удалось загрузить выбранный диалог', 'Чат');
+      if (!silent) notifyRef.current(error.message || 'Не удалось загрузить выбранный диалог', 'Чат');
+      return null;
     } finally {
       if (!silent) setLoadingConversationIds((prev) => ({ ...prev, [conversationId]: false }));
     }
-  }, [chatAuthHeaders, notify, user.username]);
+  }, [chatAuthHeaders, user.username]);
 
   const loadOlderDialogMessages = useCallback(async () => {
     if (isLoadingOlderDialog || !currentConversationId || !currentMessages.length) return;
@@ -2276,12 +2334,12 @@ const EmployeeChat = () => {
       const message = error.message || 'Не удалось загрузить заявки';
       if (!silent) {
         setApplicationsError(message);
-        notify(message, 'Заявки');
+        notifyRef.current(message, 'Заявки');
       }
     } finally {
       if (!silent) setApplicationsLoading(false);
     }
-  }, [notify, user?.username]);
+  }, [user?.username]);
 
   const fetchEmployees = useCallback(async () => {
     try {
@@ -2356,46 +2414,154 @@ const EmployeeChat = () => {
     const refreshCoreData = () => {
       if (typeof document !== 'undefined' && document.hidden) return;
       fetchThreads();
-      if (currentConversationId) fetchConversationMessages(currentConversationId, { silent: true });
-      if (selectedThreadId && selectedThreadId !== currentConversationId) {
-        fetchConversationMessages(selectedThreadId, { silent: true });
-      }
       fetchEmployees();
       fetchMyApplications({ silent: true });
-    };
-    const refreshFeed = () => {
-      if (typeof document !== 'undefined' && document.hidden) return;
-      fetchFeed({ silent: true });
     };
     const handleVisibilityChange = () => {
       if (document.hidden) return;
       refreshCoreData();
-      refreshFeed();
     };
 
     refreshCoreData();
-    refreshFeed();
-
-    const poller = setInterval(refreshCoreData, 8000);
-    const feedPoller = setInterval(refreshFeed, 30000);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      clearInterval(poller);
-      clearInterval(feedPoller);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [currentConversationId, fetchConversationMessages, fetchThreads, fetchEmployees, fetchFeed, fetchMyApplications, selectedThreadId]);
+  }, [fetchThreads, fetchEmployees, fetchMyApplications]);
 
   useEffect(() => {
-    if (currentConversationId) fetchConversationMessages(currentConversationId);
-  }, [currentConversationId, fetchConversationMessages]);
+    conversationFetchControllerRef.current?.abort();
+    if (!currentConversationId) return undefined;
+
+    const controller = new AbortController();
+    conversationFetchControllerRef.current = controller;
+    let active = true;
+
+    const loadConversation = async () => {
+      const hasMemoryCopy = Object.prototype.hasOwnProperty.call(threadsRef.current, currentConversationId);
+      let hasCachedCopy = false;
+      if (!hasMemoryCopy) {
+        setLoadingConversationIds((prev) => ({ ...prev, [currentConversationId]: true }));
+        const cachedMessages = await readCachedConversation(user.username, currentConversationId);
+        if (!active || controller.signal.aborted) return;
+        if (cachedMessages.length) {
+          hasCachedCopy = true;
+          setThreads((prev) => ({ ...prev, [currentConversationId]: cachedMessages }));
+          setLoadingConversationIds((prev) => ({ ...prev, [currentConversationId]: false }));
+        }
+      }
+      await fetchConversationMessages(currentConversationId, {
+        silent: hasMemoryCopy || hasCachedCopy,
+        signal: controller.signal
+      });
+    };
+
+    loadConversation();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [currentConversationId, fetchConversationMessages, user.username]);
 
   useEffect(() => {
-    if (selectedThreadId && selectedThreadId !== currentConversationId) {
-      fetchConversationMessages(selectedThreadId);
-    }
+    if (!selectedThreadId || selectedThreadId === currentConversationId) return undefined;
+    const controller = new AbortController();
+    fetchConversationMessages(selectedThreadId, { signal: controller.signal });
+    return () => controller.abort();
   }, [currentConversationId, fetchConversationMessages, selectedThreadId]);
+
+  useEffect(() => {
+    if (!user?.username || typeof EventSource === 'undefined') return undefined;
+    const query = new URLSearchParams({ login: user.username });
+    if (user.accessToken) query.set('access_token', user.accessToken);
+    const stream = new EventSource(`${API_BASE_URL}/chat/threads/stream?${query.toString()}`);
+
+    const handleMessage = (event, { incrementCount = false } = {}) => {
+      try {
+        const payload = JSON.parse(event.data || '{}');
+        const conversationId = payload.conversationId;
+        const message = payload.item;
+        if (!conversationId || !message?.id) return;
+        const wasKnown = (threadsRef.current[conversationId] || []).some((item) => item.id === message.id);
+        setThreads((prev) => {
+          if (!Object.prototype.hasOwnProperty.call(prev, conversationId)) return prev;
+          const current = Array.isArray(prev[conversationId]) ? prev[conversationId] : [];
+          const exists = current.some((item) => item.id === message.id);
+          const next = exists
+            ? current.map((item) => (item.id === message.id ? { ...item, ...message } : item))
+            : [...current, message].sort((left, right) => (
+              new Date(left.createdAt || 0).getTime() - new Date(right.createdAt || 0).getTime()
+            ));
+          writeCachedConversation(user.username, conversationId, next);
+          return { ...prev, [conversationId]: next };
+        });
+        setThreadSummaries((prev) => {
+          const current = prev[conversationId] || {};
+          const currentTimestamp = Number(current.lastTimestamp)
+            || new Date(current.lastAt || current.lastMessage?.createdAt || 0).getTime()
+            || 0;
+          const messageTimestamp = new Date(message.createdAt || message.updatedAt || Date.now()).getTime();
+          const isLatest = messageTimestamp >= currentTimestamp;
+          return {
+            ...prev,
+            [conversationId]: {
+              ...current,
+              conversationId,
+              ...(isLatest ? {
+                lastMessage: message,
+                lastAt: message.createdAt || message.updatedAt || new Date().toISOString(),
+                lastTimestamp: messageTimestamp
+              } : {}),
+              messageCount: Math.max(0, Number(current.messageCount) || 0) + (incrementCount && !wasKnown ? 1 : 0)
+            }
+          };
+        });
+      } catch {
+        // Ignore malformed events; EventSource will continue receiving updates.
+      }
+    };
+
+    const handleConversationRefresh = (event) => {
+      try {
+        const payload = JSON.parse(event.data || '{}');
+        const conversationId = payload.conversationId;
+        if (!conversationId || !Object.prototype.hasOwnProperty.call(threadsRef.current, conversationId)) return;
+        fetchConversationMessages(conversationId, { silent: true });
+      } catch {
+        // noop
+      }
+    };
+
+    const handleConversationDelete = (event) => {
+      try {
+        const payload = JSON.parse(event.data || '{}');
+        const conversationId = payload.conversationId;
+        if (!conversationId) return;
+        setThreads((prev) => {
+          if (!Object.prototype.hasOwnProperty.call(prev, conversationId)) return prev;
+          const next = { ...prev };
+          delete next[conversationId];
+          return next;
+        });
+        setThreadSummaries((prev) => {
+          if (!Object.prototype.hasOwnProperty.call(prev, conversationId)) return prev;
+          const next = { ...prev };
+          delete next[conversationId];
+          return next;
+        });
+        removeCachedConversation(user.username, conversationId);
+      } catch {
+        // noop
+      }
+    };
+
+    stream.addEventListener('message-created', (event) => handleMessage(event, { incrementCount: true }));
+    stream.addEventListener('message-updated', handleMessage);
+    stream.addEventListener('conversation-refresh', handleConversationRefresh);
+    stream.addEventListener('conversation-delete', handleConversationDelete);
+    return () => stream.close();
+  }, [fetchConversationMessages, user?.accessToken, user?.username]);
 
   useEffect(() => {
     if (activeTab !== 'feed') return;
@@ -2641,6 +2807,11 @@ const EmployeeChat = () => {
     }
   }, [currentMessages.length]);
 
+  useEffect(() => {
+    if (!currentConversationId || !Object.prototype.hasOwnProperty.call(threadsRef.current, currentConversationId)) return;
+    writeCachedConversation(user.username, currentConversationId, currentMessages);
+  }, [currentConversationId, currentMessages, user.username]);
+
   const handleAvatarUpload = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -2776,14 +2947,18 @@ const EmployeeChat = () => {
 
 
   const uploadAttachmentFile = async (file, scope = 'chat') => {
-    const thumbnailDataUrl = await createAttachmentThumbnailDataUrl(file);
+    const mediaMetadata = await createAttachmentThumbnailDataUrl(file);
     const formData = new FormData();
     formData.append('scope', scope);
     formData.append('name', file.name);
     formData.append('type', file.type || 'application/octet-stream');
     formData.append('size', String(file.size || 0));
     formData.append('uploadedBy', user?.username || '');
-    if (thumbnailDataUrl) formData.append('thumbnailDataUrl', thumbnailDataUrl);
+    if (mediaMetadata.thumbnailDataUrl) formData.append('thumbnailDataUrl', mediaMetadata.thumbnailDataUrl);
+    if (mediaMetadata.width) formData.append('width', String(mediaMetadata.width));
+    if (mediaMetadata.height) formData.append('height', String(mediaMetadata.height));
+    if (mediaMetadata.aspectRatio) formData.append('aspectRatio', String(mediaMetadata.aspectRatio));
+    if (mediaMetadata.duration) formData.append('duration', String(mediaMetadata.duration));
     formData.append('file', file, file.name);
 
     const response = await fetch(`${API_BASE_URL}/chat/uploads`, {
@@ -2936,14 +3111,14 @@ const EmployeeChat = () => {
     setPasswordForm({ currentPassword: '', newPassword: '' });
   };
 
-  const openProfileCard = async (login) => {
+  const openProfileCard = useCallback(async (login) => {
     try {
       await loadProfile(login, 'preview');
       setProfileViewLogin(login);
     } catch (error) {
       notify(error.message || 'Не удалось открыть профиль сотрудника', 'Профиль');
     }
-  };
+  }, [loadProfile, notify]);
 
   const openEmployeeProfile = (login, event) => {
     event?.stopPropagation?.();
@@ -3045,23 +3220,23 @@ const EmployeeChat = () => {
   };
 
 
-  const updateChatLocalSettings = (updater) => {
+  const updateChatLocalSettings = useCallback((updater) => {
     setChatLocalSettings((prev) => {
       const next = updater(prev);
       saveChatLocalSettings(user?.username || 'guest', next);
       queueChatSettingsSync(next);
       return next;
     });
-  };
+  }, [queueChatSettingsSync, user?.username]);
 
-  const toggleLocalListValue = (key, value) => {
+  const toggleLocalListValue = useCallback((key, value) => {
     updateChatLocalSettings((prev) => {
       const current = new Set(prev[key] || []);
       if (current.has(value)) current.delete(value);
       else current.add(value);
       return { ...prev, [key]: [...current] };
     });
-  };
+  }, [updateChatLocalSettings]);
 
   const updateChatUiSetting = (key, value) => {
     updateChatLocalSettings((prev) => ({ ...prev, [key]: value }));
@@ -4304,6 +4479,19 @@ const EmployeeChat = () => {
     }
   };
 
+  const handleOpenContactProfile = useCallback((email) => {
+    openProfileCard(email);
+    setActiveTab('profile');
+  }, [openProfileCard]);
+
+  const handleTogglePinnedContact = useCallback((conversationId) => {
+    toggleLocalListValue('pinned', conversationId);
+  }, [toggleLocalListValue]);
+
+  const handleToggleFavoriteContact = useCallback((email) => {
+    toggleLocalListValue('favorites', email);
+  }, [toggleLocalListValue]);
+
   return (
     <div
       className={`employee-chat-layout theme-${chatLocalSettings.uiTheme || 'light'} density-${chatLocalSettings.uiDensity || 'regular'} text-${chatLocalSettings.uiTextSize || 'medium'} ${isDraggingFiles ? 'dragging-files' : ''}`}
@@ -4358,26 +4546,22 @@ const EmployeeChat = () => {
           />
 
           <label className="contact-filter-select"><span>{t('filter')}</span><select value={contactFilter} onChange={(e) => setContactFilter(e.target.value)}>{CONTACT_FILTERS.map((filter) => <option key={filter.id} value={filter.id}>{getContactFilterLabel(filter)}</option>)}</select></label><div className={`employee-chat-list ${isManager ? 'manager-mode' : ''}`}>
-            {availableEmployees.length === 0 && <div className="empty-mini">{t('noResults')}</div>}
-            {availableEmployees.map((employee) => {
-              const isOnline = Boolean(employee.isOnline);
-              const isManagerContact = ['manager', 'admin'].includes((employee.role || '').toLowerCase()) || employee.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
-              const profile = employee.profile || {};
-              return (
-                <div key={employee.email} className={`employee-chat-user ${selectedEmail === employee.email ? 'active' : ''} ${isManagerContact ? 'manager-priority' : ''} ${(chatLocalSettings.favorites || []).includes(employee.email) ? 'favorite' : ''} ${(chatLocalSettings.pinned || []).includes(getConversationId(user.username, employee.email)) ? 'pinned-dialog' : ''}`}>
-                  <button type="button" className="employee-contact-open" onClick={() => setSelectedEmail(employee.email)}>
-                    <span className={`status-dot ${isOnline ? 'online' : 'offline'}`} />
-                    <span className="employee-chat-user-main">
-                      <span className="employee-chat-user-email">{profile.full_name || employee.email}</span>
-                      <span className="employee-chat-user-extra">{formatVisibleLogin(employee.email)} · {profile.department || t('departmentMissing')} · {t('cabinetShort')}. {profile.room || '—'}</span>
-                    </span>
-                    {(isManagerContact || isOnline) && <span className="employee-chat-user-status">{isManagerContact ? t('admin') : t('online')}</span>}
-                    {unreadByEmail[employee.email] > 0 && <span className="employee-chat-user-unread">{unreadByEmail[employee.email]}</span>}
-                  </button>
-                  <span className="contact-card-actions"><button type="button" className="profile-open-btn" onClick={() => { openProfileCard(employee.email); setActiveTab('profile'); }}>{t('profile')}</button><button type="button" className="favorite-contact-btn" aria-label={t('pinDialog')}  onClick={() => toggleLocalListValue('pinned', getConversationId(user.username, employee.email))}>{(chatLocalSettings.pinned || []).includes(getConversationId(user.username, employee.email)) ? '📌' : '📍'}</button><button type="button" className="favorite-contact-btn" aria-label={t('favorite')} onClick={() => toggleLocalListValue('favorites', employee.email)}>{(chatLocalSettings.favorites || []).includes(employee.email) ? '★' : '☆'}</button></span>
-                </div>
-              );
-            })}
+            <ChatContacts
+              employees={availableEmployees}
+              selectedEmail={selectedEmail}
+              currentLogin={user.username}
+              managerLogin={MANAGER_CREDENTIALS.username}
+              unreadByEmail={unreadByEmail}
+              favorites={chatLocalSettings.favorites}
+              pinnedDialogs={chatLocalSettings.pinned}
+              getConversationId={getConversationId}
+              formatVisibleLogin={formatVisibleLogin}
+              t={t}
+              onSelect={setSelectedEmail}
+              onOpenProfile={handleOpenContactProfile}
+              onTogglePinned={handleTogglePinnedContact}
+              onToggleFavorite={handleToggleFavoriteContact}
+            />
           </div>
         </div>
 
@@ -4400,31 +4584,56 @@ const EmployeeChat = () => {
               </div>
             ) : (
               <>
-                <header className="conversation-header">
-                  <div>
-                    <span className="eyebrow">{t('dialog')}</span>
-                    <h2>{activeContact?.profile?.full_name || selectedEmail}</h2>
-                    <p>{formatVisibleLogin(selectedEmail)}</p>
-                  </div>
-                  <div className="conversation-tools">
-                    <input value={dialogSearch} onChange={(e) => { setDialogSearch(e.target.value); setDialogSearchIndex(0); }} placeholder={t('dialogSearch')} />{normalizedDialogSearch && <span className="dialog-search-count">{dialogSearchResults.length ? dialogSearchIndex + 1 : 0} {t('of')} {dialogSearchResults.length}</span>}<button type="button" disabled={!dialogSearchResults.length} onClick={() => setDialogSearchIndex((prev) => Math.max(0, prev - 1))}>↑</button><button type="button" disabled={!dialogSearchResults.length} onClick={() => setDialogSearchIndex((prev) => Math.min(dialogSearchResults.length - 1, prev + 1))}>↓</button>{chatLocalSettings.showDialogMediaPanel === true && <button type="button" onClick={() => setMediaPanelOpen((prev) => !prev)}>{t('mediaFiles')}</button>}
-                    {chatLocalSettings.showConversationMenu === true && <details className="conversation-menu" open={conversationMenuOpen} onClick={(event) => event.stopPropagation()}>
-                      <summary aria-label={t('dialogActions')} onClick={(event) => { event.preventDefault(); event.stopPropagation(); setConversationMenuOpen((prev) => !prev); }}>⋯</summary>
-                      <div className="conversation-menu-popover">
-                        <button type="button" onClick={() => { toggleLocalListValue('archived', currentConversationId); setConversationMenuOpen(false); }}>{t('archiveDialog')}</button><button type="button" onClick={() => { toggleLocalListValue('hidden', currentConversationId); setConversationMenuOpen(false); }}>{t('hideDialog')}</button><button type="button" onClick={() => { toggleLocalListValue('pinned', currentConversationId); setConversationMenuOpen(false); }}>{t('pinDialogAction')}</button><button type="button" onClick={() => { setReadState((prev) => ({ ...prev, [currentConversationId]: '' })); setConversationMenuOpen(false); }}>{t('markUnread')}</button><button type="button" onClick={() => { toggleLocalListValue('muted', currentConversationId); setConversationMenuOpen(false); }}>{t('muteNotifications')}</button><button type="button" onClick={() => { clearCurrentDraft(); setConversationMenuOpen(false); }}>{t('clearDraft')}</button><button type="button" className="danger-action" onClick={() => { clearConversation(); setConversationMenuOpen(false); }}>{t('deleteConversation')}</button>
-                      </div>
-                    </details>}
-                  </div>
-                </header>
+                <ChatDialogHeader
+                  t={t}
+                  contactName={activeContact?.profile?.full_name || selectedEmail}
+                  visibleLogin={formatVisibleLogin(selectedEmail)}
+                  search={dialogSearch}
+                  hasSearch={Boolean(normalizedDialogSearch)}
+                  searchIndex={dialogSearchIndex}
+                  searchCount={dialogSearchResults.length}
+                  showMediaPanel={chatLocalSettings.showDialogMediaPanel === true}
+                  showConversationMenu={chatLocalSettings.showConversationMenu === true}
+                  conversationMenuOpen={conversationMenuOpen}
+                  onSearch={(value) => {
+                    setDialogSearch(value);
+                    setDialogSearchIndex(0);
+                  }}
+                  onPreviousResult={() => setDialogSearchIndex((prev) => Math.max(0, prev - 1))}
+                  onNextResult={() => setDialogSearchIndex((prev) => Math.min(dialogSearchResults.length - 1, prev + 1))}
+                  onToggleMediaPanel={() => setMediaPanelOpen((prev) => !prev)}
+                  onToggleMenu={() => setConversationMenuOpen((prev) => !prev)}
+                  onArchive={() => {
+                    toggleLocalListValue('archived', currentConversationId);
+                    setConversationMenuOpen(false);
+                  }}
+                  onHide={() => {
+                    toggleLocalListValue('hidden', currentConversationId);
+                    setConversationMenuOpen(false);
+                  }}
+                  onPin={() => {
+                    toggleLocalListValue('pinned', currentConversationId);
+                    setConversationMenuOpen(false);
+                  }}
+                  onMarkUnread={() => {
+                    setReadState((prev) => ({ ...prev, [currentConversationId]: '' }));
+                    setConversationMenuOpen(false);
+                  }}
+                  onMute={() => {
+                    toggleLocalListValue('muted', currentConversationId);
+                    setConversationMenuOpen(false);
+                  }}
+                  onClearDraft={() => {
+                    clearCurrentDraft();
+                    setConversationMenuOpen(false);
+                  }}
+                  onDeleteConversation={() => {
+                    clearConversation();
+                    setConversationMenuOpen(false);
+                  }}
+                />
 
-                {isCurrentConversationLoading && (
-                  <div className="chat-loading-overlay" role="status" aria-live="polite">
-                    <div className="chat-loading-card">
-                      <span className="chat-loading-spinner" aria-hidden="true" />
-                      <strong>{t('loading')}…</strong>
-                    </div>
-                  </div>
-                )}
+                {isCurrentConversationLoading && <ChatLoadingOverlay label={t('loading')} />}
 
 	                {chatLocalSettings.showDialogFilters === true && <div className="dialog-filter-row">{CHAT_FILTERS.map((filter) => <button key={filter.id} type="button" className={dialogFilter === filter.id ? 'active' : ''} onClick={() => setDialogFilter(filter.id)}>{getOptionLabel(filter)}</button>)}</div>}
 	                {chatLocalSettings.showDialogDateJump === true && <div className="date-jump-row"><label>{t('jumpToDate')} <input type="date" onChange={(event) => jumpToMessageDate(event.target.value)} /></label></div>}
@@ -4684,35 +4893,30 @@ const EmployeeChat = () => {
                   {!isOnline && <div className="offline-status warning">{t('offlineWarning')}</div>}
                   {typingHint && <div className="typing-hint">{typingHint}</div>}
 
-                  <form className="message-form" onSubmit={handleSend}>
-                    <div className="composer-textarea-box">
-                      <div className="composer-input-shell">
-                        <button type="button" className="composer-emoji-btn" aria-label={t('emoji')} onClick={() => setIsEmojiOpen((prev) => !prev)}>☺</button>
-                        {isEmojiOpen && (
-                          <div className="emoji-picker composer-emoji-picker">
-                            {QUICK_EMOJIS.map((emoji) => <button key={emoji} type="button" onClick={() => { appendToDraft(emoji); setIsEmojiOpen(false); }}>{emoji}</button>)}
-                          </div>
-                        )}
-                        <textarea
-                          ref={messageTextareaRef}
-                          placeholder={t('messagePlaceholder')}
-                          value={draft}
-                          onChange={(e) => setDraft(e.target.value)}
-                          onKeyDown={handleComposerKeyDown}
-                          onPaste={handleComposerPaste}
-                          maxLength={2000}
-                          rows={1}
-                        />
-                      </div>
-                      <div className="composer-hints">
-                        <label><input type="checkbox" checked={chatLocalSettings.enterToSend !== false} onChange={() => updateChatLocalSettings((prev) => ({ ...prev, enterToSend: prev.enterToSend === false }))} /> {t('enterSends')}</label>
-                        {draft.length > 1600 && <span className={draft.length > 1900 ? 'limit-warning' : ''}>{draft.length}/2000</span>}
-                        <span>{t('composerHint')}</span>
-                      </div>
-                    </div>
-                    <label className="attach-file-btn" aria-label={t('attachFiles')} title={t('attachFiles')}>📎<input type="file" hidden multiple accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={handleAttachmentChange} /></label>
-                    <button type="submit" disabled={isSendingMessage}>{isSendingMessage ? t('sending') : isOnline ? t('send') : t('queue')}</button>
-                  </form>
+                  <ChatComposerForm
+                    t={t}
+                    draft={draft}
+                    textareaRef={messageTextareaRef}
+                    emojiOptions={QUICK_EMOJIS}
+                    isEmojiOpen={isEmojiOpen}
+                    enterToSend={chatLocalSettings.enterToSend !== false}
+                    isSending={isSendingMessage}
+                    isOnline={isOnline}
+                    onSubmit={handleSend}
+                    onDraftChange={setDraft}
+                    onKeyDown={handleComposerKeyDown}
+                    onPaste={handleComposerPaste}
+                    onToggleEmoji={() => setIsEmojiOpen((prev) => !prev)}
+                    onAppendEmoji={(emoji) => {
+                      appendToDraft(emoji);
+                      setIsEmojiOpen(false);
+                    }}
+                    onToggleEnterToSend={() => updateChatLocalSettings((prev) => ({
+                      ...prev,
+                      enterToSend: prev.enterToSend === false
+                    }))}
+                    onAttachmentChange={handleAttachmentChange}
+                  />
                 </div>
               </>
             )}

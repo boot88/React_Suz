@@ -56,6 +56,34 @@ const normalizeMessageAttachments = (message = {}) => {
   });
 };
 
+const getAttachmentFileId = (attachment = {}) => {
+  const directId = String(attachment.id || attachment.fileId || '').trim();
+  if (directId) return directId;
+  const urls = [
+    attachment.url,
+    attachment.originalUrl,
+    attachment.thumbnailUrl,
+    attachment.previewUrl
+  ].filter(Boolean);
+  for (const value of urls) {
+    const match = String(value).match(/\/api\/chat\/files\/([^/?#]+)\/download/i);
+    if (match?.[1]) {
+      try {
+        return decodeURIComponent(match[1]);
+      } catch {
+        return match[1];
+      }
+    }
+  }
+  return '';
+};
+
+const getMessageAttachmentFileIds = (message = {}) => [...new Set(
+  normalizeMessageAttachments(message)
+    .map(getAttachmentFileId)
+    .filter(Boolean)
+)];
+
 const mergeThreadMessages = (archiveMessages = [], sqlMessages = []) => {
   const byId = new Map();
 
@@ -89,6 +117,8 @@ module.exports = {
   getChatTimestamp,
   isMysqlDatabase,
   normalizeMessageAttachments,
+  getAttachmentFileId,
+  getMessageAttachmentFileIds,
   mergeThreadMessages,
   groupThreadSnapshotRows
 };

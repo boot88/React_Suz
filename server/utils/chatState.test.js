@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
   isMysqlDatabase,
   normalizeMessageAttachments,
+  getMessageAttachmentFileIds,
   mergeThreadMessages,
   groupThreadSnapshotRows
 } = require('./chatState');
@@ -50,6 +51,17 @@ test('deduplicates old inline attachments that do not have an id', () => {
     attachments: [inline],
     attachment: { ...inline }
   }).length, 1);
+});
+
+test('extracts unique file ids for indexed chat access checks', () => {
+  assert.deepEqual(getMessageAttachmentFileIds({
+    attachments: [
+      { id: 'file-1' },
+      { url: '/api/chat/files/file-2/download' },
+      { thumbnailUrl: '/api/chat/files/file-2/download?variant=thumbnail' }
+    ],
+    attachment: { id: 'file-1' }
+  }), ['file-1', 'file-2']);
 });
 
 test('groups a single MySQL thread snapshot without per-dialog requests', () => {

@@ -84,7 +84,6 @@ const isPasswordValid = (rawPassword, storedPassword = '') => {
 
 const dataDir = path.join(__dirname, '..', 'data');
 const notificationsFilePath = path.join(dataDir, 'managerNotifications.json');
-const chatThreadsFilePath = path.join(dataDir, 'chatThreads.json');
 const presenceFilePath = path.join(dataDir, 'presence.json');
 const profilesFilePath = path.join(dataDir, 'profiles.json');
 
@@ -386,32 +385,6 @@ const writeNotifications = async (items) => {
   await fs.writeFile(notificationsFilePath, JSON.stringify(items, null, 2), 'utf-8');
 };
 
-const ensureChatStorage = async () => {
-  await fs.mkdir(dataDir, { recursive: true });
-  try {
-    await fs.access(chatThreadsFilePath);
-  } catch {
-    await fs.writeFile(chatThreadsFilePath, JSON.stringify({}, null, 2), 'utf-8');
-  }
-};
-
-const readThreads = async () => {
-  await ensureChatStorage();
-  try {
-    const raw = await fs.readFile(chatThreadsFilePath, 'utf-8');
-    const parsed = JSON.parse(raw || '{}');
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch (error) {
-    console.error('Threads read error:', error);
-    return {};
-  }
-};
-
-const writeThreads = async (threads) => {
-  await ensureChatStorage();
-  await fs.writeFile(chatThreadsFilePath, JSON.stringify(threads, null, 2), 'utf-8');
-};
-
 const ensurePresenceStorage = async () => {
   await fs.mkdir(dataDir, { recursive: true });
   try {
@@ -662,12 +635,10 @@ const upsertPresence = async ({ login, isOnline, role }) => {
 const getConversationId = (a, b) => [String(a || '').toLowerCase(), String(b || '').toLowerCase()].sort().join('::');
 
 const appendSystemResetMessages = async ({ employee, temporaryPassword, managerLogins }) => {
-  const threads = await readThreads();
   const now = new Date().toISOString();
 
-  managerLogins.forEach((managerLogin) => {
+  await Promise.all(managerLogins.map(async (managerLogin) => {
     const conversationId = getConversationId(employee.login, managerLogin);
-    const current = Array.isArray(threads[conversationId]) ? threads[conversationId] : [];
     const systemMessage = {
       id: crypto.randomUUID(),
       sender: 'system',
@@ -684,10 +655,23 @@ const appendSystemResetMessages = async ({ employee, temporaryPassword, managerL
       pinned: false,
       replyTo: null
     };
-    threads[conversationId] = [...current, systemMessage];
-  });
-
-  await writeThreads(threads);
+    await db.execute(
+      `INSERT INTO chat_messages
+       (id, conversation_id, sender_login, message_json, created_at, updated_at, deleted_at)
+       VALUES (?, ?, ?, ?, ?, ?, NULL)
+       ON DUPLICATE KEY UPDATE
+         message_json = VALUES(message_json),
+         updated_at = VALUES(updated_at)`,
+      [
+        systemMessage.id,
+        conversationId,
+        systemMessage.sender,
+        JSON.stringify(systemMessage),
+        new Date(now),
+        new Date(now)
+      ]
+    );
+  }));
 };
 
 const notifyManagersAboutPasswordReset = async ({ employee, temporaryPassword }) => {

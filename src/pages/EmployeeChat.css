@@ -1931,6 +1931,7 @@ button:disabled {
 
 .message-attachments-grid.photo-collage .message-photo-card {
   min-height: 132px;
+  aspect-ratio: auto !important;
   border-radius: 0;
 }
 
@@ -1938,7 +1939,7 @@ button:disabled {
   position: relative;
   display: block;
   width: 100%;
-  min-height: 180px;
+  min-height: 0;
   padding: 0;
   border: 0;
   border-radius: 16px;
@@ -6019,6 +6020,7 @@ button:disabled {
 .playable-video-shell .attachment-video-player {
   display: block;
   width: 100%;
+  height: 100%;
   max-width: none;
   max-height: 430px;
   border-radius: 0;

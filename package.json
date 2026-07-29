@@ -26,6 +26,7 @@
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "nodemon server/server.js",
     "client": "PORT=${CLIENT_PORT:-3000} react-scripts start",
+    "migrate:chat-storage": "node server/scripts/migrate-chat-storage.js",
     "heroku-postbuild": "npm run build"
   },
   "eslintConfig": {
