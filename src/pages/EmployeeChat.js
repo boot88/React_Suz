@@ -1670,9 +1670,8 @@ const EmployeeChat = () => {
   const baseDisplayName = user?.name || user?.username || 'Сотрудник';
   const isAdmin = user?.role === 'admin';
   const chatAuthHeaders = useMemo(() => ({
-    'X-User-Login': user?.username || '',
     ...(user?.accessToken ? { Authorization: `Bearer ${user.accessToken}` } : {})
-  }), [user?.accessToken, user?.username]);
+  }), [user?.accessToken]);
    
   const avatarInputRef = useRef(null); 
   const messageTextareaRef = useRef(null);
@@ -2305,17 +2304,17 @@ const EmployeeChat = () => {
   }, [user?.username]);
 
   const persistThreadMessages = useCallback(async (conversationId, messages) => {
-    await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}`, {
+    await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}?login=${encodeURIComponent(user.username)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
       body: JSON.stringify({ messages })
     }, { fallbackMessage: 'Не удалось сохранить сообщение' });
 
     setThreads((prev) => ({ ...prev, [conversationId]: messages }));
-  }, [chatAuthHeaders]);
+  }, [chatAuthHeaders, user.username]);
 
   const persistNewMessage = useCallback(async (conversationId, message) => {
-    await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages`, {
+    await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages?login=${encodeURIComponent(user.username)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
       body: JSON.stringify({ message })
@@ -2334,15 +2333,15 @@ const EmployeeChat = () => {
         }
       };
     });
-  }, [chatAuthHeaders, threads]);
+  }, [chatAuthHeaders, threads, user.username]);
 
   const persistMessagePatch = useCallback(async (conversationId, messageId, message) => {
-    await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`, {
+    await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}?login=${encodeURIComponent(user.username)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
       body: JSON.stringify({ message })
     }, { fallbackMessage: 'Не удалось сохранить изменение' });
-  }, [chatAuthHeaders]);
+  }, [chatAuthHeaders, user.username]);
 
   useEffect(() => {
     const refreshCoreData = () => {
