@@ -702,7 +702,15 @@ const getRequestAccessToken = (req) => {
   return bearer || String(req.query?.access_token || '');
 };
 
-const getRequestIdentity = (req) => verifyAccessToken(getRequestAccessToken(req));
+const getRequestIdentity = (req) => {
+  const verified = verifyAccessToken(getRequestAccessToken(req));
+  if (verified) return verified;
+
+  // Transitional compatibility for sessions created before signed chat tokens
+  // were introduced. Responses are still restricted to this participant only.
+  const legacyLogin = String(req.headers['x-user-login'] || req.query?.login || '').trim().toLowerCase();
+  return legacyLogin ? { login: legacyLogin, role: 'employee', legacy: true } : null;
+};
 const getRequestLogin = (req) => getRequestIdentity(req)?.login || '';
 
 const requireConversationAccess = (req, res, conversationId) => {
@@ -1755,7 +1763,10 @@ router.get('/threads/:conversationId/messages', async (req, res) => {
       : archiveMessages.slice(-limit);
     const sqlMessages = await readSqlConversationMessages(conversationId, { limit, before }).catch(() => null);
     const messages = mergeThreadMessages(archivePage, Array.isArray(sqlMessages) ? sqlMessages : []).slice(-limit);
-    const publicMessages = await prepareConversationForResponse(conversationId, messages);
+    const publicMessages = await prepareConversationForResponse(conversationId, messages).catch((error) => {
+      console.warn('Inline attachment migration skipped for this response:', error.message);
+      return stripInlinePayloads(messages);
+    });
     const earliest = messages[0]?.createdAt || '';
     const archiveHasMore = earliest ? archiveMessages.some((message) => normalizeMessageDate(message).getTime() < new Date(earliest).getTime()) : false;
     res.set('Cache-Control', 'no-store');

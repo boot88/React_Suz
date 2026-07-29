@@ -2158,10 +2158,11 @@ const EmployeeChat = () => {
       }));
     } catch (error) {
       console.error('Ошибка загрузки выбранного диалога:', error);
+      if (!silent) notify(error.message || 'Не удалось загрузить выбранный диалог', 'Чат');
     } finally {
       if (!silent) setLoadingConversationIds((prev) => ({ ...prev, [conversationId]: false }));
     }
-  }, [chatAuthHeaders, user.username]);
+  }, [chatAuthHeaders, notify, user.username]);
 
   const loadOlderDialogMessages = useCallback(async () => {
     if (isLoadingOlderDialog || !currentConversationId || !currentMessages.length) return;
