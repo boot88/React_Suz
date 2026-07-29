@@ -10,6 +10,7 @@ const {
   getRequestValue,
   mergeProfileMaps
 } = require('../utils/profileState');
+const { createAccessToken } = require('../utils/accessToken');
 
 const normalizeLogin = (value = '') => value.trim().toLowerCase();
 const hashPassword = (value) => `sha256$${crypto.createHash('sha256').update(String(value)).digest('hex')}`;
@@ -1262,7 +1263,7 @@ router.post('/login', async (req, res) => {
 
     res.json({
       message: 'Вход успешен',
-      token: null,
+      token: createAccessToken({ login: user.login, role: user.role }),
       user: {
         ...mapUser(user),
         position: profile.position || ''

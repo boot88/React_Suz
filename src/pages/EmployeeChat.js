@@ -1351,20 +1351,23 @@ const saveHiddenFeedPosts = (username = 'guest', postIds = []) => {
 
 const isImageAttachment = (file = {}) => String(file.type || '').startsWith('image/');
 const isMediaAttachment = (file = {}) => isImageAttachment(file) || isVideoAttachment(file);
-const getCurrentAttachmentLogin = () => {
+const getCurrentAttachmentIdentity = () => {
   try {
     const authState = JSON.parse(localStorage.getItem('authState') || 'null');
-    return String(authState?.user?.username || '').trim();
+    return {
+      login: String(authState?.user?.username || '').trim(),
+      accessToken: String(authState?.user?.accessToken || '').trim()
+    };
   } catch {
-    return '';
+    return { login: '', accessToken: '' };
   }
 };
 
 const appendAttachmentLogin = (url = '') => {
-  const login = getCurrentAttachmentLogin();
-  if (!login || !url.includes('/api/chat/files/')) return url;
+  const { login, accessToken } = getCurrentAttachmentIdentity();
+  if (!accessToken || !url.includes('/api/chat/files/')) return url;
   const separator = url.includes('?') ? '&' : '?';
-  return `${url}${separator}login=${encodeURIComponent(login)}`;
+  return `${url}${separator}login=${encodeURIComponent(login)}&access_token=${encodeURIComponent(accessToken)}`;
 };
 
 const resolveAttachmentUrl = (url = '') => {
@@ -1666,6 +1669,10 @@ const EmployeeChat = () => {
   const isManager = user?.role === 'manager' || user?.role === 'admin';
   const baseDisplayName = user?.name || user?.username || 'Сотрудник';
   const isAdmin = user?.role === 'admin';
+  const chatAuthHeaders = useMemo(() => ({
+    'X-User-Login': user?.username || '',
+    ...(user?.accessToken ? { Authorization: `Bearer ${user.accessToken}` } : {})
+  }), [user?.accessToken, user?.username]);
    
   const avatarInputRef = useRef(null); 
   const messageTextareaRef = useRef(null);
@@ -1673,8 +1680,10 @@ const EmployeeChat = () => {
   const profileLoadedForRef = useRef('');
    
   const [threads, setThreads] = useState({});
+  const [threadSummaries, setThreadSummaries] = useState({});
   const [threadHasMore, setThreadHasMore] = useState({});
   const [isLoadingOlderDialog, setIsLoadingOlderDialog] = useState(false);
+  const [loadingConversationIds, setLoadingConversationIds] = useState({});
   const [selectedEmail, setSelectedEmail] = useState('');
   const [selectedThreadId, setSelectedThreadId] = useState('');
   const [draft, setDraft] = useState('');
@@ -2121,23 +2130,48 @@ const EmployeeChat = () => {
     if (Date.now() < suppressThreadsRefreshUntilRef.current) return;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/threads?limit=${CHAT_MESSAGES_PAGE_SIZE}`);
+      const response = await fetch(`${API_BASE_URL}/chat/threads?login=${encodeURIComponent(user.username)}`, {
+        headers: chatAuthHeaders
+      });
       const data = await readApiJson(response, 'Не удалось загрузить сообщения');
       if (Date.now() < suppressThreadsRefreshUntilRef.current) return;
-      const nextThreads = data?.threads && typeof data.threads === 'object' ? data.threads : {};
-      setThreads(nextThreads);
-      setThreadHasMore(Object.fromEntries(Object.entries(nextThreads).map(([conversationId, messages]) => [conversationId, Array.isArray(messages) && messages.length >= CHAT_MESSAGES_PAGE_SIZE])));
+      setThreadSummaries(data?.summaries && typeof data.summaries === 'object' ? data.summaries : {});
     } catch (error) {
       console.error('Ошибка загрузки переписки:', error);
     }
-  }, []);
+  }, [chatAuthHeaders, user.username]);
+
+  const fetchConversationMessages = useCallback(async (conversationId, { silent = false } = {}) => {
+    if (!conversationId || Date.now() < suppressThreadsRefreshUntilRef.current) return;
+    if (!silent) setLoadingConversationIds((prev) => ({ ...prev, [conversationId]: true }));
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages?limit=${CHAT_MESSAGES_PAGE_SIZE}&login=${encodeURIComponent(user.username)}`,
+        { headers: chatAuthHeaders }
+      );
+      const data = await readApiJson(response, 'Не удалось загрузить сообщения');
+      const messages = Array.isArray(data?.messages) ? data.messages : [];
+      setThreads((prev) => ({ ...prev, [conversationId]: messages }));
+      setThreadHasMore((prev) => ({
+        ...prev,
+        [conversationId]: Boolean(data?.hasMore) && messages.length >= CHAT_MESSAGES_PAGE_SIZE
+      }));
+    } catch (error) {
+      console.error('Ошибка загрузки выбранного диалога:', error);
+    } finally {
+      if (!silent) setLoadingConversationIds((prev) => ({ ...prev, [conversationId]: false }));
+    }
+  }, [chatAuthHeaders, user.username]);
 
   const loadOlderDialogMessages = useCallback(async () => {
     if (isLoadingOlderDialog || !currentConversationId || !currentMessages.length) return;
     const before = currentMessages[0]?.createdAt || '';
     setIsLoadingOlderDialog(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(currentConversationId)}/messages?limit=${CHAT_MESSAGES_PAGE_SIZE}&before=${encodeURIComponent(before)}`);
+      const response = await fetch(
+        `${API_BASE_URL}/chat/threads/${encodeURIComponent(currentConversationId)}/messages?limit=${CHAT_MESSAGES_PAGE_SIZE}&before=${encodeURIComponent(before)}&login=${encodeURIComponent(user.username)}`,
+        { headers: chatAuthHeaders }
+      );
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось загрузить предыдущие сообщения');
       const olderMessages = Array.isArray(data?.messages) ? data.messages : [];
@@ -2154,7 +2188,7 @@ const EmployeeChat = () => {
     } finally {
       setIsLoadingOlderDialog(false);
     }
-  }, [currentConversationId, currentMessages, isLoadingOlderDialog, notify]);
+  }, [chatAuthHeaders, currentConversationId, currentMessages, isLoadingOlderDialog, notify, user.username]);
 
   const fetchFeed = useCallback(async ({ silent = true, force = false } = {}) => {
     if (!force && pendingFeedActionsRef.current.size > 0) return;
@@ -2270,45 +2304,53 @@ const EmployeeChat = () => {
   }, [user?.username]);
 
   const persistThreadMessages = useCallback(async (conversationId, messages) => {
-    const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}`, {
+    await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
       body: JSON.stringify({ messages })
     }, { fallbackMessage: 'Не удалось сохранить сообщение' });
 
-    if (data?.threads && typeof data.threads === 'object') {
-      setThreads(data.threads);
-    }
-  }, []);
+    setThreads((prev) => ({ ...prev, [conversationId]: messages }));
+  }, [chatAuthHeaders]);
 
   const persistNewMessage = useCallback(async (conversationId, message) => {
-    const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages`, {
+    await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
       body: JSON.stringify({ message })
     }, { attempts: 1, fallbackMessage: 'Не удалось сохранить сообщение' });
-
-    if (data?.threads && typeof data.threads === 'object') {
-      setThreads(data.threads);
-    }
-  }, []);
+    setThreadSummaries((prev) => {
+      const current = prev[conversationId] || {};
+      return {
+        ...prev,
+        [conversationId]: {
+          ...current,
+          conversationId,
+          lastMessage: message,
+          lastAt: message.createdAt || new Date().toISOString(),
+          lastTimestamp: new Date(message.createdAt || Date.now()).getTime(),
+          messageCount: Math.max((threads[conversationId] || []).length, Number(current.messageCount) || 0)
+        }
+      };
+    });
+  }, [chatAuthHeaders, threads]);
 
   const persistMessagePatch = useCallback(async (conversationId, messageId, message) => {
-    const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`, {
+    await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
       body: JSON.stringify({ message })
     }, { fallbackMessage: 'Не удалось сохранить изменение' });
-
-    if (data?.threads && typeof data.threads === 'object') {
-      setThreads(data.threads);
-    }
-  }, []);
+  }, [chatAuthHeaders]);
 
   useEffect(() => {
     const refreshCoreData = () => {
       if (typeof document !== 'undefined' && document.hidden) return;
       fetchThreads();
+      if (currentConversationId) fetchConversationMessages(currentConversationId, { silent: true });
+      if (selectedThreadId && selectedThreadId !== currentConversationId) {
+        fetchConversationMessages(selectedThreadId, { silent: true });
+      }
       fetchEmployees();
       fetchMyApplications({ silent: true });
     };
@@ -2334,7 +2376,17 @@ const EmployeeChat = () => {
       clearInterval(feedPoller);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [fetchThreads, fetchEmployees, fetchFeed, fetchMyApplications]);
+  }, [currentConversationId, fetchConversationMessages, fetchThreads, fetchEmployees, fetchFeed, fetchMyApplications, selectedThreadId]);
+
+  useEffect(() => {
+    if (currentConversationId) fetchConversationMessages(currentConversationId);
+  }, [currentConversationId, fetchConversationMessages]);
+
+  useEffect(() => {
+    if (selectedThreadId && selectedThreadId !== currentConversationId) {
+      fetchConversationMessages(selectedThreadId);
+    }
+  }, [currentConversationId, fetchConversationMessages, selectedThreadId]);
 
   useEffect(() => {
     if (activeTab !== 'feed') return;
@@ -2426,7 +2478,10 @@ const EmployeeChat = () => {
     const normalizedSearch = normalizeText(search);
     return chatCandidates.filter((item) => {
       const conversationId = getConversationId(user.username, item.email);
-      const messages = threads[conversationId] || [];
+      const summary = threadSummaries[conversationId];
+      const messages = threads[conversationId]?.length
+        ? threads[conversationId]
+        : summary?.lastMessage ? [summary.lastMessage] : [];
       const lastReadAt = readState[conversationId] ? new Date(readState[conversationId]).getTime() : 0;
       const unread = messages.filter((message) => message.sender !== user.username && new Date(message.createdAt).getTime() > lastReadAt).length;
       const profile = item.profile || {};
@@ -2435,9 +2490,9 @@ const EmployeeChat = () => {
       if (contactFilter === 'managers' && !['manager', 'admin'].includes((item.role || '').toLowerCase())) return false;
       if (contactFilter === 'department' && profile.department && profile.department !== profileForm.department) return false;
       if (contactFilter === 'favorites' && !(chatLocalSettings.favorites || []).includes(item.email)) return false;
-      if (contactFilter === 'attachments' && !messages.some(hasMessageAttachments)) return false;
+      if (contactFilter === 'attachments' && !(summary?.attachmentsCount > 0 || messages.some(hasMessageAttachments))) return false;
       if (contactFilter === 'tickets' && !myApplications.some((ticket) => ticket.chat_thread_id === conversationId)) return false;
-      if (contactFilter === 'recent' && messages.length === 0) return false;
+      if (contactFilter === 'recent' && !summary && messages.length === 0) return false;
       if (!normalizedSearch) return true;
       return [
         item.email,
@@ -2455,19 +2510,23 @@ const EmployeeChat = () => {
       const bName = b.profile?.full_name || b.email;
       return aName.localeCompare(bName, 'ru', { sensitivity: 'base' });
     });
-  }, [chatCandidates, search, contactFilter, readState, threads, user.username, chatLocalSettings.favorites, myApplications, profileForm.department]);
+  }, [chatCandidates, search, contactFilter, readState, threadSummaries, threads, user.username, chatLocalSettings.favorites, myApplications, profileForm.department]);
 
   const unreadByEmail = useMemo(() => {
     const map = {};
     chatCandidates.forEach((employee) => {
       const conversationId = getConversationId(user.username, employee.email);
       const lastReadAt = readState[conversationId] ? new Date(readState[conversationId]).getTime() : 0;
-      map[employee.email] = (threads[conversationId] || []).filter((message) => (
+      const summary = threadSummaries[conversationId];
+      const messages = threads[conversationId]?.length
+        ? threads[conversationId]
+        : summary?.lastMessage ? [summary.lastMessage] : [];
+      map[employee.email] = messages.filter((message) => (
         message.sender !== user.username && new Date(message.createdAt).getTime() > lastReadAt
       )).length;
     });
     return map;
-  }, [chatCandidates, readState, threads, user.username]);
+  }, [chatCandidates, readState, threadSummaries, threads, user.username]);
 
   useEffect(() => {
     if (!selectedEmail) return;
@@ -3604,11 +3663,26 @@ const EmployeeChat = () => {
 
   const activeApplications = useMemo(() => myApplications.filter((item) => item.status !== 'done' && !item.fl), [myApplications]);
   const completedApplications = useMemo(() => myApplications.filter((item) => item.status === 'done' || item.fl), [myApplications]);
-  const threadActivityById = useMemo(() => Object.fromEntries(
-    Object.entries(threads).map(([threadId, messages]) => [threadId, getThreadActivityMeta(messages || [])])
-  ), [threads]);
+  const threadActivityById = useMemo(() => {
+    const ids = new Set([...Object.keys(threadSummaries), ...Object.keys(threads)]);
+    return Object.fromEntries([...ids].map((threadId) => {
+      const summary = threadSummaries[threadId];
+      const loadedMessages = threads[threadId];
+      if (Array.isArray(loadedMessages) && loadedMessages.length) {
+        return [threadId, getThreadActivityMeta(loadedMessages)];
+      }
+      return [threadId, {
+        visible: Boolean(summary?.lastMessage),
+        messageCount: Number(summary?.messageCount) || 0,
+        deletedCount: Number(summary?.deletedCount) || 0,
+        attachmentsCount: Number(summary?.attachmentsCount) || 0,
+        lastAt: summary?.lastAt || '',
+        lastTimestamp: Number(summary?.lastTimestamp) || 0
+      }];
+    }));
+  }, [threadSummaries, threads]);
 
-  const allConversationIds = useMemo(() => Object.keys(threads).filter((threadId) => {
+  const allConversationIds = useMemo(() => Object.keys(threadActivityById).filter((threadId) => {
     const messages = threads[threadId] || [];
     const meta = threadActivityById[threadId] || getThreadActivityMeta(messages);
     if (!auditFilters.showEmpty && !meta.visible) return false;
@@ -4359,7 +4433,9 @@ const EmployeeChat = () => {
                   }}
                 >
                   {(hiddenDialogMessagesCount > 0 || threadHasMore[currentConversationId]) && <button type="button" className="chat-pagination-button" disabled={isLoadingOlderDialog} onClick={() => hiddenDialogMessagesCount > 0 ? setVisibleDialogMessageCount((prev) => prev + CHAT_MESSAGES_PAGE_SIZE) : loadOlderDialogMessages()}>{t('loadPreviousMessages')} · {t('showingLatestMessages').replace('{shown}', String(paginatedVisibleMessages.length)).replace('{total}', String(threadHasMore[currentConversationId] ? `${visibleMessages.length}+` : visibleMessages.length))}</button>}
-                  {messagesWithDateSeparators.length === 0 && <div className="empty-chat">{dialogSearch ? t('noMessageSearchResults') : t('noMessages')}</div>}
+                  {loadingConversationIds[currentConversationId]
+                    ? <div className="empty-chat">{t('loading')}…</div>
+                    : messagesWithDateSeparators.length === 0 && <div className="empty-chat">{dialogSearch ? t('noMessageSearchResults') : t('noMessages')}</div>}
                   {messagesWithDateSeparators.map((item) => {
                     if (item.type === 'date') return <div key={item.id} className="date-separator"><span>{item.label}</span></div>;
 
@@ -4941,7 +5017,8 @@ const EmployeeChat = () => {
               </div>
               <div className="threads-messages">
                 {!selectedThreadId && <div className="empty-chat">{t('chooseConversation')}</div>}
-                {selectedThreadId && selectedThreadMessages.map((message) => {
+                {selectedThreadId && loadingConversationIds[selectedThreadId] && <div className="empty-chat">{t('loading')}…</div>}
+                {selectedThreadId && !loadingConversationIds[selectedThreadId] && selectedThreadMessages.map((message) => {
                   const isDeleted = Boolean(message.deletedAt);
                   const attachments = !isDeleted && message.attachments?.length ? message.attachments : !isDeleted && message.attachment ? [message.attachment] : [];
                   return (
