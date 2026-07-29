@@ -1957,6 +1957,10 @@ const EmployeeChat = () => {
   const currentMessages = useMemo(() => (
     currentConversationId ? (threads[currentConversationId] || []) : []
   ), [currentConversationId, threads]);
+  const isCurrentConversationLoading = Boolean(currentConversationId && (
+    loadingConversationIds[currentConversationId]
+    || !Object.prototype.hasOwnProperty.call(threads, currentConversationId)
+  ));
   const selectedThreadMessages = selectedThreadId ? (threads[selectedThreadId] || []) : [];
 
   useEffect(() => {
@@ -2157,6 +2161,11 @@ const EmployeeChat = () => {
       }));
     } catch (error) {
       console.error('Ошибка загрузки выбранного диалога:', error);
+      setThreads((prev) => (
+        Object.prototype.hasOwnProperty.call(prev, conversationId)
+          ? prev
+          : { ...prev, [conversationId]: [] }
+      ));
       if (!silent) notify(error.message || 'Не удалось загрузить выбранный диалог', 'Чат');
     } finally {
       if (!silent) setLoadingConversationIds((prev) => ({ ...prev, [conversationId]: false }));
@@ -4408,6 +4417,15 @@ const EmployeeChat = () => {
                   </div>
                 </header>
 
+                {isCurrentConversationLoading && (
+                  <div className="chat-loading-overlay" role="status" aria-live="polite">
+                    <div className="chat-loading-card">
+                      <span className="chat-loading-spinner" aria-hidden="true" />
+                      <strong>{t('loading')}…</strong>
+                    </div>
+                  </div>
+                )}
+
 	                {chatLocalSettings.showDialogFilters === true && <div className="dialog-filter-row">{CHAT_FILTERS.map((filter) => <button key={filter.id} type="button" className={dialogFilter === filter.id ? 'active' : ''} onClick={() => setDialogFilter(filter.id)}>{getOptionLabel(filter)}</button>)}</div>}
 	                {chatLocalSettings.showDialogDateJump === true && <div className="date-jump-row"><label>{t('jumpToDate')} <input type="date" onChange={(event) => jumpToMessageDate(event.target.value)} /></label></div>}
                 {chatLocalSettings.showDialogMediaPanel === true && mediaPanelOpen && <div className="dialog-media-panel"><div className="dialog-media-tabs">{CHAT_MEDIA_TABS.map((tab) => <button key={tab.id} type="button" className={mediaPanelTab === tab.id ? 'active' : ''} onClick={() => setMediaPanelTab(tab.id)}>{getOptionLabel(tab)}</button>)}</div><input type="search" placeholder={t('mediaSearch')} value={mediaPanelSearch} onChange={(e) => setMediaPanelSearch(e.target.value)} /><button type="button" onClick={() => notify(t('archiveUnavailable'), t('mediaFiles'))}>{t('downloadArchive')}</button><div className="dialog-media-grid">{filteredDialogMediaItems.length === 0 && <small>{t('noResults')}</small>}{filteredDialogMediaItems.map(({ message, file, fileIndex, type }, index) => <button key={`${message.id}-${file.name}-${index}`} type="button" onClick={() => type === 'link' ? window.open(file.dataUrl, '_blank', 'noopener,noreferrer') : isMediaAttachment(file) ? setMediaViewer({ message, file, fileIndex, scope: 'dialog' }) : openAttachmentInNewTab(file)}>{type === 'link' ? <span>🔗 {file.name}</span> : isMediaAttachment(file) ? (isVideoAttachment(file) ? <video src={getOriginalAttachmentUrl(file)} poster={getVideoPosterUrl(file) || getAttachmentUrl(file)} muted playsInline preload="metadata" onLoadedMetadata={nudgeVideoToFirstFrame} /> : <img src={getAttachmentUrl(file)} alt={file.name || t('media')} loading="lazy" decoding="async" />) : <span>{getFileIcon(file.type)} {file.name}</span>}<em>{new Date(message.createdAt).toLocaleDateString(interfaceLocale)}</em></button>)}</div></div>}
@@ -4433,9 +4451,7 @@ const EmployeeChat = () => {
                   }}
                 >
                   {(hiddenDialogMessagesCount > 0 || threadHasMore[currentConversationId]) && <button type="button" className="chat-pagination-button" disabled={isLoadingOlderDialog} onClick={() => hiddenDialogMessagesCount > 0 ? setVisibleDialogMessageCount((prev) => prev + CHAT_MESSAGES_PAGE_SIZE) : loadOlderDialogMessages()}>{t('loadPreviousMessages')} · {t('showingLatestMessages').replace('{shown}', String(paginatedVisibleMessages.length)).replace('{total}', String(threadHasMore[currentConversationId] ? `${visibleMessages.length}+` : visibleMessages.length))}</button>}
-                  {loadingConversationIds[currentConversationId]
-                    ? <div className="empty-chat">{t('loading')}…</div>
-                    : messagesWithDateSeparators.length === 0 && <div className="empty-chat">{dialogSearch ? t('noMessageSearchResults') : t('noMessages')}</div>}
+                  {!isCurrentConversationLoading && messagesWithDateSeparators.length === 0 && <div className="empty-chat">{dialogSearch ? t('noMessageSearchResults') : t('noMessages')}</div>}
                   {messagesWithDateSeparators.map((item) => {
                     if (item.type === 'date') return <div key={item.id} className="date-separator"><span>{item.label}</span></div>;
 
