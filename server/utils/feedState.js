@@ -46,6 +46,56 @@ const setReactionState = (post = {}, emoji, login, active) => {
   return { ...post, reactions };
 };
 
+const toSafeSqlLimit = (value, fallback = 50, maximum = 100) => (
+  Math.min(maximum, Math.max(1, Number(value) || fallback))
+);
+
+const buildFeedPostsPageQuery = ({ limit = 50, before = '' } = {}) => {
+  const safeLimit = toSafeSqlLimit(limit);
+  const params = [];
+  let where = 'deleted_at IS NULL';
+  if (before) {
+    where += ' AND created_at < ?';
+    params.push(new Date(before));
+  }
+  return {
+    sql: `SELECT post_json FROM feed_posts WHERE ${where} ORDER BY pinned DESC, created_at DESC LIMIT ${safeLimit}`,
+    params
+  };
+};
+
+const buildFeedCommentsPageQuery = (postId, { limit = 50, before = '' } = {}) => {
+  const safeLimit = toSafeSqlLimit(limit);
+  const params = [postId];
+  let where = 'post_id = ? AND deleted_at IS NULL';
+  if (before) {
+    where += ' AND created_at < ?';
+    params.push(new Date(before));
+  }
+  return {
+    sql: `SELECT comment_json FROM feed_comments WHERE ${where} ORDER BY created_at DESC LIMIT ${safeLimit}`,
+    params
+  };
+};
+
+const buildFeedCommentPreviewsQuery = (postIds = [], limit = 3) => {
+  const safeIds = postIds.filter(Boolean);
+  const safeLimit = toSafeSqlLimit(limit, 3, 5);
+  const placeholders = safeIds.map(() => '?').join(',');
+  return {
+    sql: `SELECT post_id, comment_json
+      FROM (
+        SELECT post_id, comment_json, created_at,
+          ROW_NUMBER() OVER (PARTITION BY post_id ORDER BY created_at DESC) AS row_number
+        FROM feed_comments
+        WHERE deleted_at IS NULL AND post_id IN (${placeholders})
+      ) AS ranked_comments
+      WHERE row_number <= ${safeLimit}
+      ORDER BY post_id, created_at ASC`,
+    params: safeIds
+  };
+};
+
 const mergeFeedPosts = (archivePosts = [], sqlPosts = [], limit = 50) => {
   const byId = new Map();
 
@@ -81,6 +131,9 @@ const mergeFeedComments = (archiveComments = [], sqlComments = [], limit = 50) =
 };
 
 module.exports = {
+  buildFeedCommentPreviewsQuery,
+  buildFeedCommentsPageQuery,
+  buildFeedPostsPageQuery,
   createSerialMutationQueue,
   getFeedTimestamp,
   mergeFeedComments,

@@ -5,10 +5,10 @@ const path = require('path');
 const crypto = require('crypto');
 const db = require('../config/database');
 const {
-  createSerialMutationQueue,
-  mergeFeedComments,
-  mergeFeedPosts,
-  setReactionState
+  buildFeedCommentPreviewsQuery,
+  buildFeedCommentsPageQuery,
+  buildFeedPostsPageQuery,
+  createSerialMutationQueue
 } = require('../utils/feedState');
 const {
   isMysqlDatabase,
@@ -34,7 +34,6 @@ const DANGEROUS_EXTENSIONS = new Set(['.exe', '.bat', '.cmd', '.com', '.scr', '.
 
 let cachedThreads = null;
 let storageReadyPromise = null;
-let feedSqlWriteQueue = Promise.resolve();
 const streamClients = new Set();
 
 const cloneThreads = (threads) => JSON.parse(JSON.stringify(threads || {}));
@@ -815,9 +814,10 @@ const isConversationParticipant = (conversationId = '', login = '') => conversat
   .includes(String(login || '').toLowerCase());
 
 const findFeedFileReference = async (file) => {
-  const archivePosts = getVisibleFeedPosts(await readFeed());
-  const sqlPosts = await readSqlFeedPosts({ limit: 100, commentsLimit: 2 }).catch(() => null);
-  return [...archivePosts, ...(Array.isArray(sqlPosts) ? sqlPosts : [])].some((post) => (
+  if (!await ensureFeedSqlSchema()) return false;
+  const [rows] = await db.execute('SELECT post_json FROM feed_posts WHERE deleted_at IS NULL');
+  const sqlPosts = (rows || []).map((row) => parseSqlJson(row.post_json)).filter(Boolean);
+  return sqlPosts.some((post) => (
     post && !post.deletedAt && getFeedAttachmentsFromPost(post).some((attachment) => fileMatchesAttachment(attachment, file))
   ));
 };
@@ -1029,7 +1029,6 @@ const readJsonWithRecovery = async (filePath, fallback, validate, label, { throw
 };
 
 const readFeed = async () => readJsonWithRecovery(feedFilePath, [], Array.isArray, 'Chat feed', { throwOnUnrecoverable: true });
-const getVisibleFeedPosts = (posts = []) => (Array.isArray(posts) ? posts.filter((post) => post && !post.deletedAt) : []);
 
 const feedMutationQueue = createSerialMutationQueue({
   read: readFeed,
@@ -1042,20 +1041,6 @@ const writeFeed = async (posts, { allowEmpty = false } = {}) => {
     if (!allowEmpty && nextPosts.length === 0 && currentPosts.length > 0) {
       throw new Error('Защита ленты: отказано в перезаписи непустой ленты пустым массивом');
     }
-  });
-};
-
-const queueFeedSqlWrite = (operation) => {
-  const run = feedSqlWriteQueue
-    .catch(() => {})
-    .then(operation);
-  feedSqlWriteQueue = run;
-  return run;
-};
-
-const scheduleFeedSqlWrite = (label, operation) => {
-  queueFeedSqlWrite(operation).catch((error) => {
-    console.warn(`${label}:`, error.message);
   });
 };
 
@@ -1115,7 +1100,7 @@ const ensureFeedSqlSchema = async () => {
     .catch((error) => {
       feedSqlReady = false;
       feedSqlRetryAt = Date.now() + 30_000;
-      console.warn('Feed SQL storage unavailable, using JSON feed archive:', error.message);
+      console.warn('Feed SQL storage unavailable:', error.message);
       return false;
     })
     .finally(() => {
@@ -1178,15 +1163,6 @@ const writeSqlFeedComment = async (postId, comment = {}) => {
   return true;
 };
 
-const deleteSqlFeedComment = async (postId, commentId, deletedBy = 'system') => {
-  if (!await ensureFeedSqlSchema()) return false;
-  const deletedAt = new Date();
-  const [rows] = await db.execute('SELECT comment_json FROM feed_comments WHERE post_id = ? AND id = ? LIMIT 1', [postId, commentId]);
-  const existing = parseSqlJson(rows?.[0]?.comment_json) || { id: commentId };
-  const nextComment = { ...existing, deletedAt: deletedAt.toISOString(), deletedBy, updatedAt: deletedAt.toISOString() };
-  return writeSqlFeedComment(postId, nextComment);
-};
-
 const readSqlFeedReactions = async (postIds = []) => {
   if (!postIds.length || !await ensureFeedSqlSchema()) return {};
   const placeholders = postIds.map(() => '?').join(',');
@@ -1201,16 +1177,21 @@ const readSqlFeedReactions = async (postIds = []) => {
 
 const readSqlFeedComments = async (postId, { limit = 3, before = '' } = {}) => {
   if (!await ensureFeedSqlSchema()) return null;
-  const safeLimit = Math.min(100, Math.max(1, Number(limit) || 3));
-  const params = [postId];
-  let where = 'post_id = ? AND deleted_at IS NULL';
-  if (before) {
-    where += ' AND created_at < ?';
-    params.push(new Date(before));
-  }
-  params.push(safeLimit);
-  const [rows] = await db.execute(`SELECT comment_json FROM feed_comments WHERE ${where} ORDER BY created_at DESC LIMIT ?`, params);
+  const query = buildFeedCommentsPageQuery(postId, { limit, before });
+  const [rows] = await db.execute(query.sql, query.params);
   return (rows || []).map((row) => parseSqlJson(row.comment_json)).filter(Boolean).reverse();
+};
+
+const readSqlFeedCommentPreviews = async (postIds = [], limit = 3) => {
+  if (!postIds.length || !await ensureFeedSqlSchema()) return {};
+  const query = buildFeedCommentPreviewsQuery(postIds, limit);
+  const [rows] = await db.execute(query.sql, query.params);
+  return (rows || []).reduce((acc, row) => {
+    if (!acc[row.post_id]) acc[row.post_id] = [];
+    const comment = parseSqlJson(row.comment_json);
+    if (comment) acc[row.post_id].push(comment);
+    return acc;
+  }, {});
 };
 
 const countSqlFeedComments = async (postIds = []) => {
@@ -1222,21 +1203,15 @@ const countSqlFeedComments = async (postIds = []) => {
 
 const readSqlFeedPosts = async ({ limit = 50, before = '', commentsLimit = 3 } = {}) => {
   if (!await ensureFeedSqlSchema()) return null;
-  const safeLimit = Math.min(100, Math.max(1, Number(limit) || 50));
-  let rows;
-  const params = [];
-  let where = 'deleted_at IS NULL';
-  if (before) {
-    where += ' AND created_at < ?';
-    params.push(new Date(before));
-  }
-  params.push(safeLimit);
-  [rows] = await db.execute(`SELECT post_json FROM feed_posts WHERE ${where} ORDER BY pinned DESC, created_at DESC LIMIT ?`, params);
+  const query = buildFeedPostsPageQuery({ limit, before });
+  const [rows] = await db.execute(query.sql, query.params);
   const posts = (rows || []).map((row) => parseSqlJson(row.post_json)).filter(Boolean);
   const postIds = posts.map((post) => post.id).filter(Boolean);
-  const [reactionsByPost, commentCounts] = await Promise.all([readSqlFeedReactions(postIds), countSqlFeedComments(postIds)]);
-  const commentsPairs = await Promise.all(postIds.map(async (postId) => [postId, await readSqlFeedComments(postId, { limit: commentsLimit })]));
-  const commentsByPost = Object.fromEntries(commentsPairs.filter(([, comments]) => Array.isArray(comments)));
+  const [reactionsByPost, commentCounts, commentsByPost] = await Promise.all([
+    readSqlFeedReactions(postIds),
+    countSqlFeedComments(postIds),
+    readSqlFeedCommentPreviews(postIds, commentsLimit)
+  ]);
   return posts.map((post) => ({
     ...post,
     reactions: reactionsByPost[post.id] || {},
@@ -1244,6 +1219,24 @@ const readSqlFeedPosts = async ({ limit = 50, before = '', commentsLimit = 3 } =
     commentCount: commentCounts[post.id] || 0,
     commentsPreviewLimit: commentsLimit
   }));
+};
+
+const readSqlFeedPost = async (postId) => {
+  if (!await ensureFeedSqlSchema()) return null;
+  const [rows] = await db.execute(
+    'SELECT post_json FROM feed_posts WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+    [postId]
+  );
+  return parseSqlJson(rows?.[0]?.post_json);
+};
+
+const readSqlFeedComment = async (postId, commentId) => {
+  if (!await ensureFeedSqlSchema()) return null;
+  const [rows] = await db.execute(
+    'SELECT comment_json FROM feed_comments WHERE post_id = ? AND id = ? LIMIT 1',
+    [postId, commentId]
+  );
+  return parseSqlJson(rows?.[0]?.comment_json);
 };
 
 const setSqlFeedReaction = async (postId, emoji, login, active) => {
@@ -1300,6 +1293,17 @@ const broadcastThreadEvent = (eventName, conversationId, payload = {}) => {
     if (!isConversationParticipant(conversationId, client.login)) return;
     try {
       writeStreamEvent(client.res, eventName, { conversationId, ...payload });
+    } catch {
+      streamClients.delete(client);
+    }
+  });
+};
+
+const broadcastFeedEvent = (eventName, payload = {}) => {
+  if (!streamClients.size) return;
+  streamClients.forEach((client) => {
+    try {
+      writeStreamEvent(client.res, eventName, payload);
     } catch {
       streamClients.delete(client);
     }
@@ -1527,19 +1531,13 @@ router.get('/feed', async (req, res) => {
     const limit = Math.min(100, Math.max(1, Number(req.query?.limit) || 50));
     const commentsLimit = Math.min(5, Math.max(2, Number(req.query?.commentsLimit) || 3));
     const before = req.query?.before || '';
-    const archivePosts = await readFeed();
-    const filteredArchivePosts = before
-      ? archivePosts.filter((post) => normalizeFeedDate(post).getTime() < new Date(before).getTime())
-      : archivePosts;
-    const visibleArchivePosts = getVisibleFeedPosts(filteredArchivePosts);
-    const sqlPosts = await readSqlFeedPosts({ limit, before, commentsLimit }).catch(() => null);
-    const posts = Array.isArray(sqlPosts)
-      ? mergeFeedPosts(filteredArchivePosts, sqlPosts, limit)
-      : visibleArchivePosts.slice(0, limit);
+    const posts = await readSqlFeedPosts({ limit, before, commentsLimit });
+    if (!Array.isArray(posts)) {
+      return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
+    }
     const earliest = posts[posts.length - 1]?.createdAt || '';
-    const hasMoreArchive = earliest ? getVisibleFeedPosts(archivePosts).some((post) => normalizeFeedDate(post).getTime() < new Date(earliest).getTime()) : false;
     res.set('Cache-Control', 'no-store');
-    res.json({ posts, pageSize: limit, before: earliest, hasMore: hasMoreArchive || posts.length >= limit, storage: Array.isArray(sqlPosts) ? 'sql+json-archive' : 'json-archive' });
+    res.json({ posts, pageSize: limit, before: earliest, hasMore: posts.length >= limit, storage: 'mysql' });
   } catch (error) {
     console.error('Chat GET /feed error:', error);
     res.status(500).json({ message: 'Не удалось загрузить ленту' });
@@ -1553,8 +1551,12 @@ router.put('/feed', async (req, res) => {
       return res.status(400).json({ message: 'posts должен быть массивом' });
     }
 
+    if (!await ensureFeedSqlSchema()) {
+      return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
+    }
+    await runWithConcurrency(posts.filter((post) => post?.id), (post) => writeSqlFeedPost(post), 4);
     await writeFeed(posts, { allowEmpty: req.query.force === '1' });
-    res.json({ message: 'Лента сохранена', posts });
+    res.json({ message: 'Лента сохранена', posts, storage: 'mysql' });
   } catch (error) {
     console.error('Chat PUT /feed error:', error);
     res.status(500).json({ message: 'Не удалось сохранить ленту' });
@@ -1564,6 +1566,12 @@ router.put('/feed', async (req, res) => {
 
 const mutateFeed = async (mutator) => {
   return feedMutationQueue.mutate(mutator);
+};
+
+const backupFeedMutation = (mutator) => {
+  mutateFeed(mutator).catch((error) => {
+    console.warn('Feed JSON backup write failed:', error.message);
+  });
 };
 
 router.post('/feed/posts', async (req, res) => {
@@ -1588,8 +1596,11 @@ router.post('/feed/posts', async (req, res) => {
       return res.status(400).json({ message: 'text или attachment обязателен' });
     }
 
-    await mutateFeed((items) => [post, ...items.filter((item) => item.id !== post.id)]);
-    scheduleFeedSqlWrite('Feed SQL post write failed', () => writeSqlFeedPost(post));
+    if (!await writeSqlFeedPost(post)) {
+      return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
+    }
+    backupFeedMutation((items) => [post, ...items.filter((item) => item.id !== post.id)]);
+    broadcastFeedEvent('feed-post-created', { post });
     res.status(201).json({ message: 'Публикация создана', post });
   } catch (error) {
     console.error('Chat POST /feed/posts error:', error);
@@ -1602,23 +1613,20 @@ router.delete('/feed/posts/:postId', async (req, res) => {
     const { postId } = req.params;
     const deletedBy = req.query?.deletedBy || req.body?.deletedBy || 'system';
     const now = new Date().toISOString();
-    let deletedPost = null;
-    await mutateFeed((items) => items.map((post) => {
-      if (post.id !== postId) return post;
-      deletedPost = post.deletedAt
-        ? post
-        : { ...post, deletedAt: now, deletedBy, updatedAt: now };
-      return deletedPost;
-    }));
-
-    if (!deletedPost) return res.status(404).json({ message: 'Публикация не найдена' });
-    scheduleFeedSqlWrite('Feed SQL post delete failed', () => writeSqlFeedPost(deletedPost));
+    const currentPost = await readSqlFeedPost(postId);
+    if (!currentPost) return res.status(404).json({ message: 'Публикация не найдена' });
+    const deletedPost = { ...currentPost, deletedAt: now, deletedBy, updatedAt: now };
+    if (!await writeSqlFeedPost(deletedPost)) {
+      return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
+    }
+    backupFeedMutation((items) => items.map((post) => (post.id === postId ? deletedPost : post)));
+    broadcastFeedEvent('feed-post-deleted', { postId, deletedAt: now, deletedBy });
     res.json({
       message: 'Публикация удалена',
       postId,
       deletedAt: deletedPost.deletedAt,
       deletedBy: deletedPost.deletedBy,
-      alreadyDeleted: deletedPost.deletedAt !== now,
+      alreadyDeleted: false,
       post: { id: deletedPost.id, deletedAt: deletedPost.deletedAt, deletedBy: deletedPost.deletedBy }
     });
   } catch (error) {
@@ -1632,26 +1640,20 @@ router.patch('/feed/posts/:postId', async (req, res) => {
     const { postId } = req.params;
     const patch = req.body || {};
     const now = new Date().toISOString();
-    let updatedPost = null;
-    await mutateFeed((items) => items.map((post) => {
-      if (post.id !== postId) return post;
-      const nextPost = {
-        ...post,
-        ...patch,
-        id: post.id,
-        updatedAt: now
-      };
-      if (Array.isArray(patch.attachments)) {
-        nextPost.attachments = patch.attachments.filter(Boolean);
-        nextPost.attachment = nextPost.attachments[0] || null;
-      }
-      updatedPost = nextPost;
-      return nextPost;
-    }));
-
-    if (!updatedPost) return res.status(404).json({ message: 'Публикация не найдена' });
-    scheduleFeedSqlWrite('Feed SQL post patch failed', () => writeSqlFeedPost(updatedPost));
-    res.json({ message: 'Публикация обновлена', post: { id: updatedPost.id, updatedAt: updatedPost.updatedAt } });
+    const currentPost = await readSqlFeedPost(postId);
+    if (!currentPost) return res.status(404).json({ message: 'Публикация не найдена' });
+    const updatedPost = { ...currentPost, ...patch, id: currentPost.id, updatedAt: now };
+    if (Array.isArray(patch.attachments)) {
+      updatedPost.attachments = patch.attachments.filter(Boolean);
+      updatedPost.attachment = updatedPost.attachments[0] || null;
+    }
+    if (!await writeSqlFeedPost(updatedPost)) {
+      return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
+    }
+    backupFeedMutation((items) => items.map((post) => (post.id === postId ? updatedPost : post)));
+    const publicPost = { ...updatedPost, comments: undefined, reactions: undefined };
+    broadcastFeedEvent('feed-post-updated', { post: publicPost });
+    res.json({ message: 'Публикация обновлена', post: publicPost });
   } catch (error) {
     console.error('Chat PATCH /feed/posts error:', error);
     res.status(500).json({ message: 'Не удалось обновить публикацию' });
@@ -1663,29 +1665,21 @@ router.get('/feed/posts/:postId/comments', async (req, res) => {
     const { postId } = req.params;
     const limit = Math.min(100, Math.max(1, Number(req.query?.limit) || 50));
     const before = req.query?.before || '';
-    const posts = await readFeed();
-    const post = posts.find((item) => item.id === postId);
-    if (!post || post.deletedAt) return res.status(404).json({ message: 'Публикация не найдена' });
-    const archiveComments = (post.comments || []).filter((comment) => (
-      !before || normalizeFeedDate(comment).getTime() < new Date(before).getTime()
-    ));
-    const sqlComments = await readSqlFeedComments(postId, { limit, before }).catch(() => null);
-    if (Array.isArray(sqlComments)) {
-      const comments = mergeFeedComments(archiveComments, sqlComments, limit);
-      const earliest = comments[0]?.createdAt || '';
-      const visibleArchiveCount = archiveComments.filter((comment) => !comment.deletedAt).length;
-      return res.json({
-        postId,
-        comments,
-        before: earliest,
-        hasMore: Math.max(visibleArchiveCount, sqlComments.length) > comments.length,
-        storage: 'sql+json-archive'
-      });
+    const post = await readSqlFeedPost(postId);
+    if (!post) return res.status(404).json({ message: 'Публикация не найдена' });
+    const comments = await readSqlFeedComments(postId, { limit, before });
+    if (!Array.isArray(comments)) {
+      return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
     }
-
-    const filtered = archiveComments.filter((comment) => !comment.deletedAt);
-    const page = filtered.slice(-limit);
-    res.json({ postId, comments: page, before: page[0]?.createdAt || '', hasMore: filtered.length > page.length, storage: 'json-archive' });
+    const [counts] = await Promise.all([countSqlFeedComments([postId])]);
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      postId,
+      comments,
+      before: comments[0]?.createdAt || '',
+      hasMore: Number(counts[postId]) > comments.length,
+      storage: 'mysql'
+    });
   } catch (error) {
     console.error('Chat GET /feed/comments error:', error);
     res.status(500).json({ message: 'Не удалось загрузить комментарии' });
@@ -1707,21 +1701,28 @@ router.post('/feed/posts/:postId/comments', async (req, res) => {
 
     if (!comment.text) return res.status(400).json({ message: 'text обязателен' });
 
-    let updatedPost = null;
-    await mutateFeed((items) => items.map((post) => {
+    const currentPost = await readSqlFeedPost(postId);
+    if (!currentPost) return res.status(404).json({ message: 'Публикация не найдена' });
+    if (!await writeSqlFeedComment(postId, comment)) {
+      return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
+    }
+    const counts = await countSqlFeedComments([postId]);
+    const updatedPost = {
+      ...currentPost,
+      commentCount: counts[postId] || 0,
+      updatedAt: now
+    };
+    backupFeedMutation((items) => items.map((post) => {
       if (post.id !== postId) return post;
       const comments = [...(post.comments || []).filter((item) => item.id !== comment.id), comment];
-      updatedPost = {
-        ...post,
-        comments,
-        commentCount: comments.filter((item) => !item.deletedAt).length,
-        updatedAt: now
-      };
-      return updatedPost;
+      return { ...post, comments, commentCount: updatedPost.commentCount, updatedAt: now };
     }));
-
-    if (!updatedPost) return res.status(404).json({ message: 'Публикация не найдена' });
-    scheduleFeedSqlWrite('Feed SQL comment write failed', () => writeSqlFeedComment(postId, comment));
+    broadcastFeedEvent('feed-comment-created', {
+      postId,
+      comment,
+      commentCount: updatedPost.commentCount,
+      updatedAt: now
+    });
     res.status(201).json({
       message: 'Комментарий добавлен',
       postId,
@@ -1739,37 +1740,41 @@ router.delete('/feed/posts/:postId/comments/:commentId', async (req, res) => {
     const { postId, commentId } = req.params;
     const deletedBy = req.query?.deletedBy || req.body?.deletedBy || 'system';
     const now = new Date().toISOString();
-    let foundPost = false;
-    let deletedComment = null;
-    let updatedPost = null;
-    await mutateFeed((items) => items.map((post) => {
+    const currentPost = await readSqlFeedPost(postId);
+    if (!currentPost) return res.status(404).json({ message: 'Публикация не найдена' });
+    const existingComment = await readSqlFeedComment(postId, commentId);
+    if (!existingComment) return res.status(404).json({ message: 'Комментарий не найден' });
+    const alreadyDeleted = Boolean(existingComment.deletedAt);
+    const deletedComment = alreadyDeleted
+      ? existingComment
+      : { ...existingComment, deletedAt: now, deletedBy, updatedAt: now };
+    if (!alreadyDeleted && !await writeSqlFeedComment(postId, deletedComment)) {
+      return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
+    }
+    const counts = await countSqlFeedComments([postId]);
+    const updatedPost = { ...currentPost, commentCount: counts[postId] || 0, updatedAt: now };
+    backupFeedMutation((items) => items.map((post) => {
       if (post.id !== postId) return post;
-      foundPost = true;
-      const comments = (post.comments || []).map((comment) => {
-        if (comment.id !== commentId) return comment;
-        deletedComment = comment.deletedAt
-          ? comment
-          : { ...comment, deletedAt: now, deletedBy, updatedAt: now };
-        return deletedComment;
-      });
-      updatedPost = {
-        ...post,
-        comments,
-        commentCount: comments.filter((comment) => !comment.deletedAt).length,
-        updatedAt: now
-      };
-      return updatedPost;
+      const comments = (post.comments || []).map((comment) => (
+        comment.id === commentId ? deletedComment : comment
+      ));
+      return { ...post, comments, commentCount: updatedPost.commentCount, updatedAt: now };
     }));
-
-    if (!foundPost) return res.status(404).json({ message: 'Публикация не найдена' });
-    scheduleFeedSqlWrite('Feed SQL comment delete failed', () => deleteSqlFeedComment(postId, commentId, deletedBy));
+    broadcastFeedEvent('feed-comment-deleted', {
+      postId,
+      commentId,
+      deletedAt: deletedComment.deletedAt,
+      deletedBy: deletedComment.deletedBy,
+      commentCount: updatedPost.commentCount,
+      updatedAt: now
+    });
     res.json({
       message: 'Комментарий удалён',
       postId,
       commentId,
       deletedAt: deletedComment?.deletedAt || now,
       deletedBy: deletedComment?.deletedBy || deletedBy,
-      alreadyDeleted: !deletedComment || deletedComment.deletedAt !== now,
+      alreadyDeleted,
       post: { id: updatedPost.id, commentCount: updatedPost.commentCount, updatedAt: updatedPost.updatedAt }
     });
   } catch (error) {
@@ -1785,30 +1790,29 @@ router.post('/feed/posts/:postId/reactions', async (req, res) => {
     const login = String(req.body?.login || '').trim();
     if (!emoji || !login) return res.status(400).json({ message: 'emoji и login обязательны' });
 
+    const currentPost = await readSqlFeedPost(postId);
+    if (!currentPost) return res.status(404).json({ message: 'Публикация не найдена' });
     const now = new Date().toISOString();
-    let updatedPost = null;
-    let active = false;
-    await mutateFeed((items) => items.map((post) => {
-      if (post.id !== postId) return post;
-      const currentUsers = new Set(post.reactions?.[emoji] || []);
-      active = typeof req.body?.active === 'boolean' ? req.body.active : !currentUsers.has(login);
-      updatedPost = {
-        ...setReactionState(post, emoji, login, active),
-        updatedAt: now
-      };
-      return updatedPost;
-    }));
-
-    if (!updatedPost) return res.status(404).json({ message: 'Публикация не найдена' });
-    scheduleFeedSqlWrite('Feed SQL reaction update failed', () => setSqlFeedReaction(postId, emoji, login, active));
+    const currentReactions = await readSqlFeedReactions([postId]);
+    const currentUsers = new Set(currentReactions[postId]?.[emoji] || []);
+    const active = typeof req.body?.active === 'boolean' ? req.body.active : !currentUsers.has(login);
+    if (!await setSqlFeedReaction(postId, emoji, login, active)) {
+      return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
+    }
+    const nextReactions = await readSqlFeedReactions([postId]);
+    const reactions = nextReactions[postId] || {};
+    backupFeedMutation((items) => items.map((post) => (
+      post.id === postId ? { ...post, reactions, updatedAt: now } : post
+    )));
+    broadcastFeedEvent('feed-reaction-updated', { postId, emoji, login, active, reactions, updatedAt: now });
     res.json({
       message: 'Реакция обновлена',
       postId,
       emoji,
       login,
       active,
-      reactions: updatedPost.reactions,
-      updatedAt: updatedPost.updatedAt
+      reactions,
+      updatedAt: now
     });
   } catch (error) {
     console.error('Chat POST /feed/reactions error:', error);
@@ -1821,16 +1825,14 @@ router.post('/feed/posts/:postId/pin', async (req, res) => {
     const { postId } = req.params;
     const pinned = Boolean(req.body?.pinned);
     const now = new Date().toISOString();
-    let found = false;
-    const posts = await mutateFeed((items) => items.map((post) => {
-      if (post.id !== postId) return post;
-      found = true;
-      return { ...post, pinned, updatedAt: now };
-    }));
-
-    if (!found) return res.status(404).json({ message: 'Публикация не найдена' });
-    const updatedPost = posts.find((post) => post.id === postId);
-    if (updatedPost) scheduleFeedSqlWrite('Feed SQL pin update failed', () => writeSqlFeedPost(updatedPost));
+    const currentPost = await readSqlFeedPost(postId);
+    if (!currentPost) return res.status(404).json({ message: 'Публикация не найдена' });
+    const updatedPost = { ...currentPost, pinned, updatedAt: now };
+    if (!await writeSqlFeedPost(updatedPost)) {
+      return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
+    }
+    backupFeedMutation((items) => items.map((post) => (post.id === postId ? updatedPost : post)));
+    broadcastFeedEvent('feed-pin-updated', { postId, pinned, updatedAt: now });
     res.json({ message: 'Закрепление обновлено', post: { id: updatedPost.id, pinned: updatedPost.pinned, updatedAt: updatedPost.updatedAt } });
   } catch (error) {
     console.error('Chat POST /feed/pin error:', error);

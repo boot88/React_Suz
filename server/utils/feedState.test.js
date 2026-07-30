@@ -1,6 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  buildFeedCommentPreviewsQuery,
+  buildFeedCommentsPageQuery,
+  buildFeedPostsPageQuery,
   createSerialMutationQueue,
   mergeFeedComments,
   mergeFeedPosts,
@@ -8,6 +11,26 @@ const {
 } = require('./feedState');
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
+
+test('feed page queries inline validated limits for MySQL 8.4', () => {
+  const posts = buildFeedPostsPageQuery({ limit: '25', before: '2026-07-23T10:00:00.000Z' });
+  const comments = buildFeedCommentsPageQuery('post-1', { limit: 500 });
+
+  assert.match(posts.sql, /LIMIT 25$/);
+  assert.equal(posts.sql.includes('LIMIT ?'), false);
+  assert.equal(posts.params.length, 1);
+  assert.match(comments.sql, /LIMIT 100$/);
+  assert.equal(comments.params.length, 1);
+});
+
+test('comment previews use one window query for all posts', () => {
+  const query = buildFeedCommentPreviewsQuery(['post-1', 'post-2'], 3);
+
+  assert.match(query.sql, /ROW_NUMBER\(\) OVER \(PARTITION BY post_id/);
+  assert.match(query.sql, /post_id IN \(\?,\?\)/);
+  assert.match(query.sql, /row_number <= 3/);
+  assert.deepEqual(query.params, ['post-1', 'post-2']);
+});
 
 test('serial mutations preserve a reaction and an attachment deletion made together', async () => {
   let stored = [{

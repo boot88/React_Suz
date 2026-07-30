@@ -8,6 +8,7 @@ import {
   writeCachedConversation,
   removeCachedConversation
 } from '../utils/chatMessageCache';
+import { readCachedFeed, writeCachedFeed } from '../utils/feedCache';
 import ChatContacts from '../components/employeeChat/ChatContacts';
 import ChatComposerForm from '../components/employeeChat/ChatComposerForm';
 import ChatDialogHeader from '../components/employeeChat/ChatDialogHeader';
@@ -1334,6 +1335,10 @@ const getFeedPostsSignature = (posts = []) => JSON.stringify((Array.isArray(post
 })));
 
 const getVisibleFeedPosts = (posts = []) => (Array.isArray(posts) ? posts.filter((post) => post && !post.deletedAt) : []);
+const sortFeedPosts = (posts = []) => [...posts].sort((a, b) => (
+  Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
+  || getFeedItemTimestamp(b) - getFeedItemTimestamp(a)
+));
 
 const setFeedReactionForUser = (post = {}, emoji, login, active) => {
   const reactions = { ...(post.reactions || {}) };
@@ -1619,7 +1624,7 @@ const AttachmentCard = React.memo(function AttachmentCard({ file, cardKey, varia
   );
 });
 
-const FeedMediaCard = ({ file, onOpen, onQuickReaction, isEnglish = false }) => {
+const FeedMediaCard = React.memo(function FeedMediaCard({ file, onOpen, onQuickReaction, isEnglish = false }) {
   const isVideo = isVideoAttachment(file);
   const fileName = file?.name || (isEnglish ? 'Media' : 'Медиа');
 
@@ -1631,6 +1636,7 @@ const FeedMediaCard = ({ file, onOpen, onQuickReaction, isEnglish = false }) => 
         <button
           type="button"
           className="feed-media-open"
+          style={{ aspectRatio: getAttachmentAspectRatio(file) }}
           aria-label={`${isEnglish ? 'Open photo' : 'Открыть фото'} ${fileName}`}
           onClick={(event) => {
             event.stopPropagation();
@@ -1648,7 +1654,7 @@ const FeedMediaCard = ({ file, onOpen, onQuickReaction, isEnglish = false }) => 
       <span className="feed-media-caption">{fileName} · {formatFileSize(file?.size)}</span>
     </div>
   );
-};
+});
 
 const formatDuration = (seconds) => {
   const safeSeconds = Math.max(0, Math.floor(Number(seconds) || 0));
@@ -2049,6 +2055,15 @@ const EmployeeChat = () => {
   useEffect(() => {
     feedPostsRef.current = feedPosts;
   }, [feedPosts]);
+
+  useEffect(() => {
+    if (!user?.username || feedPosts.length === 0) return;
+    writeCachedFeed(user.username, {
+      posts: feedPosts,
+      before: feedBefore,
+      hasMore: feedHasMore
+    });
+  }, [feedBefore, feedHasMore, feedPosts, user?.username]);
 
   useEffect(() => {
     threadsRef.current = threads;
@@ -2562,17 +2577,148 @@ const EmployeeChat = () => {
       }
     };
 
+    const readFeedEvent = (event) => {
+      try {
+        return JSON.parse(event.data || '{}');
+      } catch {
+        return null;
+      }
+    };
+
+    const handleFeedPostCreated = (event) => {
+      const payload = readFeedEvent(event);
+      const post = payload?.post;
+      if (!post?.id) return;
+      feedMutationVersionRef.current += 1;
+      setFeedPosts((current) => {
+        const existing = current.find((item) => item.id === post.id);
+        const mergedPost = existing
+          ? {
+            ...existing,
+            ...post,
+            comments: Array.isArray(existing.comments) && existing.comments.length ? existing.comments : (post.comments || []),
+            reactions: Object.keys(existing.reactions || {}).length ? existing.reactions : (post.reactions || {})
+          }
+          : post;
+        return sortFeedPosts([mergedPost, ...current.filter((item) => item.id !== post.id)]);
+      });
+    };
+
+    const handleFeedPostUpdated = (event) => {
+      const payload = readFeedEvent(event);
+      if (!payload?.post?.id) return;
+      feedMutationVersionRef.current += 1;
+      setFeedPosts((current) => sortFeedPosts(current.map((post) => (
+        post.id === payload.post.id ? { ...post, ...payload.post } : post
+      ))));
+    };
+
+    const handleFeedPostDeleted = (event) => {
+      const payload = readFeedEvent(event);
+      if (!payload?.postId) return;
+      feedMutationVersionRef.current += 1;
+      setFeedPosts((current) => current.filter((post) => post.id !== payload.postId));
+    };
+
+    const handleFeedCommentCreated = (event) => {
+      const payload = readFeedEvent(event);
+      if (!payload?.postId || !payload?.comment?.id) return;
+      feedMutationVersionRef.current += 1;
+      setFeedPosts((current) => current.map((post) => {
+        if (post.id !== payload.postId) return post;
+        const comments = [
+          ...(post.comments || []).filter((comment) => comment.id !== payload.comment.id),
+          payload.comment
+        ];
+        return {
+          ...post,
+          comments,
+          commentCount: Number(payload.commentCount) || comments.filter((comment) => !comment.deletedAt).length,
+          updatedAt: payload.updatedAt || post.updatedAt
+        };
+      }));
+    };
+
+    const handleFeedCommentDeleted = (event) => {
+      const payload = readFeedEvent(event);
+      if (!payload?.postId || !payload?.commentId) return;
+      feedMutationVersionRef.current += 1;
+      setFeedPosts((current) => current.map((post) => (
+        post.id === payload.postId
+          ? {
+            ...post,
+            comments: (post.comments || []).filter((comment) => comment.id !== payload.commentId),
+            commentCount: Math.max(0, Number(payload.commentCount) || 0),
+            updatedAt: payload.updatedAt || post.updatedAt
+          }
+          : post
+      )));
+    };
+
+    const handleFeedReactionUpdated = (event) => {
+      const payload = readFeedEvent(event);
+      if (!payload?.postId) return;
+      feedMutationVersionRef.current += 1;
+      setFeedPosts((current) => current.map((post) => (
+        post.id === payload.postId
+          ? { ...post, reactions: payload.reactions || post.reactions, updatedAt: payload.updatedAt || post.updatedAt }
+          : post
+      )));
+    };
+
+    const handleFeedPinUpdated = (event) => {
+      const payload = readFeedEvent(event);
+      if (!payload?.postId) return;
+      feedMutationVersionRef.current += 1;
+      setFeedPosts((current) => sortFeedPosts(current.map((post) => (
+        post.id === payload.postId
+          ? { ...post, pinned: Boolean(payload.pinned), updatedAt: payload.updatedAt || post.updatedAt }
+          : post
+      ))));
+    };
+
     stream.addEventListener('message-created', (event) => handleMessage(event, { incrementCount: true }));
     stream.addEventListener('message-updated', handleMessage);
     stream.addEventListener('conversation-refresh', handleConversationRefresh);
     stream.addEventListener('conversation-delete', handleConversationDelete);
+    stream.addEventListener('feed-post-created', handleFeedPostCreated);
+    stream.addEventListener('feed-post-updated', handleFeedPostUpdated);
+    stream.addEventListener('feed-post-deleted', handleFeedPostDeleted);
+    stream.addEventListener('feed-comment-created', handleFeedCommentCreated);
+    stream.addEventListener('feed-comment-deleted', handleFeedCommentDeleted);
+    stream.addEventListener('feed-reaction-updated', handleFeedReactionUpdated);
+    stream.addEventListener('feed-pin-updated', handleFeedPinUpdated);
     return () => stream.close();
   }, [fetchConversationMessages, user?.accessToken, user?.username]);
 
   useEffect(() => {
-    if (activeTab !== 'feed') return;
-    fetchFeed({ silent: false });
-  }, [activeTab, fetchFeed]);
+    if (activeTab !== 'feed' || !user?.username) return undefined;
+    let active = true;
+
+    const loadFeed = async () => {
+      const hasMemoryCopy = feedPostsRef.current.length > 0;
+      let hasCachedCopy = false;
+      if (!hasMemoryCopy) {
+        const cached = await readCachedFeed(user.username);
+        if (!active) return;
+        if (cached?.posts?.length) {
+          hasCachedCopy = true;
+          setFeedPosts(getVisibleFeedPosts(cached.posts));
+          setFeedBefore(cached.before || cached.posts[cached.posts.length - 1]?.createdAt || '');
+          setFeedHasMore(Boolean(cached.hasMore));
+          setVisibleFeedPostCount(FEED_POSTS_PAGE_SIZE);
+          setFeedLoading(false);
+        }
+      }
+      await fetchFeed({ silent: hasMemoryCopy || hasCachedCopy });
+    };
+
+    loadFeed();
+    return () => {
+      active = false;
+      feedFetchControllerRef.current?.abort();
+    };
+  }, [activeTab, fetchFeed, user?.username]);
 
   useEffect(() => {
     const hasActiveTimer = myApplications.some((application) => ['new', 'accepted', 'in_progress', 'waiting_employee_confirmation', 'reopened'].includes(application.status));
