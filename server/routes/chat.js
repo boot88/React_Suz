@@ -1184,14 +1184,38 @@ const readSqlFeedComments = async (postId, { limit = 3, before = '' } = {}) => {
 
 const readSqlFeedCommentPreviews = async (postIds = [], limit = 3) => {
   if (!postIds.length || !await ensureFeedSqlSchema()) return {};
-  const query = buildFeedCommentPreviewsQuery(postIds, limit);
-  const [rows] = await db.execute(query.sql, query.params);
-  return (rows || []).reduce((acc, row) => {
+  const safeLimit = Math.min(5, Math.max(1, Number(limit) || 3));
+  let rows;
+  let shouldReverse = false;
+  try {
+    const query = buildFeedCommentPreviewsQuery(postIds, safeLimit);
+    [rows] = await db.execute(query.sql, query.params);
+  } catch (error) {
+    console.warn('Feed comment preview window query failed; using MySQL compatibility query:', {
+      code: error.code || 'FEED_COMMENT_PREVIEW_QUERY_FAILED',
+      message: error.message
+    });
+    const placeholders = postIds.map(() => '?').join(',');
+    shouldReverse = true;
+    [rows] = await db.execute(
+      `SELECT post_id, comment_json
+       FROM feed_comments
+       WHERE deleted_at IS NULL AND post_id IN (${placeholders})
+       ORDER BY post_id, created_at DESC`,
+      postIds
+    );
+  }
+  const commentsByPost = (rows || []).reduce((acc, row) => {
     if (!acc[row.post_id]) acc[row.post_id] = [];
+    if (acc[row.post_id].length >= safeLimit) return acc;
     const comment = parseSqlJson(row.comment_json);
     if (comment) acc[row.post_id].push(comment);
     return acc;
   }, {});
+  if (shouldReverse) {
+    Object.values(commentsByPost).forEach((comments) => comments.reverse());
+  }
+  return commentsByPost;
 };
 
 const countSqlFeedComments = async (postIds = []) => {
@@ -1204,13 +1228,43 @@ const countSqlFeedComments = async (postIds = []) => {
 const readSqlFeedPosts = async ({ limit = 50, before = '', commentsLimit = 3 } = {}) => {
   if (!await ensureFeedSqlSchema()) return null;
   const query = buildFeedPostsPageQuery({ limit, before });
-  const [rows] = await db.execute(query.sql, query.params);
-  const posts = (rows || []).map((row) => parseSqlJson(row.post_json)).filter(Boolean);
+  let rows;
+  try {
+    [rows] = await db.execute(query.sql, query.params);
+  } catch (error) {
+    const safeLimit = Math.min(100, Math.max(1, Number(limit) || 50));
+    console.warn('Feed ordered page query failed; using MySQL compatibility query:', {
+      code: error.code || 'FEED_POSTS_PAGE_QUERY_FAILED',
+      message: error.message
+    });
+    const params = [];
+    let where = 'deleted_at IS NULL';
+    if (before) {
+      where += ' AND created_at < ?';
+      params.push(new Date(before));
+    }
+    [rows] = await db.execute(
+      `SELECT post_json FROM feed_posts WHERE ${where} ORDER BY created_at DESC LIMIT ${safeLimit}`,
+      params
+    );
+  }
+  const posts = (rows || [])
+    .map((row) => parseSqlJson(row.post_json))
+    .filter((post) => post && !post.deletedAt);
   const postIds = posts.map((post) => post.id).filter(Boolean);
   const [reactionsByPost, commentCounts, commentsByPost] = await Promise.all([
-    readSqlFeedReactions(postIds),
-    countSqlFeedComments(postIds),
-    readSqlFeedCommentPreviews(postIds, commentsLimit)
+    readSqlFeedReactions(postIds).catch((error) => {
+      console.warn('Feed reactions query failed:', error.code || error.message);
+      return {};
+    }),
+    countSqlFeedComments(postIds).catch((error) => {
+      console.warn('Feed comment count query failed:', error.code || error.message);
+      return {};
+    }),
+    readSqlFeedCommentPreviews(postIds, commentsLimit).catch((error) => {
+      console.warn('Feed comment previews query failed:', error.code || error.message);
+      return {};
+    })
   ]);
   return posts.map((post) => ({
     ...post,
