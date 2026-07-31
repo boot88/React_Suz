@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react';
-import { ADMIN_CREDENTIALS, MANAGER_CREDENTIALS, AUTH_STATE_KEY, LOCAL_EMPLOYEES_KEY } from '../config/authConfig';
+import { AUTH_STATE_KEY, LOCAL_EMPLOYEES_KEY } from '../config/authConfig';
 import { API_BASE_URL } from '../utils/apiConfig';
+import { authFetch } from '../utils/authFetch';
 
 const AuthContext = createContext();
-const SERVICE_PASSWORDS_KEY = 'serviceAccountPasswords';
 const AUTH_SESSION_TIMEOUT_MS = 15 * 60 * 1000;
 const AUTH_ACTIVITY_EVENTS = ['mousedown', 'keydown', 'mousemove', 'scroll', 'touchstart', 'click'];
 
@@ -21,28 +21,12 @@ const saveEmployees = (employees) => {
   localStorage.setItem(LOCAL_EMPLOYEES_KEY, JSON.stringify(employees));
 };
 
-const readServicePasswords = () => {
+const pushPresenceToServer = async ({ isOnline }) => {
   try {
-    const parsed = JSON.parse(localStorage.getItem(SERVICE_PASSWORDS_KEY) || '{}');
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-};
-
-const getServicePassword = (login, fallbackPassword) => readServicePasswords()[login] || fallbackPassword;
-
-const saveServicePassword = (login, password) => {
-  const passwords = readServicePasswords();
-  localStorage.setItem(SERVICE_PASSWORDS_KEY, JSON.stringify({ ...passwords, [login]: password }));
-};
-
-const pushPresenceToServer = async ({ login, isOnline, role }) => {
-  try {
-    await fetch(`${API_BASE_URL}/auth/presence`, {
+    await authFetch(`${API_BASE_URL}/auth/presence`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ login, isOnline, role })
+      body: JSON.stringify({ isOnline })
     });
   } catch (error) {
     console.error('Ошибка отправки presence на сервер:', error);
@@ -134,41 +118,7 @@ export const AuthProvider = ({ children }) => {
   const login = async (identifier, password, options = {}) => {
     const loginValue = identifier.trim();
     const loginScope = options?.scope || 'any';
-    const allowServiceAccounts = loginScope !== 'employee';
-
-    const admin = allowServiceAccounts ? ADMIN_CREDENTIALS.find(
-      (item) => item.username === loginValue && getServicePassword(item.username, item.password) === password
-    ) : null;
-
-    if (admin) {
-      const adminUser = {
-        username: admin.username,
-        role: 'admin',
-        name: admin.name
-      };
-
-      setIsAuthenticated(true);
-      setUser(adminUser);
-      persistAuthState(adminUser);
-      await pushPresenceToServer({ login: adminUser.username, isOnline: true, role: 'admin' });
-      return adminUser;
-    }
-
-    if (loginScope !== 'admin' && allowServiceAccounts && loginValue === MANAGER_CREDENTIALS.username && password === getServicePassword(MANAGER_CREDENTIALS.username, MANAGER_CREDENTIALS.password)) {
-      const managerUser = {
-        username: MANAGER_CREDENTIALS.username,
-        role: 'manager',
-        name: MANAGER_CREDENTIALS.name
-      };
-
-      setIsAuthenticated(true);
-      setUser(managerUser);
-      persistAuthState(managerUser);
-      await pushPresenceToServer({ login: managerUser.username, isOnline: true, role: 'manager' });
-      return managerUser;
-    }
-
-    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+    const response = await authFetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -197,6 +147,9 @@ export const AuthProvider = ({ children }) => {
     if (loginScope === 'employee' && !['employee', 'manager'].includes(employeeUser.role)) {
       throw new Error('Неверный логин/email или пароль');
     }
+    if (loginScope === 'admin' && serverRole !== 'admin') {
+      throw new Error('Неверный логин/email или пароль');
+    }
 
     const nextEmployees = upsertEmployeeOnlineStatus(employeeUser.username, true);
     mergeEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
@@ -209,25 +162,14 @@ export const AuthProvider = ({ children }) => {
   };
 
 
-  const changeServicePassword = async ({ login: accountLogin, currentPassword, newPassword }) => {
-    const normalizedLogin = String(accountLogin || '').trim();
-    const admin = ADMIN_CREDENTIALS.find((item) => item.username === normalizedLogin);
-    const isManager = normalizedLogin === MANAGER_CREDENTIALS.username;
-    const fallbackPassword = admin?.password || (isManager ? MANAGER_CREDENTIALS.password : '');
-
-    if (!fallbackPassword) {
-      throw new Error('Служебная учётная запись не найдена');
-    }
-
-    if (getServicePassword(normalizedLogin, fallbackPassword) !== currentPassword) {
-      throw new Error('Текущий пароль указан неверно');
-    }
-
-    if (String(newPassword || '').length < 8) {
-      throw new Error('Новый пароль должен содержать минимум 8 символов');
-    }
-
-    saveServicePassword(normalizedLogin, newPassword);
+  const changeServicePassword = async ({ currentPassword, newPassword }) => {
+    const response = await authFetch(`${API_BASE_URL}/auth/change-password`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword, newPassword })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || 'Не удалось сменить пароль');
   };
 
   const registerEmployee = async (email, profile = {}) => {
@@ -238,15 +180,11 @@ export const AuthProvider = ({ children }) => {
       throw new Error('Введите корректный email');
     }
 
-    if (ADMIN_CREDENTIALS.some((admin) => admin.username.toLowerCase() === normalizedEmail) || MANAGER_CREDENTIALS.username.toLowerCase() === normalizedEmail) {
-      throw new Error('Этот логин зарезервирован для служебной учетной записи');
-    }
-
     if (password.length < 8) {
       throw new Error('Пароль должен содержать минимум 8 символов');
     }
 
-    const response = await fetch(`${API_BASE_URL}/auth/register`, {
+    const response = await authFetch(`${API_BASE_URL}/auth/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -257,7 +195,8 @@ export const AuthProvider = ({ children }) => {
         department: profile.department || null,
         phone: profile.internalPhone || null,
         room: profile.room || null,
-        password
+        password,
+        role: profile.role === 'manager' ? 'manager' : 'employee'
       })
     });
 
@@ -292,7 +231,7 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const syncPresence = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/auth/presence`);
+        const response = await authFetch(`${API_BASE_URL}/auth/presence`);
         if (!response.ok) return;
         const data = await response.json();
         if (!Array.isArray(data?.presence)) return;
@@ -362,8 +301,9 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     try {
+      localStorage.removeItem('serviceAccountPasswords');
       const savedState = JSON.parse(localStorage.getItem(AUTH_STATE_KEY) || 'null');
-      if (savedState?.isAuthenticated && savedState?.user) {
+      if (savedState?.isAuthenticated && savedState?.user?.accessToken) {
         const expiresAt = Number(savedState.expiresAt || 0);
         if (expiresAt > Date.now()) {
           setIsAuthenticated(true);

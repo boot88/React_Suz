@@ -1,19 +1,17 @@
 const crypto = require('crypto');
 
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+const DEVELOPMENT_SECRET = crypto.randomBytes(32).toString('hex');
 
 const getSecret = () => {
-  const configured = String(
-    process.env.AUTH_TOKEN_SECRET
-    || process.env.MYSQL_PASSWORD
-    || process.env.DB_PASSWORD
-    || ''
-  );
-  if (configured) return configured;
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('AUTH_TOKEN_SECRET is required in production');
+  const configured = String(process.env.AUTH_TOKEN_SECRET || '');
+  if (configured.length >= 32 && configured !== 'replace-with-a-long-random-secret') {
+    return configured;
   }
-  return 'development-only-chat-token-secret';
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('AUTH_TOKEN_SECRET must be a unique random value of at least 32 characters in production');
+  }
+  return DEVELOPMENT_SECRET;
 };
 
 const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');

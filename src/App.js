@@ -16,6 +16,7 @@ import './pages/EmployeeChatOverrides.css';
 import Support from './components/Support';
 import Statistics from './pages/Statistics';
 import { API_BASE_URL } from './utils/apiConfig';
+import { authFetch } from './utils/authFetch';
 
 
 function App() {
@@ -41,7 +42,7 @@ function App() {
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/admin" element={<Login mode="admin" />} />
-              <Route path="/register" element={<Register />} />
+              <Route path="/register" element={<AdminRoute><Register /></AdminRoute>} />
 
               <Route path="/employee" element={<ProtectedRoute><EmployeeChat /></ProtectedRoute>} />
 
@@ -91,7 +92,7 @@ function Sidebar() {
     const fetchNewRequests = async () => {
       try {
         const adminLogin = encodeURIComponent(user?.username || user?.name || 'admin');
-        const response = await fetch(`${API_BASE_URL}/applications/unseen-count?admin_login=${adminLogin}`);
+        const response = await authFetch(`${API_BASE_URL}/applications/unseen-count?admin_login=${adminLogin}`);
         const data = await response.json().catch(() => ({}));
         if (!response.ok || isCancelled) return;
         const fresh = Number(data?.count || 0);
@@ -165,6 +166,7 @@ function Sidebar() {
             <li className={isActive('/employee') ? 'nav-item active' : 'nav-item'}><Link to="/employee" className="nav-link"><span className="nav-icon">💬</span><span className="nav-text">Чат</span></Link></li>
             <li className={isActive('/statistics') ? 'nav-item active' : 'nav-item'}><Link to="/statistics" className="nav-link"><span className="nav-icon">📊</span><span className="nav-text">Статистика</span></Link></li>
             <li className={isActive('/employee-search') ? 'nav-item active' : 'nav-item'}><Link to="/employee-search" className="nav-link"><span className="nav-icon">👥</span><span className="nav-text">Сотрудники</span></Link></li>
+            <li className={isActive('/register') ? 'nav-item active' : 'nav-item'}><Link to="/register" className="nav-link"><span className="nav-icon">🔐</span><span className="nav-text">Учётные записи</span></Link></li>
             <li className={isActive('/knowledge-base') ? 'nav-item active' : 'nav-item'}><Link to="/knowledge-base" className="nav-link"><span className="nav-icon">📚</span><span className="nav-text">База Знаний</span></Link></li>
             <li className={isActive('/network-map') ? 'nav-item active' : 'nav-item'}><Link to="/network-map" className="nav-link"><span className="nav-icon">🌐</span><span className="nav-text">Сетка</span></Link></li>
           </ul>

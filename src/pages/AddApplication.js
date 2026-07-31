@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import './AddApplication.css';
 import { API_BASE_URL } from '../utils/apiConfig';
+import { authFetch } from '../utils/authFetch';
 
 const AddApplication = () => {
   const [formData, setFormData] = useState({
@@ -39,7 +40,7 @@ const AddApplication = () => {
   const validateCabinet = (value) => {
     if (!value.trim()) return 'Лаборатория/кабинет обязателен для заполнения';
     if (value.length > 15) return 'Максимум 15 символов';
-    if (!/^[а-яА-ЯёЁ0-9\s,\-]+$/.test(value)) return 'Только русские буквы, цифры, пробелы, запятые и дефис';
+    if (!/^[а-яА-ЯёЁ0-9\s,-]+$/.test(value)) return 'Только русские буквы, цифры, пробелы, запятые и дефис';
     return '';
   };
 
@@ -59,7 +60,7 @@ const AddApplication = () => {
   const validateExecutor = (value) => {
     if (!value) return '';
     if (value.length > 60) return 'Максимум 60 символов';
-    if (!/^[а-яА-ЯёЁ\s,\.]+$/.test(value)) return 'Только русские буквы, пробелы, запятые и точки';
+    if (!/^[а-яА-ЯёЁ\s,.]+$/.test(value)) return 'Только русские буквы, пробелы, запятые и точки';
     return '';
   };
 
@@ -176,7 +177,7 @@ const AddApplication = () => {
 
       console.log('Отправляемые данные:', sanitizedData);
 
-      const response = await fetch(`${API_BASE_URL}/applications`, {
+      const response = await authFetch(`${API_BASE_URL}/applications`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(sanitizedData)

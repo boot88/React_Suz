@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import './Login.css';
@@ -16,7 +16,7 @@ const LOGIN_LABELS = {
     loadingAuth: 'Checking authorization...', redirect: 'Redirecting...', warning: 'Check keyboard layout and password. After several wrong attempts login is temporarily blocked.',
     usernameLabel: 'Surname / login', usernamePlaceholder: 'Start typing a surname', showEmployees: 'Show employee list', departmentMissing: 'department —', room: 'room', phoneMissing: 'phone —',
     password: 'Password', passwordPlaceholder: 'Enter password', hidePassword: 'Hide password', showPassword: 'Show password', hide: 'Hide', show: 'Show', caps: 'Caps Lock is on.', checking: 'Checking...', signIn: 'Sign in',
-    register: 'Employee registration', sending: 'Sending...', forgot: 'Forgot password?', closeRecovery: 'Close recovery window', recoveryTitle: 'Access recovery', recoveryText: 'Enter the employee login. A new temporary password will be sent to responsible managers in the service chat.', recoveryLogin: 'Employee login', sendRequest: 'Send request',
+    register: 'Employee registration', sending: 'Sending...', forgot: 'Forgot password?', closeRecovery: 'Close recovery window', recoveryTitle: 'Access recovery', recoveryText: 'Enter the employee login. A responsible administrator will verify the request and issue new access details.', recoveryLogin: 'Employee login', sendRequest: 'Send request',
     designLabel: 'Page design', designCurrent: 'Current', designNew: 'New',
     employeeKicker: 'Service access', employeeContextTitle: 'Requests without unnecessary steps', employeeContextText: 'Create a request, attach materials and follow each stage through to completion.',
     employeeStepOne: 'New request', employeeStepOneMeta: 'Description and files', employeeStepTwo: 'Assigned', employeeStepTwoMeta: 'Specialist and status', employeeStepThree: 'Result', employeeStepThreeMeta: 'History is retained',
@@ -31,7 +31,7 @@ const LOGIN_LABELS = {
     loadingAuth: 'Проверка авторизации...', redirect: 'Перенаправление...', warning: 'Проверьте раскладку и правильность пароля. После нескольких неверных попыток вход временно блокируется.',
     usernameLabel: 'Фамилия / логин', usernamePlaceholder: 'Начните вводить фамилию', showEmployees: 'Показать список сотрудников', departmentMissing: 'отдел —', room: 'каб', phoneMissing: 'тел. —',
     password: 'Пароль', passwordPlaceholder: 'Введите пароль', hidePassword: 'Скрыть пароль', showPassword: 'Показать пароль', hide: 'Скрыть', show: 'Показать', caps: 'Включён Caps Lock.', checking: 'Проверяем...', signIn: 'Войти',
-    register: 'Регистрация сотрудника', sending: 'Отправка...', forgot: 'Забыли пароль?', closeRecovery: 'Закрыть окно восстановления', recoveryTitle: 'Восстановление доступа', recoveryText: 'Укажите логин сотрудника. Новый временный пароль будет передан ответственным менеджерам в служебном чате.', recoveryLogin: 'Логин сотрудника', sendRequest: 'Отправить запрос',
+    register: 'Регистрация сотрудника', sending: 'Отправка...', forgot: 'Забыли пароль?', closeRecovery: 'Закрыть окно восстановления', recoveryTitle: 'Восстановление доступа', recoveryText: 'Укажите логин сотрудника. Ответственный администратор проверит запрос и выдаст новые данные для входа.', recoveryLogin: 'Логин сотрудника', sendRequest: 'Отправить запрос',
     designLabel: 'Дизайн страницы', designCurrent: 'Текущий', designNew: 'Новый',
     employeeKicker: 'Служебный доступ', employeeContextTitle: 'Обращения без лишних шагов', employeeContextText: 'Создавайте обращения, прикладывайте материалы и отслеживайте каждый этап до завершения.',
     employeeStepOne: 'Новое обращение', employeeStepOneMeta: 'Описание и файлы', employeeStepTwo: 'Назначено', employeeStepTwoMeta: 'Исполнитель и статус', employeeStepThree: 'Результат', employeeStepThreeMeta: 'История сохраняется',
@@ -61,7 +61,10 @@ const Login = ({ mode = 'employee' }) => {
   const isAdminMode = mode === 'admin';
   const [language, setLanguage] = useState(() => localStorage.getItem(LOGIN_LANGUAGE_KEY) || 'en');
   const [design, setDesign] = useState(() => localStorage.getItem(LOGIN_DESIGN_KEY) || 'current');
-  const t = (key) => LOGIN_LABELS[language]?.[key] || LOGIN_LABELS.en[key] || key;
+  const t = useCallback(
+    (key) => LOGIN_LABELS[language]?.[key] || LOGIN_LABELS.en[key] || key,
+    [language]
+  );
   const changeLanguage = (nextLanguage) => {
     localStorage.setItem(LOGIN_LANGUAGE_KEY, nextLanguage);
     setLanguage(nextLanguage);
@@ -132,7 +135,7 @@ const Login = ({ mode = 'employee' }) => {
     loadSuggestions();
 
     return () => { isCancelled = true; };
-  }, [isAdminMode]);
+  }, [isAdminMode, t]);
 
   useEffect(() => {
     const query = formData.username.trim().toLowerCase();
@@ -477,7 +480,6 @@ const Login = ({ mode = 'employee' }) => {
 
             {!isAdminMode && (
               <div className="jp-footer">
-                <Link to="/register">{t('register')}</Link>
                 <button type="button" className="jp-link-button" onClick={openRecoveryPanel} disabled={isSubmitting || isRecovering}>
                   {isRecovering ? t('sending') : t('forgot')}
                 </button>

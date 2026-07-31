@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import './NetworkMap.css';
 import { API_BASE_URL } from '../utils/apiConfig';
+import { authFetch } from '../utils/authFetch';
 
 const OFFICIAL_SITE_URL = 'http://nioch.nioch.nsc.ru/nioch/';
 const IP_LAST_OCTET_MIN = 1;
@@ -99,7 +100,7 @@ const NetworkMap = () => {
     setNetworkError('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/network-map`);
+      const response = await authFetch(`${API_BASE_URL}/network-map`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || data.message || 'Не удалось загрузить сетку');
 

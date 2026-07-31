@@ -11,18 +11,26 @@ const {
   mergeProfileMaps
 } = require('../utils/profileState');
 const { createAccessToken } = require('../utils/accessToken');
+const {
+  hashPassword,
+  verifyPassword: isPasswordValid,
+  passwordNeedsUpgrade
+} = require('../utils/password');
+const {
+  requireAuth,
+  requireAuthAllowQuery,
+  requireRole
+} = require('../middleware/auth');
 
 const normalizeLogin = (value = '') => value.trim().toLowerCase();
-const hashPassword = (value) => `sha256$${crypto.createHash('sha256').update(String(value)).digest('hex')}`;
 
 const LOGIN_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 7;
 const loginAttemptStore = new Map();
+const PASSWORD_RESET_COOLDOWN_MS = 10 * 60 * 1000;
+const passwordResetRequestStore = new Map();
 
-const getClientIp = (req) => {
-  const forwardedFor = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-  return forwardedFor || req.ip || req.socket?.remoteAddress || 'unknown';
-};
+const getClientIp = (req) => req.ip || req.socket?.remoteAddress || 'unknown';
 
 const getLoginAttemptKey = (req, login) => `${normalizeLogin(login) || 'unknown'}::${getClientIp(req)}`;
 
@@ -70,18 +78,6 @@ const getLockMessage = (lockedUntil) => {
 };
 
 
-const isPasswordValid = (rawPassword, storedPassword = '') => {
-  if (!storedPassword) return false;
-
-  if (storedPassword.startsWith('sha256$')) {
-    return storedPassword === hashPassword(rawPassword);
-  }
-
-  // Совместимость со старыми записями, где пароль мог храниться без хеша
-  return storedPassword === rawPassword;
-};
-
-
 const dataDir = path.join(__dirname, '..', 'data');
 const notificationsFilePath = path.join(dataDir, 'managerNotifications.json');
 const presenceFilePath = path.join(dataDir, 'presence.json');
@@ -89,6 +85,9 @@ const profilesFilePath = path.join(dataDir, 'profiles.json');
 
 const DEFAULT_EMPLOYEE_PASSWORD = String(process.env.DEFAULT_EMPLOYEE_PASSWORD || '');
 const DEFAULT_ADMIN_PASSWORD = String(process.env.DEFAULT_ADMIN_PASSWORD || '');
+const MANAGER_LOGIN = normalizeLogin(process.env.MANAGER_LOGIN || '');
+const MANAGER_PASSWORD = String(process.env.MANAGER_PASSWORD || '');
+const MANAGER_NAME = String(process.env.MANAGER_NAME || 'Ответственный менеджер').trim();
 const DEFAULT_PROFILE_WEBSITE_LANGUAGE = 'en';
 const PROFILE_WEBSITE_BY_LANGUAGE = {
   en: 'http://web3.nioch.nsc.ru/nioch/index.php/en/',
@@ -131,6 +130,8 @@ let lastProvisionAt = 0;
 let missingProvisionPasswordsWarned = false;
 let usersSchemaReady = false;
 let usersSchemaPromise = null;
+let managerAccountReady = false;
+let managerAccountPromise = null;
 
 const ensureUsersSchema = async () => {
   if (usersSchemaReady) return;
@@ -164,6 +165,31 @@ const ensureUsersSchema = async () => {
   });
 
   return usersSchemaPromise;
+};
+
+const ensureManagerAccount = async () => {
+  if (!MANAGER_LOGIN || !MANAGER_PASSWORD) return false;
+  if (managerAccountReady) return false;
+  if (managerAccountPromise) return managerAccountPromise;
+
+  managerAccountPromise = (async () => {
+    const [existing] = await db.execute('SELECT id FROM users WHERE LOWER(login) = ? LIMIT 1', [MANAGER_LOGIN]);
+    if (existing.length) {
+      managerAccountReady = true;
+      return false;
+    }
+    const [result] = await db.execute(
+      `INSERT IGNORE INTO users
+       (login, password, role, full_name, department, phone, room, provisioned_from_directory)
+       VALUES (?, ?, "manager", ?, NULL, NULL, NULL, 0)`,
+      [MANAGER_LOGIN, await hashPassword(MANAGER_PASSWORD), MANAGER_NAME || MANAGER_LOGIN]
+    );
+    managerAccountReady = true;
+    return Boolean(result.affectedRows);
+  })().finally(() => {
+    managerAccountPromise = null;
+  });
+  return managerAccountPromise;
 };
 
 const normalizePersonName = (value = '') => String(value)
@@ -286,7 +312,7 @@ const provisionUsersFromPhoneBook = async () => {
     desiredUsers.push({
       login,
       role: isAdmin ? 'admin' : 'employee',
-      password: hashPassword(isAdmin ? DEFAULT_ADMIN_PASSWORD : DEFAULT_EMPLOYEE_PASSWORD),
+      initialPassword: isAdmin ? DEFAULT_ADMIN_PASSWORD : DEFAULT_EMPLOYEE_PASSWORD,
       full_name: employee.full_name,
       department: departments || null,
       position: positions || null,
@@ -301,7 +327,7 @@ const provisionUsersFromPhoneBook = async () => {
     desiredUsers.push({
       login,
       role: 'admin',
-      password: hashPassword(DEFAULT_ADMIN_PASSWORD),
+      initialPassword: DEFAULT_ADMIN_PASSWORD,
       full_name: adminName,
       department: null,
       position: null,
@@ -318,18 +344,18 @@ const provisionUsersFromPhoneBook = async () => {
   );
 
   for (const user of desiredUsers) {
+    const passwordHash = await hashPassword(user.initialPassword);
     await db.execute(
       `INSERT INTO users (login, password, role, full_name, department, phone, room, provisioned_from_directory)
        VALUES (?, ?, ?, ?, ?, ?, ?, 1)
        ON DUPLICATE KEY UPDATE
-         password = VALUES(password),
          role = VALUES(role),
          full_name = VALUES(full_name),
          department = VALUES(department),
          phone = VALUES(phone),
          room = VALUES(room),
          provisioned_from_directory = 1`,
-      [user.login, user.password, user.role, user.full_name, user.department, user.phone, user.room]
+      [user.login, passwordHash, user.role, user.full_name, user.department, user.phone, user.room]
     );
   }
 
@@ -634,7 +660,7 @@ const upsertPresence = async ({ login, isOnline, role }) => {
 
 const getConversationId = (a, b) => [String(a || '').toLowerCase(), String(b || '').toLowerCase()].sort().join('::');
 
-const appendSystemResetMessages = async ({ employee, temporaryPassword, managerLogins }) => {
+const appendSystemResetMessages = async ({ employee, managerLogins }) => {
   const now = new Date().toISOString();
 
   await Promise.all(managerLogins.map(async (managerLogin) => {
@@ -647,7 +673,7 @@ const appendSystemResetMessages = async ({ employee, temporaryPassword, managerL
         `Сотрудник: ${employee.full_name || employee.login}`,
         `Логин: ${employee.login}`,
         `Внутренний телефон: ${employee.phone || 'не указан'}`,
-        `Новый временный пароль: ${temporaryPassword}`
+        'Пароль не изменён автоматически. Проверьте сотрудника и задайте новый пароль в разделе учётных записей.'
       ].join('\n'),
       createdAt: now,
       editedAt: null,
@@ -674,14 +700,12 @@ const appendSystemResetMessages = async ({ employee, temporaryPassword, managerL
   }));
 };
 
-const notifyManagersAboutPasswordReset = async ({ employee, temporaryPassword }) => {
+const notifyManagersAboutPasswordReset = async ({ employee }) => {
   const [managerRows] = await db.execute(
-    'SELECT id, login FROM users WHERE role = "manager" ORDER BY id'
+    'SELECT id, login FROM users WHERE role IN ("manager", "admin") ORDER BY role = "manager" DESC, id'
   );
 
-  const recipients = managerRows.length
-    ? managerRows.map((row) => row.login)
-    : ['manager_nioh'];
+  const recipients = managerRows.map((row) => row.login);
 
   const baseNotification = {
     createdAt: new Date().toISOString(),
@@ -691,8 +715,7 @@ const notifyManagersAboutPasswordReset = async ({ employee, temporaryPassword })
       login: employee.login,
       full_name: employee.full_name || employee.login,
       phone: employee.phone || ''
-    },
-    temporaryPassword
+    }
   };
 
   const notifications = await readNotifications();
@@ -707,11 +730,6 @@ const notifyManagersAboutPasswordReset = async ({ employee, temporaryPassword })
   return recipients;
 };
 
-const generateTemporaryPassword = () => {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$';
-  return Array.from({ length: 12 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('');
-};
-
 const mapUser = (user) => ({
   id: user.id,
   login: user.login,
@@ -724,7 +742,7 @@ const mapUser = (user) => ({
 });
 
 
-router.post('/provision-from-phone-book', async (req, res) => {
+router.post('/provision-from-phone-book', requireAuth, requireRole('admin'), async (req, res) => {
   try {
     const stats = await provisionUsersFromPhoneBook();
     res.json({ message: 'Пользователи синхронизированы со справочником сотрудников', ...stats });
@@ -736,20 +754,33 @@ router.post('/provision-from-phone-book', async (req, res) => {
 
 router.get('/login-suggestions', async (req, res) => {
   try {
-    await ensureUsersProvisionedFromPhoneBook();
+    await ensureUsersSchema();
+    const [userCounts] = await db.execute('SELECT COUNT(*) AS total FROM users');
+    if (Number(userCounts?.[0]?.total || 0) > 0) {
+      await ensureManagerAccount();
+    }
     const query = normalizeLogin(req.query?.query || '');
     const role = req.query?.role === 'admin' ? 'admin' : 'employee';
     const like = `${query}%`;
     const [users] = await db.execute(
-      `SELECT id, login, role, full_name, department, phone, room
+      `SELECT id, login, role, full_name
        FROM users
-       WHERE role = ? AND (LOWER(full_name) LIKE ? OR LOWER(login) LIKE ?)
+       WHERE ${role === 'admin' ? 'role = "admin"' : 'role IN ("employee", "manager")'}
+         AND (LOWER(full_name) LIKE ? OR LOWER(login) LIKE ?)
        ORDER BY full_name
        LIMIT 1000`,
-      [role, like, like]
+      [like, like]
     );
 
-    res.json({ suggestions: users.map(mapUser) });
+    res.json({
+      suggestions: users.map((user) => ({
+        id: user.id,
+        login: user.login,
+        role: user.role,
+        full_name: user.full_name,
+        display_name: getShortPersonName(user.full_name || user.login)
+      }))
+    });
   } catch (error) {
     console.error('Login suggestions error:', error);
     res.status(500).json({ message: 'Не удалось получить список сотрудников' });
@@ -760,7 +791,10 @@ router.get('/login-suggestions', async (req, res) => {
 const ensureUsersProvisionedFromPhoneBook = async () => {
   await ensureUsersSchema();
   const [rows] = await db.execute('SELECT COUNT(*) AS total FROM users');
-  if (Number(rows?.[0]?.total || 0) > 0) return null;
+  if (Number(rows?.[0]?.total || 0) > 0) {
+    await ensureManagerAccount();
+    return null;
+  }
   if (!DEFAULT_EMPLOYEE_PASSWORD || !DEFAULT_ADMIN_PASSWORD) {
     if (!missingProvisionPasswordsWarned) {
       missingProvisionPasswordsWarned = true;
@@ -771,15 +805,18 @@ const ensureUsersProvisionedFromPhoneBook = async () => {
     throw error;
   }
   await employeeRoutes.ensurePhoneBookData();
-  return provisionUsersFromPhoneBook();
+  const result = await provisionUsersFromPhoneBook();
+  await ensureManagerAccount();
+  return result;
 };
 
 // Регистрация сотрудника
-router.post('/register', async (req, res) => {
+router.post('/register', requireAuth, requireRole('admin'), async (req, res) => {
   try {
     const { login, full_name, department, phone, room } = req.body;
     const normalizedLogin = normalizeLogin(login);
     const password = String(req.body?.password || '');
+    const role = req.body?.role === 'manager' ? 'manager' : 'employee';
 
     if (!normalizedLogin) {
       return res.status(400).json({ message: 'Email (логин) обязателен' });
@@ -799,8 +836,8 @@ router.post('/register', async (req, res) => {
     }
 
     await db.execute(
-      'INSERT INTO users (login, password, role, full_name, department, phone, room) VALUES (?, ?, "employee", ?, ?, ?, ?)',
-      [normalizedLogin, hashPassword(password), full_name || normalizedLogin, department || null, phone || null, room || null]
+      'INSERT INTO users (login, password, role, full_name, department, phone, room) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [normalizedLogin, await hashPassword(password), role, full_name || normalizedLogin, department || null, phone || null, room || null]
     );
 
     res.status(201).json({
@@ -813,10 +850,10 @@ router.post('/register', async (req, res) => {
 });
 
 // Список сотрудников (для полу-админа)
-router.get('/employees', async (req, res) => {
+router.get('/employees', requireAuth, async (req, res) => {
   try {
     const [users] = await db.execute(
-      'SELECT id, login, role, full_name, department, phone, room FROM users WHERE role = "employee" ORDER BY login'
+      'SELECT id, login, role, full_name, department, phone, room FROM users WHERE role IN ("employee", "manager", "admin") ORDER BY login'
     );
     const profiles = await readProfiles();
     res.set('Cache-Control', 'no-store');
@@ -850,11 +887,12 @@ router.get('/employees', async (req, res) => {
 });
 
 // Обновление сотрудника
-router.put('/employees/:id', async (req, res) => {
+router.put('/employees/:id', requireAuth, requireRole('admin'), async (req, res) => {
   try {
     const { id } = req.params;
     const { login, password, full_name, department, phone, room } = req.body;
     const normalizedLogin = normalizeLogin(login);
+    const role = req.body?.role === 'manager' ? 'manager' : 'employee';
 
     if (!normalizedLogin) {
       return res.status(400).json({ message: 'Логин обязателен' });
@@ -871,13 +909,13 @@ router.put('/employees/:id', async (req, res) => {
 
     if (password) {
       await db.execute(
-        'UPDATE users SET login = ?, password = ?, full_name = ?, department = ?, phone = ?, room = ? WHERE id = ? AND role = "employee"',
-        [normalizedLogin, hashPassword(password), full_name || normalizedLogin, department || null, phone || null, room || null, id]
+        'UPDATE users SET login = ?, password = ?, role = ?, full_name = ?, department = ?, phone = ?, room = ? WHERE id = ? AND role IN ("employee", "manager")',
+        [normalizedLogin, await hashPassword(password), role, full_name || normalizedLogin, department || null, phone || null, room || null, id]
       );
     } else {
       await db.execute(
-        'UPDATE users SET login = ?, full_name = ?, department = ?, phone = ?, room = ? WHERE id = ? AND role = "employee"',
-        [normalizedLogin, full_name || normalizedLogin, department || null, phone || null, room || null, id]
+        'UPDATE users SET login = ?, role = ?, full_name = ?, department = ?, phone = ?, room = ? WHERE id = ? AND role IN ("employee", "manager")',
+        [normalizedLogin, role, full_name || normalizedLogin, department || null, phone || null, room || null, id]
       );
     }
 
@@ -894,10 +932,10 @@ router.put('/employees/:id', async (req, res) => {
 });
 
 // Удаление сотрудника
-router.delete('/employees/:id', async (req, res) => {
+router.delete('/employees/:id', requireAuth, requireRole('admin'), async (req, res) => {
   try {
     const { id } = req.params;
-    const [result] = await db.execute('DELETE FROM users WHERE id = ? AND role = "employee"', [id]);
+    const [result] = await db.execute('DELETE FROM users WHERE id = ? AND role IN ("employee", "manager")', [id]);
 
     if (!result.affectedRows) {
       return res.status(404).json({ message: 'Сотрудник не найден' });
@@ -919,37 +957,37 @@ router.post('/forgot-password', async (req, res) => {
     if (!normalizedLogin) {
       return res.status(400).json({ message: 'Укажите email/логин' });
     }
+    const now = Date.now();
+    for (const [key, requestedAt] of passwordResetRequestStore.entries()) {
+      if (now - Number(requestedAt || 0) >= PASSWORD_RESET_COOLDOWN_MS) {
+        passwordResetRequestStore.delete(key);
+      }
+    }
+    const requestKey = getLoginAttemptKey(req, normalizedLogin);
+    const lastRequestAt = Number(passwordResetRequestStore.get(requestKey) || 0);
+    if (now - lastRequestAt < PASSWORD_RESET_COOLDOWN_MS) {
+      return res.json({
+        message: 'Если учётная запись найдена, запрос передан ответственному сотруднику.'
+      });
+    }
+    passwordResetRequestStore.set(requestKey, now);
 
     const [users] = await db.execute(
       'SELECT * FROM users WHERE LOWER(login) = ? AND role = "employee"',
       [normalizedLogin]
     );
 
-    if (users.length === 0) {
-      return res.status(404).json({ message: 'Пользователь не найден' });
+    if (users.length > 0) {
+      const user = users[0];
+      const managerRecipients = await notifyManagersAboutPasswordReset({ employee: user });
+      await appendSystemResetMessages({
+        employee: user,
+        managerLogins: managerRecipients
+      });
     }
 
-    const user = users[0];
-    const temporaryPassword = generateTemporaryPassword();
-
-    await db.execute(
-      'UPDATE users SET password = ? WHERE id = ?',
-      [hashPassword(temporaryPassword), user.id]
-    );
-
-    const managerRecipients = await notifyManagersAboutPasswordReset({
-      employee: user,
-      temporaryPassword
-    });
-    await appendSystemResetMessages({
-      employee: user,
-      temporaryPassword,
-      managerLogins: managerRecipients
-    });
-
     res.json({
-      message: 'Запрос на восстановление пароля отправлен менеджерам.',
-      sentToManagers: managerRecipients
+      message: 'Если учётная запись найдена, запрос передан ответственному сотруднику.'
     });
   } catch (error) {
     console.error('Forgot password error:', error);
@@ -958,12 +996,9 @@ router.post('/forgot-password', async (req, res) => {
 });
 
 // Получение уведомлений менеджера по логину
-router.get('/manager-notifications', async (req, res) => {
+router.get('/manager-notifications', requireAuth, requireRole('manager', 'admin'), async (req, res) => {
   try {
-    const managerLogin = normalizeLogin(req.query?.managerLogin || '');
-    if (!managerLogin) {
-      return res.status(400).json({ message: 'managerLogin обязателен' });
-    }
+    const managerLogin = req.auth.login;
 
     const notifications = await readNotifications();
     const managerItems = notifications.filter((item) => normalizeLogin(item.managerLogin) === managerLogin);
@@ -974,7 +1009,7 @@ router.get('/manager-notifications', async (req, res) => {
   }
 });
 
-router.get('/presence', async (req, res) => {
+router.get('/presence', requireAuth, async (req, res) => {
   try {
     const presence = await readPresence();
     res.json({
@@ -991,17 +1026,12 @@ router.get('/presence', async (req, res) => {
   }
 });
 
-router.post('/presence', async (req, res) => {
+router.post('/presence', requireAuth, async (req, res) => {
   try {
-    const login = normalizeLogin(req.body?.login);
-    if (!login) {
-      return res.status(400).json({ message: 'login обязателен' });
-    }
-
     await upsertPresence({
-      login,
+      login: req.auth.login,
       isOnline: Boolean(req.body?.isOnline),
-      role: req.body?.role || 'employee'
+      role: req.auth.role
     });
 
     res.json({ message: 'Статус обновлён' });
@@ -1011,7 +1041,7 @@ router.post('/presence', async (req, res) => {
   }
 });
 
-router.get('/profile', async (req, res) => {
+router.get('/profile', requireAuth, async (req, res) => {
   try {
     const normalizedLogin = normalizeLogin(req.query?.login || '');
     if (!normalizedLogin) {
@@ -1024,7 +1054,7 @@ router.get('/profile', async (req, res) => {
     );
 
     const user = users[0] || null;
-    if (!user && normalizedLogin !== 'manager_nioh') {
+    if (!user) {
       return res.status(404).json({ message: 'Пользователь не найден' });
     }
 
@@ -1033,9 +1063,9 @@ router.get('/profile', async (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json({
       profile: {
-        login: user?.login || normalizedLogin,
-        role: user?.role || (normalizedLogin === 'manager_nioh' ? 'manager' : 'employee'),
-        full_name: user?.full_name || extras.full_name || normalizedLogin,
+        login: user.login,
+        role: user.role,
+        full_name: user.full_name || extras.full_name || normalizedLogin,
         department: user?.department || extras.department || '',
         phone: user?.phone || extras.phone || '',
         room: user?.room || extras.room || '',
@@ -1055,12 +1085,9 @@ router.get('/profile', async (req, res) => {
   }
 });
 
-router.put('/profile', async (req, res) => {
+router.put('/profile', requireAuth, async (req, res) => {
   try {
-    const normalizedLogin = normalizeLogin(req.body?.login || '');
-    if (!normalizedLogin) {
-      return res.status(400).json({ message: 'login обязателен' });
-    }
+    const normalizedLogin = req.auth.login;
     if (Object.prototype.hasOwnProperty.call(req.body || {}, 'avatar')) {
       validateAvatar(req.body.avatar);
     }
@@ -1110,11 +1137,10 @@ router.put('/profile', async (req, res) => {
   }
 });
 
-router.put('/profile/preferences', async (req, res) => {
+router.put('/profile/preferences', requireAuth, async (req, res) => {
   try {
-    const normalizedLogin = normalizeLogin(req.body?.login || '');
+    const normalizedLogin = req.auth.login;
     const preferences = req.body?.preferences;
-    if (!normalizedLogin) return res.status(400).json({ message: 'login обязателен' });
     if (!preferences || typeof preferences !== 'object' || Array.isArray(preferences)) {
       return res.status(400).json({ message: 'preferences должен быть объектом' });
     }
@@ -1135,7 +1161,7 @@ router.put('/profile/preferences', async (req, res) => {
   }
 });
 
-router.get('/profile/:login/avatar', async (req, res) => {
+router.get('/profile/:login/avatar', requireAuthAllowQuery, async (req, res) => {
   try {
     const normalizedLogin = normalizeLogin(decodeURIComponent(req.params.login || ''));
     if (!normalizedLogin) return res.status(400).json({ message: 'login обязателен' });
@@ -1156,14 +1182,14 @@ router.get('/profile/:login/avatar', async (req, res) => {
   }
 });
 
-router.put('/change-password', async (req, res) => {
+router.put('/change-password', requireAuth, async (req, res) => {
   try {
-    const normalizedLogin = normalizeLogin(req.body?.login || '');
+    const normalizedLogin = req.auth.login;
     const currentPassword = String(req.body?.currentPassword || '');
     const newPassword = String(req.body?.newPassword || '');
 
-    if (!normalizedLogin || !currentPassword || !newPassword) {
-      return res.status(400).json({ message: 'login, currentPassword и newPassword обязательны' });
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'currentPassword и newPassword обязательны' });
     }
     if (newPassword.length < 8) {
       return res.status(400).json({ message: 'Новый пароль должен содержать минимум 8 символов' });
@@ -1174,11 +1200,11 @@ router.put('/change-password', async (req, res) => {
       return res.status(404).json({ message: 'Пользователь не найден' });
     }
 
-    if (!isPasswordValid(currentPassword, users[0].password)) {
+    if (!await isPasswordValid(currentPassword, users[0].password)) {
       return res.status(400).json({ message: 'Текущий пароль указан неверно' });
     }
 
-    await db.execute('UPDATE users SET password = ? WHERE id = ?', [hashPassword(newPassword), users[0].id]);
+    await db.execute('UPDATE users SET password = ? WHERE id = ?', [await hashPassword(newPassword), users[0].id]);
     res.json({ message: 'Пароль обновлён' });
   } catch (error) {
     console.error('Change password error:', error);
@@ -1232,15 +1258,15 @@ router.post('/login', async (req, res) => {
 
     const user = users[0];
 
-    if (!isPasswordValid(passwordValue, user.password)) {
+    if (!await isPasswordValid(passwordValue, user.password)) {
       recordFailedLogin(attemptKey);
       return res.status(401).json({ message: 'Неверный логин или пароль' });
     }
 
     clearLoginAttempts(attemptKey);
 
-    if (user.password && !String(user.password).startsWith('sha256$')) {
-      await db.execute('UPDATE users SET password = ? WHERE id = ?', [hashPassword(passwordValue), user.id]);
+    if (passwordNeedsUpgrade(user.password)) {
+      await db.execute('UPDATE users SET password = ? WHERE id = ?', [await hashPassword(passwordValue), user.id]);
     }
 
     const profile = await readProfileByLogin(user.login);

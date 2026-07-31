@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../utils/apiConfig';
-import { MANAGER_CREDENTIALS } from '../config/authConfig';
+import { authFetch, withAccessToken } from '../utils/authFetch';
 import {
   readCachedConversation,
   writeCachedConversation,
@@ -1125,7 +1125,7 @@ const fetchJsonWithRetry = async (url, options = {}, { attempts = 4, retryDelay 
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      const response = await fetch(url, options);
+      const response = await authFetch(url, options);
       return await readApiJson(response, fallbackMessage);
     } catch (error) {
       lastError = error;
@@ -1401,10 +1401,12 @@ const getCurrentAttachmentIdentity = () => {
 };
 
 const appendAttachmentLogin = (url = '') => {
-  const { login, accessToken } = getCurrentAttachmentIdentity();
-  if (!accessToken || !url.includes('/api/chat/files/')) return url;
-  const separator = url.includes('?') ? '&' : '?';
-  return `${url}${separator}login=${encodeURIComponent(login)}&access_token=${encodeURIComponent(accessToken)}`;
+  const { accessToken } = getCurrentAttachmentIdentity();
+  if (
+    !accessToken
+    || (!url.includes('/api/chat/files/') && !url.includes('/api/auth/profile/'))
+  ) return url;
+  return withAccessToken(url);
 };
 
 const resolveAttachmentUrl = (url = '') => {
@@ -1718,7 +1720,7 @@ const EmployeeChat = () => {
   const { user, logout, employeeDirectory, changeServicePassword } = useAuth();
   const isManager = user?.role === 'manager' || user?.role === 'admin';
   const baseDisplayName = user?.name || user?.username || 'Сотрудник';
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.serverRole === 'admin' || user?.role === 'admin';
   const chatAuthHeaders = useMemo(() => ({
     ...(user?.accessToken ? { Authorization: `Bearer ${user.accessToken}` } : {})
   }), [user?.accessToken]);
@@ -1886,10 +1888,10 @@ const EmployeeChat = () => {
     if (settingsSyncTimerRef.current) clearTimeout(settingsSyncTimerRef.current);
     settingsSyncTimerRef.current = setTimeout(async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/auth/profile/preferences`, {
+        const response = await authFetch(`${API_BASE_URL}/auth/profile/preferences`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ login, preferences: settings }),
+          body: JSON.stringify({ preferences: settings }),
           keepalive: true
         });
         if (!response.ok) {
@@ -1990,6 +1992,7 @@ const EmployeeChat = () => {
     id: null,
     login: '',
     password: '',
+    role: 'employee',
     full_name: '',
     department: '',
     phone: '',
@@ -2135,7 +2138,7 @@ const EmployeeChat = () => {
   };
 
   const loadProfile = useCallback(async (login, mode = 'form') => {
-    const response = await fetch(`${API_BASE_URL}/auth/profile?login=${encodeURIComponent(login)}`);
+    const response = await authFetch(`${API_BASE_URL}/auth/profile?login=${encodeURIComponent(login)}`);
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       throw new Error(data.message || 'Не удалось загрузить анкету');
@@ -2154,7 +2157,7 @@ const EmployeeChat = () => {
       websiteLanguage: getProfileValue(profile, cachedProfile, 'websiteLanguage', 'website_language') || DEFAULT_PROFILE_WEBSITE_LANGUAGE,
       website: getProfileValue(profile, cachedProfile, 'website') || getWebsiteByLanguage(getProfileValue(profile, cachedProfile, 'websiteLanguage', 'website_language') || DEFAULT_PROFILE_WEBSITE_LANGUAGE),
       statusText: getProfileValue(profile, cachedProfile, 'statusText', 'status_text'),
-      avatar: getProfileValue(profile, cachedProfile, 'avatar')
+      avatar: resolveAttachmentUrl(getProfileValue(profile, cachedProfile, 'avatar'))
     };
 
     if (!mergedProfile.full_name) mergedProfile.full_name = directoryProfile.full_name || '';
@@ -2208,7 +2211,7 @@ const EmployeeChat = () => {
     if (Date.now() < suppressThreadsRefreshUntilRef.current) return;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/threads?login=${encodeURIComponent(user.username)}`, {
+      const response = await authFetch(`${API_BASE_URL}/chat/threads`, {
         headers: chatAuthHeaders
       });
       const data = await readApiJson(response, 'Не удалось загрузить сообщения');
@@ -2217,14 +2220,14 @@ const EmployeeChat = () => {
     } catch (error) {
       console.error('Ошибка загрузки переписки:', error);
     }
-  }, [chatAuthHeaders, user.username]);
+  }, [chatAuthHeaders]);
 
   const fetchConversationMessages = useCallback(async (conversationId, { silent = false, signal } = {}) => {
     if (!conversationId || Date.now() < suppressThreadsRefreshUntilRef.current) return;
     if (!silent) setLoadingConversationIds((prev) => ({ ...prev, [conversationId]: true }));
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages?limit=${CHAT_MESSAGES_PAGE_SIZE}&login=${encodeURIComponent(user.username)}`,
+      const response = await authFetch(
+        `${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages?limit=${CHAT_MESSAGES_PAGE_SIZE}`,
         { headers: chatAuthHeaders, signal }
       );
       const data = await readApiJson(response, 'Не удалось загрузить сообщения');
@@ -2256,8 +2259,8 @@ const EmployeeChat = () => {
     const before = currentMessages[0]?.createdAt || '';
     setIsLoadingOlderDialog(true);
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/chat/threads/${encodeURIComponent(currentConversationId)}/messages?limit=${CHAT_MESSAGES_PAGE_SIZE}&before=${encodeURIComponent(before)}&login=${encodeURIComponent(user.username)}`,
+      const response = await authFetch(
+        `${API_BASE_URL}/chat/threads/${encodeURIComponent(currentConversationId)}/messages?limit=${CHAT_MESSAGES_PAGE_SIZE}&before=${encodeURIComponent(before)}`,
         { headers: chatAuthHeaders }
       );
       const data = await response.json().catch(() => ({}));
@@ -2276,7 +2279,7 @@ const EmployeeChat = () => {
     } finally {
       setIsLoadingOlderDialog(false);
     }
-  }, [chatAuthHeaders, currentConversationId, currentMessages, isLoadingOlderDialog, notify, user.username]);
+  }, [chatAuthHeaders, currentConversationId, currentMessages, isLoadingOlderDialog, notify]);
 
   const fetchFeed = useCallback(async ({ silent = true, force = false } = {}) => {
     if (!force && pendingFeedActionsRef.current.size > 0) return;
@@ -2290,7 +2293,7 @@ const EmployeeChat = () => {
     if (initialLoad) setFeedLoading(true);
     else if (!silent) setFeedRefreshing(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/feed?limit=${FEED_POSTS_PAGE_SIZE}&commentsLimit=3`, { signal: controller.signal });
+      const response = await authFetch(`${API_BASE_URL}/chat/feed?limit=${FEED_POSTS_PAGE_SIZE}&commentsLimit=3`, { signal: controller.signal });
       const data = await readApiJson(response, 'Не удалось загрузить ленту');
       if (
         requestSequence !== feedFetchSequenceRef.current
@@ -2325,7 +2328,7 @@ const EmployeeChat = () => {
     const mutationVersionAtStart = feedMutationVersionRef.current;
     setFeedLoadingMore(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/feed?limit=${FEED_POSTS_PAGE_SIZE}&commentsLimit=3&before=${encodeURIComponent(feedBefore)}`);
+      const response = await authFetch(`${API_BASE_URL}/chat/feed?limit=${FEED_POSTS_PAGE_SIZE}&commentsLimit=3&before=${encodeURIComponent(feedBefore)}`);
       const data = await readApiJson(response, 'Не удалось загрузить ленту');
       if (mutationVersionAtStart !== feedMutationVersionRef.current || pendingFeedActionsRef.current.size > 0) return;
       const nextPosts = getVisibleFeedPosts(data?.posts);
@@ -2346,7 +2349,7 @@ const EmployeeChat = () => {
     if (!user?.username) return;
     if (!silent) setApplicationsLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/applications/my?employee_login=${encodeURIComponent(user.username)}`);
+      const response = await authFetch(`${API_BASE_URL}/applications/my`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || data.message || 'Не удалось загрузить заявки');
       setMyApplications(Array.isArray(data?.applications) ? data.applications : []);
@@ -2364,7 +2367,7 @@ const EmployeeChat = () => {
 
   const fetchEmployees = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/employees`);
+      const response = await authFetch(`${API_BASE_URL}/auth/employees`);
       if (!response.ok) {
         setIsDirectoryLoaded(true);
         return;
@@ -2375,7 +2378,7 @@ const EmployeeChat = () => {
       saveDirectoryCache(employees);
       const ownEmployee = employees.find((employee) => sameLogin(employee.login, user?.username || ''));
       if (ownEmployee) {
-        const currentAvatar = ownEmployee.avatar || ownEmployee.profile?.avatar || '';
+        const currentAvatar = resolveAttachmentUrl(ownEmployee.avatar || ownEmployee.profile?.avatar || '');
         setAvatarUrl(currentAvatar);
         if (currentAvatar) localStorage.setItem(getAvatarKey(user.username), currentAvatar);
         else localStorage.removeItem(getAvatarKey(user.username));
@@ -2392,17 +2395,17 @@ const EmployeeChat = () => {
   }, [user?.username]);
 
   const persistThreadMessages = useCallback(async (conversationId, messages) => {
-    await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}?login=${encodeURIComponent(user.username)}`, {
+    await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
       body: JSON.stringify({ messages })
     }, { fallbackMessage: 'Не удалось сохранить сообщение' });
 
     setThreads((prev) => ({ ...prev, [conversationId]: messages }));
-  }, [chatAuthHeaders, user.username]);
+  }, [chatAuthHeaders]);
 
   const persistNewMessage = useCallback(async (conversationId, message) => {
-    await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages?login=${encodeURIComponent(user.username)}`, {
+    await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
       body: JSON.stringify({ message })
@@ -2421,15 +2424,15 @@ const EmployeeChat = () => {
         }
       };
     });
-  }, [chatAuthHeaders, threads, user.username]);
+  }, [chatAuthHeaders, threads]);
 
   const persistMessagePatch = useCallback(async (conversationId, messageId, message) => {
-    await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}?login=${encodeURIComponent(user.username)}`, {
+    await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
       body: JSON.stringify({ message })
     }, { fallbackMessage: 'Не удалось сохранить изменение' });
-  }, [chatAuthHeaders, user.username]);
+  }, [chatAuthHeaders]);
 
   useEffect(() => {
     const refreshCoreData = () => {
@@ -2494,7 +2497,7 @@ const EmployeeChat = () => {
 
   useEffect(() => {
     if (!user?.username || typeof EventSource === 'undefined') return undefined;
-    const query = new URLSearchParams({ login: user.username });
+    const query = new URLSearchParams();
     if (user.accessToken) query.set('access_token', user.accessToken);
     const stream = new EventSource(`${API_BASE_URL}/chat/threads/stream?${query.toString()}`);
 
@@ -2758,20 +2761,6 @@ const EmployeeChat = () => {
     const presenceMap = new Map(employeeDirectory.map((item) => [item.email?.toLowerCase(), item]));
     const sourceEmployees = [...directoryEmployees];
 
-    const shouldInjectManagerFallback = true;
-    if (
-      shouldInjectManagerFallback
-      && !sourceEmployees.some((item) => item.login.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase())
-    ) {
-      sourceEmployees.push({
-        id: 'admin-static',
-        login: MANAGER_CREDENTIALS.username,
-        full_name: MANAGER_CREDENTIALS.name,
-        role: 'admin',
-        department: 'Администратор'
-      });
-    }
-
     return sourceEmployees
       .filter((item) => item.login !== user?.username)
       .map((item) => {
@@ -2779,7 +2768,7 @@ const EmployeeChat = () => {
         const lastSeen = presence?.lastSeen || null;
         const lastSeenMs = lastSeen ? new Date(lastSeen).getTime() : 0;
         const isRecentlySeen = Boolean(lastSeenMs) && Date.now() - lastSeenMs < 45000;
-        const computedRole = presence?.role || item.role || (item.login.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase() ? 'admin' : 'employee');
+        const computedRole = presence?.role || item.role || 'employee';
         return {
           email: item.login,
           isOnline: Boolean(presence?.isOnline) || isRecentlySeen,
@@ -2789,8 +2778,8 @@ const EmployeeChat = () => {
         };
       })
       .sort((a, b) => {
-        const aIsManager = ['manager', 'admin'].includes((a.role || '').toLowerCase()) || a.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
-        const bIsManager = ['manager', 'admin'].includes((b.role || '').toLowerCase()) || b.email.toLowerCase() === MANAGER_CREDENTIALS.username.toLowerCase();
+        const aIsManager = ['manager', 'admin'].includes((a.role || '').toLowerCase());
+        const bIsManager = ['manager', 'admin'].includes((b.role || '').toLowerCase());
 
         if (aIsManager !== bIsManager) return aIsManager ? -1 : 1;
 
@@ -2800,6 +2789,10 @@ const EmployeeChat = () => {
         return a.email.localeCompare(b.email);
       });
   }, [directoryEmployees, employeeDirectory, isDirectoryLoaded, isManager, user?.username]);
+  const managerLogin = useMemo(
+    () => chatCandidates.find((item) => ['manager', 'admin'].includes(String(item.role || '').toLowerCase()))?.email || '',
+    [chatCandidates]
+  );
 
   const availableEmployees = useMemo(() => {
     const normalizedSearch = normalizeText(search);
@@ -2979,11 +2972,10 @@ const EmployeeChat = () => {
 
     try {
       const optimizedAvatar = await processAvatar(file);
-      const response = await fetch(`${API_BASE_URL}/auth/profile`, {
+      const response = await authFetch(`${API_BASE_URL}/auth/profile`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          login: user.username,
           ...profileForm,
           avatar: optimizedAvatar
         })
@@ -3005,11 +2997,10 @@ const EmployeeChat = () => {
   };
 
   const removeAvatar = async () => {
-    const response = await fetch(`${API_BASE_URL}/auth/profile`, {
+    const response = await authFetch(`${API_BASE_URL}/auth/profile`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        login: user.username,
         ...profileForm,
         avatar: ''
       })
@@ -3113,7 +3104,7 @@ const EmployeeChat = () => {
     if (mediaMetadata.duration) formData.append('duration', String(mediaMetadata.duration));
     formData.append('file', file, file.name);
 
-    const response = await fetch(`${API_BASE_URL}/chat/uploads`, {
+    const response = await authFetch(`${API_BASE_URL}/chat/uploads`, {
       method: 'POST',
       body: formData
     });
@@ -3204,11 +3195,10 @@ const EmployeeChat = () => {
 
   const saveMyProfile = async (event) => {
     event.preventDefault();
-    const response = await fetch(`${API_BASE_URL}/auth/profile`, {
+    const response = await authFetch(`${API_BASE_URL}/auth/profile`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        login: user.username,
         ...profileForm,
         avatar: avatarUrl
       })
@@ -3233,7 +3223,6 @@ const EmployeeChat = () => {
     if (user?.role === 'manager' || user?.role === 'admin') {
       try {
         await changeServicePassword({
-          login: user.username,
           currentPassword: passwordForm.currentPassword,
           newPassword: passwordForm.newPassword
         });
@@ -3245,11 +3234,10 @@ const EmployeeChat = () => {
       return;
     }
 
-    const response = await fetch(`${API_BASE_URL}/auth/change-password`, {
+    const response = await authFetch(`${API_BASE_URL}/auth/change-password`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        login: user.username,
         currentPassword: passwordForm.currentPassword,
         newPassword: passwordForm.newPassword
       })
@@ -3291,14 +3279,10 @@ const EmployeeChat = () => {
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        const response = await fetch(`${API_BASE_URL}/applications/from-chat`, {
+        const response = await authFetch(`${API_BASE_URL}/applications/from-chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            employee_login: user?.username || '',
-            name: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
-            cabinet: profileForm.room || '',
-            N_tel: profileForm.phone || '',
             application: requestText.trim(),
             category: requestCategory,
             priority: requestPriority,
@@ -3339,10 +3323,10 @@ const EmployeeChat = () => {
       if (!confirmed) return;
     }
     try {
-      const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/confirm`, {
+      const response = await authFetch(`${API_BASE_URL}/applications/${applicationId}/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ actor: user?.username || 'employee', employee_comment: String(employeeComment || '').trim() })
+        body: JSON.stringify({ employee_comment: String(employeeComment || '').trim() })
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || data.message || 'Не удалось подтвердить заявку');
@@ -3357,10 +3341,10 @@ const EmployeeChat = () => {
     const comment = await promptAction('Что осталось неисправным? Администратор увидит комментарий.', '', 'Проблема осталась');
     if (!comment) return;
     try {
-      const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/reopen`, {
+      const response = await authFetch(`${API_BASE_URL}/applications/${applicationId}/reopen`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ actor: user?.username || 'employee', employee_comment: comment })
+        body: JSON.stringify({ employee_comment: comment })
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || data.message || 'Не удалось переоткрыть заявку');
@@ -3958,6 +3942,7 @@ const EmployeeChat = () => {
     const payload = {
       login: employeeForm.login,
       password: employeeForm.password,
+      role: employeeForm.role,
       full_name: employeeForm.full_name,
       department: employeeForm.department,
       phone: employeeForm.phone,
@@ -3968,7 +3953,7 @@ const EmployeeChat = () => {
     const url = isEdit ? `${API_BASE_URL}/auth/employees/${employeeForm.id}` : `${API_BASE_URL}/auth/register`;
     const method = isEdit ? 'PUT' : 'POST';
 
-    const response = await fetch(url, {
+    const response = await authFetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -3981,14 +3966,14 @@ const EmployeeChat = () => {
     }
 
     await fetchEmployees();
-    setEmployeeForm({ id: null, login: '', password: '', full_name: '', department: '', phone: '', room: '' });
+    setEmployeeForm({ id: null, login: '', password: '', role: 'employee', full_name: '', department: '', phone: '', room: '' });
     setShowEmployeePassword(false);
   };
 
   const deleteEmployee = async (employeeId) => {
     const confirmed = await confirmAction('Удалить сотрудника? Его учётная запись будет удалена.', 'Удаление сотрудника');
     if (!confirmed) return;
-    const response = await fetch(`${API_BASE_URL}/auth/employees/${employeeId}`, { method: 'DELETE' });
+    const response = await authFetch(`${API_BASE_URL}/auth/employees/${employeeId}`, { method: 'DELETE' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       notify(data.message || 'Не удалось удалить сотрудника', 'Сотрудники');
@@ -4034,7 +4019,9 @@ const EmployeeChat = () => {
   }).sort((a, b) => (threadActivityById[b]?.lastTimestamp || 0) - (threadActivityById[a]?.lastTimestamp || 0)), [auditFilters, auditSearch, threadActivityById, threads]);
 
   const typingHint = draft.trim().length > 0 ? t('youTyping') : '';
-  const tabs = isManager ? MANAGER_TABS : EMPLOYEE_TABS;
+  const tabs = isManager
+    ? MANAGER_TABS.filter((tab) => tab.id !== 'employees' || isAdmin)
+    : EMPLOYEE_TABS;
   const unreadTotal = Object.values(unreadByEmail).reduce((sum, count) => sum + count, 0);
   const feedReadTimestamp = feedReadAt ? new Date(feedReadAt).getTime() : 0;
   const feedBadge = feedPosts.reduce((count, post) => {
@@ -4157,15 +4144,15 @@ const EmployeeChat = () => {
   const getEmployeeAvatar = useCallback((login = '', ...candidates) => {
     const normalizedLogin = formatFeedLogin(login);
     const directAvatar = candidates.find((value) => typeof value === 'string' && value.trim());
-    if (directAvatar) return directAvatar;
+    if (directAvatar) return resolveAttachmentUrl(directAvatar);
 
-    if (sameLogin(normalizedLogin, user?.username || '')) return avatarUrl || '';
+    if (sameLogin(normalizedLogin, user?.username || '')) return resolveAttachmentUrl(avatarUrl || '');
 
     const cachedProfile = normalizedLogin ? readProfileDraft(normalizedLogin) : {};
-    if (cachedProfile.avatar) return cachedProfile.avatar;
+    if (cachedProfile.avatar) return resolveAttachmentUrl(cachedProfile.avatar);
 
     const directoryProfile = directoryEmployees.find((employee) => sameLogin(employee.login, normalizedLogin)) || {};
-    return directoryProfile.avatar || directoryProfile.photo || directoryProfile.photo_url || '';
+    return resolveAttachmentUrl(directoryProfile.avatar || directoryProfile.photo || directoryProfile.photo_url || '');
   }, [avatarUrl, directoryEmployees, user?.username]);
 
   useEffect(() => {
@@ -4221,7 +4208,13 @@ const EmployeeChat = () => {
       const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(optimisticPost)
+        body: JSON.stringify({
+          id: optimisticPost.id,
+          text: optimisticPost.text,
+          attachment: optimisticPost.attachment,
+          attachments: optimisticPost.attachments,
+          category: optimisticPost.category
+        })
       }, { attempts: 2, fallbackMessage: 'Не удалось опубликовать запись' });
 
       const serverPost = data?.post ? { ...data.post, deliveryStatus: 'sent' } : null;
@@ -4296,7 +4289,7 @@ const EmployeeChat = () => {
     const actionKey = `comments-load:${postId}`;
     if (hasPendingCommentChange || !beginFeedAction(actionKey, postId)) return;
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments?limit=50`);
+      const response = await authFetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments?limit=50`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось загрузить комментарии');
       const comments = Array.isArray(data?.comments) ? data.comments : [];
@@ -4352,8 +4345,6 @@ const EmployeeChat = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: optimisticComment.id,
-          author: optimisticComment.author,
-          authorName: optimisticComment.authorName,
           text
         })
       }, { attempts: 4, fallbackMessage: 'Не удалось добавить комментарий' });
@@ -4489,7 +4480,7 @@ const EmployeeChat = () => {
 
     try {
       await fetchJsonWithRetry(
-        `${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}?deletedBy=${encodeURIComponent(user?.username || 'employee')}`,
+        `${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}`,
         { method: 'DELETE' },
         { attempts: 2, fallbackMessage: 'Не удалось удалить публикацию' }
       );
@@ -4536,7 +4527,7 @@ const EmployeeChat = () => {
 
     try {
       const data = await fetchJsonWithRetry(
-        `${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}?deletedBy=${encodeURIComponent(user?.username || 'employee')}`,
+        `${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}`,
         { method: 'DELETE' },
         { attempts: 4, fallbackMessage: 'Не удалось удалить комментарий' }
       );
@@ -4587,7 +4578,7 @@ const EmployeeChat = () => {
       const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/reactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emoji, login, active })
+        body: JSON.stringify({ emoji, active })
       }, { attempts: 4, fallbackMessage: 'Не удалось обновить реакцию' });
       setFeedPosts((current) => current.map((item) => (
         item.id === postId
@@ -4702,7 +4693,7 @@ const EmployeeChat = () => {
               employees={availableEmployees}
               selectedEmail={selectedEmail}
               currentLogin={user.username}
-              managerLogin={MANAGER_CREDENTIALS.username}
+              managerLogin={managerLogin}
               unreadByEmail={unreadByEmail}
               favorites={chatLocalSettings.favorites}
               pinnedDialogs={chatLocalSettings.pinned}
@@ -5326,7 +5317,7 @@ const EmployeeChat = () => {
           </div>
         )}
 
-        {activeTab === 'employees' && isManager && (
+        {activeTab === 'employees' && isAdmin && (
           <section className="manager-panel">
             <h2>{t('employeeManagement')}</h2>
             <form className="manager-form manager-form-labeled" onSubmit={saveEmployee}>
@@ -5336,12 +5327,13 @@ const EmployeeChat = () => {
                 <input type={showEmployeePassword ? 'text' : 'password'} placeholder={employeeForm.id ? t('passwordKeepPlaceholder') : t('loginPasswordPlaceholder')} value={employeeForm.password} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, password: e.target.value }))} />
                 <small>{employeeForm.id ? t('passwordKeepHint') : t('passwordMinHint')}</small>
               </label>
+              <label><span>Account role</span><select value={employeeForm.role} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, role: e.target.value }))}><option value="employee">Employee</option><option value="manager">Manager</option></select></label>
               <label><span>{t('fullName')}</span><input placeholder={t('profileNamePlaceholder')} value={employeeForm.full_name} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, full_name: e.target.value }))} /></label>
               <label><span>{t('department')}</span><input placeholder={t('employeeDepartmentPlaceholder')} value={employeeForm.department} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, department: e.target.value }))} /></label>
               <label className="manager-password-toggle"><input type="checkbox" checked={showEmployeePassword} onChange={(e) => setShowEmployeePassword(e.target.checked)} />{t('showPassword')}</label>
               <div className="manager-form-actions">
                 <button type="submit">{employeeForm.id ? t('saveActionButton') : t('add')}</button>
-                {employeeForm.id && <button type="button" onClick={() => { setEmployeeForm({ id: null, login: '', password: '', full_name: '', department: '', phone: '', room: '' }); setShowEmployeePassword(false); }}>{t('cancel')}</button>}
+                {employeeForm.id && <button type="button" onClick={() => { setEmployeeForm({ id: null, login: '', password: '', role: 'employee', full_name: '', department: '', phone: '', room: '' }); setShowEmployeePassword(false); }}>{t('cancel')}</button>}
               </div>
             </form>
             <div className="manager-list">
@@ -5349,7 +5341,7 @@ const EmployeeChat = () => {
                 <div className="manager-list-item" key={employee.id}>
                   <div><strong>{employee.login}</strong><div>{employee.full_name || '—'}</div></div>
                   <div className="manager-list-actions">
-                    <button type="button" onClick={() => { setEmployeeForm({ id: employee.id, login: employee.login || '', password: '', full_name: employee.full_name || '', department: employee.department || '', phone: employee.phone || '', room: employee.room || '' }); setShowEmployeePassword(false); }}>{t('edit')}</button>
+                    <button type="button" onClick={() => { setEmployeeForm({ id: employee.id, login: employee.login || '', password: '', role: employee.role === 'manager' ? 'manager' : 'employee', full_name: employee.full_name || '', department: employee.department || '', phone: employee.phone || '', room: employee.room || '' }); setShowEmployeePassword(false); }}>{t('edit')}</button>
                     <button type="button" onClick={() => deleteEmployee(employee.id)}>{t('delete')}</button>
                   </div>
                 </div>

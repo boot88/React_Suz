@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './EditApplicationsTable.css';
 import { API_BASE_URL } from '../utils/apiConfig';
+import { authFetch } from '../utils/authFetch';
 
 function EditApplicationsTable() {
   const [applications, setApplications] = useState([]);
@@ -22,18 +23,12 @@ function EditApplicationsTable() {
     return new Date(localDate.getTime() + timezoneOffset * 60000);
   };
 
-  const formatDateTimeForInput = (date) => {
-    if (!date) return '';
-    const adjustedDate = adjustForNovosibirskTime(date);
-    return adjustedDate.toISOString().slice(0, 16);
-  };
-
   const fetchApplications = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const statusQuery = statusFilter !== 'all' ? `&status=${encodeURIComponent(statusFilter)}` : '';
-      const response = await fetch(
+      const response = await authFetch(
         `${API_BASE_URL}/applications?page=${currentPage}&limit=${itemsPerPage}${statusQuery}`
       );
       
@@ -74,7 +69,7 @@ function EditApplicationsTable() {
       case 'cabinet':
         if (value && value.length > 15) {
           error = 'Максимум 15 символов';
-        } else if (value && !/^[а-яА-ЯёЁ0-9\s,\-]+$/.test(value)) {
+        } else if (value && !/^[а-яА-ЯёЁ0-9\s,-]+$/.test(value)) {
           error = 'Только цифры, русские буквы, пробелы, запятые, дефис';
         }
         break;
@@ -104,7 +99,7 @@ function EditApplicationsTable() {
       case 'executor':
         if (value && value.length > 60) {
           error = 'Максимум 60 символов';
-        } else if (value && !/^[а-яА-ЯёЁ\s,\.]+$/.test(value)) {
+        } else if (value && !/^[а-яА-ЯёЁ\s,.]+$/.test(value)) {
           error = 'Только русские буквы, пробелы, запятые, точка';
         }
         break;
@@ -235,7 +230,7 @@ function EditApplicationsTable() {
         }
       }
 
-      const response = await fetch(`${API_BASE_URL}/applications/${appToSave.id}`, {
+      const response = await authFetch(`${API_BASE_URL}/applications/${appToSave.id}`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
@@ -271,7 +266,7 @@ function EditApplicationsTable() {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/applications/${id}`, {
+      const response = await authFetch(`${API_BASE_URL}/applications/${id}`, {
         method: 'DELETE',
         headers: { 
           'Content-Type': 'application/json'
@@ -295,12 +290,6 @@ function EditApplicationsTable() {
       console.error('Ошибка удаления:', err.message);
       alert('Произошла сетевая ошибка при удалении. Проверьте подключение к серверу.');
     }
-  };
-
-  const formatDateForInput = (dateString) => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    return date.toISOString().split('T')[0];
   };
 
   const getVisiblePages = () => {
@@ -331,14 +320,6 @@ function EditApplicationsTable() {
   const formatDate = (dateString) => {
     if (!dateString) return '—';
     return new Date(dateString).toLocaleDateString('ru-RU');
-  };
-
-  const formatTime = (dateString) => {
-    if (!dateString) return '—';
-    return new Date(dateString).toLocaleTimeString('ru-RU', {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
   };
 
   const getStatusLabel = (app) => {

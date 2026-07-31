@@ -1,10 +1,45 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  BarChart, Bar, Line, PieChart, Pie, Cell, Area,
+  Bar, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart,
-  Legend, Scatter
+  Legend
 } from 'recharts';
 import './Statistics.css';
+import { API_BASE_URL } from '../utils/apiConfig';
+import { authFetch } from '../utils/authFetch';
+
+const INSTITUTE_COLORS = {
+  primary: '#0056b3',
+  secondary: '#17a2b8',
+  accent: '#28a745',
+  warning: '#ffc107',
+  light: '#e7f3ff',
+  dark: '#343a40',
+  gray: '#6c757d',
+  lightGray: '#f8f9fa'
+};
+
+const EXECUTOR_COLORS = {
+  'Повисок Е.В.': INSTITUTE_COLORS.primary,
+  'Польников Д.В.': INSTITUTE_COLORS.secondary,
+  'Андреев Р.В.': '#FFBB28',
+  'Польников Д.В. Повисок Е.В.': '#FF8042',
+  'Повисок Е.В. Андреев Р.В.': '#8884D8',
+  'Андреев Р.В. Польников Д.В.': '#82CA9D',
+  'Повисок Е.В. Польников Д.В. Андреев Р.В.': '#FF6B6B',
+  'Другие': '#ADB5BD'
+};
+
+const TIME_LINE_COLORS = [
+  INSTITUTE_COLORS.primary,
+  INSTITUTE_COLORS.secondary,
+  '#FFBB28',
+  '#FF8042',
+  '#8884D8',
+  '#82CA9D',
+  '#FF6B6B',
+  '#ADB5BD'
+];
 
 const Statistics = () => {
   const [applications, setApplications] = useState([]);
@@ -17,7 +52,7 @@ const Statistics = () => {
   const [timeRange, setTimeRange] = useState('month');
   const [filteredChartData, setFilteredChartData] = useState([]);
   const [allMonths, setAllMonths] = useState([]);
-  const [debugInfo, setDebugInfo] = useState('');
+  const [, setDebugInfo] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [zoomMode, setZoomMode] = useState(false);
   
@@ -33,44 +68,7 @@ const Statistics = () => {
     'Другие': false
   });
 
-  const API_BASE_URL = 'http://localhost:5000/api';
   
-  // Цвета для институтского стиля
-  const INSTITUTE_COLORS = {
-    primary: '#0056b3',    // Темно-синий (основной)
-    secondary: '#17a2b8',  // Бирюзовый
-    accent: '#28a745',     // Зеленый (успех)
-    warning: '#ffc107',    // Желтый (предупреждение)
-    light: '#e7f3ff',      // Светло-голубой (фон)
-    dark: '#343a40',       // Темный
-    gray: '#6c757d',       // Серый
-    lightGray: '#f8f9fa'   // Светло-серый
-  };
-
-  // Цвета для категорий исполнителей
-  const EXECUTOR_COLORS = {
-    'Повисок Е.В.': INSTITUTE_COLORS.primary,
-    'Польников Д.В.': INSTITUTE_COLORS.secondary,
-    'Андреев Р.В.': '#FFBB28',
-    'Польников Д.В. Повисок Е.В.': '#FF8042',
-    'Повисок Е.В. Андреев Р.В.': '#8884D8',
-    'Андреев Р.В. Польников Д.В.': '#82CA9D',
-    'Повисок Е.В. Польников Д.В. Андреев Р.В.': '#FF6B6B',
-    'Другие': '#ADB5BD'
-  };
-
-  // Цвета для временного графика
-  const TIME_LINE_COLORS = [
-    INSTITUTE_COLORS.primary,
-    INSTITUTE_COLORS.secondary,
-    '#FFBB28',
-    '#FF8042',
-    '#8884D8',
-    '#82CA9D',
-    '#FF6B6B',
-    '#ADB5BD'
-  ];
-
   // Загрузка данных
   useEffect(() => {
     const fetchAllApplications = async () => {
@@ -80,10 +78,10 @@ const Statistics = () => {
         
         console.log('Загрузка ВСЕХ заявок для статистики...');
         
-        const response = await fetch(`${API_BASE_URL}/applications/all`);
+        const response = await authFetch(`${API_BASE_URL}/applications/all`);
         
         if (!response.ok) {
-          const fallbackResponse = await fetch(`${API_BASE_URL}/applications?limit=10000`);
+          const fallbackResponse = await authFetch(`${API_BASE_URL}/applications?limit=10000`);
           if (!fallbackResponse.ok) {
             throw new Error(`Ошибка при загрузке данных: ${fallbackResponse.status}`);
           }
@@ -103,7 +101,7 @@ const Statistics = () => {
     };
 
     fetchAllApplications();
-  }, [API_BASE_URL]);
+  }, []);
 
   const parseDateWithTimeZone = useCallback((dateStr) => {
     if (!dateStr) return null;

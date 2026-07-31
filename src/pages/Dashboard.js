@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import './Dashboard.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { useAuth } from '../context/AuthContext';
+import { authFetch } from '../utils/authFetch';
 
 const STATUS_META = {
   new: { label: 'Новая', icon: '📥' },
@@ -209,7 +210,7 @@ const Dashboard = () => {
       if (toDate) url += `${url.includes('?') ? '&' : '?'}to=${toDate}`;
       if (searchTerm) url += `${url.includes('?') ? '&' : '?'}search=${encodeURIComponent(searchTerm.trim())}`;
 
-      const response = await fetch(`${API_BASE_URL}${url}`);
+      const response = await authFetch(`${API_BASE_URL}${url}`);
       const data = await response.json();
       const allApplications = data.applications || [];
 
@@ -262,7 +263,7 @@ const Dashboard = () => {
 
   const fetchGeneralStats = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/applications?limit=1`);
+      const response = await authFetch(`${API_BASE_URL}/applications?limit=1`);
       const data = await response.json();
       setStats(data.stats || { total: 0, completed: 0, pending: 0 });
       return true;
@@ -297,7 +298,7 @@ const Dashboard = () => {
         if (toDate) url += `&to=${toDate}`;
       }
 
-      const response = await fetch(`${API_BASE_URL}${url}`);
+      const response = await authFetch(`${API_BASE_URL}${url}`);
       const data = await response.json();
 
       const nextStats = data.stats || { total: 0, completed: 0, pending: 0 };
@@ -351,7 +352,7 @@ const Dashboard = () => {
     if (!applicationId) return;
     setEventsLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/events`);
+      const response = await authFetch(`${API_BASE_URL}/applications/${applicationId}/events`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Не удалось загрузить историю');
       setApplicationEvents(Array.isArray(data.events) ? data.events : []);
@@ -368,7 +369,7 @@ const Dashboard = () => {
     await fetchApplicationEvents(app.id);
     if (['new', 'reopened'].includes(app.status || 'new')) {
       try {
-        await fetch(`${API_BASE_URL}/applications/${app.id}/view`, {
+        await authFetch(`${API_BASE_URL}/applications/${app.id}/view`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ admin_login: user?.username || user?.name || 'admin' })
@@ -699,15 +700,12 @@ const Dashboard = () => {
   };
 
   const runWorkflowAction = async (app, action, extraPayload = {}) => {
-    const payload = { actor: user?.username || user?.name || 'admin', ...extraPayload };
-    if (action === 'accept') {
-      payload.accepted_by = user?.username || 'admin';
-    }
+    const payload = { ...extraPayload };
 
     setActionBusyId(app.id);
     setWorkflowMessage('');
     try {
-      const response = await fetch(`${API_BASE_URL}/applications/${app.id}/${action}`, {
+      const response = await authFetch(`${API_BASE_URL}/applications/${app.id}/${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -765,11 +763,10 @@ const Dashboard = () => {
     if (!bulkExecutor.trim() || selectedIds.length === 0) return;
     setActionBusyId('bulk');
     try {
-      await Promise.all(selectedIds.map((id) => fetch(`${API_BASE_URL}/applications/${id}/accept`, {
+      await Promise.all(selectedIds.map((id) => authFetch(`${API_BASE_URL}/applications/${id}/accept`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          accepted_by: user?.username || user?.name || 'admin',
           executor: bulkExecutor.trim(),
           admin_comment: 'Назначено массовым действием'
         })
@@ -792,11 +789,10 @@ const Dashboard = () => {
     if (!window.confirm(`Закрыть выбранные заявки (${selectedIds.length})?`)) return;
     setActionBusyId('bulk');
     try {
-      await Promise.all(selectedIds.map((id) => fetch(`${API_BASE_URL}/applications/${id}/confirm`, {
+      await Promise.all(selectedIds.map((id) => authFetch(`${API_BASE_URL}/applications/${id}/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          actor: user?.username || user?.name || 'admin',
           employee_comment: 'Закрыто массовым действием администратора'
         })
       })));

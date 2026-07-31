@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
+const { requireRole } = require('../middleware/auth');
 
 const PHONE_BOOK_URL = process.env.PHONE_BOOK_URL || 'http://web3.nioch.nsc.ru/nioch/index.php/ru/kontakty/telefonnyj-spravochnik';
 const MIN_SYNC_EMPLOYEES = Number(process.env.EMPLOYEE_SYNC_MIN_ROWS || 50);
@@ -403,7 +404,7 @@ router.get('/departments', async (req, res) => {
 });
 
 // Ручное обновление справочника сотрудников из внешнего телефонного справочника
-router.post('/sync', async (req, res) => {
+router.post('/sync', requireRole('admin'), async (req, res) => {
   try {
     await ensurePhoneBookSchema();
 

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../utils/apiConfig';
+import { authFetch } from '../utils/authFetch';
 import './Register.css';
 
 const Register = () => {
@@ -11,6 +12,7 @@ const Register = () => {
     department: '',
     internalPhone: '',
     email: '',
+    role: 'employee',
     password: '',
     confirmPassword: ''
   });
@@ -27,7 +29,7 @@ const Register = () => {
   useEffect(() => {
     const loadDepartments = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/employees/departments`);
+        const response = await authFetch(`${API_BASE_URL}/employees/departments`);
         if (!response.ok) return;
         const data = await response.json();
         if (Array.isArray(data)) setDepartments(data);
@@ -48,7 +50,7 @@ const Register = () => {
 
     const timeout = setTimeout(async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/employees/search?field=full_name&query=${encodeURIComponent(query)}`);
+        const response = await authFetch(`${API_BASE_URL}/employees/search?field=full_name&query=${encodeURIComponent(query)}`);
         if (!response.ok) return;
         const data = await response.json();
         if (Array.isArray(data)) {
@@ -122,6 +124,7 @@ const Register = () => {
         room: formData.room,
         department: formData.department,
         internalPhone: formData.internalPhone,
+        role: formData.role,
         password: formData.password
       });
       setSuccessMessage('Employee registered. You can now sign in with the specified login and password.');
@@ -200,6 +203,19 @@ const Register = () => {
           </div>
 
           <div className="grid-two">
+            <label>
+              Account role
+              <select
+                name="role"
+                value={formData.role}
+                onChange={handleChange}
+                disabled={isLoading}
+              >
+                <option value="employee">Employee</option>
+                <option value="manager">Manager</option>
+              </select>
+            </label>
+
             <label>
               Internal phone
               <input

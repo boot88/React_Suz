@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import './EmployeeRequest.css';
+import { API_BASE_URL } from '../utils/apiConfig';
+import { authFetch } from '../utils/authFetch';
 
 const EmployeeRequest = () => {
   const { user } = useAuth();
@@ -28,15 +30,13 @@ const EmployeeRequest = () => {
   setMessage('');
 
   try {
-    const response = await fetch('http://localhost:5000/api/applications', {
+    const response = await authFetch(`${API_BASE_URL}/applications/from-chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        application: application,
-        status: 'в работе',
-        user: user
+        application
       }),
     });
 

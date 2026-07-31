@@ -2,7 +2,19 @@ const mysql = require('mysql2/promise');
 const fs = require('fs');
 const path = require('path');
 
-const loadLocalMysqlEnv = () => {
+const LOCAL_ENV_KEYS = new Set([
+  'AUTH_TOKEN_SECRET',
+  'DEFAULT_EMPLOYEE_PASSWORD',
+  'DEFAULT_ADMIN_PASSWORD',
+  'MANAGER_LOGIN',
+  'MANAGER_PASSWORD',
+  'MANAGER_NAME',
+  'PORT',
+  'CLIENT_PORT',
+  'NODE_ENV'
+]);
+
+const loadLocalServerEnv = () => {
   const envFile = process.env.MYSQL_ENV_FILE || path.resolve(__dirname, '../../.env');
   let source = '';
 
@@ -20,14 +32,15 @@ const loadLocalMysqlEnv = () => {
     if (!match) return;
 
     const [, key, rawValue] = match;
-    if (!/^(MYSQL|DB)_/.test(key) || process.env[key] !== undefined) return;
+    const isAllowedKey = /^(MYSQL|DB)_/.test(key) || LOCAL_ENV_KEYS.has(key);
+    if (!isAllowedKey || process.env[key] !== undefined) return;
 
     const quoted = rawValue.match(/^(["'])(.*)\1$/);
     process.env[key] = quoted ? quoted[2] : rawValue;
   });
 };
 
-loadLocalMysqlEnv();
+loadLocalServerEnv();
 
 const firstDefined = (...values) => values.find((value) => value !== undefined && value !== '');
 const isEnabled = (value) => /^(1|true|yes)$/i.test(String(value || ''));

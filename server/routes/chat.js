@@ -16,9 +16,25 @@ const {
   getMessageAttachmentFileIds,
   buildConversationMessagesPageQuery
 } = require('../utils/chatState');
-const { verifyAccessToken } = require('../utils/accessToken');
+const {
+  requireAuth,
+  requireAuthAllowQuery,
+  requireRole,
+  hasRole,
+  isSameLogin
+} = require('../middleware/auth');
 
 const router = express.Router();
+router.use((req, res, next) => {
+  const queryTokenAllowed = (
+    req.method === 'GET'
+    && (
+      req.path === '/threads/stream'
+      || /^\/files\/[^/]+\/download$/.test(req.path)
+    )
+  );
+  return (queryTokenAllowed ? requireAuthAllowQuery : requireAuth)(req, res, next);
+});
 
 const dataDir = path.join(__dirname, '..', 'data');
 const chatFilePath = path.join(dataDir, 'chatThreads.json');
@@ -547,7 +563,7 @@ const saveMultipartUpload = async (req) => {
       url,
       thumbnailUrl,
       originalName: fields.name || filePart.filename,
-      uploadedBy: String(fields.uploadedBy || fields.login || '').trim().toLowerCase(),
+      uploadedBy: req.auth.login,
       storedName,
       thumbnailStoredName,
       sha256,
@@ -743,21 +759,7 @@ const prepareConversationForResponse = async (conversationId, messages = []) => 
 };
 
 
-const getRequestAccessToken = (req) => {
-  const authorization = String(req.headers.authorization || '');
-  const bearer = authorization.match(/^Bearer\s+(.+)$/i)?.[1] || '';
-  return bearer || String(req.query?.access_token || '');
-};
-
-const getRequestIdentity = (req) => {
-  const verified = verifyAccessToken(getRequestAccessToken(req));
-  if (verified) return verified;
-
-  // Transitional compatibility for sessions created before signed chat tokens
-  // were introduced. Responses are still restricted to this participant only.
-  const legacyLogin = String(req.headers['x-user-login'] || req.query?.login || '').trim().toLowerCase();
-  return legacyLogin ? { login: legacyLogin, role: 'employee', legacy: true } : null;
-};
+const getRequestIdentity = (req) => req.auth || null;
 const getRequestLogin = (req) => getRequestIdentity(req)?.login || '';
 
 const requireConversationAccess = (req, res, conversationId) => {
@@ -1516,7 +1518,7 @@ const migrateArchiveToMysql = async () => {
 
 
 
-router.post('/storage/recover', async (req, res) => {
+router.post('/storage/recover', requireRole('admin'), async (req, res) => {
   try {
     const target = req.body?.target === 'threads' ? 'threads' : 'feed';
     const filePath = target === 'threads' ? chatFilePath : feedFilePath;
@@ -1598,7 +1600,7 @@ router.get('/feed', async (req, res) => {
   }
 });
 
-router.put('/feed', async (req, res) => {
+router.put('/feed', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { posts } = req.body;
     if (!Array.isArray(posts)) {
@@ -1628,20 +1630,57 @@ const backupFeedMutation = (mutator) => {
   });
 };
 
+const getAuthenticatedActor = async (req) => {
+  const [rows] = await db.execute(
+    'SELECT login, full_name, role FROM users WHERE LOWER(login) = ? LIMIT 1',
+    [req.auth.login]
+  );
+  const user = rows?.[0] || {};
+  return {
+    login: req.auth.login,
+    role: req.auth.role,
+    name: user.full_name || user.login || req.auth.login
+  };
+};
+
+const canManageFeedRecord = (req, record = {}) => (
+  hasRole(req, 'admin', 'manager')
+  || isSameLogin(record.author, req.auth?.login)
+);
+
+const mergeActorReactionState = (currentReactions = {}, requestedReactions = {}, actorLogin = '') => {
+  const result = {};
+  const emojis = new Set([
+    ...Object.keys(currentReactions || {}),
+    ...Object.keys(requestedReactions || {})
+  ]);
+
+  emojis.forEach((emoji) => {
+    const currentUsers = new Set(Array.isArray(currentReactions?.[emoji]) ? currentReactions[emoji] : []);
+    const requestedUsers = new Set(Array.isArray(requestedReactions?.[emoji]) ? requestedReactions[emoji] : []);
+    if (requestedUsers.has(actorLogin)) currentUsers.add(actorLogin);
+    else currentUsers.delete(actorLogin);
+    if (currentUsers.size) result[emoji] = [...currentUsers];
+  });
+
+  return result;
+};
+
 router.post('/feed/posts', async (req, res) => {
   try {
     const now = new Date().toISOString();
+    const actor = await getAuthenticatedActor(req);
     const post = {
       id: req.body?.id || createId('post'),
-      author: req.body?.author || 'employee',
-      authorName: req.body?.authorName || req.body?.author || 'Сотрудник',
+      author: actor.login,
+      authorName: actor.name,
       text: String(req.body?.text || '').trim(),
       category: req.body?.category || 'Объявление',
-      pinned: Boolean(req.body?.pinned),
+      pinned: hasRole(req, 'admin', 'manager') && Boolean(req.body?.pinned),
       attachment: req.body?.attachment || null,
       attachments: Array.isArray(req.body?.attachments) ? req.body.attachments.filter(Boolean) : (req.body?.attachment ? [req.body.attachment] : []),
-      reactions: req.body?.reactions || {},
-      createdAt: req.body?.createdAt || now,
+      reactions: {},
+      createdAt: now,
       updatedAt: now,
       comments: []
     };
@@ -1665,10 +1704,13 @@ router.post('/feed/posts', async (req, res) => {
 router.delete('/feed/posts/:postId', async (req, res) => {
   try {
     const { postId } = req.params;
-    const deletedBy = req.query?.deletedBy || req.body?.deletedBy || 'system';
+    const deletedBy = req.auth.login;
     const now = new Date().toISOString();
     const currentPost = await readSqlFeedPost(postId);
     if (!currentPost) return res.status(404).json({ message: 'Публикация не найдена' });
+    if (!canManageFeedRecord(req, currentPost)) {
+      return res.status(403).json({ message: 'Нет прав на удаление этой публикации' });
+    }
     const deletedPost = { ...currentPost, deletedAt: now, deletedBy, updatedAt: now };
     if (!await writeSqlFeedPost(deletedPost)) {
       return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
@@ -1696,7 +1738,22 @@ router.patch('/feed/posts/:postId', async (req, res) => {
     const now = new Date().toISOString();
     const currentPost = await readSqlFeedPost(postId);
     if (!currentPost) return res.status(404).json({ message: 'Публикация не найдена' });
-    const updatedPost = { ...currentPost, ...patch, id: currentPost.id, updatedAt: now };
+    if (!canManageFeedRecord(req, currentPost)) {
+      return res.status(403).json({ message: 'Нет прав на изменение этой публикации' });
+    }
+    const updatedPost = {
+      ...currentPost,
+      text: Object.prototype.hasOwnProperty.call(patch, 'text') ? String(patch.text || '').trim() : currentPost.text,
+      category: Object.prototype.hasOwnProperty.call(patch, 'category') ? String(patch.category || 'Объявление') : currentPost.category,
+      id: currentPost.id,
+      author: currentPost.author,
+      authorName: currentPost.authorName,
+      updatedAt: now,
+      audit: [
+        ...(Array.isArray(currentPost.audit) ? currentPost.audit : []),
+        { action: 'edit', by: req.auth.login, role: req.auth.role, at: now }
+      ]
+    };
     if (Array.isArray(patch.attachments)) {
       updatedPost.attachments = patch.attachments.filter(Boolean);
       updatedPost.attachment = updatedPost.attachments[0] || null;
@@ -1744,12 +1801,13 @@ router.post('/feed/posts/:postId/comments', async (req, res) => {
   try {
     const { postId } = req.params;
     const now = new Date().toISOString();
+    const actor = await getAuthenticatedActor(req);
     const comment = {
       id: req.body?.id || createId('comment'),
-      author: req.body?.author || 'employee',
-      authorName: req.body?.authorName || req.body?.author || 'Сотрудник',
+      author: actor.login,
+      authorName: actor.name,
       text: String(req.body?.text || '').trim(),
-      createdAt: req.body?.createdAt || now,
+      createdAt: now,
       updatedAt: now
     };
 
@@ -1792,12 +1850,15 @@ router.post('/feed/posts/:postId/comments', async (req, res) => {
 router.delete('/feed/posts/:postId/comments/:commentId', async (req, res) => {
   try {
     const { postId, commentId } = req.params;
-    const deletedBy = req.query?.deletedBy || req.body?.deletedBy || 'system';
+    const deletedBy = req.auth.login;
     const now = new Date().toISOString();
     const currentPost = await readSqlFeedPost(postId);
     if (!currentPost) return res.status(404).json({ message: 'Публикация не найдена' });
     const existingComment = await readSqlFeedComment(postId, commentId);
     if (!existingComment) return res.status(404).json({ message: 'Комментарий не найден' });
+    if (!canManageFeedRecord(req, existingComment)) {
+      return res.status(403).json({ message: 'Нет прав на удаление этого комментария' });
+    }
     const alreadyDeleted = Boolean(existingComment.deletedAt);
     const deletedComment = alreadyDeleted
       ? existingComment
@@ -1841,8 +1902,8 @@ router.post('/feed/posts/:postId/reactions', async (req, res) => {
   try {
     const { postId } = req.params;
     const emoji = String(req.body?.emoji || '').trim();
-    const login = String(req.body?.login || '').trim();
-    if (!emoji || !login) return res.status(400).json({ message: 'emoji и login обязательны' });
+    const login = req.auth.login;
+    if (!emoji) return res.status(400).json({ message: 'emoji обязателен' });
 
     const currentPost = await readSqlFeedPost(postId);
     if (!currentPost) return res.status(404).json({ message: 'Публикация не найдена' });
@@ -1874,7 +1935,7 @@ router.post('/feed/posts/:postId/reactions', async (req, res) => {
   }
 });
 
-router.post('/feed/posts/:postId/pin', async (req, res) => {
+router.post('/feed/posts/:postId/pin', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { postId } = req.params;
     const pinned = Boolean(req.body?.pinned);
@@ -1990,11 +2051,20 @@ router.post('/threads/:conversationId/messages', async (req, res) => {
     if (!message || typeof message !== 'object' || !message.id) {
       return res.status(400).json({ message: 'message обязателен' });
     }
-    const preparedMessage = (await prepareMessageForResponse(message)).message;
+    const preparedMessage = (await prepareMessageForResponse({
+      ...message,
+      sender: req.auth.login,
+      audit: []
+    })).message;
 
     const existingMessage = await readSqlMessageById(conversationId, preparedMessage.id);
     const exists = Boolean(existingMessage);
-    const savedItem = existingMessage ? { ...existingMessage, ...preparedMessage } : preparedMessage;
+    if (existingMessage && !isSameLogin(existingMessage.sender, req.auth.login)) {
+      return res.status(403).json({ message: 'Нельзя перезаписать чужое сообщение' });
+    }
+    const savedItem = existingMessage
+      ? { ...existingMessage, ...preparedMessage, sender: existingMessage.sender, audit: existingMessage.audit || [] }
+      : preparedMessage;
     const stored = await writeSqlMessage(conversationId, savedItem);
     if (!stored) return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
     backupMessageToArchive(conversationId, savedItem);
@@ -2021,11 +2091,50 @@ router.patch('/threads/:conversationId/messages/:messageId', async (req, res) =>
     if (!patch || typeof patch !== 'object') {
       return res.status(400).json({ message: 'message или patch обязателен' });
     }
-    const preparedPatch = (await prepareMessageForResponse(patch)).message;
-
     const existingMessage = await readSqlMessageById(conversationId, messageId);
     if (!existingMessage) return res.status(404).json({ message: 'Сообщение не найдено' });
-    const updatedItem = { ...existingMessage, ...preparedPatch, id: existingMessage.id };
+    const canEditContent = isSameLogin(existingMessage.sender, req.auth.login) || hasRole(req, 'admin', 'manager');
+    const contentFields = ['text', 'attachment', 'attachments', 'deletedAt'];
+    const attemptsContentChange = contentFields.some((field) => (
+      Object.prototype.hasOwnProperty.call(patch, field)
+      && JSON.stringify(patch[field] ?? null) !== JSON.stringify(existingMessage[field] ?? null)
+    ));
+    if (attemptsContentChange && !canEditContent) {
+      return res.status(403).json({ message: 'Нельзя изменять или удалять чужое сообщение' });
+    }
+
+    const now = new Date().toISOString();
+    const nextMessage = {
+      ...existingMessage,
+      reactions: patch.reactions && typeof patch.reactions === 'object'
+        ? mergeActorReactionState(existingMessage.reactions, patch.reactions, req.auth.login)
+        : existingMessage.reactions,
+      pinned: typeof patch.pinned === 'boolean' ? patch.pinned : existingMessage.pinned,
+      readAt: patch.readAt || existingMessage.readAt || null,
+      id: existingMessage.id,
+      sender: existingMessage.sender
+    };
+    if (canEditContent) {
+      contentFields.forEach((field) => {
+        if (Object.prototype.hasOwnProperty.call(patch, field)) nextMessage[field] = patch[field];
+      });
+      if (Object.prototype.hasOwnProperty.call(patch, 'editedAt')) nextMessage.editedAt = patch.editedAt;
+      if (Object.prototype.hasOwnProperty.call(patch, 'deliveryStatus')) nextMessage.deliveryStatus = patch.deliveryStatus;
+      if (attemptsContentChange) {
+        nextMessage.editedBy = req.auth.login;
+        if (patch.deletedAt) nextMessage.deletedBy = req.auth.login;
+        nextMessage.audit = [
+          ...(Array.isArray(existingMessage.audit) ? existingMessage.audit : []),
+          {
+            action: patch.deletedAt ? 'delete' : 'edit',
+            by: req.auth.login,
+            role: req.auth.role,
+            at: now
+          }
+        ];
+      }
+    }
+    const updatedItem = (await prepareMessageForResponse(nextMessage)).message;
     const stored = await writeSqlMessage(conversationId, updatedItem);
     if (!stored) return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
     backupMessageToArchive(conversationId, updatedItem);
@@ -2038,7 +2147,7 @@ router.patch('/threads/:conversationId/messages/:messageId', async (req, res) =>
   }
 });
 
-router.put('/threads/:conversationId', async (req, res) => {
+router.put('/threads/:conversationId', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
     const { messages } = req.body;
@@ -2073,7 +2182,7 @@ router.put('/threads/:conversationId', async (req, res) => {
   }
 });
 
-router.delete('/threads/:conversationId', async (req, res) => {
+router.delete('/threads/:conversationId', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
     if (!conversationId) {

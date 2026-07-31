@@ -6,9 +6,19 @@ const employeeRoutes = require('./routes/employees');
 const authRoutes = require('./routes/auth');
 const chatRoutes = require('./routes/chat');
 const pool = require('./config/database');
+const {
+  requireAuth,
+  requireRole,
+  hasRole,
+  isSameLogin
+} = require('./middleware/auth');
 
 const app = express();
 const PORT = Number(process.env.PORT || 5000);
+
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
 
 app.options('*', cors());
 
@@ -44,7 +54,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '150mb' })); // Увеличиваем лимит для изображений и видео-вложений
 app.use(express.urlencoded({ extended: true, limit: '150mb' }));
-app.use('/api/employees', employeeRoutes);
+app.use('/api/employees', requireAuth, employeeRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
 
@@ -226,6 +236,21 @@ const getApplicationById = async (id) => {
   return rows?.[0] ? normalizeApplication(rows[0]) : null;
 };
 
+const requireApplicationOwnerOrManager = async (req, res, next) => {
+  try {
+    const application = await getApplicationById(req.params.id);
+    if (!application) return res.status(404).json({ error: 'Заявка не найдена' });
+    if (!hasRole(req, 'admin', 'manager') && !isSameLogin(application.employee_login, req.auth?.login)) {
+      return res.status(403).json({ error: 'Нет доступа к чужой заявке' });
+    }
+    req.application = application;
+    return next();
+  } catch (error) {
+    console.error('Ошибка проверки доступа к заявке:', error);
+    return res.status(500).json({ error: 'Не удалось проверить доступ к заявке' });
+  }
+};
+
 // Безопасный парсинг JSON для изображений
 const safeParseImages = (imagesString) => {
   if (!imagesString) return [];
@@ -256,7 +281,7 @@ const safeParseImages = (imagesString) => {
 
 const NETWORK_MAP_SOURCE_URL = process.env.NETWORK_MAP_SOURCE_URL || 'http://nioch.nioch.nsc.ru/nioch/nioch.txt';
 
-app.get('/api/network-map', async (req, res) => {
+app.get('/api/network-map', requireAuth, async (req, res) => {
   try {
     const response = await fetch(NETWORK_MAP_SOURCE_URL);
     if (!response.ok) {
@@ -276,7 +301,7 @@ app.get('/api/network-map', async (req, res) => {
 });
 
 // API для базы знаний - ОБНОВЛЕННЫЕ МАРШРУТЫ С БЕЗОПАСНЫМ ПАРСИНГОМ
-app.get('/api/knowledge-base', async (req, res) => {
+app.get('/api/knowledge-base', requireAuth, async (req, res) => {
   try {
     const [rows] = await pool.execute('SELECT * FROM knowledge_base ORDER BY created_at DESC');
     
@@ -294,7 +319,7 @@ app.get('/api/knowledge-base', async (req, res) => {
   }
 });
 
-app.post('/api/knowledge-base', async (req, res) => {
+app.post('/api/knowledge-base', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { title, solution, category, images } = req.body;
     
@@ -355,14 +380,11 @@ app.post('/api/knowledge-base', async (req, res) => {
     res.json(formattedRow);
   } catch (error) {
     console.error('Error creating knowledge base article:', error);
-    res.status(500).json({ 
-      error: 'Internal server error',
-      details: error.message 
-    });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-app.put('/api/knowledge-base/:id', async (req, res) => {
+app.put('/api/knowledge-base/:id', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
     const { title, solution, category, images } = req.body;
@@ -429,14 +451,11 @@ app.put('/api/knowledge-base/:id', async (req, res) => {
     res.json(formattedRow);
   } catch (error) {
     console.error('Error updating knowledge base article:', error);
-    res.status(500).json({ 
-      error: 'Internal server error',
-      details: error.message 
-    });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-app.delete('/api/knowledge-base/:id', async (req, res) => {
+app.delete('/api/knowledge-base/:id', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -466,7 +485,7 @@ const handleNullValues = (value, defaultValue = null) => {
   return value;
 };
 
-app.get('/api/applications/export', async (req, res) => {
+app.get('/api/applications/export', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   const { status, from, to, search, employee_login } = req.query; // Добавлен параметр search
   const statusGroups = {
     done: ['done'],
@@ -571,7 +590,7 @@ const markApplicationViewed = async (applicationId, adminLogin) => {
   );
 };
 
-app.get('/api/applications', async (req, res) => {
+app.get('/api/applications', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit) || 10));
   const offset = (page - 1) * limit;
@@ -701,16 +720,13 @@ app.get('/api/applications', async (req, res) => {
     });
   } catch (error) {
     console.error('Ошибка при запросе к БД:', error);
-    res.status(500).json({ 
-      error: 'Ошибка сервера при получении заявок',
-      details: error.message 
-    });
+    res.status(500).json({ error: 'Ошибка сервера при получении заявок' });
   }
 });
 
 
-app.get('/api/applications/unseen-count', async (req, res) => {
-  const adminLogin = String(req.query.admin_login || req.query.login || 'admin').trim() || 'admin';
+app.get('/api/applications/unseen-count', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
+  const adminLogin = req.auth.login;
   try {
     await ensureApplicationWorkflowSchema();
     const [rows] = await pool.execute(
@@ -723,36 +739,35 @@ app.get('/api/applications/unseen-count', async (req, res) => {
     res.json({ count: rows[0]?.count || 0 });
   } catch (error) {
     console.error('Ошибка подсчёта непросмотренных заявок:', error);
-    res.status(500).json({ error: 'Не удалось получить количество новых заявок', details: error.sqlMessage || error.message });
+    res.status(500).json({ error: 'Не удалось получить количество новых заявок' });
   }
 });
 
-app.get('/api/applications/:id/events', async (req, res) => {
+app.get('/api/applications/:id/events', requireAuth, requireApplicationOwnerOrManager, async (req, res) => {
   try {
     await ensureApplicationWorkflowSchema();
     const events = await getApplicationEvents(req.params.id);
     res.json({ events });
   } catch (error) {
     console.error('Ошибка получения истории заявки:', error);
-    res.status(500).json({ error: 'Не удалось получить историю заявки', details: error.sqlMessage || error.message });
+    res.status(500).json({ error: 'Не удалось получить историю заявки' });
   }
 });
 
-app.post('/api/applications/:id/view', async (req, res) => {
-  const adminLogin = String(req.body?.admin_login || req.body?.actor || 'admin').trim() || 'admin';
+app.post('/api/applications/:id/view', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
+  const adminLogin = req.auth.login;
   try {
     await markApplicationViewed(req.params.id, adminLogin);
-    await addApplicationEvent(req.params.id, adminLogin, 'admin', 'viewed', 'Администратор открыл карточку заявки');
+    await addApplicationEvent(req.params.id, adminLogin, req.auth.role, 'viewed', 'Карточка заявки открыта');
     res.json({ message: 'Заявка отмечена просмотренной' });
   } catch (error) {
     console.error('Ошибка отметки просмотра заявки:', error);
-    res.status(500).json({ error: 'Не удалось отметить заявку просмотренной', details: error.sqlMessage || error.message });
+    res.status(500).json({ error: 'Не удалось отметить заявку просмотренной' });
   }
 });
 
-app.get('/api/applications/my', async (req, res) => {
-  const login = String(req.query.employee_login || req.query.login || '').trim().toLowerCase();
-  if (!login) return res.status(400).json({ error: 'employee_login обязателен' });
+app.get('/api/applications/my', requireAuth, async (req, res) => {
+  const login = req.auth.login;
 
   try {
     await ensureApplicationWorkflowSchema();
@@ -763,15 +778,15 @@ app.get('/api/applications/my', async (req, res) => {
     res.json({ applications: applications.map(normalizeApplication) });
   } catch (error) {
     console.error('Ошибка при получении заявок сотрудника:', error);
-    res.status(500).json({ error: 'Не удалось получить заявки сотрудника', details: error.sqlMessage || error.message });
+    res.status(500).json({ error: 'Не удалось получить заявки сотрудника' });
   }
 });
 
-app.post('/api/applications', async (req, res) => {
+app.post('/api/applications', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   const {
     name, cabinet, N_tel, application, process, executor,
     data, start_data, end_data, fl, status, employee_login, category,
-    priority, source, chat_thread_id, source_message_id
+    priority
   } = req.body;
 
   try {
@@ -792,9 +807,9 @@ app.post('/api/applications', async (req, res) => {
       employee_login: handleNullValues(employee_login, ''),
       category: handleNullValues(category, ''),
       priority: handleNullValues(priority, ''),
-      source: handleNullValues(source, 'admin'),
-      chat_thread_id: handleNullValues(chat_thread_id, ''),
-      source_message_id: handleNullValues(source_message_id, '')
+      source: 'admin',
+      chat_thread_id: '',
+      source_message_id: ''
     };
 
     const [result] = await pool.execute(
@@ -807,7 +822,7 @@ app.post('/api/applications', async (req, res) => {
         processedData.source_message_id
       ]
     );
-    await addApplicationEvent(result.insertId, processedData.employee_login || processedData.executor || 'admin', processedData.source, 'created', 'Заявка создана');
+    await addApplicationEvent(result.insertId, req.auth.login, req.auth.role, 'created', 'Заявка создана');
 
     res.status(201).json({
       message: 'Заявка добавлена',
@@ -816,49 +831,72 @@ app.post('/api/applications', async (req, res) => {
     });
   } catch (error) {
     console.error('Ошибка при добавлении заявки:', error);
-    res.status(500).json({
-      error: 'Не удалось добавить заявку',
-      details: error.sqlMessage || error.message
-    });
+    res.status(500).json({ error: 'Не удалось добавить заявку' });
   }
 });
 
-app.post('/api/applications/from-chat', async (req, res) => {
+app.post('/api/applications/from-chat', requireAuth, async (req, res) => {
   const now = formatNowForMySQL();
   const {
-    employee_login, name, cabinet, N_tel, application, category, priority,
+    application, category, priority,
     chat_thread_id, source_message_id
   } = req.body;
+  const employeeLogin = req.auth.login;
 
   try {
     await ensureApplicationWorkflowSchema();
+    const [actorRows] = await pool.execute(
+      'SELECT full_name, phone, room FROM users WHERE LOWER(login) = ? LIMIT 1',
+      [employeeLogin]
+    );
+    if (!actorRows.length) {
+      return res.status(403).json({ error: 'Учётная запись сотрудника не найдена' });
+    }
+
+    const requestedConversationId = String(chat_thread_id || '').trim().toLowerCase();
+    const conversationParticipants = requestedConversationId.split('::').filter(Boolean);
+    const safeConversationId = (
+      conversationParticipants.length === 2
+      && conversationParticipants.includes(employeeLogin)
+    ) ? conversationParticipants.sort().join('::') : '';
+    let safeSourceMessageId = '';
+    const requestedSourceMessageId = String(source_message_id || '').trim().slice(0, 128);
+    if (safeConversationId && requestedSourceMessageId) {
+      const [messageRows] = await pool.execute(
+        'SELECT id FROM chat_messages WHERE conversation_id = ? AND id = ? LIMIT 1',
+        [safeConversationId, requestedSourceMessageId]
+      ).catch((error) => {
+        if (error.code === 'ER_NO_SUCH_TABLE') return [[]];
+        throw error;
+      });
+      if (messageRows.length) safeSourceMessageId = requestedSourceMessageId;
+    }
+    const actor = actorRows[0];
+
     const [result] = await pool.execute(
       'INSERT INTO application (`name`, `cabinet`, `N_tel`, `application`, `process`, `executor`, `data`, `start_data`, `end_data`, `fl`, `status`, `employee_login`, `category`, `priority`, `source`, `chat_thread_id`, `source_message_id`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
-        handleNullValues(name, 'Сотрудник'), handleNullValues(cabinet, ''), handleNullValues(N_tel, ''),
+        handleNullValues(actor.full_name, employeeLogin), handleNullValues(actor.room, ''), handleNullValues(actor.phone, ''),
         handleNullValues(application, ''), '', '', now, null, null, 0, 'new',
-        handleNullValues(employee_login, ''), handleNullValues(category, 'Другое'),
-        handleNullValues(priority, 'Обычный'), 'chat', handleNullValues(chat_thread_id, ''),
-        handleNullValues(source_message_id, '')
+        employeeLogin, handleNullValues(category, 'Другое'),
+        handleNullValues(priority, 'Обычный'), 'chat', safeConversationId,
+        safeSourceMessageId
       ]
     );
-    await addApplicationEvent(result.insertId, employee_login || 'employee', 'employee', 'created_from_chat', 'Заявка создана из чата сотрудника');
+    await addApplicationEvent(result.insertId, req.auth.login, req.auth.role, 'created_from_chat', 'Заявка создана из чата сотрудника');
     res.status(201).json({ message: 'Заявка из чата создана', id: result.insertId, application: await getApplicationById(result.insertId) });
   } catch (error) {
     console.error('Ошибка при создании заявки из чата:', error);
-    res.status(500).json({ error: 'Не удалось создать заявку из чата', details: error.sqlMessage || error.message });
+    res.status(500).json({ error: 'Не удалось создать заявку из чата' });
   }
 });
 
-app.put('/api/applications/:id', async (req, res) => {
+app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   const { id } = req.params;
   const {
     name, cabinet, N_tel, application, process, executor,
     data, start_data, end_data, fl, status, employee_login, category,
-    priority, accepted_by, accepted_at, work_started_at, resolved_at,
-    employee_confirmed_at, admin_comment, eta_minutes, waiting_seconds,
-    arrival_seconds, work_seconds, source, chat_thread_id, source_message_id,
-    employee_comment
+    priority, admin_comment, eta_minutes, employee_comment
   } = req.body;
 
   try {
@@ -878,14 +916,14 @@ app.put('/api/applications/:id', async (req, res) => {
       data: pickDate('data'), start_data: pickDate('start_data'), end_data: pickDate('end_data'),
       fl: nextStatus === 'done' || (has('fl') ? Boolean(fl) : existingApp.fl) ? 1 : 0, status: nextStatus,
       employee_login: pick('employee_login', ''), category: pick('category', ''), priority: pick('priority', ''),
-      accepted_by: pick('accepted_by', ''), accepted_at: pickDate('accepted_at'), work_started_at: pickDate('work_started_at'),
-      resolved_at: pickDate('resolved_at'), employee_confirmed_at: pickDate('employee_confirmed_at'),
+      accepted_by: existingApp.accepted_by, accepted_at: existingApp.accepted_at, work_started_at: existingApp.work_started_at,
+      resolved_at: existingApp.resolved_at, employee_confirmed_at: existingApp.employee_confirmed_at,
       admin_comment: pick('admin_comment', ''), eta_minutes: has('eta_minutes') ? (eta_minutes || null) : existingApp.eta_minutes,
-      waiting_seconds: has('waiting_seconds') ? (waiting_seconds || null) : existingApp.waiting_seconds,
-      arrival_seconds: has('arrival_seconds') ? (arrival_seconds || null) : existingApp.arrival_seconds,
-      work_seconds: has('work_seconds') ? (work_seconds || null) : existingApp.work_seconds,
-      source: pick('source', 'admin'), chat_thread_id: pick('chat_thread_id', ''),
-      source_message_id: pick('source_message_id', ''), employee_comment: pick('employee_comment', '')
+      waiting_seconds: existingApp.waiting_seconds,
+      arrival_seconds: existingApp.arrival_seconds,
+      work_seconds: existingApp.work_seconds,
+      source: existingApp.source, chat_thread_id: existingApp.chat_thread_id,
+      source_message_id: existingApp.source_message_id, employee_comment: pick('employee_comment', '')
     };
 
     await pool.execute(
@@ -906,15 +944,12 @@ app.put('/api/applications/:id', async (req, res) => {
         processedData.chat_thread_id, processedData.source_message_id, processedData.employee_comment, id
       ]
     );
-    await addApplicationEvent(id, accepted_by || executor || 'admin', 'admin', 'manual_update', 'Заявка обновлена вручную');
+    await addApplicationEvent(id, req.auth.login, req.auth.role, 'manual_update', 'Заявка обновлена вручную');
 
     res.status(200).json({ message: 'Заявка успешно обновлена', application: await getApplicationById(id) });
   } catch (error) {
     console.error('Ошибка при обновлении заявки:', error);
-    res.status(500).json({ 
-      error: 'Не удалось обновить заявку',
-      details: error.sqlMessage || error.message 
-    });
+    res.status(500).json({ error: 'Не удалось обновить заявку' });
   }
 });
 
@@ -937,29 +972,29 @@ const getCurrentSlaSeconds = (app = {}, now = new Date()) => {
   return secondsBetween(app.created_at || app.data, now) || 0;
 };
 
-app.post('/api/applications/:id/accept', async (req, res) => {
+app.post('/api/applications/:id/accept', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   const { id } = req.params;
-  const { accepted_by, executor, eta_minutes, admin_comment } = req.body;
+  const { executor, eta_minutes, admin_comment } = req.body;
+  const actorLogin = req.auth.login;
   try {
     await ensureApplicationWorkflowSchema();
     const updated = await updateApplicationWorkflow(id, (app) => {
       const now = formatNowForMySQL();
       return {
         sql: 'UPDATE application SET `status` = ?, `accepted_by` = ?, `executor` = ?, `eta_minutes` = ?, `admin_comment` = ?, `accepted_at` = ?, `work_started_at` = ?, `start_data` = ?, `waiting_seconds` = ?, `arrival_seconds` = ?, `fl` = 0 WHERE `id` = ?',
-        params: ['in_progress', accepted_by || 'admin', executor || accepted_by || '', eta_minutes || null, admin_comment || '', now, now, now, secondsBetween(app.created_at || app.data, now), 0, id]
+        params: ['in_progress', actorLogin, executor || actorLogin, eta_minutes || null, admin_comment || '', now, now, now, secondsBetween(app.created_at || app.data, now), 0, id]
       };
-    }, { actorLogin: accepted_by || 'admin', actorRole: 'admin', eventType: 'accepted', comment: admin_comment || 'Заявка взята в работу' });
+    }, { actorLogin, actorRole: req.auth.role, eventType: 'accepted', comment: admin_comment || 'Заявка взята в работу' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
     res.json({ message: 'Заявка взята в работу, таймер выполнения запущен', application: updated });
   } catch (error) {
     console.error('Ошибка при взятии заявки:', error);
-    res.status(500).json({ error: 'Не удалось взять заявку', details: error.sqlMessage || error.message });
+    res.status(500).json({ error: 'Не удалось взять заявку' });
   }
 });
 
-app.post('/api/applications/:id/start-work', async (req, res) => {
+app.post('/api/applications/:id/start-work', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   const { id } = req.params;
-  const { actor } = req.body;
   try {
     await ensureApplicationWorkflowSchema();
     const updated = await updateApplicationWorkflow(id, (app) => {
@@ -968,18 +1003,18 @@ app.post('/api/applications/:id/start-work', async (req, res) => {
         sql: 'UPDATE application SET `status` = ?, `work_started_at` = ?, `start_data` = ?, `arrival_seconds` = ?, `fl` = 0 WHERE `id` = ?',
         params: ['in_progress', now, now, secondsBetween(app.accepted_at || app.created_at || app.data, now), id]
       };
-    }, { actorLogin: actor || 'admin', actorRole: 'admin', eventType: 'work_started', comment: 'Исполнитель начал работу' });
+    }, { actorLogin: req.auth.login, actorRole: req.auth.role, eventType: 'work_started', comment: 'Исполнитель начал работу' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
     res.json({ message: 'Работа начата', application: updated });
   } catch (error) {
     console.error('Ошибка при старте работы:', error);
-    res.status(500).json({ error: 'Не удалось начать работу', details: error.sqlMessage || error.message });
+    res.status(500).json({ error: 'Не удалось начать работу' });
   }
 });
 
-app.post('/api/applications/:id/resolve', async (req, res) => {
+app.post('/api/applications/:id/resolve', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   const { id } = req.params;
-  const { actor, process } = req.body;
+  const { process } = req.body;
   try {
     await ensureApplicationWorkflowSchema();
     const updated = await updateApplicationWorkflow(id, (app) => {
@@ -990,18 +1025,18 @@ app.post('/api/applications/:id/resolve', async (req, res) => {
         sql: 'UPDATE application SET `status` = ?, `resolved_at` = ?, `process` = ?, `work_seconds` = ?, `fl` = 0 WHERE `id` = ?',
         params: ['waiting_employee_confirmation', now, process || app.process || '', previousWorkSeconds + currentWorkSeconds, id]
       };
-    }, { actorLogin: actor || 'admin', actorRole: 'admin', eventType: 'resolved', comment: process || 'Работа выполнена, ожидается подтверждение' });
+    }, { actorLogin: req.auth.login, actorRole: req.auth.role, eventType: 'resolved', comment: process || 'Работа выполнена, ожидается подтверждение' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
     res.json({ message: 'Заявка отправлена на подтверждение', application: updated });
   } catch (error) {
     console.error('Ошибка при завершении работы:', error);
-    res.status(500).json({ error: 'Не удалось завершить работу', details: error.sqlMessage || error.message });
+    res.status(500).json({ error: 'Не удалось завершить работу' });
   }
 });
 
-app.post('/api/applications/:id/confirm', async (req, res) => {
+app.post('/api/applications/:id/confirm', requireAuth, requireApplicationOwnerOrManager, async (req, res) => {
   const { id } = req.params;
-  const { actor, employee_comment } = req.body;
+  const { employee_comment } = req.body;
   try {
     await ensureApplicationWorkflowSchema();
     const updated = await updateApplicationWorkflow(id, (app) => {
@@ -1013,35 +1048,44 @@ app.post('/api/applications/:id/confirm', async (req, res) => {
         sql: 'UPDATE application SET `status` = ?, `resolved_at` = ?, `work_seconds` = ?, `employee_confirmed_at` = ?, `employee_comment` = ?, `end_data` = ?, `fl` = 1 WHERE `id` = ?',
         params: ['done', app.resolved_at || now, workSeconds, now, employee_comment || app.employee_comment || '', now, id]
       };
-    }, { actorLogin: actor || 'employee', actorRole: 'employee', eventType: 'employee_confirmed', comment: employee_comment || 'Сотрудник подтвердил выполнение' });
+    }, {
+      actorLogin: req.auth.login,
+      actorRole: req.auth.role,
+      eventType: hasRole(req, 'admin', 'manager') ? 'closed_by_staff' : 'employee_confirmed',
+      comment: employee_comment || (hasRole(req, 'admin', 'manager') ? 'Заявка закрыта ответственным сотрудником' : 'Сотрудник подтвердил выполнение')
+    });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
     res.json({ message: 'Заявка подтверждена', application: updated });
   } catch (error) {
     console.error('Ошибка при подтверждении заявки:', error);
-    res.status(500).json({ error: 'Не удалось подтвердить заявку', details: error.sqlMessage || error.message });
+    res.status(500).json({ error: 'Не удалось подтвердить заявку' });
   }
 });
 
-app.post('/api/applications/:id/reopen', async (req, res) => {
+app.post('/api/applications/:id/reopen', requireAuth, requireApplicationOwnerOrManager, async (req, res) => {
   const { id } = req.params;
-  const { actor, employee_comment } = req.body;
+  const { employee_comment } = req.body;
   try {
     await ensureApplicationWorkflowSchema();
     const updated = await updateApplicationWorkflow(id, () => ({
       sql: 'UPDATE application SET `status` = ?, `employee_comment` = ?, `work_started_at` = NULL, `resolved_at` = NULL, `fl` = 0 WHERE `id` = ?',
       params: ['reopened', employee_comment || '', id]
-    }), { actorLogin: actor || 'employee', actorRole: 'employee', eventType: 'reopened', comment: employee_comment || 'Проблема осталась' });
+    }), {
+      actorLogin: req.auth.login,
+      actorRole: req.auth.role,
+      eventType: hasRole(req, 'admin', 'manager') ? 'reopened_by_staff' : 'reopened',
+      comment: employee_comment || 'Проблема осталась'
+    });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
     res.json({ message: 'Заявка переоткрыта', application: updated });
   } catch (error) {
     console.error('Ошибка при переоткрытии заявки:', error);
-    res.status(500).json({ error: 'Не удалось переоткрыть заявку', details: error.sqlMessage || error.message });
+    res.status(500).json({ error: 'Не удалось переоткрыть заявку' });
   }
 });
 
-app.post('/api/applications/:id/pause-overdue', async (req, res) => {
+app.post('/api/applications/:id/pause-overdue', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   const { id } = req.params;
-  const { actor } = req.body;
   try {
     await ensureApplicationWorkflowSchema();
     const updated = await updateApplicationWorkflow(id, (app) => {
@@ -1052,16 +1096,16 @@ app.post('/api/applications/:id/pause-overdue', async (req, res) => {
         sql: 'UPDATE application SET `sla_paused_at` = ?, `sla_paused_seconds` = ? WHERE `id` = ?',
         params: [now, pausedSeconds, id]
       };
-    }, { actorLogin: actor || 'admin', actorRole: 'admin', eventType: 'sla_timer_paused', comment: 'Администратор остановил отображение таймера просрочки' });
+    }, { actorLogin: req.auth.login, actorRole: req.auth.role, eventType: 'sla_timer_paused', comment: 'Администратор остановил отображение таймера просрочки' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
     res.json({ message: 'Таймер просрочки остановлен. Заявка остаётся в просроченных.', application: updated });
   } catch (error) {
     console.error('Ошибка при остановке таймера просрочки:', error);
-    res.status(500).json({ error: 'Не удалось остановить таймер просрочки', details: error.sqlMessage || error.message });
+    res.status(500).json({ error: 'Не удалось остановить таймер просрочки' });
   }
 });
 
-app.delete('/api/applications/:id', async (req, res) => {
+app.delete('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
     const applicationId = parseInt(id, 10);
@@ -1095,10 +1139,7 @@ app.delete('/api/applications/:id', async (req, res) => {
     
   } catch (error) {
     console.error('Ошибка при удалении:', error);
-    res.status(500).json({ 
-      error: 'Произошла ошибка при удалении', 
-      details: error.message 
-    });
+    res.status(500).json({ error: 'Произошла ошибка при удалении' });
   }
 });
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './KnowledgeBase.css';
 import { API_BASE_URL } from '../utils/apiConfig';
+import { authFetch } from '../utils/authFetch';
 
 const KnowledgeBase = () => {
   const [articles, setArticles] = useState([]);
@@ -27,7 +28,7 @@ const KnowledgeBase = () => {
   const fetchArticles = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/knowledge-base`);
+      const response = await authFetch(`${API_BASE_URL}/knowledge-base`);
       
       if (!response.ok) {
         throw new Error(`Ошибка сервера: ${response.status}`);
@@ -198,7 +199,7 @@ const KnowledgeBase = () => {
 
       console.log('Отправляемые данные:', articleData);
 
-      const response = await fetch(`${API_BASE_URL}/knowledge-base`, {
+      const response = await authFetch(`${API_BASE_URL}/knowledge-base`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -236,7 +237,7 @@ const KnowledgeBase = () => {
 
       console.log('Отправляемые данные для обновления:', articleData);
 
-      const response = await fetch(`${API_BASE_URL}/knowledge-base/${editingArticle.id}`, {
+      const response = await authFetch(`${API_BASE_URL}/knowledge-base/${editingArticle.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -264,7 +265,7 @@ const KnowledgeBase = () => {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/knowledge-base/${id}`, {
+      const response = await authFetch(`${API_BASE_URL}/knowledge-base/${id}`, {
         method: 'DELETE'
       });
 

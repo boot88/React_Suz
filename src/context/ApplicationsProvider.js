@@ -1,7 +1,11 @@
 import { useState, useEffect } from 'react';
 import { ApplicationsContext } from './ApplicationContext';
+import { API_BASE_URL } from '../utils/apiConfig';
+import { authFetch } from '../utils/authFetch';
+import { useAuth } from './AuthContext';
 
 const ApplicationsProvider = ({ children }) => {
+  const { isAuthenticated, user } = useAuth();
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -11,7 +15,7 @@ const ApplicationsProvider = ({ children }) => {
       setLoading(true);
       setError(null);
       
-      const response = await fetch('http://localhost:5000/api/applications');
+      const response = await authFetch(`${API_BASE_URL}/applications`);
       
       if (!response.ok) {
         throw new Error(`Ошибка при загрузке данных: ${response.status}`);
@@ -34,8 +38,14 @@ const ApplicationsProvider = ({ children }) => {
   };
 
   useEffect(() => {
+    if (!isAuthenticated || !['admin', 'manager'].includes(user?.role)) {
+      setApplications([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     fetchApplications();
-  }, []);
+  }, [isAuthenticated, user?.role]);
 
   const contextValue = {
     applications,
