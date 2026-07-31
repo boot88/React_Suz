@@ -320,11 +320,59 @@ button:disabled {
 
 .employee-chat-list {
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding-right: 2px;
+}
+
+.virtual-contact-viewport {
+  position: relative;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.virtual-contact-spacer {
+  position: relative;
+  min-width: 0;
+}
+
+.virtual-contact-spacer > .employee-chat-user {
+  position: absolute;
+  inset: 0 2px auto 0;
+  height: 75px;
+}
+
+.chat-upload-queue {
+  display: grid;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.chat-upload-item {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(100px, 220px) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(30, 90, 168, .2);
+  border-radius: 10px;
+}
+
+.chat-upload-item progress {
+  width: 100%;
+}
+
+.chat-upload-item.error {
+  border-color: rgba(190, 55, 55, .4);
+}
+
+.messages-wrap > .message-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
 }
 
 .employee-chat-user {

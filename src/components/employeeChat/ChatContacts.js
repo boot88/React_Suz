@@ -1,4 +1,7 @@
-import React, { memo, useMemo } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
+
+const CONTACT_ROW_HEIGHT = 82;
+const CONTACT_OVERSCAN = 6;
 
 const ChatContacts = memo(function ChatContacts({
   employees,
@@ -17,12 +20,39 @@ const ChatContacts = memo(function ChatContacts({
   onTogglePinned,
   onToggleFavorite
 }) {
+  const viewportRef = useRef(null);
+  const [viewportHeight, setViewportHeight] = useState(520);
+  const [scrollTop, setScrollTop] = useState(0);
   const favoriteSet = useMemo(() => new Set(favorites || []), [favorites]);
   const pinnedSet = useMemo(() => new Set(pinnedDialogs || []), [pinnedDialogs]);
 
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return undefined;
+    const updateHeight = () => setViewportHeight(viewport.clientHeight || 520);
+    updateHeight();
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(updateHeight) : null;
+    observer?.observe(viewport);
+    return () => observer?.disconnect();
+  }, []);
+
   if (!employees.length) return <div className="empty-mini">{t('noResults')}</div>;
 
-  return employees.map((employee) => {
+  const startIndex = Math.max(0, Math.floor(scrollTop / CONTACT_ROW_HEIGHT) - CONTACT_OVERSCAN);
+  const endIndex = Math.min(
+    employees.length,
+    Math.ceil((scrollTop + viewportHeight) / CONTACT_ROW_HEIGHT) + CONTACT_OVERSCAN
+  );
+
+  return (
+    <div
+      ref={viewportRef}
+      className="virtual-contact-viewport"
+      onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+    >
+      <div className="virtual-contact-spacer" style={{ height: employees.length * CONTACT_ROW_HEIGHT }}>
+        {employees.slice(startIndex, endIndex).map((employee, offset) => {
+          const index = startIndex + offset;
     const email = String(employee.email || '');
     const conversationId = getConversationId(currentLogin, email);
     const isOnline = Boolean(employee.isOnline);
@@ -34,6 +64,7 @@ const ChatContacts = memo(function ChatContacts({
       <div
         key={email}
         className={`employee-chat-user ${selectedEmail === email ? 'active' : ''} ${isManagerContact ? 'manager-priority' : ''} ${favoriteSet.has(email) ? 'favorite' : ''} ${pinnedSet.has(conversationId) ? 'pinned-dialog' : ''}`}
+        style={{ transform: `translateY(${index * CONTACT_ROW_HEIGHT}px)` }}
       >
         <button type="button" className="employee-contact-open" onClick={() => onSelect(email)}>
           <span className={`status-dot ${isOnline ? 'online' : 'offline'}`} />
@@ -59,7 +90,10 @@ const ChatContacts = memo(function ChatContacts({
         </span>
       </div>
     );
-  });
+        })}
+      </div>
+    </div>
+  );
 });
 
 export default ChatContacts;

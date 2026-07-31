@@ -42,8 +42,11 @@ const feedFilePath = path.join(dataDir, 'employeeFeed.json');
 const backupDir = path.join(dataDir, 'backups');
 const uploadsDir = path.join(__dirname, '..', 'uploads');
 const MAX_BACKUPS_PER_FILE = 30;
-const MAX_UPLOAD_SIZE = 50 * 1024 * 1024;
+const MAX_UPLOAD_SIZE = 100 * 1024 * 1024;
 const CHAT_SQL_PAGE_SIZE = 50;
+const CHAT_SEARCH_PAGE_SIZE = 25;
+const STREAM_EVENT_BUFFER_SIZE = 500;
+const ORPHAN_UPLOAD_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const ALLOWED_UPLOAD_SCOPES = new Set(['chat', 'feed']);
 const ALLOWED_UPLOAD_TYPES = /^(image\/|video\/|application\/pdf$|text\/plain$|application\/msword$|application\/vnd\.openxmlformats-officedocument|application\/vnd\.ms-excel$|application\/zip$)/i;
 const DANGEROUS_EXTENSIONS = new Set(['.exe', '.bat', '.cmd', '.com', '.scr', '.js', '.mjs', '.sh', '.ps1', '.vbs', '.jar']);
@@ -51,6 +54,9 @@ const DANGEROUS_EXTENSIONS = new Set(['.exe', '.bat', '.cmd', '.com', '.scr', '.
 let cachedThreads = null;
 let storageReadyPromise = null;
 const streamClients = new Set();
+const streamEventBuffer = [];
+const typingTimers = new Map();
+let lastStreamEventId = Date.now() * 1000;
 
 const cloneThreads = (threads) => JSON.parse(JSON.stringify(threads || {}));
 const createId = (prefix = 'item') => `${prefix}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
@@ -111,6 +117,15 @@ const ensureChatSqlSchema = async () => {
       INDEX idx_chat_message_files_file_b (file_id, participant_b),
       INDEX idx_chat_message_files_conversation (conversation_id)
     )`);
+    await db.execute(`CREATE TABLE IF NOT EXISTS chat_read_state (
+      conversation_id VARCHAR(255) NOT NULL,
+      user_login VARCHAR(255) NOT NULL,
+      last_read_message_id VARCHAR(128) NULL,
+      last_read_at DATETIME NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (conversation_id, user_login),
+      INDEX idx_chat_read_state_user_updated (user_login, updated_at)
+    )`);
 
     chatSqlReady = true;
     chatSqlRetryAt = 0;
@@ -167,6 +182,12 @@ const writeSqlMessage = async (conversationId, message = {}) => {
        VALUES ?`,
       [fileIds.map((fileId) => [message.id, fileId, conversationId, participantA, participantB])]
     );
+    if (await ensureChatFilesSqlSchema()) {
+      await db.query(
+        'UPDATE chat_files SET claimed_at = COALESCE(claimed_at, NOW()) WHERE id IN (?)',
+        [fileIds]
+      );
+    }
   }
   return true;
 };
@@ -192,6 +213,84 @@ const readSqlMessageById = async (conversationId, messageId) => {
     [conversationId, messageId]
   );
   return parseSqlMessage(rows?.[0]?.message_json);
+};
+
+const searchSqlConversationMessages = async (
+  conversationId,
+  { query = '', limit = CHAT_SEARCH_PAGE_SIZE, before = '' } = {}
+) => {
+  if (!await ensureChatSqlSchema()) return null;
+  const normalizedQuery = String(query || '').trim().slice(0, 200);
+  const safeLimit = Math.min(50, Math.max(1, Number(limit) || CHAT_SEARCH_PAGE_SIZE));
+  const params = [conversationId, `%${normalizedQuery.toLowerCase()}%`, `%${normalizedQuery.toLowerCase()}%`];
+  let cursorSql = '';
+  if (before) {
+    const beforeDate = new Date(before);
+    if (Number.isNaN(beforeDate.getTime())) {
+      const error = new Error('Некорректный курсор поиска');
+      error.status = 400;
+      throw error;
+    }
+    cursorSql = 'AND created_at < ?';
+    params.push(beforeDate);
+  }
+  const [rows] = await db.query(
+    `SELECT message_json, created_at
+     FROM chat_messages
+     WHERE conversation_id = ?
+       AND deleted_at IS NULL
+       AND (
+         LOWER(CASE
+           WHEN JSON_VALID(message_json)
+           THEN COALESCE(JSON_UNQUOTE(JSON_EXTRACT(message_json, '$.text')), '')
+           ELSE ''
+         END) LIKE ?
+         OR LOWER(message_json) LIKE ?
+       )
+       ${cursorSql}
+     ORDER BY created_at DESC, id DESC
+     LIMIT ${safeLimit}`,
+    params
+  );
+  return (rows || [])
+    .map((row) => parseSqlMessage(row.message_json))
+    .filter(Boolean);
+};
+
+const readSqlReadStates = async (login) => {
+  if (!await ensureChatSqlSchema()) return {};
+  const [rows] = await db.execute(
+    `SELECT conversation_id, last_read_message_id, last_read_at, updated_at
+     FROM chat_read_state
+     WHERE user_login = ?`,
+    [String(login || '').trim().toLowerCase()]
+  );
+  return Object.fromEntries((rows || []).map((row) => [row.conversation_id, {
+    lastReadMessageId: row.last_read_message_id || '',
+    lastReadAt: row.last_read_at || row.updated_at || null
+  }]));
+};
+
+const writeSqlReadState = async (conversationId, login, messageId) => {
+  if (!await ensureChatSqlSchema()) return null;
+  const message = await readSqlMessageById(conversationId, messageId);
+  if (!message) return null;
+  const readAt = normalizeMessageDate(message);
+  await db.execute(
+    `INSERT INTO chat_read_state
+       (conversation_id, user_login, last_read_message_id, last_read_at)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       last_read_message_id = IF(
+         last_read_at IS NULL OR VALUES(last_read_at) >= last_read_at,
+         VALUES(last_read_message_id),
+         last_read_message_id
+       ),
+       last_read_at = GREATEST(COALESCE(last_read_at, '1970-01-01'), VALUES(last_read_at)),
+       updated_at = CURRENT_TIMESTAMP`,
+    [conversationId, login, messageId, readAt]
+  );
+  return { conversationId, login, lastReadMessageId: messageId, lastReadAt: readAt.toISOString() };
 };
 
 const readSqlThreadSummaries = async (login) => {
@@ -292,14 +391,18 @@ const ensureChatFilesSqlSchema = async () => {
       uploaded_at DATETIME NOT NULL,
       metadata_json LONGTEXT NULL,
       uploaded_by VARCHAR(255) NULL,
+      claimed_at DATETIME NULL,
       is_verified TINYINT(1) NOT NULL DEFAULT 1,
       deleted_at DATETIME NULL,
       file_data LONGBLOB NULL,
       thumbnail_data LONGBLOB NULL,
       INDEX idx_chat_files_scope (scope),
-      INDEX idx_chat_files_uploaded_at (uploaded_at)
+      INDEX idx_chat_files_uploaded_at (uploaded_at),
+      INDEX idx_chat_files_claimed_at (claimed_at)
     )`);
     await db.execute('ALTER TABLE chat_files ADD COLUMN uploaded_by VARCHAR(255) NULL').catch(() => {});
+    await db.execute('ALTER TABLE chat_files ADD COLUMN claimed_at DATETIME NULL').catch(() => {});
+    await db.execute('CREATE INDEX idx_chat_files_claimed_at ON chat_files (claimed_at)').catch(() => {});
     await db.execute('ALTER TABLE chat_files ADD COLUMN is_verified TINYINT(1) NOT NULL DEFAULT 1').catch(() => {});
     await db.execute('ALTER TABLE chat_files ADD COLUMN deleted_at DATETIME NULL').catch(() => {});
     await db.execute('ALTER TABLE chat_files ADD COLUMN file_data LONGBLOB NULL').catch(() => {});
@@ -346,6 +449,7 @@ const writeSqlFileMetadata = async (file = {}) => {
     new Date(file.uploadedAt || Date.now()),
     metadata,
     file.uploadedBy || null,
+    file.claimedAt ? new Date(file.claimedAt) : null,
     file.isVerified !== false,
     file.deletedAt ? new Date(file.deletedAt) : null,
     file.fileData || null,
@@ -353,13 +457,13 @@ const writeSqlFileMetadata = async (file = {}) => {
   ];
 
   const mysqlParams = [...params];
-  mysqlParams[12] = file.isVerified === false ? 0 : 1;
+  mysqlParams[13] = file.isVerified === false ? 0 : 1;
   await db.execute(
     `INSERT INTO chat_files (
       id, scope, original_name, stored_name, url, thumbnail_url, mime_type, size_bytes,
-      sha256, uploaded_at, metadata_json, uploaded_by, is_verified, deleted_at, file_data, thumbnail_data
+      sha256, uploaded_at, metadata_json, uploaded_by, claimed_at, is_verified, deleted_at, file_data, thumbnail_data
     )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        scope = VALUES(scope),
        original_name = VALUES(original_name),
@@ -372,6 +476,7 @@ const writeSqlFileMetadata = async (file = {}) => {
        uploaded_at = VALUES(uploaded_at),
        metadata_json = VALUES(metadata_json),
        uploaded_by = VALUES(uploaded_by),
+       claimed_at = COALESCE(VALUES(claimed_at), claimed_at),
        is_verified = VALUES(is_verified),
        deleted_at = VALUES(deleted_at),
        file_data = COALESCE(VALUES(file_data), file_data),
@@ -493,6 +598,8 @@ const saveMultipartUpload = async (req) => {
   const tempDir = path.join(uploadsDir, 'tmp');
   await fs.mkdir(tempDir, { recursive: true });
   const tempPath = path.join(tempDir, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}.multipart`);
+  const createdFilePaths = [];
+  let uploadSaved = false;
 
   try {
     await readMultipartRequestToTemp(req, tempPath);
@@ -529,7 +636,9 @@ const saveMultipartUpload = async (req) => {
     const uploadDir = path.join(uploadsDir, safeScope);
     await fs.mkdir(uploadDir, { recursive: true });
     const storedName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}-${safeOriginalName}`;
-    await fs.writeFile(path.join(uploadDir, storedName), filePart.buffer);
+    const storedPath = path.join(uploadDir, storedName);
+    await fs.writeFile(storedPath, filePart.buffer);
+    createdFilePaths.push(storedPath);
     const sha256 = crypto.createHash('sha256').update(filePart.buffer).digest('hex');
     const fileId = createId('file');
     const url = `/api/chat/files/${encodeURIComponent(fileId)}/download`;
@@ -545,7 +654,9 @@ const saveMultipartUpload = async (req) => {
         thumbnailData = Buffer.from(thumbnailParsed.payload, 'base64');
         if (thumbnailData.length > 0 && thumbnailData.length <= 2 * 1024 * 1024) {
           const thumbnailName = `thumb-${storedName.replace(/\.[^.]+$/, '')}.jpg`;
-          await fs.writeFile(path.join(uploadDir, thumbnailName), thumbnailData);
+          const thumbnailPath = path.join(uploadDir, thumbnailName);
+          await fs.writeFile(thumbnailPath, thumbnailData);
+          createdFilePaths.push(thumbnailPath);
           thumbnailStoredName = thumbnailName;
           thumbnailUrl = `/api/chat/files/${encodeURIComponent(fileId)}/download?variant=thumbnail`;
         } else {
@@ -567,8 +678,8 @@ const saveMultipartUpload = async (req) => {
       storedName,
       thumbnailStoredName,
       sha256,
-      fileData: filePart.buffer,
-      thumbnailData,
+      fileData: null,
+      thumbnailData: null,
       width: Math.max(0, Number(fields.width) || 0),
       height: Math.max(0, Number(fields.height) || 0),
       aspectRatio: Math.max(0, Number(fields.aspectRatio) || 0),
@@ -587,9 +698,13 @@ const saveMultipartUpload = async (req) => {
     const publicFile = { ...file };
     delete publicFile.fileData;
     delete publicFile.thumbnailData;
+    uploadSaved = true;
     return publicFile;
   } finally {
     await fs.unlink(tempPath).catch(() => {});
+    if (!uploadSaved) {
+      await Promise.all(createdFilePaths.map((filePath) => fs.unlink(filePath).catch(() => {})));
+    }
   }
 };
 
@@ -783,7 +898,7 @@ const parseFileMetadataJson = (value) => {
 const CHAT_FILE_METADATA_COLUMNS = [
   'id', 'scope', 'original_name', 'stored_name', 'url', 'thumbnail_url',
   'mime_type', 'size_bytes', 'sha256', 'uploaded_at', 'metadata_json',
-  'uploaded_by', 'is_verified', 'deleted_at'
+  'uploaded_by', 'claimed_at', 'is_verified', 'deleted_at'
 ].join(', ');
 
 const readSqlFileMetadata = async (fileId) => {
@@ -809,11 +924,15 @@ const fileMatchesAttachment = (attachment = {}, file = {}) => {
   return [file.id, file.url, file.thumbnail_url].filter(Boolean).some((value) => values.has(String(value)));
 };
 
-const isConversationParticipant = (conversationId = '', login = '') => conversationId
+const getParticipantsFromConversationId = (conversationId = '') => conversationId
   .toLowerCase()
   .split('::')
   .map((item) => item.trim())
-  .includes(String(login || '').toLowerCase());
+  .filter(Boolean);
+
+const isConversationParticipant = (conversationId = '', login = '') => (
+  getParticipantsFromConversationId(conversationId).includes(String(login || '').toLowerCase())
+);
 
 const findFeedFileReference = async (file) => {
   if (!await ensureFeedSqlSchema()) return false;
@@ -854,6 +973,39 @@ const resolveStoredDownload = (file = {}, variant = '') => {
   const filePath = path.join(uploadsDir, scope, safeBase);
   if (!filePath.startsWith(path.join(uploadsDir, scope))) return null;
   return { filePath, fileName, mime };
+};
+
+const deleteStoredFileArtifacts = async (file = {}) => {
+  const targets = [
+    resolveStoredDownload(file),
+    resolveStoredDownload(file, 'thumbnail')
+  ].filter(Boolean);
+  await Promise.all(targets.map(({ filePath }) => fs.unlink(filePath).catch(() => {})));
+  await db.execute(
+    `UPDATE chat_files
+     SET deleted_at = NOW(), file_data = NULL, thumbnail_data = NULL
+     WHERE id = ?`,
+    [file.id]
+  );
+};
+
+const cleanupOrphanChatUploads = async () => {
+  if (!await ensureChatFilesSqlSchema() || !await ensureChatSqlSchema()) return 0;
+  const cutoff = new Date(Date.now() - ORPHAN_UPLOAD_MAX_AGE_MS);
+  const [rows] = await db.query(
+    `SELECT ${CHAT_FILE_METADATA_COLUMNS}
+     FROM chat_files AS files
+     LEFT JOIN chat_message_files AS links ON links.file_id = files.id
+     WHERE files.scope = 'chat'
+       AND files.claimed_at IS NULL
+       AND files.deleted_at IS NULL
+       AND files.uploaded_at < ?
+       AND links.file_id IS NULL
+     LIMIT 100`,
+    [cutoff]
+  );
+  await Promise.all((rows || []).map(deleteStoredFileArtifacts));
+  return rows?.length || 0;
 };
 
 const ensureFileDownloadAccess = async (req, fileId) => {
@@ -1141,6 +1293,13 @@ const writeSqlFeedPost = async (post = {}) => {
        deleted_at = VALUES(deleted_at)`,
     [values[0], values[1], values[2], values[3] ? 1 : 0, values[4], values[5], values[6]]
   );
+  const fileIds = getFeedAttachmentsFromPost(post).map(getAttachmentFileId).filter(Boolean);
+  if (fileIds.length && await ensureChatFilesSqlSchema()) {
+    await db.query(
+      'UPDATE chat_files SET claimed_at = COALESCE(claimed_at, NOW()) WHERE id IN (?)',
+      [[...new Set(fileIds)]]
+    );
+  }
   return true;
 };
 
@@ -1339,32 +1498,56 @@ const ensureThreadsCache = async () => {
   return cachedThreads || {};
 };
 
-const writeStreamEvent = (res, eventName, payload) => {
-  res.write(`event: ${eventName}\ndata: ${JSON.stringify(stripInlinePayloads(payload))}\n\n`);
+const nextStreamEventId = () => {
+  const candidate = Date.now() * 1000;
+  lastStreamEventId = Math.max(lastStreamEventId + 1, candidate);
+  return String(lastStreamEventId);
 };
 
-const broadcastThreadEvent = (eventName, conversationId, payload = {}) => {
-  if (!streamClients.size) return;
+const writeStreamEvent = (res, eventName, payload, eventId = '') => {
+  const idLine = eventId ? `id: ${eventId}\n` : '';
+  res.write(`${idLine}event: ${eventName}\ndata: ${JSON.stringify(stripInlinePayloads(payload))}\n\n`);
+};
+
+const canReceiveBufferedEvent = (event, login) => (
+  !Array.isArray(event.recipients)
+  || event.recipients.some((recipient) => isSameLogin(recipient, login))
+);
+
+const publishStreamEvent = (eventName, payload, { recipients = null, excludeLogin = '' } = {}) => {
+  const event = {
+    id: nextStreamEventId(),
+    name: eventName,
+    payload: stripInlinePayloads(payload),
+    recipients: Array.isArray(recipients) ? recipients : null,
+    excludeLogin: String(excludeLogin || '').trim().toLowerCase()
+  };
+  streamEventBuffer.push(event);
+  if (streamEventBuffer.length > STREAM_EVENT_BUFFER_SIZE) streamEventBuffer.shift();
+
   streamClients.forEach((client) => {
-    if (!isConversationParticipant(conversationId, client.login)) return;
+    if (!canReceiveBufferedEvent(event, client.login) || isSameLogin(event.excludeLogin, client.login)) return;
     try {
-      writeStreamEvent(client.res, eventName, { conversationId, ...payload });
+      writeStreamEvent(client.res, event.name, event.payload, event.id);
     } catch {
       streamClients.delete(client);
     }
   });
+  return event.id;
 };
 
-const broadcastFeedEvent = (eventName, payload = {}) => {
-  if (!streamClients.size) return;
-  streamClients.forEach((client) => {
-    try {
-      writeStreamEvent(client.res, eventName, payload);
-    } catch {
-      streamClients.delete(client);
+const broadcastThreadEvent = (eventName, conversationId, payload = {}, options = {}) => (
+  publishStreamEvent(
+    eventName,
+    { conversationId, ...payload },
+    {
+      ...options,
+      recipients: getParticipantsFromConversationId(conversationId)
     }
-  });
-};
+  )
+);
+
+const broadcastFeedEvent = (eventName, payload = {}) => publishStreamEvent(eventName, payload);
 
 const persistThreadsSnapshot = async (threads) => {
   const nextThreads = cloneThreads(threads);
@@ -1581,6 +1764,33 @@ router.post('/uploads', async (req, res) => {
     res.status(error.status || 500).json({ message: error.message || 'Не удалось загрузить файл' });
   }
 });
+
+router.delete('/uploads/:fileId', async (req, res) => {
+  try {
+    const fileId = decodeURIComponent(req.params.fileId || '').trim();
+    if (!fileId) return res.status(400).json({ message: 'fileId обязателен' });
+    const file = await readSqlFileMetadata(fileId);
+    if (!file || file.deleted_at) return res.status(404).json({ message: 'Файл не найден' });
+    if (!isSameLogin(file.uploaded_by, req.auth.login)) {
+      return res.status(403).json({ message: 'Удалять загрузку может только её автор' });
+    }
+    if (file.claimed_at || await hasIndexedChatFileAccess(fileId, req.auth.login)) {
+      return res.status(409).json({ message: 'Файл уже прикреплён к сообщению' });
+    }
+    await deleteStoredFileArtifacts(file);
+    res.status(204).end();
+  } catch (error) {
+    console.error('Chat DELETE /uploads error:', error);
+    res.status(500).json({ message: 'Не удалось удалить загрузку' });
+  }
+});
+
+const orphanCleanupTimer = setInterval(() => {
+  cleanupOrphanChatUploads().catch((error) => {
+    console.warn('Chat orphan upload cleanup failed:', error.message);
+  });
+}, 60 * 60 * 1000);
+orphanCleanupTimer.unref?.();
 
 router.get('/feed', async (req, res) => {
   try {
@@ -1960,7 +2170,10 @@ router.get('/threads', async (req, res) => {
     const login = getRequestLogin(req);
     if (!login) return res.status(401).json({ message: 'Для загрузки диалогов требуется вход' });
 
-    const sqlSummaries = await readSqlThreadSummaries(login);
+    const [sqlSummaries, readStates] = await Promise.all([
+      readSqlThreadSummaries(login),
+      readSqlReadStates(login)
+    ]);
     if (!sqlSummaries) {
       return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
     }
@@ -1972,10 +2185,45 @@ router.get('/threads', async (req, res) => {
     );
 
     res.set('Cache-Control', 'no-store');
-    res.json({ summaries, storage: 'mysql' });
+    res.json({ summaries, readStates, storage: 'mysql' });
   } catch (error) {
     console.error('Chat GET /threads error:', error);
     res.status(500).json({ message: 'Не удалось загрузить сообщения' });
+  }
+});
+
+router.get('/threads/:conversationId/search', async (req, res) => {
+  try {
+    const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
+    if (!conversationId) return res.status(400).json({ message: 'conversationId обязателен' });
+    if (!requireConversationAccess(req, res, conversationId)) return;
+    const query = String(req.query?.q || '').trim();
+    if (query.length < 2) {
+      return res.status(400).json({ message: 'Для поиска введите минимум два символа' });
+    }
+    const limit = Math.min(50, Math.max(1, Number(req.query?.limit) || CHAT_SEARCH_PAGE_SIZE));
+    const messages = await searchSqlConversationMessages(conversationId, {
+      query,
+      limit,
+      before: req.query?.before || ''
+    });
+    if (!Array.isArray(messages)) {
+      return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
+    }
+    const before = messages[messages.length - 1]?.createdAt || '';
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      conversationId,
+      query,
+      messages: stripInlinePayloads(messages),
+      before,
+      hasMore: messages.length >= limit
+    });
+  } catch (error) {
+    console.error('Chat GET /threads/search error:', error);
+    res.status(error.status || 500).json({
+      message: error.status === 400 ? error.message : 'Не удалось выполнить поиск по переписке'
+    });
   }
 });
 
@@ -2007,6 +2255,59 @@ router.get('/threads/:conversationId/messages', async (req, res) => {
   }
 });
 
+router.put('/threads/:conversationId/read', async (req, res) => {
+  try {
+    const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
+    const messageId = String(req.body?.messageId || '').trim().slice(0, 128);
+    if (!conversationId || !messageId) {
+      return res.status(400).json({ message: 'conversationId и messageId обязательны' });
+    }
+    if (!requireConversationAccess(req, res, conversationId)) return;
+    const state = await writeSqlReadState(conversationId, req.auth.login, messageId);
+    if (!state) return res.status(404).json({ message: 'Сообщение не найдено' });
+    broadcastThreadEvent('read-state-updated', conversationId, { state }, { excludeLogin: req.auth.login });
+    res.json({ state });
+  } catch (error) {
+    console.error('Chat PUT /threads/read error:', error);
+    res.status(500).json({ message: 'Не удалось сохранить состояние прочтения' });
+  }
+});
+
+router.post('/threads/:conversationId/typing', async (req, res) => {
+  try {
+    const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
+    if (!conversationId) return res.status(400).json({ message: 'conversationId обязателен' });
+    if (!requireConversationAccess(req, res, conversationId)) return;
+    const active = Boolean(req.body?.active);
+    const timerKey = `${conversationId}::${req.auth.login}`;
+    if (typingTimers.has(timerKey)) clearTimeout(typingTimers.get(timerKey));
+    typingTimers.delete(timerKey);
+    broadcastThreadEvent(
+      'typing-updated',
+      conversationId,
+      { login: req.auth.login, active },
+      { excludeLogin: req.auth.login }
+    );
+    if (active) {
+      const timer = setTimeout(() => {
+        typingTimers.delete(timerKey);
+        broadcastThreadEvent(
+          'typing-updated',
+          conversationId,
+          { login: req.auth.login, active: false },
+          { excludeLogin: req.auth.login }
+        );
+      }, 5000);
+      timer.unref?.();
+      typingTimers.set(timerKey, timer);
+    }
+    res.status(204).end();
+  } catch (error) {
+    console.error('Chat POST /threads/typing error:', error);
+    res.status(500).json({ message: 'Не удалось обновить индикатор набора' });
+  }
+});
+
 router.get('/threads/stream', async (req, res) => {
   try {
     const login = getRequestLogin(req);
@@ -2019,7 +2320,17 @@ router.get('/threads/stream', async (req, res) => {
       'X-Accel-Buffering': 'no'
     });
 
-    writeStreamEvent(res, 'ready', { connectedAt: new Date().toISOString() });
+    const lastEventId = String(req.headers['last-event-id'] || req.query?.last_event_id || '').trim();
+    const numericLastEventId = Number(lastEventId) || 0;
+    streamEventBuffer
+      .filter((event) => Number(event.id) > numericLastEventId)
+      .filter((event) => canReceiveBufferedEvent(event, login))
+      .filter((event) => !isSameLogin(event.excludeLogin, login))
+      .forEach((event) => writeStreamEvent(res, event.name, event.payload, event.id));
+    writeStreamEvent(res, 'ready', {
+      connectedAt: new Date().toISOString(),
+      lastEventId: String(lastStreamEventId)
+    });
     const streamClient = { res, login };
     streamClients.add(streamClient);
 
@@ -2144,6 +2455,73 @@ router.patch('/threads/:conversationId/messages/:messageId', async (req, res) =>
   } catch (error) {
     console.error('Chat PATCH /threads/messages error:', error);
     res.status(500).json({ message: 'Не удалось обновить сообщение' });
+  }
+});
+
+router.post('/threads/:conversationId/messages/bulk-delete', async (req, res) => {
+  let connection;
+  try {
+    const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
+    const messageIds = [...new Set(
+      (Array.isArray(req.body?.messageIds) ? req.body.messageIds : [])
+        .map((value) => String(value || '').trim().slice(0, 128))
+        .filter(Boolean)
+    )].slice(0, 100);
+    if (!conversationId || !messageIds.length) {
+      return res.status(400).json({ message: 'conversationId и messageIds обязательны' });
+    }
+    if (!requireConversationAccess(req, res, conversationId)) return;
+    if (!await ensureChatSqlSchema()) {
+      return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
+    }
+    connection = await db.getConnection();
+    const [rows] = await connection.query(
+      'SELECT id, sender_login FROM chat_messages WHERE conversation_id = ? AND id IN (?)',
+      [conversationId, messageIds]
+    );
+    if (rows.length !== messageIds.length) {
+      return res.status(404).json({ message: 'Часть сообщений не найдена' });
+    }
+    if (
+      !hasRole(req, 'admin', 'manager')
+      && rows.some((row) => !isSameLogin(row.sender_login, req.auth.login))
+    ) {
+      return res.status(403).json({ message: 'Нельзя удалять чужие сообщения' });
+    }
+
+    const deletedAt = new Date().toISOString();
+    await connection.beginTransaction();
+    await connection.query(
+      `UPDATE chat_messages
+       SET message_json = JSON_SET(
+             JSON_REMOVE(CAST(message_json AS JSON), '$.attachment', '$.attachments'),
+             '$.text', '',
+             '$.deletedAt', ?,
+             '$.deletedBy', ?,
+             '$.updatedAt', ?
+           ),
+           deleted_at = ?,
+           updated_at = ?
+       WHERE conversation_id = ? AND id IN (?)`,
+      [deletedAt, req.auth.login, deletedAt, new Date(deletedAt), new Date(deletedAt), conversationId, messageIds]
+    );
+    await connection.query(
+      'DELETE FROM chat_message_files WHERE conversation_id = ? AND message_id IN (?)',
+      [conversationId, messageIds]
+    );
+    await connection.commit();
+    broadcastThreadEvent('messages-bulk-deleted', conversationId, {
+      messageIds,
+      deletedAt,
+      deletedBy: req.auth.login
+    });
+    res.json({ conversationId, messageIds, deletedAt, deletedBy: req.auth.login });
+  } catch (error) {
+    if (connection) await connection.rollback().catch(() => {});
+    console.error('Chat POST /threads/messages/bulk-delete error:', error);
+    res.status(500).json({ message: 'Не удалось удалить выбранные сообщения' });
+  } finally {
+    connection?.release();
   }
 });
 
