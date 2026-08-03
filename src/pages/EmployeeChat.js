@@ -139,6 +139,11 @@ const RUSSIAN_LABELS = {
   websiteVersion: 'Версия сайта',
   status: 'Статус',
   securityPhoto: 'Безопасность и фото',
+  profileTabProfile: 'Профиль',
+  profileTabAppearance: 'Внешний вид',
+  profileTabChat: 'Чат',
+  profileTabFeed: 'Лента',
+  profileTabSecurity: 'Безопасность',
   appearance: 'Вид интерфейса',
   theme: 'Тема',
   density: 'Плотность',
@@ -398,6 +403,11 @@ const ENGLISH_LABELS = {
   websiteVersion: 'Website version',
   status: 'Status',
   securityPhoto: 'Security and photo',
+  profileTabProfile: 'Profile',
+  profileTabAppearance: 'Appearance',
+  profileTabChat: 'Chat',
+  profileTabFeed: 'Feed',
+  profileTabSecurity: 'Security',
   appearance: 'Appearance',
   theme: 'Theme',
   density: 'Density',
@@ -1839,6 +1849,7 @@ const EmployeeChat = () => {
   const [welcomeNotice, setWelcomeNotice] = useState('');
   const [avatarViewerOpen, setAvatarViewerOpen] = useState(false);
   const [profileViewLogin, setProfileViewLogin] = useState('');
+  const [profileSettingsTab, setProfileSettingsTab] = useState('profile');
   const [profilePreview, setProfilePreview] = useState(null);
   const [profileForm, setProfileForm] = useState({
     full_name: user?.name || '',
@@ -1912,6 +1923,39 @@ const EmployeeChat = () => {
     setModal(null);
     if (resolver) resolver(result);
   }, []);
+
+  useEffect(() => {
+    const selector = '.app-modal-card, .avatar-viewer, .photo-viewer-backdrop';
+    const container = document.querySelector(selector);
+    if (!container) return undefined;
+    const previousFocus = document.activeElement;
+    const getFocusable = () => [...container.querySelectorAll('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')]
+      .filter((element) => !element.hasAttribute('hidden'));
+    const focusable = getFocusable();
+    (focusable[0] || container).focus?.();
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (modal) closeModal(false);
+        else if (forwardSourceMessage) setForwardSourceMessage(null);
+        else if (avatarViewerOpen) setAvatarViewerOpen(false);
+        else if (mediaViewer) setMediaViewer(null);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const items = getFocusable();
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      previousFocus?.focus?.();
+    };
+  }, [avatarViewerOpen, closeModal, forwardSourceMessage, mediaViewer, modal]);
 
   const notify = useCallback((message, title = 'Готово') => {
     setModal({ type: 'info', title: localizeRuntimeText(title), message: localizeRuntimeText(message) });
@@ -3405,8 +3449,16 @@ const EmployeeChat = () => {
               </div>
             ) : (
               <div className="profile-settings-grid">
-                <section className="profile-panel"><h3>{t('myProfile')}</h3><form onSubmit={saveMyProfile} className="profile-form profile-form-labeled"><label><span>{t('fullName')}</span><input value={profileForm.full_name} disabled /></label><label><span>{t('login')}</span><input value={user?.username || ''} disabled /></label><label><span>{t('position')}</span><input value={profileForm.position} disabled /></label><label><span>{t('department')}</span><input value={profileForm.department} disabled /></label><label><span>{t('room')}</span><input value={profileForm.room} disabled /></label><label><span>{t('phone')}</span><input value={profileForm.phone} disabled /></label><label><span>{t('websiteVersion')}</span><select value={profileForm.websiteLanguage || DEFAULT_PROFILE_WEBSITE_LANGUAGE} onChange={(e) => updateProfileField('websiteLanguage', e.target.value)}>{PROFILE_LANGUAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><label><span>{t('website')}</span><input placeholder="https://..." value={profileForm.website} onChange={(e) => updateProfileField('website', e.target.value)} /></label><label><span>{t('status')}</span><input placeholder={t('statusPlaceholder')} value={profileForm.statusText} onChange={(e) => updateProfileField('statusText', e.target.value)} /></label><label className="profile-field-wide"><span>{t('bio')}</span><textarea placeholder={t('bioPlaceholder')} rows={4} value={profileForm.bio} onChange={(e) => updateProfileField('bio', e.target.value)} /></label><button type="submit">{t('saveProfile')}</button></form></section>
-                <section className="profile-panel"><h3>{t('securityPhoto')}</h3><div className="profile-appearance-settings"><h4>{t('appearance')}</h4><div className="chat-appearance-controls profile-appearance-controls"><label><span>{t('theme')}</span><select value={chatLocalSettings.uiTheme || 'light'} onChange={(e) => updateChatUiSetting('uiTheme', e.target.value)}>{CHAT_THEMES.map((item) => <option key={item.id} value={item.id}>{getOptionLabel(item)}</option>)}</select></label><label><span>{t('density')}</span><select value={chatLocalSettings.uiDensity || 'regular'} onChange={(e) => updateChatUiSetting('uiDensity', e.target.value)}>{CHAT_DENSITIES.map((item) => <option key={item.id} value={item.id}>{getOptionLabel(item)}</option>)}</select></label><label><span>{t('textSize')}</span><select value={chatLocalSettings.uiTextSize || 'medium'} onChange={(e) => updateChatUiSetting('uiTextSize', e.target.value)}>{CHAT_TEXT_SIZES.map((item) => <option key={item.id} value={item.id}>{getOptionLabel(item)}</option>)}</select></label></div></div><div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>{t('changePhoto')}</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>{t('removePhoto')}</button></div><div className="profile-chat-tools"><strong>{t('dialogTools')}</strong><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showConversationMenu === true} onChange={() => toggleDialogToolSetting('showConversationMenu')} /><span><strong>{t('showConversationMenuTitle')}</strong><small>{t('showConversationMenuHint')}</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showExtraMessageActions === true} onChange={() => toggleDialogToolSetting('showExtraMessageActions')} /><span><strong>{t('showExtraMessageActionsTitle')}</strong><small>{t('showExtraMessageActionsHint')}</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showChatTemplates === true} onChange={() => toggleDialogToolSetting('showChatTemplates')} /><span><strong>{t('showChatTemplatesTitle')}</strong><small>{t('showChatTemplatesHint')}</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogMediaPanel === true} onChange={() => toggleDialogToolSetting('showDialogMediaPanel')} /><span><strong>{t('showDialogMediaPanelTitle')}</strong><small>{t('showDialogMediaPanelHint')}</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogDateJump === true} onChange={() => toggleDialogToolSetting('showDialogDateJump')} /><span><strong>{t('showDialogDateJumpTitle')}</strong><small>{t('showDialogDateJumpHint')}</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogFilters === true} onChange={() => toggleDialogToolSetting('showDialogFilters')} /><span><strong>{t('showDialogFiltersTitle')}</strong><small>{t('showDialogFiltersHint')}</small></span></label></div><div className="profile-chat-tools"><strong>{t('feedTools')}</strong><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showFeedCategorySelect === true} onChange={() => toggleFeedToolSetting('showFeedCategorySelect')} /><span><strong>{t('showFeedCategorySelectTitle')}</strong><small>{t('showFeedCategorySelectHint')}</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showFeedFilters === true} onChange={() => toggleFeedToolSetting('showFeedFilters')} /><span><strong>{t('showFeedFiltersTitle')}</strong><small>{t('showFeedFiltersHint')}</small></span></label></div><form onSubmit={changeMyPassword} className="profile-password-form"><input type="password" placeholder={t('currentPassword')} value={passwordForm.currentPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))} /><input type="password" placeholder={t('newPassword')} value={passwordForm.newPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))} /><button type="submit">{t('updatePassword')}</button></form>{!isAdmin && <button type="button" className="profile-logout-btn" onClick={handleLogout}>{t('logout')}</button>}</section>
+                <section className="profile-panel profile-settings-panel">
+                  <div className="profile-settings-tabs" role="tablist" aria-label={t('myProfile')}>
+                    {['profile', 'appearance', 'chat', 'feed', 'security'].map((tab) => <button key={tab} type="button" role="tab" aria-selected={profileSettingsTab === tab} className={profileSettingsTab === tab ? 'active' : ''} onClick={() => setProfileSettingsTab(tab)}>{t(`profileTab${tab[0].toUpperCase()}${tab.slice(1)}`)}</button>)}
+                  </div>
+                  {profileSettingsTab === 'profile' && <><h3>{t('myProfile')}</h3><form onSubmit={saveMyProfile} className="profile-form profile-form-labeled"><label><span>{t('fullName')}</span><input value={profileForm.full_name} disabled /></label><label><span>{t('login')}</span><input value={user?.username || ''} disabled /></label><label><span>{t('position')}</span><input value={profileForm.position} disabled /></label><label><span>{t('department')}</span><input value={profileForm.department} disabled /></label><label><span>{t('room')}</span><input value={profileForm.room} disabled /></label><label><span>{t('phone')}</span><input value={profileForm.phone} disabled /></label><label><span>{t('websiteVersion')}</span><select value={profileForm.websiteLanguage || DEFAULT_PROFILE_WEBSITE_LANGUAGE} onChange={(e) => updateProfileField('websiteLanguage', e.target.value)}>{PROFILE_LANGUAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><label><span>{t('website')}</span><input placeholder="https://..." value={profileForm.website} onChange={(e) => updateProfileField('website', e.target.value)} /></label><label><span>{t('status')}</span><input placeholder={t('statusPlaceholder')} value={profileForm.statusText} onChange={(e) => updateProfileField('statusText', e.target.value)} /></label><label className="profile-field-wide"><span>{t('bio')}</span><textarea placeholder={t('bioPlaceholder')} rows={4} value={profileForm.bio} onChange={(e) => updateProfileField('bio', e.target.value)} /></label><button type="submit">{t('saveProfile')}</button></form></>}
+                  {profileSettingsTab === 'appearance' && <><h3>{t('appearance')}</h3><div className="chat-appearance-controls profile-appearance-controls"><label><span>{t('theme')}</span><select value={chatLocalSettings.uiTheme || 'light'} onChange={(e) => updateChatUiSetting('uiTheme', e.target.value)}>{CHAT_THEMES.map((item) => <option key={item.id} value={item.id}>{getOptionLabel(item)}</option>)}</select></label><label><span>{t('density')}</span><select value={chatLocalSettings.uiDensity || 'regular'} onChange={(e) => updateChatUiSetting('uiDensity', e.target.value)}>{CHAT_DENSITIES.map((item) => <option key={item.id} value={item.id}>{getOptionLabel(item)}</option>)}</select></label><label><span>{t('textSize')}</span><select value={chatLocalSettings.uiTextSize || 'medium'} onChange={(e) => updateChatUiSetting('uiTextSize', e.target.value)}>{CHAT_TEXT_SIZES.map((item) => <option key={item.id} value={item.id}>{getOptionLabel(item)}</option>)}</select></label></div></>}
+                  {profileSettingsTab === 'chat' && <><h3>{t('dialogTools')}</h3><div className="profile-chat-tools"><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showConversationMenu === true} onChange={() => toggleDialogToolSetting('showConversationMenu')} /><span><strong>{t('showConversationMenuTitle')}</strong><small>{t('showConversationMenuHint')}</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showExtraMessageActions === true} onChange={() => toggleDialogToolSetting('showExtraMessageActions')} /><span><strong>{t('showExtraMessageActionsTitle')}</strong><small>{t('showExtraMessageActionsHint')}</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showChatTemplates === true} onChange={() => toggleDialogToolSetting('showChatTemplates')} /><span><strong>{t('showChatTemplatesTitle')}</strong><small>{t('showChatTemplatesHint')}</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogMediaPanel === true} onChange={() => toggleDialogToolSetting('showDialogMediaPanel')} /><span><strong>{t('showDialogMediaPanelTitle')}</strong><small>{t('showDialogMediaPanelHint')}</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogDateJump === true} onChange={() => toggleDialogToolSetting('showDialogDateJump')} /><span><strong>{t('showDialogDateJumpTitle')}</strong><small>{t('showDialogDateJumpHint')}</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showDialogFilters === true} onChange={() => toggleDialogToolSetting('showDialogFilters')} /><span><strong>{t('showDialogFiltersTitle')}</strong><small>{t('showDialogFiltersHint')}</small></span></label></div></>}
+                  {profileSettingsTab === 'feed' && <><h3>{t('feedTools')}</h3><div className="profile-chat-tools"><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showFeedCategorySelect === true} onChange={() => toggleFeedToolSetting('showFeedCategorySelect')} /><span><strong>{t('showFeedCategorySelectTitle')}</strong><small>{t('showFeedCategorySelectHint')}</small></span></label><label className="profile-toggle-row"><input type="checkbox" checked={chatLocalSettings.showFeedFilters === true} onChange={() => toggleFeedToolSetting('showFeedFilters')} /><span><strong>{t('showFeedFiltersTitle')}</strong><small>{t('showFeedFiltersHint')}</small></span></label></div></>}
+                  {profileSettingsTab === 'security' && <><h3>{t('securityPhoto')}</h3><div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>{t('changePhoto')}</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>{t('removePhoto')}</button></div><form onSubmit={changeMyPassword} className="profile-password-form"><input type="password" placeholder={t('currentPassword')} value={passwordForm.currentPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))} /><input type="password" placeholder={t('newPassword')} value={passwordForm.newPassword} onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))} /><button type="submit">{t('updatePassword')}</button></form>{!isAdmin && <button type="button" className="profile-logout-btn" onClick={handleLogout}>{t('logout')}</button>}</>}
+                </section>
               </div>
             )}
           </div>
@@ -3504,6 +3556,10 @@ const EmployeeChat = () => {
         return (
           <div
             className="photo-viewer-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('media')}
+            tabIndex={-1}
             onMouseDown={() => setMediaViewer(null)}
             onTouchStart={(event) => setViewerTouchStart({ x: event.touches[0]?.clientX || 0, y: event.touches[0]?.clientY || 0 })}
             onTouchEnd={(event) => {
@@ -3547,7 +3603,7 @@ const EmployeeChat = () => {
 
       {forwardSourceMessage && (
         <div className="app-modal-backdrop" onMouseDown={() => setForwardSourceMessage(null)}>
-          <div className="app-modal-card forward-picker-modal" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="app-modal-card forward-picker-modal" role="dialog" aria-modal="true" aria-label={t('forwardMessageTitle')} tabIndex={-1} onMouseDown={(event) => event.stopPropagation()}>
             <h3>{t('forwardMessageTitle')}</h3>
             <p>{t('forwardMessageHint')}</p>
             <div className="forward-source-preview">
@@ -3580,7 +3636,7 @@ const EmployeeChat = () => {
 
       {avatarViewerOpen && (
         <div className="app-modal-backdrop" onMouseDown={() => setAvatarViewerOpen(false)}>
-          <div className="avatar-viewer" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="avatar-viewer" role="dialog" aria-modal="true" aria-label={t('profilePhoto')} tabIndex={-1} onMouseDown={(event) => event.stopPropagation()}>
             <header><strong>{t('profilePhoto')}</strong><button type="button" onClick={() => setAvatarViewerOpen(false)}>×</button></header>
             {avatarUrl ? <img src={avatarUrl} alt={t('profilePhoto')} decoding="async" /> : <div className="avatar-full-placeholder">{String(baseDisplayName || user?.username || '?').slice(0, 1).toUpperCase()}</div>}
             <div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>{t('edit')}</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>{t('delete')}</button></div>
@@ -3590,8 +3646,8 @@ const EmployeeChat = () => {
 
       {modal && (
         <div className="app-modal-backdrop">
-          <div className="app-modal-card">
-            <h3>{modal.title}</h3>
+          <div className="app-modal-card" role="dialog" aria-modal="true" aria-labelledby="employee-chat-modal-title" tabIndex={-1}>
+            <h3 id="employee-chat-modal-title">{modal.title}</h3>
             <p>{modal.message}</p>
             {modal.type === 'prompt' && <textarea rows={4} value={modal.value} onChange={(e) => setModal((prev) => ({ ...prev, value: e.target.value }))} />}
             <div className="app-modal-actions">

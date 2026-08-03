@@ -12,7 +12,6 @@ import NetworkMap from './pages/NetworkMap';
 import EmployeeChat from './pages/EmployeeChat';
 import { ApplicationsProvider } from './context/ApplicationsProvider';
 import './App.css';
-import './pages/EmployeeChatOverrides.css';
 import Support from './components/Support';
 import Statistics from './pages/Statistics';
 import { API_BASE_URL } from './utils/apiConfig';

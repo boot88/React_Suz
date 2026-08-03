@@ -1,4 +1,5 @@
 :root {
+  /* Semantic design tokens: components use these names in both themes. */
   --chat-bg: #f6f8fb;
   --chat-surface: #ffffff;
   --chat-surface-2: #eef4ff;
@@ -7,6 +8,10 @@
   --chat-border: rgba(30, 90, 168, .16);
   --chat-accent: #1e5aa8;
   --chat-accent-2: #0ea5e9;
+  --chat-hover: rgba(30, 90, 168, .08);
+  --chat-focus: rgba(30, 90, 168, .42);
+  --chat-disabled: .55;
+  --chat-error: #dc2626;
   --chat-message-mine: #1e5aa8;
   --chat-message-mine-2: #2563eb;
   --chat-message-peer: #ffffff;
@@ -23,4 +28,6 @@
   --chat-space-xl: 22px;
   --chat-font-scale: 1;
   --chat-density-scale: 1;
+  --chat-motion-fast: 120ms;
+  --chat-motion: 180ms;
 }

@@ -1196,6 +1196,122 @@ button:disabled {
   }
 }
 
+/* Consolidated semantic layer. New UI work should use these tokens rather than
+   creating another component-specific light/dark override. */
+.employee-chat-layout {
+  --chat-hover: rgba(30, 90, 168, .08);
+  --chat-focus: rgba(30, 90, 168, .42);
+  --chat-disabled: .55;
+  --chat-error: #dc2626;
+  --chat-motion-fast: 120ms;
+  --chat-motion: 180ms;
+}
+
+.employee-chat-layout.theme-dark {
+  --chat-bg: #061a1d;
+  --chat-surface: #0d2a2d;
+  --chat-surface-2: #12383a;
+  --chat-ink: #edf0e7;
+  --chat-muted: #b5c6bd;
+  --chat-border: rgba(207, 172, 132, .24);
+  --chat-accent: #e6ac84;
+  --chat-accent-2: #c77e4f;
+  --chat-hover: rgba(230, 172, 132, .12);
+  --chat-focus: rgba(230, 172, 132, .64);
+  --chat-error: #ff8f7d;
+}
+
+.employee-chat-layout :is(button, input, textarea, select, summary, a):focus-visible {
+  outline: 3px solid var(--chat-focus);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--chat-focus) 24%, transparent);
+}
+
+.employee-chat-layout button:disabled,
+.employee-chat-layout :is(input, textarea, select):disabled {
+  opacity: var(--chat-disabled);
+  cursor: not-allowed;
+}
+
+.employee-chat-layout :is(button, input, textarea, select, .message-bubble, .employee-contact-open, .employee-feed-post) {
+  transition-duration: var(--chat-motion);
+}
+
+.profile-settings-panel {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.profile-settings-tabs {
+  display: flex;
+  gap: 6px;
+  margin: -2px 0 18px;
+  padding-bottom: 10px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--chat-border);
+}
+
+.profile-settings-tabs button {
+  flex: 0 0 auto;
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 7px 11px;
+  background: transparent;
+  color: var(--chat-muted);
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.profile-settings-tabs button:hover {
+  background: var(--chat-hover);
+  color: var(--chat-ink);
+  transform: none;
+}
+
+.profile-settings-tabs button.active {
+  border-color: color-mix(in srgb, var(--chat-accent) 36%, var(--chat-border));
+  background: color-mix(in srgb, var(--chat-accent) 12%, var(--chat-surface));
+  color: var(--chat-accent);
+}
+
+.profile-settings-panel > h3 {
+  margin-top: 0;
+}
+
+.app-modal-backdrop {
+  padding: 20px;
+  backdrop-filter: blur(4px);
+}
+
+.app-modal-card,
+.avatar-viewer,
+.forward-picker-modal {
+  max-height: min(780px, calc(100vh - 40px));
+  overflow: auto;
+}
+
+.empty-chat,
+.empty-mini,
+.feed-unavailable,
+.requests-unavailable {
+  border-color: var(--chat-border);
+  background: color-mix(in srgb, var(--chat-surface) 92%, var(--chat-surface-2));
+  color: var(--chat-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .employee-chat-layout *,
+  .employee-chat-layout *::before,
+  .employee-chat-layout *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+  }
+}
+
 .drop-zone-overlay {
   position: fixed;
   inset: 18px;
