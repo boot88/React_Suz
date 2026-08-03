@@ -3523,18 +3523,22 @@ const EmployeeChat = () => {
     }
     setRequestStatus({ state: 'sending', text: 'Отправка заявки...', ticketId: '' });
     let lastError = null;
+    const idempotencyKey = (typeof window !== 'undefined' && window.crypto?.randomUUID)
+      ? window.crypto.randomUUID()
+      : `application-${Date.now()}-${createMessageId()}`;
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         const response = await authFetch(`${API_BASE_URL}/applications/from-chat`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
           body: JSON.stringify({
             application: requestText.trim(),
             category: requestCategory,
             priority: requestPriority,
             chat_thread_id: currentConversationId || '',
-            source_message_id: replyTo?.id || ''
+            source_message_id: replyTo?.id || '',
+            idempotency_key: idempotencyKey
           })
         });
         const data = await response.json().catch(() => ({}));
@@ -3562,6 +3566,27 @@ const EmployeeChat = () => {
     if (!application) return;
     setMyApplications((prev) => [application, ...prev.filter((item) => item.id !== application.id)]);
   };
+
+  useEffect(() => {
+    const accessToken = String(user?.accessToken || '').trim();
+    if (!accessToken || typeof EventSource === 'undefined') return undefined;
+    const stream = new EventSource(`${API_BASE_URL}/applications/stream?access_token=${encodeURIComponent(accessToken)}`);
+    const onApplication = (event) => {
+      try {
+        const payload = JSON.parse(event.data || '{}');
+        const application = payload?.application;
+        if (!application?.id) return;
+        setMyApplications((previous) => payload.eventType === 'deleted'
+          ? previous.filter((item) => item.id !== application.id)
+          : [application, ...previous.filter((item) => item.id !== application.id)]);
+      } catch { /* Ignore a malformed realtime event and keep the current list. */ }
+    };
+    stream.addEventListener('application', onApplication);
+    return () => {
+      stream.removeEventListener('application', onApplication);
+      stream.close();
+    };
+  }, [user?.accessToken]);
 
   const confirmApplicationDone = async (applicationId) => {
     const employeeComment = await promptAction('Если хотите, оставьте комментарий к закрытию заявки. Можно оставить пустым.', '', 'Комментарий к закрытию');
@@ -5417,6 +5442,7 @@ const EmployeeChat = () => {
                     <p>{ticket.application}</p>
                     <RequestTimerMetrics ticket={ticket} t={t} />
                     {(ticket.executor || ticket.accepted_by || ticket.admin_comment || ticket.eta_minutes) && <div className="ticket-admin-note"><strong>{ticket.executor || ticket.accepted_by || t('administrator')}</strong><span>{ticket.admin_comment || (ticket.eta_minutes ? t('administratorEta').replace('{minutes}', ticket.eta_minutes) : t('administratorAccepted'))}</span></div>}
+                    {Array.isArray(ticket.timeline) && <ol className="ticket-timeline" aria-label={isEnglishInterface ? 'Request progress' : 'Ход заявки'}>{ticket.timeline.map((step) => <li key={step.key} className={step.completed ? 'completed' : ''}><span>{step.label}</span>{step.at && <time>{new Date(step.at).toLocaleString(isEnglishInterface ? 'en-US' : 'ru-RU')}</time>}</li>)}</ol>}
                     {ticket.process && <div className="ticket-admin-note"><strong>{t('workCompleted')}</strong><span>{ticket.process}</span></div>}
                     {['in_progress', 'waiting_employee_confirmation'].includes(ticket.status) && <div className="ticket-actions"><button type="button" onClick={() => confirmApplicationDone(ticket.id)}>✅ {t('requestDone')}</button><button type="button" onClick={() => reopenApplication(ticket.id)}>{t('issueRemains')}</button></div>}
                   </article>

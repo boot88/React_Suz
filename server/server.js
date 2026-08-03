@@ -8,10 +8,15 @@ const chatRoutes = require('./routes/chat');
 const pool = require('./config/database');
 const {
   requireAuth,
+  requireAuthAllowQuery,
   requireRole,
   hasRole,
   isSameLogin
 } = require('./middleware/auth');
+const {
+  assertApplicationTransition,
+  normalizeApplicationStatus
+} = require('./utils/applicationWorkflow');
 
 const app = express();
 const PORT = Number(process.env.PORT || 5000);
@@ -89,7 +94,8 @@ const APPLICATION_WORKFLOW_COLUMN_NAMES = [
   'resolved_at', 'employee_confirmed_at', 'admin_comment', 'eta_minutes',
   'waiting_seconds', 'arrival_seconds', 'work_seconds', 'source',
   'chat_thread_id', 'source_message_id', 'employee_comment',
-  'sla_paused_at', 'sla_paused_seconds'
+  'sla_paused_at', 'sla_paused_seconds', 'idempotency_key', 'deleted_at',
+  'deleted_by', 'source_attachments_json'
 ];
 const APPLICATION_WORKFLOW_COLUMNS = APPLICATION_WORKFLOW_COLUMN_NAMES.map(quoteColumn).join(', ');
 
@@ -111,17 +117,32 @@ const secondsBetween = (start, end) => {
   return Math.max(0, Math.round((endMs - startMs) / 1000));
 };
 
-const normalizeApplication = (app = {}) => ({
+const normalizeApplication = (app = {}) => {
+  const status = normalizeApplicationStatus(app.status, app.fl ? 'done' : 'new');
+  let sourceAttachments = [];
+  try { sourceAttachments = JSON.parse(app.source_attachments_json || '[]'); } catch { sourceAttachments = []; }
+  const timeline = [
+    ['created', 'Создана', app.created_at || app.data],
+    ['accepted', 'Принята', app.accepted_at],
+    ['in_progress', 'В работе', app.work_started_at],
+    ['waiting_employee_confirmation', 'Ожидает подтверждения', app.resolved_at],
+    ['done', 'Закрыта', app.employee_confirmed_at || (status === 'done' ? app.end_data : null)]
+  ].map(([key, label, at]) => ({ key, label, at: at || null, completed: Boolean(at) }));
+  return {
   ...app,
   fl: Boolean(app.fl),
-  status: app.status || (app.fl ? 'done' : 'new'),
-  statusLabel: APPLICATION_STATUS_LABELS[app.status || (app.fl ? 'done' : 'new')] || 'Новая',
+  status,
+  statusLabel: APPLICATION_STATUS_LABELS[status] || 'Новая',
+  source_attachments: Array.isArray(sourceAttachments) ? sourceAttachments : [],
+  last_updated_at: app.updated_at || app.employee_confirmed_at || app.resolved_at || app.work_started_at || app.accepted_at || app.created_at || app.data || null,
+  timeline,
   eta_minutes: app.eta_minutes == null ? null : Number(app.eta_minutes),
   waiting_seconds: app.waiting_seconds == null ? null : Number(app.waiting_seconds),
   arrival_seconds: app.arrival_seconds == null ? null : Number(app.arrival_seconds),
   work_seconds: app.work_seconds == null ? null : Number(app.work_seconds),
   sla_paused_seconds: app.sla_paused_seconds == null ? null : Number(app.sla_paused_seconds)
-});
+};
+};
 
 const APPLICATION_WORKFLOW_ALTERS = [
   ['status', "ALTER TABLE application ADD COLUMN `status` VARCHAR(40) NULL DEFAULT 'new'"],
@@ -145,7 +166,11 @@ const APPLICATION_WORKFLOW_ALTERS = [
   ['source_message_id', 'ALTER TABLE application ADD COLUMN `source_message_id` VARCHAR(255) NULL'],
   ['employee_comment', 'ALTER TABLE application ADD COLUMN `employee_comment` TEXT NULL'],
   ['sla_paused_at', 'ALTER TABLE application ADD COLUMN `sla_paused_at` DATETIME NULL'],
-  ['sla_paused_seconds', 'ALTER TABLE application ADD COLUMN `sla_paused_seconds` INT NULL']
+  ['sla_paused_seconds', 'ALTER TABLE application ADD COLUMN `sla_paused_seconds` INT NULL'],
+  ['idempotency_key', 'ALTER TABLE application ADD COLUMN `idempotency_key` VARCHAR(128) NULL'],
+  ['deleted_at', 'ALTER TABLE application ADD COLUMN `deleted_at` DATETIME NULL'],
+  ['deleted_by', 'ALTER TABLE application ADD COLUMN `deleted_by` VARCHAR(255) NULL'],
+  ['source_attachments_json', 'ALTER TABLE application ADD COLUMN `source_attachments_json` LONGTEXT NULL']
 ];
 
 let applicationSchemaReadyPromise = null;
@@ -169,6 +194,12 @@ const ensureApplicationWorkflowSchema = async () => {
           }
         }
       }
+      await pool.execute('CREATE UNIQUE INDEX uniq_application_idempotency_key ON application (`idempotency_key`)').catch((error) => {
+        if (error.code !== 'ER_DUP_KEYNAME') throw error;
+      });
+      await pool.execute('CREATE INDEX idx_application_deleted_at ON application (`deleted_at`)').catch((error) => {
+        if (error.code !== 'ER_DUP_KEYNAME') throw error;
+      });
       try {
         await pool.execute(`
           CREATE TABLE IF NOT EXISTS application_events (
@@ -219,22 +250,47 @@ const ensureApplicationWorkflowSchema = async () => {
   return applicationSchemaReadyPromise;
 };
 
-const addApplicationEvent = async (applicationId, actorLogin, actorRole, eventType, comment = '') => {
+const addApplicationEvent = async (executorOrApplicationId, ...args) => {
+  const executor = typeof executorOrApplicationId?.execute === 'function' ? executorOrApplicationId : pool;
+  const [applicationId, actorLogin, actorRole, eventType, comment = ''] = executor === pool
+    ? [executorOrApplicationId, ...args]
+    : args;
+  return executor.execute(
+    'INSERT INTO application_events (`application_id`, `actor_login`, `actor_role`, `event_type`, `comment`) VALUES (?, ?, ?, ?, ?)',
+    [applicationId, actorLogin || null, actorRole || null, eventType, comment || null]
+  );
+};
+
+const withApplicationTransaction = async (operation) => {
+  const connection = await pool.getConnection();
   try {
-    await pool.execute(
-      'INSERT INTO application_events (`application_id`, `actor_login`, `actor_role`, `event_type`, `comment`) VALUES (?, ?, ?, ?, ?)',
-      [applicationId, actorLogin || null, actorRole || null, eventType, comment || null]
-    );
+    await connection.beginTransaction();
+    const result = await operation(connection);
+    await connection.commit();
+    return result;
   } catch (error) {
-    console.error('Не удалось записать событие заявки:', error.message);
+    await connection.rollback().catch(() => {});
+    throw error;
+  } finally {
+    connection.release();
   }
 };
 
 const getApplicationById = async (id) => {
   await ensureApplicationWorkflowSchema();
-  const [rows] = await pool.execute(`SELECT ${APPLICATION_WORKFLOW_COLUMNS} FROM application WHERE \`id\` = ?`, [id]);
+  const [rows] = await pool.execute(`SELECT ${APPLICATION_WORKFLOW_COLUMNS} FROM application WHERE \`id\` = ? AND \`deleted_at\` IS NULL`, [id]);
   return rows?.[0] ? normalizeApplication(rows[0]) : null;
 };
+
+const getApplicationByIdForUpdate = async (executor, id) => {
+  const [rows] = await executor.execute(
+    `SELECT ${APPLICATION_WORKFLOW_COLUMNS} FROM application WHERE \`id\` = ? AND \`deleted_at\` IS NULL FOR UPDATE`,
+    [id]
+  );
+  return rows?.[0] ? normalizeApplication(rows[0]) : null;
+};
+
+const getIdempotencyKey = (req) => String(req.get('Idempotency-Key') || req.body?.idempotency_key || '').trim().slice(0, 128);
 
 const requireApplicationOwnerOrManager = async (req, res, next) => {
   try {
@@ -250,6 +306,44 @@ const requireApplicationOwnerOrManager = async (req, res, next) => {
     return res.status(500).json({ error: 'Не удалось проверить доступ к заявке' });
   }
 };
+
+const applicationStreamClients = new Set();
+const sendApplicationEvent = (res, eventName, payload) => {
+  res.write(`event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`);
+};
+const publishApplicationUpdate = (application, eventType = 'updated') => {
+  if (!application?.id) return;
+  applicationStreamClients.forEach((client) => {
+    const canRead = hasRole({ auth: client.auth }, 'admin', 'manager')
+      || isSameLogin(application.employee_login, client.auth.login);
+    if (!canRead) return;
+    try {
+      sendApplicationEvent(client.res, 'application', { eventType, application });
+    } catch {
+      applicationStreamClients.delete(client);
+    }
+  });
+};
+
+app.get('/api/applications/stream', requireAuthAllowQuery, (req, res) => {
+  res.status(200).set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
+  res.flushHeaders?.();
+  const client = { res, auth: req.auth };
+  applicationStreamClients.add(client);
+  sendApplicationEvent(res, 'ready', { at: new Date().toISOString() });
+  const heartbeat = setInterval(() => {
+    try { res.write(': keep-alive\n\n'); } catch { applicationStreamClients.delete(client); }
+  }, 25000);
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    applicationStreamClients.delete(client);
+  });
+});
 
 // Безопасный парсинг JSON для изображений
 const safeParseImages = (imagesString) => {
@@ -495,7 +589,7 @@ app.get('/api/applications/export', requireAuth, requireRole('admin', 'manager')
     confirmation: ['waiting_employee_confirmation']
   };
 
-  let whereClause = [];
+  let whereClause = ['`deleted_at` IS NULL'];
   const queryParams = [];
 
   if (status && status !== 'all') {
@@ -604,7 +698,7 @@ app.get('/api/applications', requireAuth, requireRole('admin', 'manager'), async
     confirmation: ['waiting_employee_confirmation']
   };
 
-  let whereClause = [];
+  let whereClause = ['`deleted_at` IS NULL'];
   const queryParams = [];
 
   if (status && status !== 'all') {
@@ -687,12 +781,12 @@ app.get('/api/applications', requireAuth, requireRole('admin', 'manager'), async
       pendingQuery,
       whereSql ? [...queryParams, 'new', 'accepted', 'in_progress', 'waiting_employee_confirmation', 'reopened'] : ['new', 'accepted', 'in_progress', 'waiting_employee_confirmation', 'reopened']
     );
-    const [queueResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE COALESCE(`fl`, 0) = 0 AND `status` IN (?, ?)', ['new', 'reopened']);
-    const [acceptedResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE COALESCE(`fl`, 0) = 0 AND `status` = ?', ['accepted']);
-    const [inProgressResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE COALESCE(`fl`, 0) = 0 AND `status` = ?', ['in_progress']);
-    const [activeResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE COALESCE(`fl`, 0) = 0 AND `status` IN (?, ?)', ['accepted', 'in_progress']);
-    const [confirmationResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE COALESCE(`fl`, 0) = 0 AND `status` = ?', ['waiting_employee_confirmation']);
-    const [overdueResult] = await pool.execute(`SELECT COUNT(*) AS count FROM application WHERE ${APPLICATION_OVERDUE_SQL}`);
+    const [queueResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `deleted_at` IS NULL AND COALESCE(`fl`, 0) = 0 AND `status` IN (?, ?)', ['new', 'reopened']);
+    const [acceptedResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `deleted_at` IS NULL AND COALESCE(`fl`, 0) = 0 AND `status` = ?', ['accepted']);
+    const [inProgressResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `deleted_at` IS NULL AND COALESCE(`fl`, 0) = 0 AND `status` = ?', ['in_progress']);
+    const [activeResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `deleted_at` IS NULL AND COALESCE(`fl`, 0) = 0 AND `status` IN (?, ?)', ['accepted', 'in_progress']);
+    const [confirmationResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `deleted_at` IS NULL AND COALESCE(`fl`, 0) = 0 AND `status` = ?', ['waiting_employee_confirmation']);
+    const [overdueResult] = await pool.execute(`SELECT COUNT(*) AS count FROM application WHERE \`deleted_at\` IS NULL AND ${APPLICATION_OVERDUE_SQL}`);
 
     const total = totalResult[0].total;
     const completed = completedResult[0].count;
@@ -733,7 +827,7 @@ app.get('/api/applications/unseen-count', requireAuth, requireRole('admin', 'man
       `SELECT COUNT(*) AS count
        FROM application a
        LEFT JOIN application_views v ON v.application_id = a.id AND v.admin_login = ?
-       WHERE a.\`status\` IN ('new', 'reopened') AND v.id IS NULL`,
+       WHERE a.\`deleted_at\` IS NULL AND a.\`status\` IN ('new', 'reopened') AND v.id IS NULL`,
       [adminLogin]
     );
     res.json({ count: rows[0]?.count || 0 });
@@ -772,7 +866,7 @@ app.get('/api/applications/my', requireAuth, async (req, res) => {
   try {
     await ensureApplicationWorkflowSchema();
     const [applications] = await pool.execute(
-      `SELECT ${APPLICATION_WORKFLOW_COLUMNS} FROM application WHERE LOWER(\`employee_login\`) = ? ORDER BY \`data\` DESC LIMIT 100`,
+      `SELECT ${APPLICATION_WORKFLOW_COLUMNS} FROM application WHERE LOWER(\`employee_login\`) = ? AND \`deleted_at\` IS NULL ORDER BY \`data\` DESC LIMIT 100`,
       [login]
     );
     res.json({ applications: applications.map(normalizeApplication) });
@@ -791,7 +885,8 @@ app.post('/api/applications', requireAuth, requireRole('admin', 'manager'), asyn
 
   try {
     await ensureApplicationWorkflowSchema();
-    const normalizedStatus = status || (fl ? 'done' : 'new');
+    const normalizedStatus = normalizeApplicationStatus(status, fl ? 'done' : 'new');
+    const idempotencyKey = getIdempotencyKey(req);
     const processedData = {
       name: handleNullValues(name, ''),
       cabinet: handleNullValues(cabinet, ''),
@@ -809,25 +904,33 @@ app.post('/api/applications', requireAuth, requireRole('admin', 'manager'), asyn
       priority: handleNullValues(priority, ''),
       source: 'admin',
       chat_thread_id: '',
-      source_message_id: ''
+      source_message_id: '', idempotency_key: idempotencyKey || null
     };
-
-    const [result] = await pool.execute(
-      'INSERT INTO application (`name`, `cabinet`, `N_tel`, `application`, `process`, `executor`, `data`, `start_data`, `end_data`, `fl`, `status`, `employee_login`, `category`, `priority`, `source`, `chat_thread_id`, `source_message_id`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [
+    const created = await withApplicationTransaction(async (connection) => {
+      if (idempotencyKey) {
+        const [rows] = await connection.execute('SELECT `id` FROM application WHERE `idempotency_key` = ? LIMIT 1 FOR UPDATE', [idempotencyKey]);
+        if (rows[0]) return { id: rows[0].id, replayed: true };
+      }
+      const [result] = await connection.execute(
+        'INSERT INTO application (`name`, `cabinet`, `N_tel`, `application`, `process`, `executor`, `data`, `start_data`, `end_data`, `fl`, `status`, `employee_login`, `category`, `priority`, `source`, `chat_thread_id`, `source_message_id`, `idempotency_key`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
         processedData.name, processedData.cabinet, processedData.N_tel, processedData.application,
         processedData.process, processedData.executor, processedData.data, processedData.start_data,
         processedData.end_data, processedData.fl, processedData.status, processedData.employee_login,
         processedData.category, processedData.priority, processedData.source, processedData.chat_thread_id,
-        processedData.source_message_id
-      ]
-    );
-    await addApplicationEvent(result.insertId, req.auth.login, req.auth.role, 'created', 'Заявка создана');
+        processedData.source_message_id, processedData.idempotency_key
+        ]
+      );
+      await addApplicationEvent(connection, result.insertId, req.auth.login, req.auth.role, 'created', 'Заявка создана');
+      return { id: result.insertId, replayed: false };
+    });
+    const savedApplication = await getApplicationById(created.id);
+    if (!created.replayed) publishApplicationUpdate(savedApplication, 'created');
 
     res.status(201).json({
-      message: 'Заявка добавлена',
-      id: result.insertId,
-      application: await getApplicationById(result.insertId)
+      message: created.replayed ? 'Заявка уже была создана' : 'Заявка добавлена',
+      id: created.id,
+      application: savedApplication
     });
   } catch (error) {
     console.error('Ошибка при добавлении заявки:', error);
@@ -842,6 +945,7 @@ app.post('/api/applications/from-chat', requireAuth, async (req, res) => {
     chat_thread_id, source_message_id
   } = req.body;
   const employeeLogin = req.auth.login;
+  const idempotencyKey = getIdempotencyKey(req);
 
   try {
     await ensureApplicationWorkflowSchema();
@@ -860,31 +964,47 @@ app.post('/api/applications/from-chat', requireAuth, async (req, res) => {
       && conversationParticipants.includes(employeeLogin)
     ) ? conversationParticipants.sort().join('::') : '';
     let safeSourceMessageId = '';
+    let sourceAttachmentsJson = null;
     const requestedSourceMessageId = String(source_message_id || '').trim().slice(0, 128);
     if (safeConversationId && requestedSourceMessageId) {
       const [messageRows] = await pool.execute(
-        'SELECT id FROM chat_messages WHERE conversation_id = ? AND id = ? LIMIT 1',
+        'SELECT id, message_json FROM chat_messages WHERE conversation_id = ? AND id = ? LIMIT 1',
         [safeConversationId, requestedSourceMessageId]
       ).catch((error) => {
         if (error.code === 'ER_NO_SUCH_TABLE') return [[]];
         throw error;
       });
-      if (messageRows.length) safeSourceMessageId = requestedSourceMessageId;
+      if (messageRows.length) {
+        safeSourceMessageId = requestedSourceMessageId;
+        try {
+          const message = JSON.parse(messageRows[0].message_json || '{}');
+          const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+          sourceAttachmentsJson = JSON.stringify(attachments.map(({ id, name, type, size, url, thumbnailUrl }) => ({ id, name, type, size, url, thumbnailUrl })));
+        } catch { sourceAttachmentsJson = null; }
+      }
     }
     const actor = actorRows[0];
 
-    const [result] = await pool.execute(
-      'INSERT INTO application (`name`, `cabinet`, `N_tel`, `application`, `process`, `executor`, `data`, `start_data`, `end_data`, `fl`, `status`, `employee_login`, `category`, `priority`, `source`, `chat_thread_id`, `source_message_id`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    const created = await withApplicationTransaction(async (connection) => {
+      if (idempotencyKey) {
+        const [rows] = await connection.execute('SELECT `id` FROM application WHERE `idempotency_key` = ? LIMIT 1 FOR UPDATE', [idempotencyKey]);
+        if (rows[0]) return { id: rows[0].id, replayed: true };
+      }
+      const [result] = await connection.execute(
+      'INSERT INTO application (`name`, `cabinet`, `N_tel`, `application`, `process`, `executor`, `data`, `start_data`, `end_data`, `fl`, `status`, `employee_login`, `category`, `priority`, `source`, `chat_thread_id`, `source_message_id`, `source_attachments_json`, `idempotency_key`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         handleNullValues(actor.full_name, employeeLogin), handleNullValues(actor.room, ''), handleNullValues(actor.phone, ''),
         handleNullValues(application, ''), '', '', now, null, null, 0, 'new',
         employeeLogin, handleNullValues(category, 'Другое'),
         handleNullValues(priority, 'Обычный'), 'chat', safeConversationId,
-        safeSourceMessageId
-      ]
-    );
-    await addApplicationEvent(result.insertId, req.auth.login, req.auth.role, 'created_from_chat', 'Заявка создана из чата сотрудника');
-    res.status(201).json({ message: 'Заявка из чата создана', id: result.insertId, application: await getApplicationById(result.insertId) });
+        safeSourceMessageId, sourceAttachmentsJson, idempotencyKey || null
+      ]);
+      await addApplicationEvent(connection, result.insertId, req.auth.login, req.auth.role, 'created_from_chat', 'Заявка создана из чата сотрудника');
+      return { id: result.insertId, replayed: false };
+    });
+    const savedApplication = await getApplicationById(created.id);
+    if (!created.replayed) publishApplicationUpdate(savedApplication, 'created');
+    res.status(201).json({ message: created.replayed ? 'Заявка уже была создана' : 'Заявка из чата создана', id: created.id, application: savedApplication });
   } catch (error) {
     console.error('Ошибка при создании заявки из чата:', error);
     res.status(500).json({ error: 'Не удалось создать заявку из чата' });
@@ -909,7 +1029,9 @@ app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), a
     const has = (field) => Object.prototype.hasOwnProperty.call(req.body, field);
     const pick = (field, fallback = null) => (has(field) ? handleNullValues(req.body[field], fallback) : existingApp[field]);
     const pickDate = (field) => (has(field) ? formatDateForMySQL(req.body[field]) : existingApp[field]);
-    const nextStatus = has('fl') && Boolean(fl) ? 'done' : (has('status') ? (status || 'new') : (has('fl') ? 'new' : existingApp.status));
+    const requestedStatus = has('fl') && Boolean(fl) ? 'done' : (has('status') ? (status || 'new') : (has('fl') ? 'new' : existingApp.status));
+    const nextStatus = normalizeApplicationStatus(requestedStatus, existingApp.status);
+    assertApplicationTransition(existingApp.status, nextStatus);
     const processedData = {
       name: pick('name', ''), cabinet: pick('cabinet', ''), N_tel: pick('N_tel', ''),
       application: pick('application', ''), process: pick('process', ''), executor: pick('executor', ''),
@@ -926,7 +1048,8 @@ app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), a
       source_message_id: existingApp.source_message_id, employee_comment: pick('employee_comment', '')
     };
 
-    await pool.execute(
+    const updatedApplication = await withApplicationTransaction(async (connection) => {
+    await connection.execute(
       'UPDATE application SET ' +
         '`name` = ?, `cabinet` = ?, `N_tel` = ?, `application` = ?, `process` = ?, `executor` = ?, `data` = ?, ' +
         '`start_data` = ?, `end_data` = ?, `fl` = ?, `status` = ?, `employee_login` = ?, `category` = ?, `priority` = ?, ' +
@@ -944,9 +1067,12 @@ app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), a
         processedData.chat_thread_id, processedData.source_message_id, processedData.employee_comment, id
       ]
     );
-    await addApplicationEvent(id, req.auth.login, req.auth.role, 'manual_update', 'Заявка обновлена вручную');
+    await addApplicationEvent(connection, id, req.auth.login, req.auth.role, 'manual_update', 'Заявка обновлена вручную');
+    return getApplicationByIdForUpdate(connection, id);
+    });
+    publishApplicationUpdate(updatedApplication, 'manual_update');
 
-    res.status(200).json({ message: 'Заявка успешно обновлена', application: await getApplicationById(id) });
+    res.status(200).json({ message: 'Заявка успешно обновлена', application: updatedApplication });
   } catch (error) {
     console.error('Ошибка при обновлении заявки:', error);
     res.status(500).json({ error: 'Не удалось обновить заявку' });
@@ -955,12 +1081,17 @@ app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), a
 
 
 const updateApplicationWorkflow = async (id, updater, event) => {
-  const app = await getApplicationById(id);
-  if (!app) return null;
-  const next = updater(app);
-  await pool.execute(next.sql, next.params);
-  if (event) await addApplicationEvent(id, event.actorLogin, event.actorRole, event.eventType, event.comment);
-  return getApplicationById(id);
+  const updated = await withApplicationTransaction(async (connection) => {
+    const app = await getApplicationByIdForUpdate(connection, id);
+    if (!app) return null;
+    const next = updater(app);
+    if (event?.nextStatus) assertApplicationTransition(app.status, event.nextStatus);
+    await connection.execute(next.sql, next.params);
+    if (event) await addApplicationEvent(connection, id, event.actorLogin, event.actorRole, event.eventType, event.comment);
+    return getApplicationByIdForUpdate(connection, id);
+  });
+  if (updated) publishApplicationUpdate(updated, event?.eventType || 'updated');
+  return updated;
 };
 
 const getCurrentSlaSeconds = (app = {}, now = new Date()) => {
@@ -982,9 +1113,9 @@ app.post('/api/applications/:id/accept', requireAuth, requireRole('admin', 'mana
       const now = formatNowForMySQL();
       return {
         sql: 'UPDATE application SET `status` = ?, `accepted_by` = ?, `executor` = ?, `eta_minutes` = ?, `admin_comment` = ?, `accepted_at` = ?, `work_started_at` = ?, `start_data` = ?, `waiting_seconds` = ?, `arrival_seconds` = ?, `fl` = 0 WHERE `id` = ?',
-        params: ['in_progress', actorLogin, executor || actorLogin, eta_minutes || null, admin_comment || '', now, now, now, secondsBetween(app.created_at || app.data, now), 0, id]
+        params: ['accepted', actorLogin, executor || actorLogin, eta_minutes || null, admin_comment || '', now, null, null, secondsBetween(app.created_at || app.data, now), 0, id]
       };
-    }, { actorLogin, actorRole: req.auth.role, eventType: 'accepted', comment: admin_comment || 'Заявка взята в работу' });
+    }, { actorLogin, actorRole: req.auth.role, eventType: 'accepted', nextStatus: 'accepted', comment: admin_comment || 'Заявка принята исполнителем' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
     res.json({ message: 'Заявка взята в работу, таймер выполнения запущен', application: updated });
   } catch (error) {
@@ -1003,7 +1134,7 @@ app.post('/api/applications/:id/start-work', requireAuth, requireRole('admin', '
         sql: 'UPDATE application SET `status` = ?, `work_started_at` = ?, `start_data` = ?, `arrival_seconds` = ?, `fl` = 0 WHERE `id` = ?',
         params: ['in_progress', now, now, secondsBetween(app.accepted_at || app.created_at || app.data, now), id]
       };
-    }, { actorLogin: req.auth.login, actorRole: req.auth.role, eventType: 'work_started', comment: 'Исполнитель начал работу' });
+    }, { actorLogin: req.auth.login, actorRole: req.auth.role, eventType: 'work_started', nextStatus: 'in_progress', comment: 'Исполнитель начал работу' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
     res.json({ message: 'Работа начата', application: updated });
   } catch (error) {
@@ -1025,7 +1156,7 @@ app.post('/api/applications/:id/resolve', requireAuth, requireRole('admin', 'man
         sql: 'UPDATE application SET `status` = ?, `resolved_at` = ?, `process` = ?, `work_seconds` = ?, `fl` = 0 WHERE `id` = ?',
         params: ['waiting_employee_confirmation', now, process || app.process || '', previousWorkSeconds + currentWorkSeconds, id]
       };
-    }, { actorLogin: req.auth.login, actorRole: req.auth.role, eventType: 'resolved', comment: process || 'Работа выполнена, ожидается подтверждение' });
+    }, { actorLogin: req.auth.login, actorRole: req.auth.role, eventType: 'resolved', nextStatus: 'waiting_employee_confirmation', comment: process || 'Работа выполнена, ожидается подтверждение' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
     res.json({ message: 'Заявка отправлена на подтверждение', application: updated });
   } catch (error) {
@@ -1052,6 +1183,7 @@ app.post('/api/applications/:id/confirm', requireAuth, requireApplicationOwnerOr
       actorLogin: req.auth.login,
       actorRole: req.auth.role,
       eventType: hasRole(req, 'admin', 'manager') ? 'closed_by_staff' : 'employee_confirmed',
+      nextStatus: 'done',
       comment: employee_comment || (hasRole(req, 'admin', 'manager') ? 'Заявка закрыта ответственным сотрудником' : 'Сотрудник подтвердил выполнение')
     });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
@@ -1074,6 +1206,7 @@ app.post('/api/applications/:id/reopen', requireAuth, requireApplicationOwnerOrM
       actorLogin: req.auth.login,
       actorRole: req.auth.role,
       eventType: hasRole(req, 'admin', 'manager') ? 'reopened_by_staff' : 'reopened',
+      nextStatus: 'reopened',
       comment: employee_comment || 'Проблема осталась'
     });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
@@ -1114,23 +1247,20 @@ app.delete('/api/applications/:id', requireAuth, requireRole('admin', 'manager')
       return res.status(400).json({ error: 'Неверный формат ID' });
     }
     
-    const [existing] = await pool.execute(
-      'SELECT id FROM application WHERE `id` = ?',
-      [applicationId]
-    );
-    
-    if (!existing || existing.length === 0) {
-      return res.status(404).json({ error: 'Заявка не найдена' });
-    }
-    
-    const [result] = await pool.execute(
-      'DELETE FROM application WHERE `id` = ?',
-      [applicationId]
-    );
-    
-    if (result.affectedRows === 0) {
-      return res.status(500).json({ error: 'Удаление не выполнено' });
-    }
+    await ensureApplicationWorkflowSchema();
+    const deletedApplication = await withApplicationTransaction(async (connection) => {
+      const existing = await getApplicationByIdForUpdate(connection, applicationId);
+      if (!existing) return null;
+      const [result] = await connection.execute(
+        'UPDATE application SET `deleted_at` = NOW(), `deleted_by` = ? WHERE `id` = ? AND `deleted_at` IS NULL',
+        [req.auth.login, applicationId]
+      );
+      if (result.affectedRows !== 1) throw new Error('Не удалось пометить заявку как удалённую');
+      await addApplicationEvent(connection, applicationId, req.auth.login, req.auth.role, 'deleted', 'Заявка скрыта из рабочего списка');
+      return { ...existing, deleted_at: new Date().toISOString(), deleted_by: req.auth.login };
+    });
+    if (!deletedApplication) return res.status(404).json({ error: 'Заявка не найдена' });
+    publishApplicationUpdate(deletedApplication, 'deleted');
     
     res.status(200).json({ 
       message: 'Заявка успешно удалена', 

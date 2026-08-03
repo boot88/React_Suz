@@ -176,11 +176,12 @@ const AddApplication = () => {
       });
 
       console.log('Отправляемые данные:', sanitizedData);
+      const idempotencyKey = window.crypto?.randomUUID?.() || `application-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
       const response = await authFetch(`${API_BASE_URL}/applications`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sanitizedData)
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ ...sanitizedData, idempotency_key: idempotencyKey })
       });
 
       const responseData = await response.json();

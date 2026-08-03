@@ -1361,6 +1361,35 @@ button:disabled {
   border-color: rgba(22, 163, 74, .25);
 }
 
+.ticket-timeline {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+}
+
+.ticket-timeline li {
+  min-width: 112px;
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--chat-border);
+  border-radius: 12px;
+  color: var(--chat-muted);
+  font-size: 12px;
+}
+
+.ticket-timeline li.completed {
+  border-color: color-mix(in srgb, var(--chat-accent) 38%, var(--chat-border));
+  background: color-mix(in srgb, var(--chat-accent) 10%, transparent);
+  color: var(--chat-ink);
+}
+
+.ticket-timeline span,
+.ticket-timeline time { display: block; }
+.ticket-timeline time { margin-top: 3px; font-size: 11px; opacity: .72; }
+
 .ticket-metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
