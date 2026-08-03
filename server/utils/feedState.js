@@ -50,16 +50,75 @@ const toSafeSqlLimit = (value, fallback = 50, maximum = 100) => (
   Math.min(maximum, Math.max(1, Number(value) || fallback))
 );
 
-const buildFeedPostsPageQuery = ({ limit = 50, before = '' } = {}) => {
+const normalizeLogin = (value = '') => String(value || '').trim().toLowerCase();
+
+const canManageFeedRecord = (actor = {}, record = {}) => (
+  ['admin', 'manager'].includes(normalizeLogin(actor.role))
+  || (
+    Boolean(normalizeLogin(actor.login))
+    && normalizeLogin(actor.login) === normalizeLogin(record.author)
+  )
+);
+
+const encodeFeedCursor = (post = {}) => {
+  const id = String(post.id || '').trim();
+  const createdAt = new Date(post.createdAt || 0);
+  if (!id || Number.isNaN(createdAt.getTime())) return '';
+  // feed_posts.created_at is DATETIME, so keep the cursor at the same precision
+  // as MySQL to avoid repeating rows created within the same second.
+  createdAt.setMilliseconds(0);
+  return Buffer.from(JSON.stringify([
+    post.pinned ? 1 : 0,
+    createdAt.toISOString(),
+    id
+  ])).toString('base64url');
+};
+
+const decodeFeedCursor = (cursor = '') => {
+  if (!cursor) return null;
+  try {
+    const [pinned, createdAt, id] = JSON.parse(Buffer.from(String(cursor), 'base64url').toString('utf8'));
+    const date = new Date(createdAt);
+    if (![0, 1].includes(pinned) || Number.isNaN(date.getTime()) || !String(id || '').trim()) {
+      throw new Error('invalid cursor');
+    }
+    return { pinned, createdAt: date, id: String(id).trim() };
+  } catch {
+    const error = new Error('Некорректный курсор ленты');
+    error.status = 400;
+    throw error;
+  }
+};
+
+const buildFeedPostsPageQuery = ({ limit = 50, cursor = '', before = '' } = {}) => {
   const safeLimit = toSafeSqlLimit(limit);
   const params = [];
   let where = 'deleted_at IS NULL';
-  if (before) {
+  const decodedCursor = decodeFeedCursor(cursor);
+  if (decodedCursor) {
+    where += ` AND (
+      pinned < ?
+      OR (
+        pinned = ?
+        AND (
+          created_at < ?
+          OR (created_at = ? AND id < ?)
+        )
+      )
+    )`;
+    params.push(
+      decodedCursor.pinned,
+      decodedCursor.pinned,
+      decodedCursor.createdAt,
+      decodedCursor.createdAt,
+      decodedCursor.id
+    );
+  } else if (before) {
     where += ' AND created_at < ?';
     params.push(new Date(before));
   }
   return {
-    sql: `SELECT post_json FROM feed_posts WHERE ${where} ORDER BY pinned DESC, created_at DESC LIMIT ${safeLimit}`,
+    sql: `SELECT post_json FROM feed_posts WHERE ${where} ORDER BY pinned DESC, created_at DESC, id DESC LIMIT ${safeLimit}`,
     params
   };
 };
@@ -134,7 +193,10 @@ module.exports = {
   buildFeedCommentPreviewsQuery,
   buildFeedCommentsPageQuery,
   buildFeedPostsPageQuery,
+  canManageFeedRecord,
   createSerialMutationQueue,
+  decodeFeedCursor,
+  encodeFeedCursor,
   getFeedTimestamp,
   mergeFeedComments,
   mergeFeedPosts,

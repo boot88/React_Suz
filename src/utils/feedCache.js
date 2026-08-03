@@ -49,6 +49,7 @@ export const readCachedFeed = async (login) => {
     }
     return {
       posts: Array.isArray(cached.posts) ? cached.posts : [],
+      cursor: cached.cursor || '',
       before: cached.before || '',
       hasMore: Boolean(cached.hasMore)
     };
@@ -57,14 +58,15 @@ export const readCachedFeed = async (login) => {
   }
 };
 
-export const writeCachedFeed = async (login, { posts = [], before = '', hasMore = false } = {}) => {
+export const writeCachedFeed = async (login, { posts = [], cursor = '', before = '', hasMore = false } = {}) => {
   try {
     const allPosts = Array.isArray(posts) ? posts : [];
     const cachedPosts = allPosts.slice(0, CACHE_POST_LIMIT);
     await runTransaction('readwrite', (store) => store.put({
       key: createKey(login),
       posts: cachedPosts,
-      before: cachedPosts[cachedPosts.length - 1]?.createdAt || before,
+      cursor,
+      before,
       hasMore: Boolean(hasMore) || allPosts.length > cachedPosts.length,
       savedAt: Date.now()
     }));

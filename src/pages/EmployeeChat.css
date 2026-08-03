@@ -2543,6 +2543,33 @@ button:disabled {
   font-weight: 900;
 }
 
+.feed-post-select-button {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  margin-left: auto;
+  border: 1px solid rgba(30, 90, 168, .22);
+  border-radius: 999px;
+  background: rgba(30, 90, 168, .06);
+  color: var(--chat-accent);
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.feed-post-select-button:hover,
+.feed-post-select-button:focus-visible,
+.feed-post-select-button.active {
+  border-color: var(--chat-accent);
+  background: var(--chat-accent);
+  color: #fff;
+  outline: none;
+}
+
+.feed-post-select-button:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--chat-accent) 24%, transparent);
+}
+
 .feed-post-menu {
   position: absolute;
   z-index: 20;

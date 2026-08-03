@@ -13,6 +13,8 @@ import ChatComposerForm from '../components/employeeChat/ChatComposerForm';
 import ChatDialogHeader from '../components/employeeChat/ChatDialogHeader';
 import ChatLoadingOverlay from '../components/employeeChat/ChatLoadingOverlay';
 import ContactsWorkspace from '../components/employeeChat/ContactsWorkspace';
+import FeedComposer from '../components/employeeChat/FeedComposer';
+import FeedPostCard from '../components/employeeChat/FeedPostCard';
 import RequestTimerMetrics from '../components/employeeChat/RequestTimerMetrics';
 import './EmployeeChat.css';
 
@@ -211,8 +213,8 @@ const RUSSIAN_LABELS = {
   sharePost: 'Поделиться постом в чат',
   quotePost: 'Цитировать пост',
   hidePost: 'Скрыть пост',
-  report: 'Пожаловаться',
-  changeHistory: 'История изменений',
+  selectPost: 'Выбрать публикацию',
+  selectedPost: 'Публикация выбрана',
   save: 'Сохранить',
   share: 'Поделиться',
   unsupportedVideo: 'Ваш браузер не поддерживает просмотр видео.',
@@ -470,8 +472,8 @@ const ENGLISH_LABELS = {
   sharePost: 'Share post to chat',
   quotePost: 'Quote post',
   hidePost: 'Hide post',
-  report: 'Report',
-  changeHistory: 'Change history',
+  selectPost: 'Select post',
+  selectedPost: 'Post selected',
   save: 'Save',
   share: 'Share',
   unsupportedVideo: 'Your browser does not support video playback.',
@@ -1354,7 +1356,8 @@ const getFeedPostsSignature = (posts = []) => JSON.stringify((Array.isArray(post
 const getVisibleFeedPosts = (posts = []) => (Array.isArray(posts) ? posts.filter((post) => post && !post.deletedAt) : []);
 const sortFeedPosts = (posts = []) => [...posts].sort((a, b) => (
   Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
-  || getFeedItemTimestamp(b) - getFeedItemTimestamp(a)
+  || new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+  || String(b.id || '').localeCompare(String(a.id || ''))
 ));
 
 const setFeedReactionForUser = (post = {}, emoji, login, active) => {
@@ -2084,7 +2087,7 @@ const EmployeeChat = () => {
     if (!user?.username || feedPosts.length === 0) return;
     writeCachedFeed(user.username, {
       posts: feedPosts,
-      before: feedBefore,
+      cursor: feedBefore,
       hasMore: feedHasMore
     });
   }, [feedBefore, feedHasMore, feedPosts, user?.username]);
@@ -2378,7 +2381,7 @@ const EmployeeChat = () => {
       const nextPosts = getVisibleFeedPosts(data?.posts);
       setFeedPosts((current) => (getFeedPostsSignature(current) === getFeedPostsSignature(nextPosts) ? current : nextPosts));
       setFeedHasMore(Boolean(data?.hasMore));
-      setFeedBefore(data?.before || nextPosts[nextPosts.length - 1]?.createdAt || '');
+      setFeedBefore(data?.cursor || '');
       setVisibleFeedPostCount(FEED_POSTS_PAGE_SIZE);
       setFeedError('');
     } catch (error) {
@@ -2403,16 +2406,16 @@ const EmployeeChat = () => {
     const mutationVersionAtStart = feedMutationVersionRef.current;
     setFeedLoadingMore(true);
     try {
-      const response = await authFetch(`${API_BASE_URL}/chat/feed?limit=${FEED_POSTS_PAGE_SIZE}&commentsLimit=3&before=${encodeURIComponent(feedBefore)}`);
+      const response = await authFetch(`${API_BASE_URL}/chat/feed?limit=${FEED_POSTS_PAGE_SIZE}&commentsLimit=3&cursor=${encodeURIComponent(feedBefore)}`);
       const data = await readApiJson(response, 'Не удалось загрузить ленту');
       if (mutationVersionAtStart !== feedMutationVersionRef.current || pendingFeedActionsRef.current.size > 0) return;
       const nextPosts = getVisibleFeedPosts(data?.posts);
       setFeedPosts((current) => {
         const byId = new Map([...current, ...nextPosts].filter((post) => post?.id).map((post) => [post.id, post]));
-        return [...byId.values()].sort((a, b) => getFeedItemTimestamp(b) - getFeedItemTimestamp(a));
+        return sortFeedPosts([...byId.values()]);
       });
       setFeedHasMore(Boolean(data?.hasMore));
-      setFeedBefore(data?.before || nextPosts[nextPosts.length - 1]?.createdAt || '');
+      setFeedBefore(data?.cursor || '');
     } catch (error) {
       notify(error.message || 'Не удалось загрузить ленту', 'Лента');
     } finally {
@@ -2854,7 +2857,7 @@ const EmployeeChat = () => {
         if (cached?.posts?.length) {
           hasCachedCopy = true;
           setFeedPosts(getVisibleFeedPosts(cached.posts));
-          setFeedBefore(cached.before || cached.posts[cached.posts.length - 1]?.createdAt || '');
+          setFeedBefore(cached.cursor || '');
           setFeedHasMore(Boolean(cached.hasMore));
           setVisibleFeedPostCount(FEED_POSTS_PAGE_SIZE);
           setFeedLoading(false);
@@ -4383,7 +4386,7 @@ const EmployeeChat = () => {
     const query = feedSearch.trim().toLowerCase();
     const now = Date.now();
     const day = 24 * 60 * 60 * 1000;
-    return getVisibleFeedPosts(feedPosts)
+    return sortFeedPosts(getVisibleFeedPosts(feedPosts)
       .filter((post) => !hiddenFeedPostIds.includes(post.id))
       .filter((post) => {
         const attachments = getFeedAttachments(post);
@@ -4399,8 +4402,7 @@ const EmployeeChat = () => {
         if (feedFilter === 'week') return now - timestamp <= 7 * day;
         if (feedFilter === 'month') return now - timestamp <= 31 * day;
         return true;
-      })
-      .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || getFeedItemTimestamp(b) - getFeedItemTimestamp(a));
+      }));
   }, [feedFilter, feedPosts, feedReadTimestamp, feedSearch, hiddenFeedPostIds, user]);
 
   const pinnedFeedPosts = useMemo(() => visibleFeedPosts.filter((post) => post.pinned), [visibleFeedPosts]);
@@ -4483,7 +4485,6 @@ const EmployeeChat = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: optimisticPost.id,
           text: optimisticPost.text,
           attachment: optimisticPost.attachment,
           attachments: optimisticPost.attachments,
@@ -4493,7 +4494,14 @@ const EmployeeChat = () => {
 
       const serverPost = data?.post ? { ...data.post, deliveryStatus: 'sent' } : null;
       setFeedPosts((current) => {
-        const nextPosts = current.map((post) => (post.id === optimisticPost.id ? (serverPost || { ...post, deliveryStatus: 'sent' }) : post));
+        const nextPosts = serverPost
+          ? sortFeedPosts([
+            serverPost,
+            ...current.filter((post) => post.id !== optimisticPost.id && post.id !== serverPost.id)
+          ])
+          : current.map((post) => (
+            post.id === optimisticPost.id ? { ...post, deliveryStatus: 'sent' } : post
+          ));
         return getFeedPostsSignature(current) === getFeedPostsSignature(nextPosts) ? current : nextPosts;
       });
       window.requestAnimationFrame(() => {
@@ -4617,15 +4625,17 @@ const EmployeeChat = () => {
       const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: optimisticComment.id,
-          text
-        })
+        body: JSON.stringify({ text })
       }, { attempts: 4, fallbackMessage: 'Не удалось добавить комментарий' });
       const savedComment = data.comment || optimisticComment;
       setFeedPosts((current) => current.map((post) => (
         post.id !== postId ? post : (() => {
-          const comments = [...(post.comments || []).filter((comment) => comment.id !== optimisticComment.id), savedComment].filter(Boolean);
+          const comments = [
+            ...(post.comments || []).filter((comment) => (
+              comment.id !== optimisticComment.id && comment.id !== savedComment.id
+            )),
+            savedComment
+          ].filter(Boolean);
           return {
             ...post,
             comments,
@@ -4692,12 +4702,6 @@ const EmployeeChat = () => {
       return next;
     });
     setOpenFeedMenuId('');
-  };
-
-  const reportFeedPost = (postId) => {
-    notify('Жалоба отправлена модератору', 'Лента');
-    setOpenFeedMenuId('');
-    void postId;
   };
 
   const copyFeedPostLink = async (postId) => {
@@ -5427,35 +5431,35 @@ const EmployeeChat = () => {
           <section className="employee-feed-section">
             <div className="feed-toolbar compact-feed-toolbar sticky-feed-search"><div className="feed-search-shell"><span className="feed-search-icon">🔍</span><input type="search" placeholder={t('searchFeed')} value={feedSearch} onChange={(e) => setFeedSearch(e.target.value)} />{feedSearch && <button type="button" className="feed-search-clear" onClick={() => setFeedSearch('')} aria-label={t('clearSearch')}>×</button>}</div></div>
             <div className="employee-feed-list" ref={feedListRef} onClick={(event) => { if (event.target === event.currentTarget) { setSelectedFeedPostId(''); setFeedReactionExpanded(false); } }}>
-              <article className="employee-feed-post feed-composer-post">
-                <header className="employee-feed-header compact-feed-header feed-composer-post-header">
-                  <div><h2>{t('feedTitle')}</h2><p>{t('feedSubtitle')}</p></div>
-                  <button type="button" disabled={feedRefreshing || pendingFeedActions.length > 0} onClick={() => fetchFeed({ silent: false })}>{feedRefreshing ? t('refreshing') : t('refresh')}</button>
-                </header>
-                {feedError && <div className="feed-status-warning">{t('feedUnavailable')}: {localizeRuntimeText(feedError)}</div>}
-                <form className="employee-feed-composer compact-feed-composer vk-feed-composer" onSubmit={addFeedPost}>
-                  <div className="feed-composer-body"><div className="feed-avatar feed-avatar-current">{avatarUrl ? <img src={avatarUrl} alt={t('myAvatar')} loading="lazy" decoding="async" /> : <span>{String(profileForm.full_name || user?.name || user?.username || '?').slice(0, 1).toUpperCase()}</span>}</div><div className={`feed-composer-line ${chatLocalSettings.showFeedCategorySelect === true ? 'has-category' : 'without-category'}`}>{chatLocalSettings.showFeedCategorySelect === true && <select value={feedCategory} onChange={(e) => setFeedCategory(e.target.value)}>{FEED_CATEGORIES.map((category) => <option key={category} value={category}>{getFeedCategoryLabel(category)}</option>)}</select>}<textarea rows={2} placeholder={t('whatsNew')} value={feedDraft} onChange={(e) => setFeedDraft(e.target.value)} /></div></div>
-                  {feedAttachments.length > 0 && (
-                    <div className="employee-feed-attachment-preview-grid media-draft-grid">
-                      {feedAttachments.map((file, index) => {
-                        const mediaFile = String(file.type || '').startsWith('image/') || isVideoAttachment(file);
-                        return (
-                          <div key={file.id || `${file.name}-${index}`} className={`employee-feed-attachment-preview media-draft-tile ${mediaFile ? 'is-media' : ''}`}>
-                            {mediaFile ? (
-                              <button type="button" className="media-draft-thumb" onClick={() => setMediaViewer({ source: 'feed-draft', file, fileIndex: index })}>
-                                {isVideoAttachment(file) ? <video src={getOriginalAttachmentUrl(file)} poster={getVideoPosterUrl(file) || getAttachmentUrl(file)} muted playsInline preload="metadata" onLoadedMetadata={nudgeVideoToFirstFrame} /> : <img src={getAttachmentUrl(file)} alt={file.name} loading="lazy" decoding="async" />}
-                              </button>
-                            ) : <span className="media-draft-file-icon">{getFileIcon(file.type)}</span>}
-                            <span>{file.name} · {formatFileSize(file.size)}</span>
-                            <button type="button" className="media-draft-remove" onClick={() => removeFeedAttachment(file.id || `${file.name}-${index}`)}>×</button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  <div className="employee-feed-composer-actions"><label>📎 {t('photoVideo')}<input type="file" multiple hidden accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z" onChange={onFeedFileChange} /></label><button type="submit" disabled={isPublishingFeed || (!feedDraft.trim() && feedAttachments.length === 0)}>{isPublishingFeed ? t('publishing') : t('publish')}</button></div>
-                </form>
-              </article>
+              <FeedComposer
+                t={t}
+                error={feedError ? localizeRuntimeText(feedError) : ''}
+                refreshing={feedRefreshing}
+                busy={pendingFeedActions.length > 0}
+                avatarUrl={avatarUrl}
+                currentName={profileForm.full_name || user?.name || user?.username}
+                showCategory={chatLocalSettings.showFeedCategorySelect === true}
+                category={feedCategory}
+                categories={FEED_CATEGORIES}
+                getCategoryLabel={getFeedCategoryLabel}
+                draft={feedDraft}
+                attachments={feedAttachments}
+                publishing={isPublishingFeed}
+                isVideoAttachment={isVideoAttachment}
+                getOriginalAttachmentUrl={getOriginalAttachmentUrl}
+                getVideoPosterUrl={getVideoPosterUrl}
+                getAttachmentUrl={getAttachmentUrl}
+                nudgeVideoToFirstFrame={nudgeVideoToFirstFrame}
+                formatFileSize={formatFileSize}
+                getFileIcon={getFileIcon}
+                onRefresh={() => fetchFeed({ silent: false })}
+                onSubmit={addFeedPost}
+                onCategoryChange={setFeedCategory}
+                onDraftChange={setFeedDraft}
+                onOpenAttachment={(file, fileIndex) => setMediaViewer({ source: 'feed-draft', file, fileIndex })}
+                onRemoveAttachment={removeFeedAttachment}
+                onFileChange={onFeedFileChange}
+              />
               {feedLoading && <div className="feed-skeleton-list"><div /><div /><div /></div>}
               {!feedLoading && feedError && <button type="button" className="feed-retry" onClick={() => fetchFeed({ silent: false })}>{t('retryLoad')}</button>}
               {!feedLoading && visibleFeedPosts.length === 0 && <div className="feed-empty-card"><strong>{feedSearch.trim() ? t('noResults') : t('noPosts')}</strong><span>{feedSearch.trim() ? t('tryAnotherSearch') : t('firstPostHint')}</span></div>}
@@ -5479,92 +5483,85 @@ const EmployeeChat = () => {
                 const singlePhotoPost = postMediaAttachments.length === 1 && isImageAttachment(postMediaAttachments[0]);
                 const postMutationPending = isFeedPostPending(post.id);
                 return (
-                  <article
+                  <FeedPostCard
                     key={post.id}
-                    className={`employee-feed-post ${post.pinned ? 'pinned-feed-post' : ''} ${selectedFeedPostId === post.id ? 'selected' : ''}`}
-                    role="button"
-                    tabIndex={0}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      if (selectedFeedPostId === post.id && feedReactionExpanded) setFeedReactionExpanded(false);
-                      else {
-                        setSelectedFeedPostId(post.id);
+                    post={post}
+                    selected={selectedFeedPostId === post.id}
+                    menuOpen={openFeedMenuId === post.id}
+                    mutationPending={postMutationPending}
+                    canManage={canDeletePost}
+                    canPin={isManager}
+                    authorLogin={authorLogin}
+                    authorName={authorName}
+                    authorMeta={authorMeta}
+                    authorAvatar={authorAvatar}
+                    authorInitial={authorInitial}
+                    editing={editingFeedPostId === post.id}
+                    editingText={editingFeedText}
+                    attachments={postAttachments}
+                    mediaAttachmentCount={postMediaAttachments.length}
+                    singlePhoto={singlePhotoPost}
+                    reactionEmojis={REACTION_EMOJIS}
+                    reactionExpanded={feedReactionExpanded}
+                    comments={previewComments}
+                    totalComments={totalPostComments}
+                    hiddenCommentsCount={hiddenCommentsCount}
+                    commentsExpanded={Boolean(expandedCommentPosts[post.id])}
+                    commentDraft={commentDrafts[post.id] || ''}
+                    currentLogin={user?.username || ''}
+                    currentAvatar={avatarUrl}
+                    currentName={profileForm.full_name || user?.name || user?.username}
+                    isManager={isManager}
+                    isAdmin={isAdmin}
+                    isEnglish={isEnglishInterface}
+                    interfaceLocale={interfaceLocale}
+                    t={t}
+                    getEmployeeAvatar={getEmployeeAvatar}
+                    formatLogin={formatFeedLogin}
+                    isMediaAttachment={isMediaAttachment}
+                    MediaCard={FeedMediaCard}
+                    AttachmentCard={AttachmentCard}
+                    onOpenProfile={openEmployeeProfile}
+                    onToggleMenu={(postId) => setOpenFeedMenuId((current) => (current === postId ? '' : postId))}
+                    onStartEdit={startEditFeedPost}
+                    onEditText={setEditingFeedText}
+                    onSaveEdit={saveFeedPostEdit}
+                    onCancelEdit={() => setEditingFeedPostId('')}
+                    onPin={toggleFeedPinned}
+                    onCopyLink={copyFeedPostLink}
+                    onShare={shareFeedPostToChat}
+                    onQuote={quoteFeedPost}
+                    onHide={hideFeedPost}
+                    onDelete={deleteFeedPost}
+                    onOpenMedia={openFeedMediaViewer}
+                    onToggleReaction={toggleFeedReaction}
+                    onSelect={(postId) => {
+                      if (selectedFeedPostId === postId && feedReactionExpanded) {
                         setFeedReactionExpanded(false);
+                        return;
                       }
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key !== 'Enter' && event.key !== ' ') return;
-                      event.preventDefault();
-                      setSelectedFeedPostId(post.id);
+                      setSelectedFeedPostId((current) => (current === postId ? '' : postId));
                       setFeedReactionExpanded(false);
                     }}
-                  >
-                    <header className="employee-feed-post-header vk-feed-post-header">
-                      <button type="button" className="feed-avatar profile-link-avatar" onClick={(event) => openEmployeeProfile(authorLogin, event)}>{authorAvatar ? <img src={authorAvatar} alt={authorName} /> : <span>{authorInitial}</span>}</button>
-                      <button type="button" className="feed-post-author-block profile-link-name" onClick={(event) => openEmployeeProfile(authorLogin, event)}>
-                        <strong>{post.pinned && <span className="feed-pinned-badge">📌</span>}{authorName}</strong>
-                        <span>{authorMeta}{post.editedAt && ` · ${t('changed')}`}</span>
-                      </button>
-                      <button type="button" className="feed-post-menu-button" onClick={(event) => { event.stopPropagation(); setOpenFeedMenuId(openFeedMenuId === post.id ? '' : post.id); }}>⋯</button>
-                      {openFeedMenuId === post.id && <div className="feed-post-menu" onClick={(event) => event.stopPropagation()}>{canDeletePost && <button type="button" disabled={postMutationPending} onClick={() => startEditFeedPost(post)}>{t('editText')}</button>}{isManager && <button type="button" disabled={postMutationPending} onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? t('unpin') : t('pin')}</button>}<button type="button" onClick={() => copyFeedPostLink(post.id)}>{t('copyLink')}</button><button type="button" onClick={() => shareFeedPostToChat(post)}>{t('sharePost')}</button><button type="button" onClick={() => quoteFeedPost(post)}>{t('quotePost')}</button><button type="button" onClick={() => hideFeedPost(post.id)}>{t('hidePost')}</button>{!isPostAuthor(post, user) && <button type="button" onClick={() => reportFeedPost(post.id)}>{t('report')}</button>}{(isManager || isAdmin) && <button type="button" onClick={() => notify((post.audit || []).length ? 'История есть в аудите' : 'История изменений пуста', 'Лента')}>{t('changeHistory')}</button>}{canDeletePost && <button type="button" className="danger-action" disabled={postMutationPending} onClick={() => deleteFeedPost(post.id)}>{t('delete')}</button>}</div>}
-                    </header>
-                    {editingFeedPostId === post.id ? <div className="feed-edit-box"><textarea rows={3} value={editingFeedText} onChange={(e) => setEditingFeedText(e.target.value)} /><div><button type="button" disabled={postMutationPending} onClick={() => saveFeedPostEdit(post.id)}>{t('saveActionButton')}</button><button type="button" disabled={postMutationPending} onClick={() => setEditingFeedPostId('')}>{t('cancel')}</button></div></div> : post.text && <p className="employee-feed-post-text">{post.text}</p>}
-                    {postAttachments.length > 0 && (
-                      <div className={`employee-feed-media-grid media-count-${Math.min(postMediaAttachments.length, 4)} ${singlePhotoPost ? 'single-photo' : ''}`}>
-                        {postAttachments.map((file, index) => (
-                          isMediaAttachment(file) ? (
-                            <FeedMediaCard
-                              key={file.id || `${post.id}-feed-media-${index}`}
-                              file={file}
-                              isEnglish={isEnglishInterface}
-                              onOpen={() => openFeedMediaViewer(post, file)}
-                              onQuickReaction={() => {
-                                if (!postMutationPending) toggleFeedReaction(post.id, '👍');
-                              }}
-                            />
-                          ) : (
-                            <AttachmentCard
-                              key={file.id || `${post.id}-feed-file-${index}`}
-                              cardKey={`${post.id}-feed-file-${index}`}
-                              file={file}
-                              variant="feed"
-                              isEnglish={isEnglishInterface}
-                            />
-                          )
-                        ))}
-                      </div>
-                    )}
-                    <div className="message-reactions-inline feed-reactions-inline">{REACTION_EMOJIS.filter((emoji) => (post.reactions?.[emoji] || []).length > 0).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} disabled={postMutationPending} aria-busy={postMutationPending} onClick={(event) => { event.stopPropagation(); toggleFeedReaction(post.id, emoji); }} title={(post.reactions?.[emoji] || []).join(', ')}>{emoji} {(post.reactions?.[emoji] || []).length}</button>; })}</div>
-                    {selectedFeedPostId === post.id && (
-                      <div className="feed-selected-menu compact-feed-selected-menu" onClick={(event) => event.stopPropagation()}>
-                        <div className="selected-reaction-row feed-reaction-picker">{(feedReactionExpanded ? REACTION_EMOJIS : REACTION_EMOJIS.slice(0, 7)).map((emoji) => { const active = (post.reactions?.[emoji] || []).includes(user?.username); return <button key={emoji} type="button" className={active ? 'active' : ''} disabled={postMutationPending} aria-busy={postMutationPending} onClick={() => toggleFeedReaction(post.id, emoji)}>{emoji}</button>; })}{!feedReactionExpanded && <button type="button" className="more-reactions" onClick={() => setFeedReactionExpanded(true)}>⌄</button>}</div>
-                        <div className="selected-actions-row feed-actions-row">{isManager && <button type="button" disabled={postMutationPending} onClick={() => toggleFeedPinned(post.id, !post.pinned)}>{post.pinned ? t('unpin') : t('pin')}</button>}</div>
-                      </div>
-                    )}
-                    <div className="employee-feed-comments">
-                      <div className="employee-feed-comments-title">{t('comments')} · {totalPostComments}</div>
-                      {sortedPostComments.length === 0 && <small className="employee-feed-no-comments">{t('noComments')}</small>}
-                      {previewComments.map((comment) => { const canDeleteComment = isManager || isAdmin || comment.author === user?.username; const commentInitial = String(comment.authorName || comment.author || '?').slice(0, 1).toUpperCase(); const commentAvatar = getEmployeeAvatar(comment.author, comment.avatar, comment.authorAvatar, comment.authorPhoto, comment.author_photo); return <div key={comment.id} className="employee-feed-comment"><button type="button" className="feed-avatar comment-avatar profile-link-avatar" onClick={(event) => openEmployeeProfile(comment.author, event)}>{commentAvatar ? <img src={commentAvatar} alt={comment.authorName || comment.author || t('comments')} loading="lazy" decoding="async" /> : <span>{commentInitial}</span>}</button><div className="employee-feed-comment-body"><button type="button" className="comment-author-link" onClick={(event) => openEmployeeProfile(comment.author, event)}>{comment.authorName || formatFeedLogin(comment.author)}</button><span>{comment.text}</span><small>{new Date(comment.createdAt).toLocaleString(interfaceLocale)}</small><div className="feed-comment-actions compact"><button type="button" onClick={() => setCommentDrafts((prev) => ({ ...prev, [post.id]: `@${formatFeedLogin(comment.author)} ` }))}>{t('reply')}</button>{canDeleteComment && <button type="button" disabled={postMutationPending} aria-busy={postMutationPending} onClick={() => deleteFeedComment(post.id, comment.id)}>{t('delete')}</button>}</div></div></div>; })}
-                      {(hiddenCommentsCount > 0 || (expandedCommentPosts[post.id] && totalPostComments > 2)) && (
-                        <button
-                          type="button"
-                          className="feed-show-more-comments"
-                          disabled={postMutationPending}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            if (expandedCommentPosts[post.id]) {
-                              setExpandedCommentPosts((prev) => ({ ...prev, [post.id]: false }));
-                            } else {
-                              loadFeedComments(post.id);
-                            }
-                          }}
-                        >
-                          {expandedCommentPosts[post.id] ? t('hideComments') : t('showAllComments')} ({totalPostComments})
-                        </button>
-                      )}
-                      <div className="employee-feed-comment-form" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} onFocus={(event) => event.stopPropagation()}><div className="feed-avatar comment-avatar feed-avatar-current">{avatarUrl ? <img src={avatarUrl} alt={t('myAvatar')} loading="lazy" decoding="async" /> : <span>{String(profileForm.full_name || user?.name || user?.username || '?').slice(0, 1).toUpperCase()}</span>}</div><input placeholder={t('writeComment')} value={commentDrafts[post.id] || ''} disabled={postMutationPending} onChange={(e) => setCommentDrafts((prev) => ({ ...prev, [post.id]: e.target.value }))} />{(commentDrafts[post.id] || '').trim() && <button type="button" disabled={postMutationPending} onClick={() => addCommentToPost(post.id)}>{t('sendComment')}</button>}</div>
-                    </div>
-                  </article>
+                    onExpandReactions={() => setFeedReactionExpanded(true)}
+                    onReplyComment={(postId, author) => setCommentDrafts((current) => ({
+                      ...current,
+                      [postId]: `@${formatFeedLogin(author)} `,
+                    }))}
+                    onDeleteComment={deleteFeedComment}
+                    onToggleComments={(postId, expanded) => {
+                      if (expanded) {
+                        setExpandedCommentPosts((current) => ({ ...current, [postId]: false }));
+                        return;
+                      }
+                      loadFeedComments(postId);
+                    }}
+                    onCommentDraftChange={(postId, value) => setCommentDrafts((current) => ({
+                      ...current,
+                      [postId]: value,
+                    }))}
+                    onSubmitComment={addCommentToPost}
+                  />
                 );
               })}
               {(hiddenFeedPostsCount > 0 || feedHasMore) && <button type="button" className="chat-pagination-button feed-pagination-button" disabled={feedLoadingMore || pendingFeedActions.length > 0} onClick={() => { if (hiddenFeedPostsCount > 0) setVisibleFeedPostCount((prev) => prev + FEED_POSTS_PAGE_SIZE); else loadMoreFeedPosts(); }}>{feedLoadingMore ? t('loading') : t('loadMoreFeed')} · {paginatedRegularFeedPosts.length}/{regularFeedPosts.length}{feedHasMore ? '+' : ''}</button>}

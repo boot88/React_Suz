@@ -8,11 +8,14 @@ const {
   buildFeedCommentPreviewsQuery,
   buildFeedCommentsPageQuery,
   buildFeedPostsPageQuery,
+  canManageFeedRecord,
+  encodeFeedCursor,
   createSerialMutationQueue
 } = require('../utils/feedState');
 const {
   isMysqlDatabase,
   normalizeMessageAttachments,
+  getAttachmentFileId,
   getMessageAttachmentFileIds,
   buildConversationMessagesPageQuery
 } = require('../utils/chatState');
@@ -1386,28 +1389,18 @@ const countSqlFeedComments = async (postIds = []) => {
   return Object.fromEntries((rows || []).map((row) => [row.post_id, Number(row.total) || 0]));
 };
 
-const readSqlFeedPosts = async ({ limit = 50, before = '', commentsLimit = 3 } = {}) => {
+const readSqlFeedPosts = async ({ limit = 50, cursor = '', before = '', commentsLimit = 3 } = {}) => {
   if (!await ensureFeedSqlSchema()) return null;
-  const query = buildFeedPostsPageQuery({ limit, before });
+  const query = buildFeedPostsPageQuery({ limit, cursor, before });
   let rows;
   try {
     [rows] = await db.execute(query.sql, query.params);
   } catch (error) {
-    const safeLimit = Math.min(100, Math.max(1, Number(limit) || 50));
-    console.warn('Feed ordered page query failed; using MySQL compatibility query:', {
+    console.warn('Feed ordered page execute failed; retrying with MySQL query mode:', {
       code: error.code || 'FEED_POSTS_PAGE_QUERY_FAILED',
       message: error.message
     });
-    const params = [];
-    let where = 'deleted_at IS NULL';
-    if (before) {
-      where += ' AND created_at < ?';
-      params.push(new Date(before));
-    }
-    [rows] = await db.execute(
-      `SELECT post_json FROM feed_posts WHERE ${where} ORDER BY created_at DESC LIMIT ${safeLimit}`,
-      params
-    );
+    [rows] = await db.query(query.sql, query.params);
   }
   const posts = (rows || [])
     .map((row) => parseSqlJson(row.post_json))
@@ -1796,17 +1789,28 @@ router.get('/feed', async (req, res) => {
   try {
     const limit = Math.min(100, Math.max(1, Number(req.query?.limit) || 50));
     const commentsLimit = Math.min(5, Math.max(2, Number(req.query?.commentsLimit) || 3));
+    const cursor = String(req.query?.cursor || '').trim();
     const before = req.query?.before || '';
-    const posts = await readSqlFeedPosts({ limit, before, commentsLimit });
+    const posts = await readSqlFeedPosts({ limit, cursor, before, commentsLimit });
     if (!Array.isArray(posts)) {
       return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
     }
-    const earliest = posts[posts.length - 1]?.createdAt || '';
+    const lastPost = posts[posts.length - 1] || null;
+    const nextCursor = lastPost ? encodeFeedCursor(lastPost) : '';
     res.set('Cache-Control', 'no-store');
-    res.json({ posts, pageSize: limit, before: earliest, hasMore: posts.length >= limit, storage: 'mysql' });
+    res.json({
+      posts,
+      pageSize: limit,
+      cursor: nextCursor,
+      before: lastPost?.createdAt || '',
+      hasMore: posts.length >= limit,
+      storage: 'mysql'
+    });
   } catch (error) {
     console.error('Chat GET /feed error:', error);
-    res.status(500).json({ message: 'Не удалось загрузить ленту' });
+    res.status(error.status || 500).json({
+      message: error.status === 400 ? error.message : 'Не удалось загрузить ленту'
+    });
   }
 });
 
@@ -1853,11 +1857,6 @@ const getAuthenticatedActor = async (req) => {
   };
 };
 
-const canManageFeedRecord = (req, record = {}) => (
-  hasRole(req, 'admin', 'manager')
-  || isSameLogin(record.author, req.auth?.login)
-);
-
 const mergeActorReactionState = (currentReactions = {}, requestedReactions = {}, actorLogin = '') => {
   const result = {};
   const emojis = new Set([
@@ -1881,7 +1880,7 @@ router.post('/feed/posts', async (req, res) => {
     const now = new Date().toISOString();
     const actor = await getAuthenticatedActor(req);
     const post = {
-      id: req.body?.id || createId('post'),
+      id: createId('post'),
       author: actor.login,
       authorName: actor.name,
       text: String(req.body?.text || '').trim(),
@@ -1918,7 +1917,7 @@ router.delete('/feed/posts/:postId', async (req, res) => {
     const now = new Date().toISOString();
     const currentPost = await readSqlFeedPost(postId);
     if (!currentPost) return res.status(404).json({ message: 'Публикация не найдена' });
-    if (!canManageFeedRecord(req, currentPost)) {
+    if (!canManageFeedRecord(req.auth, currentPost)) {
       return res.status(403).json({ message: 'Нет прав на удаление этой публикации' });
     }
     const deletedPost = { ...currentPost, deletedAt: now, deletedBy, updatedAt: now };
@@ -1948,7 +1947,7 @@ router.patch('/feed/posts/:postId', async (req, res) => {
     const now = new Date().toISOString();
     const currentPost = await readSqlFeedPost(postId);
     if (!currentPost) return res.status(404).json({ message: 'Публикация не найдена' });
-    if (!canManageFeedRecord(req, currentPost)) {
+    if (!canManageFeedRecord(req.auth, currentPost)) {
       return res.status(403).json({ message: 'Нет прав на изменение этой публикации' });
     }
     const updatedPost = {
@@ -2013,7 +2012,7 @@ router.post('/feed/posts/:postId/comments', async (req, res) => {
     const now = new Date().toISOString();
     const actor = await getAuthenticatedActor(req);
     const comment = {
-      id: req.body?.id || createId('comment'),
+      id: createId('comment'),
       author: actor.login,
       authorName: actor.name,
       text: String(req.body?.text || '').trim(),
@@ -2066,7 +2065,7 @@ router.delete('/feed/posts/:postId/comments/:commentId', async (req, res) => {
     if (!currentPost) return res.status(404).json({ message: 'Публикация не найдена' });
     const existingComment = await readSqlFeedComment(postId, commentId);
     if (!existingComment) return res.status(404).json({ message: 'Комментарий не найден' });
-    if (!canManageFeedRecord(req, existingComment)) {
+    if (!canManageFeedRecord(req.auth, existingComment)) {
       return res.status(403).json({ message: 'Нет прав на удаление этого комментария' });
     }
     const alreadyDeleted = Boolean(existingComment.deletedAt);

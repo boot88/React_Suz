@@ -4,7 +4,10 @@ const {
   buildFeedCommentPreviewsQuery,
   buildFeedCommentsPageQuery,
   buildFeedPostsPageQuery,
+  canManageFeedRecord,
   createSerialMutationQueue,
+  decodeFeedCursor,
+  encodeFeedCursor,
   mergeFeedComments,
   mergeFeedPosts,
   setReactionState
@@ -13,14 +16,50 @@ const {
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
 test('feed page queries inline validated limits for MySQL 8.4', () => {
-  const posts = buildFeedPostsPageQuery({ limit: '25', before: '2026-07-23T10:00:00.000Z' });
+  const cursor = encodeFeedCursor({
+    id: 'post-2',
+    pinned: true,
+    createdAt: '2026-07-23T10:00:00.000Z'
+  });
+  const posts = buildFeedPostsPageQuery({ limit: '25', cursor });
   const comments = buildFeedCommentsPageQuery('post-1', { limit: 500 });
 
   assert.match(posts.sql, /LIMIT 25$/);
+  assert.match(posts.sql, /ORDER BY pinned DESC, created_at DESC, id DESC/);
   assert.equal(posts.sql.includes('LIMIT ?'), false);
-  assert.equal(posts.params.length, 1);
+  assert.deepEqual(posts.params, [
+    1,
+    1,
+    new Date('2026-07-23T10:00:00.000Z'),
+    new Date('2026-07-23T10:00:00.000Z'),
+    'post-2'
+  ]);
   assert.match(comments.sql, /LIMIT 100$/);
   assert.equal(comments.params.length, 1);
+});
+
+test('feed cursors preserve pinned, timestamp and id ordering', () => {
+  const cursor = encodeFeedCursor({
+    id: 'post-7',
+    pinned: false,
+    createdAt: '2026-07-23T10:00:00.000Z'
+  });
+
+  assert.deepEqual(decodeFeedCursor(cursor), {
+    pinned: 0,
+    createdAt: new Date('2026-07-23T10:00:00.000Z'),
+    id: 'post-7'
+  });
+  assert.throws(() => decodeFeedCursor('not-a-cursor'), /Некорректный курсор/);
+});
+
+test('feed ownership is derived from the authenticated actor and stored author', () => {
+  const post = { author: 'ivanov' };
+
+  assert.equal(canManageFeedRecord({ login: 'IVANOV', role: 'employee' }, post), true);
+  assert.equal(canManageFeedRecord({ login: 'petrov', role: 'employee' }, post), false);
+  assert.equal(canManageFeedRecord({ login: 'manager', role: 'manager' }, post), true);
+  assert.equal(canManageFeedRecord({ login: 'admin', role: 'admin' }, post), true);
 });
 
 test('comment previews use one window query for all posts', () => {
