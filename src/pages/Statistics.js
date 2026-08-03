@@ -78,19 +78,14 @@ const Statistics = () => {
         
         console.log('Загрузка ВСЕХ заявок для статистики...');
         
-        const response = await authFetch(`${API_BASE_URL}/applications/all`);
-        
+        // The server exposes the standard paginated endpoint; there is no
+        // /applications/all route. The server caps this to a safe 1000 rows.
+        const response = await authFetch(`${API_BASE_URL}/applications?limit=1000`);
         if (!response.ok) {
-          const fallbackResponse = await authFetch(`${API_BASE_URL}/applications?limit=10000`);
-          if (!fallbackResponse.ok) {
-            throw new Error(`Ошибка при загрузке данных: ${fallbackResponse.status}`);
-          }
-          const fallbackData = await fallbackResponse.json();
-          setApplications(fallbackData.applications || []);
-        } else {
-          const data = await response.json();
-          setApplications(data.applications || []);
+          throw new Error(`Ошибка при загрузке данных: ${response.status}`);
         }
+        const data = await response.json();
+        setApplications(data.applications || []);
         
       } catch (err) {
         setError(err.message);

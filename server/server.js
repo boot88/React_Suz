@@ -799,10 +799,13 @@ app.get('/api/applications', requireAuth, requireRole('admin', 'manager'), async
 	      FROM application
 	      ${whereSql}
       ${orderSql}
-      LIMIT ? OFFSET ?
+      LIMIT ${limit} OFFSET ${offset}
     `;
 
-    const [applications] = await pool.execute(applicationsQuery, [...queryParams, limit, offset]);
+    // MySQL 8.4 can reject LIMIT/OFFSET placeholders in a prepared statement
+    // in this query shape. Both values are validated integers above, so keep
+    // the filter values parameterized and inject only the safe pagination.
+    const [applications] = await pool.execute(applicationsQuery, queryParams);
 
     const formattedApplications = applications.map(normalizeApplication);
 
