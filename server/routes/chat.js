@@ -3,6 +3,8 @@ const fsSync = require('fs');
 const fs = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 const db = require('../config/database');
 const {
   buildFeedCommentPreviewsQuery,
@@ -45,7 +47,8 @@ const feedFilePath = path.join(dataDir, 'employeeFeed.json');
 const backupDir = path.join(dataDir, 'backups');
 const uploadsDir = path.join(__dirname, '..', 'uploads');
 const MAX_BACKUPS_PER_FILE = 30;
-const MAX_UPLOAD_SIZE = 100 * 1024 * 1024;
+const MAX_UPLOAD_SIZE = 50 * 1024 * 1024;
+const MAX_MULTIPART_OVERHEAD = 3 * 1024 * 1024;
 const CHAT_SQL_PAGE_SIZE = 50;
 const CHAT_SEARCH_PAGE_SIZE = 25;
 const STREAM_EVENT_BUFFER_SIZE = 500;
@@ -53,6 +56,7 @@ const ORPHAN_UPLOAD_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const ALLOWED_UPLOAD_SCOPES = new Set(['chat', 'feed']);
 const ALLOWED_UPLOAD_TYPES = /^(image\/|video\/|application\/pdf$|text\/plain$|application\/msword$|application\/vnd\.openxmlformats-officedocument|application\/vnd\.ms-excel$|application\/zip$)/i;
 const DANGEROUS_EXTENSIONS = new Set(['.exe', '.bat', '.cmd', '.com', '.scr', '.js', '.mjs', '.sh', '.ps1', '.vbs', '.jar']);
+const execFileAsync = promisify(execFile);
 
 let cachedThreads = null;
 let storageReadyPromise = null;
@@ -397,8 +401,6 @@ const ensureChatFilesSqlSchema = async () => {
       claimed_at DATETIME NULL,
       is_verified TINYINT(1) NOT NULL DEFAULT 1,
       deleted_at DATETIME NULL,
-      file_data LONGBLOB NULL,
-      thumbnail_data LONGBLOB NULL,
       INDEX idx_chat_files_scope (scope),
       INDEX idx_chat_files_uploaded_at (uploaded_at),
       INDEX idx_chat_files_claimed_at (claimed_at)
@@ -408,8 +410,6 @@ const ensureChatFilesSqlSchema = async () => {
     await db.execute('CREATE INDEX idx_chat_files_claimed_at ON chat_files (claimed_at)').catch(() => {});
     await db.execute('ALTER TABLE chat_files ADD COLUMN is_verified TINYINT(1) NOT NULL DEFAULT 1').catch(() => {});
     await db.execute('ALTER TABLE chat_files ADD COLUMN deleted_at DATETIME NULL').catch(() => {});
-    await db.execute('ALTER TABLE chat_files ADD COLUMN file_data LONGBLOB NULL').catch(() => {});
-    await db.execute('ALTER TABLE chat_files ADD COLUMN thumbnail_data LONGBLOB NULL').catch(() => {});
 
     chatFilesSqlReady = true;
     chatFilesSqlRetryAt = 0;
@@ -454,9 +454,7 @@ const writeSqlFileMetadata = async (file = {}) => {
     file.uploadedBy || null,
     file.claimedAt ? new Date(file.claimedAt) : null,
     file.isVerified !== false,
-    file.deletedAt ? new Date(file.deletedAt) : null,
-    file.fileData || null,
-    file.thumbnailData || null
+    file.deletedAt ? new Date(file.deletedAt) : null
   ];
 
   const mysqlParams = [...params];
@@ -464,9 +462,9 @@ const writeSqlFileMetadata = async (file = {}) => {
   await db.execute(
     `INSERT INTO chat_files (
       id, scope, original_name, stored_name, url, thumbnail_url, mime_type, size_bytes,
-      sha256, uploaded_at, metadata_json, uploaded_by, claimed_at, is_verified, deleted_at, file_data, thumbnail_data
+      sha256, uploaded_at, metadata_json, uploaded_by, claimed_at, is_verified, deleted_at
     )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        scope = VALUES(scope),
        original_name = VALUES(original_name),
@@ -481,9 +479,7 @@ const writeSqlFileMetadata = async (file = {}) => {
        uploaded_by = VALUES(uploaded_by),
        claimed_at = COALESCE(VALUES(claimed_at), claimed_at),
        is_verified = VALUES(is_verified),
-       deleted_at = VALUES(deleted_at),
-       file_data = COALESCE(VALUES(file_data), file_data),
-       thumbnail_data = COALESCE(VALUES(thumbnail_data), thumbnail_data)`,
+       deleted_at = VALUES(deleted_at)`,
     mysqlParams
   );
   return true;
@@ -503,28 +499,6 @@ const parseContentDisposition = (value = '') => {
   return result;
 };
 
-const splitBuffer = (buffer, separator) => {
-  const parts = [];
-  let start = 0;
-  let index = buffer.indexOf(separator, start);
-  while (index !== -1) {
-    parts.push(buffer.slice(start, index));
-    start = index + separator.length;
-    index = buffer.indexOf(separator, start);
-  }
-  parts.push(buffer.slice(start));
-  return parts;
-};
-
-const trimPartBreaks = (buffer) => {
-  let start = 0;
-  let end = buffer.length;
-  if (buffer.slice(0, 2).equals(Buffer.from('\r\n'))) start = 2;
-  if (buffer.slice(end - 2, end).equals(Buffer.from('\r\n'))) end -= 2;
-  if (buffer.slice(end - 2, end).equals(Buffer.from('--'))) end -= 2;
-  return buffer.slice(start, end);
-};
-
 const hasAllowedMagicBytes = (buffer, mime = '', ext = '') => {
   const safeMime = String(mime).toLowerCase();
   const head = buffer.slice(0, 12);
@@ -537,177 +511,189 @@ const hasAllowedMagicBytes = (buffer, mime = '', ext = '') => {
   return true;
 };
 
-const readMultipartRequestToTemp = async (req, tempPath) => new Promise((resolve, reject) => {
-  let total = 0;
-  const output = fsSync.createWriteStream(tempPath, { flags: 'wx' });
-  const fail = (error) => {
-    req.destroy();
-    output.destroy();
-    reject(error);
-  };
-
-  req.on('data', (chunk) => {
-    total += chunk.length;
-    if (total > MAX_UPLOAD_SIZE + 5 * 1024 * 1024) {
-      const error = new Error(`Файл должен быть не больше ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)} МБ`);
-      error.status = 413;
-      fail(error);
-    }
+const writeChunk = async (stream, chunk) => {
+  if (!chunk?.length || stream.write(chunk)) return;
+  await new Promise((resolve, reject) => {
+    stream.once('drain', resolve);
+    stream.once('error', reject);
   });
-  req.on('error', reject);
-  output.on('error', reject);
-  output.on('finish', () => resolve(total));
-  req.pipe(output);
-});
+};
 
-const parseMultipartParts = (rawBuffer, boundary) => {
-  const boundaryBuffer = Buffer.from(`--${boundary}`);
+// A small streaming multipart reader.  It keeps only headers, form fields and a
+// boundary tail in memory; the actual file is written directly to a temporary file.
+const readMultipartFileStream = async (req, boundary, tempPath) => {
+  const delimiter = Buffer.from(`--${boundary}`);
+  const bodyDelimiter = Buffer.from(`\r\n--${boundary}`);
   const fields = {};
+  let buffer = Buffer.alloc(0);
+  let state = 'start';
+  let current = null;
   let filePart = null;
+  let total = 0;
+  let fieldBytes = 0;
 
-  splitBuffer(rawBuffer, boundaryBuffer).forEach((rawPart) => {
-    const part = trimPartBreaks(rawPart);
-    if (!part.length) return;
-    const headerEnd = part.indexOf(Buffer.from('\r\n\r\n'));
-    if (headerEnd === -1) return;
-    const headerText = part.slice(0, headerEnd).toString('utf8');
-    const body = part.slice(headerEnd + 4);
+  const fail = (message, status = 400) => {
+    const error = new Error(message);
+    error.status = status;
+    throw error;
+  };
+  const finishCurrent = async () => {
+    if (!current) return;
+    if (current.file) {
+      await new Promise((resolve, reject) => current.stream.end((error) => error ? reject(error) : resolve()));
+      filePart = current;
+    } else {
+      const value = Buffer.concat(current.chunks);
+      if (value.length > 2 * 1024 * 1024) fail('Служебное поле загрузки слишком велико', 413);
+      fields[current.name] = value.toString('utf8');
+    }
+    current = null;
+  };
+  const consumeBody = async (chunk) => {
+    if (!current) fail('Некорректные данные загрузки');
+    if (current.file) {
+      current.size += chunk.length;
+      if (current.size > MAX_UPLOAD_SIZE) fail(`Файл должен быть не больше ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)} МБ`, 413);
+      current.hash.update(chunk);
+      if (current.head.length < 512) current.head = Buffer.concat([current.head, chunk]).subarray(0, 512);
+      await writeChunk(current.stream, chunk);
+    } else {
+      current.chunks.push(chunk);
+      current.size += chunk.length;
+      fieldBytes += chunk.length;
+      if (current.size > 2 * 1024 * 1024 || fieldBytes > MAX_MULTIPART_OVERHEAD) fail('Служебное поле загрузки слишком велико', 413);
+    }
+  };
+  const openPart = async (headerText) => {
     const headers = Object.fromEntries(headerText.split('\r\n').map((line) => {
       const separator = line.indexOf(':');
-      if (separator === -1) return ['', ''];
-      return [line.slice(0, separator).trim().toLowerCase(), line.slice(separator + 1).trim()];
+      return separator === -1 ? ['', ''] : [line.slice(0, separator).trim().toLowerCase(), line.slice(separator + 1).trim()];
     }).filter(([key]) => key));
     const disposition = parseContentDisposition(headers['content-disposition'] || '');
-    const fieldName = disposition.name;
-    if (!fieldName) return;
+    if (!disposition.name) fail('Некорректное поле загрузки');
     if (disposition.filename !== undefined) {
-      filePart = { fieldName, filename: disposition.filename || 'file', type: headers['content-type'] || 'application/octet-stream', buffer: trimPartBreaks(body) };
-    } else {
-      fields[fieldName] = trimPartBreaks(body).toString('utf8');
+      if (filePart || current?.file) fail('Разрешён только один файл в одном запросе');
+      const stream = fsSync.createWriteStream(tempPath, { flags: 'wx' });
+      current = { file: true, name: disposition.name, filename: disposition.filename || 'file', type: headers['content-type'] || 'application/octet-stream', stream, size: 0, hash: crypto.createHash('sha256'), head: Buffer.alloc(0) };
+      await new Promise((resolve, reject) => { stream.once('open', resolve); stream.once('error', reject); });
+    } else current = { file: false, name: disposition.name, chunks: [], size: 0 };
+  };
+  const process = async () => {
+    while (true) {
+      if (state === 'start') {
+        if (buffer.length < delimiter.length + 2) return;
+        if (!buffer.subarray(0, delimiter.length).equals(delimiter)) fail('Неверный формат multipart/form-data');
+        buffer = buffer.subarray(delimiter.length);
+        if (buffer.subarray(0, 2).equals(Buffer.from('--'))) { state = 'done'; return; }
+        if (!buffer.subarray(0, 2).equals(Buffer.from('\r\n'))) fail('Неверный формат multipart/form-data');
+        buffer = buffer.subarray(2); state = 'headers';
+      }
+      if (state === 'headers') {
+        const headerEnd = buffer.indexOf(Buffer.from('\r\n\r\n'));
+        if (headerEnd === -1) { if (buffer.length > 64 * 1024) fail('Слишком большие заголовки загрузки', 413); return; }
+        await openPart(buffer.subarray(0, headerEnd).toString('utf8'));
+        buffer = buffer.subarray(headerEnd + 4); state = 'body';
+      }
+      if (state === 'body') {
+        const boundaryIndex = buffer.indexOf(bodyDelimiter);
+        if (boundaryIndex === -1) {
+          const safeLength = Math.max(0, buffer.length - bodyDelimiter.length);
+          if (safeLength) await consumeBody(buffer.subarray(0, safeLength));
+          buffer = buffer.subarray(safeLength);
+          return;
+        }
+        await consumeBody(buffer.subarray(0, boundaryIndex));
+        buffer = buffer.subarray(boundaryIndex + 2);
+        await finishCurrent(); state = 'boundary';
+      }
+      if (state === 'boundary') {
+        if (buffer.length < delimiter.length + 2) return;
+        if (!buffer.subarray(0, delimiter.length).equals(delimiter)) fail('Неверный формат multipart/form-data');
+        buffer = buffer.subarray(delimiter.length);
+        if (buffer.subarray(0, 2).equals(Buffer.from('--'))) { state = 'done'; return; }
+        if (!buffer.subarray(0, 2).equals(Buffer.from('\r\n'))) fail('Неверный формат multipart/form-data');
+        buffer = buffer.subarray(2); state = 'headers';
+      }
+      if (state === 'done') return;
     }
-  });
-
+  };
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > MAX_UPLOAD_SIZE + MAX_MULTIPART_OVERHEAD) fail(`Файл должен быть не больше ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)} МБ`, 413);
+    buffer = Buffer.concat([buffer, Buffer.from(chunk)]);
+    await process();
+  }
+  await process();
+  if (state !== 'done' || !filePart) fail('Файл не передан');
   return { fields, filePart };
+};
+
+const scanUploadedFile = async (filePath) => {
+  const command = String(process.env.CLAMAV_SCAN_COMMAND || '').trim();
+  if (!command) return true;
+  try {
+    await execFileAsync(command, ['--no-summary', filePath], { timeout: 120000 });
+    return true;
+  } catch (error) {
+    const rejected = new Error('Файл помещён в карантин: проверка безопасности не пройдена');
+    rejected.status = 422;
+    throw rejected;
+  }
 };
 
 const saveMultipartUpload = async (req) => {
   const boundary = getMultipartBoundary(req.headers['content-type']);
-  if (!boundary) {
-    const error = new Error('Неверный формат multipart/form-data');
-    error.status = 400;
-    throw error;
-  }
-
+  if (!boundary) { const error = new Error('Неверный формат multipart/form-data'); error.status = 400; throw error; }
   const tempDir = path.join(uploadsDir, 'tmp');
+  const quarantineDir = path.join(uploadsDir, 'quarantine');
   await fs.mkdir(tempDir, { recursive: true });
-  const tempPath = path.join(tempDir, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}.multipart`);
-  const createdFilePaths = [];
+  const tempPath = path.join(tempDir, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}.upload`);
+  const createdFilePaths = [tempPath];
   let uploadSaved = false;
-
   try {
-    await readMultipartRequestToTemp(req, tempPath);
-    const raw = await fs.readFile(tempPath);
-    const { fields, filePart } = parseMultipartParts(raw, boundary);
-    if (!filePart?.buffer?.length) {
-      const error = new Error('Файл не передан');
-      error.status = 400;
-      throw error;
-    }
-
+    const { fields, filePart } = await readMultipartFileStream(req, boundary, tempPath);
     const safeScope = ALLOWED_UPLOAD_SCOPES.has(fields.scope) ? fields.scope : 'chat';
     const mime = filePart.type || fields.type || 'application/octet-stream';
-    if (!ALLOWED_UPLOAD_TYPES.test(mime)) {
-      const error = new Error('Этот тип файла запрещён');
-      error.status = 400;
-      throw error;
-    }
-
     const safeOriginalName = sanitizeFileName(fields.name || filePart.filename || 'file');
     const ext = path.extname(safeOriginalName).toLowerCase();
-    if (DANGEROUS_EXTENSIONS.has(ext) || !hasAllowedMagicBytes(filePart.buffer, mime, ext)) {
-      const error = new Error('Этот тип файла запрещён');
-      error.status = 400;
+    if (!ALLOWED_UPLOAD_TYPES.test(mime) || DANGEROUS_EXTENSIONS.has(ext) || !hasAllowedMagicBytes(filePart.head, mime, ext)) {
+      const error = new Error('Этот тип файла запрещён'); error.status = 400; throw error;
+    }
+    if (Number(fields.size || filePart.size) > MAX_UPLOAD_SIZE || filePart.size > MAX_UPLOAD_SIZE) {
+      const error = new Error(`Файл должен быть не больше ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)} МБ`); error.status = 413; throw error;
+    }
+    try { await scanUploadedFile(tempPath); } catch (error) {
+      await fs.mkdir(quarantineDir, { recursive: true });
+      await fs.rename(tempPath, path.join(quarantineDir, path.basename(tempPath))).catch(() => {});
+      createdFilePaths.length = 0;
       throw error;
     }
-
-    if (filePart.buffer.length > MAX_UPLOAD_SIZE || Number(fields.size || filePart.buffer.length) > MAX_UPLOAD_SIZE) {
-      const error = new Error(`Файл должен быть не больше ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)} МБ`);
-      error.status = 413;
-      throw error;
-    }
-
     const uploadDir = path.join(uploadsDir, safeScope);
     await fs.mkdir(uploadDir, { recursive: true });
     const storedName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}-${safeOriginalName}`;
     const storedPath = path.join(uploadDir, storedName);
-    await fs.writeFile(storedPath, filePart.buffer);
-    createdFilePaths.push(storedPath);
-    const sha256 = crypto.createHash('sha256').update(filePart.buffer).digest('hex');
+    await fs.rename(tempPath, storedPath);
+    createdFilePaths[0] = storedPath;
     const fileId = createId('file');
     const url = `/api/chat/files/${encodeURIComponent(fileId)}/download`;
     let thumbnailStoredName = '';
-    let thumbnailData = null;
-    // A video file itself is not a valid poster image. Keep the poster empty when
-    // client-side frame extraction failed so the browser can render the first frame.
     let thumbnailUrl = String(mime).startsWith('image/') ? url : '';
-
     if ((String(mime).startsWith('image/') || String(mime).startsWith('video/')) && fields.thumbnailDataUrl) {
       const thumbnailParsed = getDataUrlPayload(fields.thumbnailDataUrl);
-      if (thumbnailParsed && String(thumbnailParsed.mime || '').startsWith('image/')) {
-        thumbnailData = Buffer.from(thumbnailParsed.payload, 'base64');
-        if (thumbnailData.length > 0 && thumbnailData.length <= 2 * 1024 * 1024) {
-          const thumbnailName = `thumb-${storedName.replace(/\.[^.]+$/, '')}.jpg`;
-          const thumbnailPath = path.join(uploadDir, thumbnailName);
-          await fs.writeFile(thumbnailPath, thumbnailData);
-          createdFilePaths.push(thumbnailPath);
-          thumbnailStoredName = thumbnailName;
-          thumbnailUrl = `/api/chat/files/${encodeURIComponent(fileId)}/download?variant=thumbnail`;
-        } else {
-          thumbnailData = null;
-        }
+      const thumbnail = thumbnailParsed && String(thumbnailParsed.mime || '').startsWith('image/') ? Buffer.from(thumbnailParsed.payload, 'base64') : null;
+      if (thumbnail?.length && thumbnail.length <= 2 * 1024 * 1024) {
+        thumbnailStoredName = `thumb-${storedName.replace(/\.[^.]+$/, '')}.jpg`;
+        const thumbnailPath = path.join(uploadDir, thumbnailStoredName);
+        await fs.writeFile(thumbnailPath, thumbnail); createdFilePaths.push(thumbnailPath);
+        thumbnailUrl = `/api/chat/files/${encodeURIComponent(fileId)}/download?variant=thumbnail`;
       }
     }
-
-    const file = {
-      id: fileId,
-      scope: safeScope,
-      name: safeOriginalName,
-      type: mime,
-      size: filePart.buffer.length,
-      url,
-      thumbnailUrl,
-      originalName: fields.name || filePart.filename,
-      uploadedBy: req.auth.login,
-      storedName,
-      thumbnailStoredName,
-      sha256,
-      fileData: null,
-      thumbnailData: null,
-      width: Math.max(0, Number(fields.width) || 0),
-      height: Math.max(0, Number(fields.height) || 0),
-      aspectRatio: Math.max(0, Number(fields.aspectRatio) || 0),
-      duration: Math.max(0, Number(fields.duration) || 0),
-      isVerified: true,
-      uploadedAt: new Date().toISOString()
-    };
-
-    const sqlSaved = await writeSqlFileMetadata(file);
-    if (!sqlSaved) {
-      const error = new Error('Постоянное хранилище файлов временно недоступно');
-      error.status = 503;
-      throw error;
-    }
-
-    const publicFile = { ...file };
-    delete publicFile.fileData;
-    delete publicFile.thumbnailData;
+    const file = { id: fileId, scope: safeScope, name: safeOriginalName, type: mime, size: filePart.size, url, thumbnailUrl, originalName: fields.name || filePart.filename, uploadedBy: req.auth.login, storedName, thumbnailStoredName, sha256: filePart.hash.digest('hex'), width: Math.max(0, Number(fields.width) || 0), height: Math.max(0, Number(fields.height) || 0), aspectRatio: Math.max(0, Number(fields.aspectRatio) || 0), duration: Math.max(0, Number(fields.duration) || 0), isVerified: true, uploadedAt: new Date().toISOString() };
+    if (!await writeSqlFileMetadata(file)) { const error = new Error('Постоянное хранилище файлов временно недоступно'); error.status = 503; throw error; }
     uploadSaved = true;
-    return publicFile;
+    return file;
   } finally {
-    await fs.unlink(tempPath).catch(() => {});
-    if (!uploadSaved) {
-      await Promise.all(createdFilePaths.map((filePath) => fs.unlink(filePath).catch(() => {})));
-    }
+    if (!uploadSaved) await Promise.all(createdFilePaths.map((filePath) => fs.unlink(filePath).catch(() => {})));
   }
 };
 
@@ -915,18 +901,6 @@ const readSqlFileMetadata = async (fileId) => {
 
 const getMessageAttachments = (message = {}) => normalizeMessageAttachments(message);
 
-const fileMatchesAttachment = (attachment = {}, file = {}) => {
-  const values = new Set([
-    attachment.id,
-    attachment.fileId,
-    attachment.url,
-    attachment.thumbnailUrl,
-    attachment.previewUrl,
-    attachment.originalUrl
-  ].filter(Boolean).map(String));
-  return [file.id, file.url, file.thumbnail_url].filter(Boolean).some((value) => values.has(String(value)));
-};
-
 const getParticipantsFromConversationId = (conversationId = '') => conversationId
   .toLowerCase()
   .split('::')
@@ -939,11 +913,13 @@ const isConversationParticipant = (conversationId = '', login = '') => (
 
 const findFeedFileReference = async (file) => {
   if (!await ensureFeedSqlSchema()) return false;
-  const [rows] = await db.execute('SELECT post_json FROM feed_posts WHERE deleted_at IS NULL');
-  const sqlPosts = (rows || []).map((row) => parseSqlJson(row.post_json)).filter(Boolean);
-  return sqlPosts.some((post) => (
-    post && !post.deletedAt && getFeedAttachmentsFromPost(post).some((attachment) => fileMatchesAttachment(attachment, file))
-  ));
+  const [rows] = await db.execute(
+    `SELECT 1 FROM feed_post_files AS links
+     INNER JOIN feed_posts AS posts ON posts.id = links.post_id AND posts.deleted_at IS NULL
+     WHERE links.file_id = ? LIMIT 1`,
+    [file.id]
+  );
+  return Boolean(rows?.length);
 };
 
 const hasIndexedChatFileAccess = async (fileId, login) => {
@@ -986,24 +962,25 @@ const deleteStoredFileArtifacts = async (file = {}) => {
   await Promise.all(targets.map(({ filePath }) => fs.unlink(filePath).catch(() => {})));
   await db.execute(
     `UPDATE chat_files
-     SET deleted_at = NOW(), file_data = NULL, thumbnail_data = NULL
+     SET deleted_at = NOW()
      WHERE id = ?`,
     [file.id]
   );
 };
 
 const cleanupOrphanChatUploads = async () => {
-  if (!await ensureChatFilesSqlSchema() || !await ensureChatSqlSchema()) return 0;
+  if (!await ensureChatFilesSqlSchema() || !await ensureChatSqlSchema() || !await ensureFeedSqlSchema()) return 0;
   const cutoff = new Date(Date.now() - ORPHAN_UPLOAD_MAX_AGE_MS);
   const [rows] = await db.query(
     `SELECT ${CHAT_FILE_METADATA_COLUMNS}
      FROM chat_files AS files
      LEFT JOIN chat_message_files AS links ON links.file_id = files.id
-     WHERE files.scope = 'chat'
-       AND files.claimed_at IS NULL
-       AND files.deleted_at IS NULL
+     LEFT JOIN feed_post_files AS feed_links ON feed_links.file_id = files.id
+     LEFT JOIN feed_posts AS feed_posts ON feed_posts.id = feed_links.post_id AND feed_posts.deleted_at IS NULL
+     WHERE files.deleted_at IS NULL
        AND files.uploaded_at < ?
        AND links.file_id IS NULL
+       AND feed_posts.id IS NULL
      LIMIT 100`,
     [cutoff]
   );
@@ -1249,6 +1226,12 @@ const ensureFeedSqlSchema = async () => {
       PRIMARY KEY (post_id, emoji, login),
       INDEX idx_feed_reactions_post (post_id)
     )`);
+    await db.execute(`CREATE TABLE IF NOT EXISTS feed_post_files (
+      post_id VARCHAR(128) NOT NULL,
+      file_id VARCHAR(128) NOT NULL,
+      PRIMARY KEY (post_id, file_id),
+      INDEX idx_feed_post_files_file (file_id)
+    )`);
 
     feedSqlReady = true;
     feedSqlRetryAt = 0;
@@ -1296,12 +1279,13 @@ const writeSqlFeedPost = async (post = {}) => {
        deleted_at = VALUES(deleted_at)`,
     [values[0], values[1], values[2], values[3] ? 1 : 0, values[4], values[5], values[6]]
   );
-  const fileIds = getFeedAttachmentsFromPost(post).map(getAttachmentFileId).filter(Boolean);
+  const fileIds = [...new Set(getFeedAttachmentsFromPost(post).map(getAttachmentFileId).filter(Boolean))];
+  await db.execute('DELETE FROM feed_post_files WHERE post_id = ?', [post.id]);
+  if (!post.deletedAt && fileIds.length) {
+    await db.query('INSERT IGNORE INTO feed_post_files (post_id, file_id) VALUES ?', [fileIds.map((fileId) => [post.id, fileId])]);
+  }
   if (fileIds.length && await ensureChatFilesSqlSchema()) {
-    await db.query(
-      'UPDATE chat_files SET claimed_at = COALESCE(claimed_at, NOW()) WHERE id IN (?)',
-      [[...new Set(fileIds)]]
-    );
+    await db.query('UPDATE chat_files SET claimed_at = COALESCE(claimed_at, NOW()) WHERE id IN (?)', [fileIds]);
   }
   return true;
 };
@@ -1613,12 +1597,13 @@ const migrateArchiveToMysql = async () => {
   archiveMigrationPromise = (async () => {
     let migratedFiles = 0;
     if (await ensureChatFilesSqlSchema()) {
-      const [fileRows] = await db.execute(
+      const [legacyColumns] = await db.execute("SHOW COLUMNS FROM chat_files LIKE 'file_data'");
+      const [fileRows] = legacyColumns.length ? await db.execute(
         `SELECT id, scope, stored_name, metadata_json, file_data, thumbnail_data
          FROM chat_files
          WHERE deleted_at IS NULL
            AND (file_data IS NOT NULL OR thumbnail_data IS NOT NULL)`
-      );
+      ) : [[]];
       await runWithConcurrency(fileRows || [], async (row) => {
         const scope = ALLOWED_UPLOAD_SCOPES.has(row.scope) ? row.scope : 'chat';
         const uploadDir = path.join(uploadsDir, scope);
@@ -1637,6 +1622,12 @@ const migrateArchiveToMysql = async () => {
             migratedFiles += 1;
           });
         }));
+        // Old deployments may still have a copy in MySQL. Once both artifacts
+        // are on disk, release the BLOBs so the database contains metadata only.
+        if (legacyColumns.length) await db.execute(
+          'UPDATE chat_files SET file_data = NULL, thumbnail_data = NULL WHERE id = ?',
+          [row.id]
+        );
       });
     }
 
@@ -1767,7 +1758,7 @@ router.delete('/uploads/:fileId', async (req, res) => {
     if (!isSameLogin(file.uploaded_by, req.auth.login)) {
       return res.status(403).json({ message: 'Удалять загрузку может только её автор' });
     }
-    if (file.claimed_at || await hasIndexedChatFileAccess(fileId, req.auth.login)) {
+    if (await hasIndexedChatFileAccess(fileId, req.auth.login) || await findFeedFileReference(file)) {
       return res.status(409).json({ message: 'Файл уже прикреплён к сообщению' });
     }
     await deleteStoredFileArtifacts(file);

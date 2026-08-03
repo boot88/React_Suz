@@ -33,8 +33,22 @@ const EMPLOYEE_TEMPLATE_MESSAGES_EN = ['👋 Hello!', '🆘 I need help', '📍 
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '👏', '🔥', '🙏', '🎉', '🤩', '👌', '💯', '💪', '🤝', '✨', '👀'];
 const QUICK_EMOJIS = ['😀', '🙂', '😅', '🙏', '👍', '✅', '👀', '📌', '🔧', '⏳', '❗', '❤️'];
 const EMPLOYEE_CUSTOM_TEMPLATES_KEY = 'employeeChatCustomTemplates';
-const MAX_ATTACHMENT_SIZE_MB = 100;
+const MAX_ATTACHMENT_SIZE_MB = 50;
 const MAX_ATTACHMENT_SIZE = MAX_ATTACHMENT_SIZE_MB * 1024 * 1024;
+const UPLOAD_CONCURRENCY = 2;
+const mapWithConcurrency = async (items, worker, concurrency = UPLOAD_CONCURRENCY) => {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await worker(items[currentIndex], currentIndex);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+};
 const CHAT_MESSAGES_PAGE_SIZE = 50;
 const FEED_POSTS_PAGE_SIZE = 50;
 const VIDEO_EXTENSION_PATTERN = /\.(mp4|webm|ogg|ogv|mov|m4v|avi|mkv)$/i;
@@ -4556,7 +4570,7 @@ const EmployeeChat = () => {
       return;
     }
     try {
-      const preparedFiles = await Promise.all(files.map((file) => uploadAttachmentFile(file, 'feed')));
+      const preparedFiles = await mapWithConcurrency(files, (file) => uploadAttachmentFile(file, 'feed'));
       setFeedAttachments((prev) => [...prev, ...preparedFiles]);
     } catch {
       notify('Не удалось прикрепить файл.', 'Вложения');
