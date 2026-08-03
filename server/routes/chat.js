@@ -836,33 +836,6 @@ const prepareMessageForResponse = async (message = {}) => {
   };
 };
 
-const prepareConversationForResponse = async (conversationId, messages = []) => {
-  const prepared = await Promise.all((Array.isArray(messages) ? messages : []).map(prepareMessageForResponse));
-  const changedMessages = prepared.filter((item) => item.changed).map((item) => item.message);
-
-  if (changedMessages.length) {
-    await Promise.all(changedMessages.filter((message) => message?.id).map((message) => (
-      writeSqlMessage(conversationId, message).catch((error) => {
-        console.warn('Legacy inline attachment SQL migration failed:', error.message);
-        return false;
-      })
-    )));
-    setImmediate(() => {
-      mutateThreads((threads) => {
-        const replacements = new Map(changedMessages.map((message) => [message.id, message]));
-        const current = Array.isArray(threads[conversationId]) ? threads[conversationId] : [];
-        threads[conversationId] = current.map((message) => replacements.get(message.id) || message);
-        return threads;
-      }).catch((error) => {
-        console.warn('Legacy inline attachment archive migration failed:', error.message);
-      });
-    });
-  }
-
-  return prepared.map((item) => item.message);
-};
-
-
 const getRequestIdentity = (req) => req.auth || null;
 const getRequestLogin = (req) => getRequestIdentity(req)?.login || '';
 
