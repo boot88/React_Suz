@@ -1,5 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
+const fsSync = require('fs');
 const fs = require('fs/promises');
 const path = require('path');
 const router = express.Router();
@@ -7,8 +8,7 @@ const db = require('../config/database');
 const employeeRoutes = require('./employees');
 const { isMysqlDatabase } = require('../utils/chatState');
 const {
-  getRequestValue,
-  mergeProfileMaps
+  getRequestValue
 } = require('../utils/profileState');
 const { createAccessToken } = require('../utils/accessToken');
 const {
@@ -81,7 +81,7 @@ const getLockMessage = (lockedUntil) => {
 const dataDir = path.join(__dirname, '..', 'data');
 const notificationsFilePath = path.join(dataDir, 'managerNotifications.json');
 const presenceFilePath = path.join(dataDir, 'presence.json');
-const profilesFilePath = path.join(dataDir, 'profiles.json');
+const profileAvatarDir = path.join(__dirname, '..', 'uploads', 'profile');
 
 const DEFAULT_EMPLOYEE_PASSWORD = String(process.env.DEFAULT_EMPLOYEE_PASSWORD || '');
 const DEFAULT_ADMIN_PASSWORD = String(process.env.DEFAULT_ADMIN_PASSWORD || '');
@@ -144,6 +144,7 @@ const ensureUsersSchema = async () => {
       password VARCHAR(255) NOT NULL,
       role VARCHAR(40) NOT NULL DEFAULT 'employee',
       full_name VARCHAR(255) NOT NULL,
+      position VARCHAR(255) NULL,
       department VARCHAR(255) NULL,
       phone VARCHAR(100) NULL,
       room VARCHAR(100) NULL,
@@ -158,6 +159,9 @@ const ensureUsersSchema = async () => {
     const existing = new Set((columns || []).map((column) => column.Field));
     if (!existing.has('provisioned_from_directory')) {
       await db.execute('ALTER TABLE users ADD COLUMN provisioned_from_directory TINYINT(1) NOT NULL DEFAULT 0');
+    }
+    if (!existing.has('position')) {
+      await db.execute('ALTER TABLE users ADD COLUMN position VARCHAR(255) NULL');
     }
     usersSchemaReady = true;
   })().finally(() => {
@@ -180,8 +184,8 @@ const ensureManagerAccount = async () => {
     }
     const [result] = await db.execute(
       `INSERT IGNORE INTO users
-       (login, password, role, full_name, department, phone, room, provisioned_from_directory)
-       VALUES (?, ?, "manager", ?, NULL, NULL, NULL, 0)`,
+       (login, password, role, full_name, position, department, phone, room, provisioned_from_directory)
+       VALUES (?, ?, "manager", ?, NULL, NULL, NULL, NULL, 0)`,
       [MANAGER_LOGIN, await hashPassword(MANAGER_PASSWORD), MANAGER_NAME || MANAGER_LOGIN]
     );
     managerAccountReady = true;
@@ -234,21 +238,18 @@ const createUniqueLogin = (baseLogin, usedLogins) => {
   return login;
 };
 
-const validateAvatar = (avatar = '') => {
-  if (!avatar) return '';
-  const match = String(avatar).match(/^data:image\/(jpeg|png|webp);base64,([a-z0-9+/=\s]+)$/i);
-  if (!match) {
-    const error = new Error('Аватар должен быть изображением PNG, JPG или WEBP');
-    error.status = 400;
-    throw error;
-  }
-  const size = Buffer.byteLength(match[2].replace(/\s/g, ''), 'base64');
-  if (!size || size > MAX_AVATAR_BYTES) {
-    const error = new Error('Размер сохранённого аватара не должен превышать 1 МБ');
-    error.status = 413;
-    throw error;
-  }
-  return avatar;
+const AVATAR_MIME_TYPES = new Map([
+  ['image/jpeg', 'jpg'],
+  ['image/png', 'png'],
+  ['image/webp', 'webp']
+]);
+
+const isValidAvatarSignature = (buffer, mime) => {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 12) return false;
+  if (mime === 'image/jpeg') return buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  if (mime === 'image/png') return buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  if (mime === 'image/webp') return buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP';
+  return false;
 };
 
 const sanitizeProfilePreferences = (preferences = {}) => {
@@ -346,36 +347,21 @@ const provisionUsersFromPhoneBook = async () => {
   for (const user of desiredUsers) {
     const passwordHash = await hashPassword(user.initialPassword);
     await db.execute(
-      `INSERT INTO users (login, password, role, full_name, department, phone, room, provisioned_from_directory)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+      `INSERT INTO users (login, password, role, full_name, position, department, phone, room, provisioned_from_directory)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
        ON DUPLICATE KEY UPDATE
          role = VALUES(role),
          full_name = VALUES(full_name),
+         position = VALUES(position),
          department = VALUES(department),
          phone = VALUES(phone),
          room = VALUES(room),
          provisioned_from_directory = 1`,
-      [user.login, passwordHash, user.role, user.full_name, user.department, user.phone, user.room]
+      [user.login, passwordHash, user.role, user.full_name, user.position, user.department, user.phone, user.room]
     );
   }
 
   lastProvisionAt = Date.now();
-
-  const profiles = await readProfiles();
-  desiredUsers.forEach((user) => {
-    profiles[user.login] = {
-      ...(profiles[user.login] || {}),
-      full_name: user.full_name,
-      department: user.department || '',
-      phone: user.phone || '',
-      room: user.room || '',
-      position: user.position || profiles[user.login]?.position || '',
-      websiteLanguage: profiles[user.login]?.websiteLanguage || DEFAULT_PROFILE_WEBSITE_LANGUAGE,
-      website: getStoredProfileWebsite(profiles[user.login]),
-      statusText: DEFAULT_PROFILE_STATUS
-    };
-  });
-  await writeProfiles(profiles);
 
   return {
     total: desiredUsers.length,
@@ -448,15 +434,6 @@ const writePresence = async (items) => {
   await fs.writeFile(presenceFilePath, JSON.stringify(items, null, 2), 'utf-8');
 };
 
-const ensureProfilesStorage = async () => {
-  await fs.mkdir(dataDir, { recursive: true });
-  try {
-    await fs.access(profilesFilePath);
-  } catch {
-    await fs.writeFile(profilesFilePath, JSON.stringify({}, null, 2), 'utf-8');
-  }
-};
-
 const parseProfileJson = (value) => {
   if (!value) return null;
   if (typeof value === 'object') return value;
@@ -483,9 +460,24 @@ const ensureProfilesSqlSchema = async () => {
     await db.execute(`CREATE TABLE IF NOT EXISTS employee_profiles (
       login VARCHAR(255) PRIMARY KEY,
       profile_json LONGTEXT NOT NULL,
+      avatar_stored_name VARCHAR(255) NULL,
+      avatar_mime VARCHAR(100) NULL,
+      avatar_size INT UNSIGNED NULL,
+      avatar_updated_at DATETIME NULL,
       updated_at DATETIME NOT NULL,
       INDEX idx_employee_profiles_updated (updated_at)
     )`);
+    const [columns] = await db.execute('SHOW COLUMNS FROM employee_profiles');
+    const existing = new Set((columns || []).map((column) => column.Field));
+    const missing = [
+      ['avatar_stored_name', 'VARCHAR(255) NULL'],
+      ['avatar_mime', 'VARCHAR(100) NULL'],
+      ['avatar_size', 'INT UNSIGNED NULL'],
+      ['avatar_updated_at', 'DATETIME NULL']
+    ].filter(([name]) => !existing.has(name));
+    for (const [name, definition] of missing) {
+      await db.execute(`ALTER TABLE employee_profiles ADD COLUMN ${name} ${definition}`);
+    }
 
     profilesSqlReady = true;
     profilesSqlRetryAt = 0;
@@ -506,31 +498,39 @@ const ensureProfilesSqlSchema = async () => {
 
 const readSqlProfiles = async () => {
   if (!await ensureProfilesSqlSchema()) return null;
-  const [rows] = await db.execute('SELECT login, profile_json FROM employee_profiles');
+  const [rows] = await db.execute('SELECT login, profile_json, avatar_stored_name, avatar_mime, avatar_size, avatar_updated_at FROM employee_profiles');
 
   return Object.fromEntries((rows || [])
-    .map((row) => [normalizeLogin(row.login), parseProfileJson(row.profile_json)])
+    .map((row) => [normalizeLogin(row.login), {
+      ...(parseProfileJson(row.profile_json) || {}),
+      avatarStoredName: row.avatar_stored_name || '',
+      avatarMime: row.avatar_mime || '',
+      avatarSize: Number(row.avatar_size || 0),
+      avatarUpdatedAt: row.avatar_updated_at ? new Date(row.avatar_updated_at).toISOString() : null
+    }])
     .filter(([login, profile]) => login && profile));
 };
 
 const readSqlProfile = async (login) => {
   if (!await ensureProfilesSqlSchema()) return null;
   const [rows] = await db.execute(
-    'SELECT profile_json FROM employee_profiles WHERE login = ? LIMIT 1',
+    'SELECT profile_json, avatar_stored_name, avatar_mime, avatar_size, avatar_updated_at FROM employee_profiles WHERE login = ? LIMIT 1',
     [normalizeLogin(login)]
   );
-  return parseProfileJson(rows?.[0]?.profile_json);
+  const row = rows?.[0];
+  if (!row) return null;
+  return {
+    ...(parseProfileJson(row.profile_json) || {}),
+    avatarStoredName: row.avatar_stored_name || '',
+    avatarMime: row.avatar_mime || '',
+    avatarSize: Number(row.avatar_size || 0),
+    avatarUpdatedAt: row.avatar_updated_at ? new Date(row.avatar_updated_at).toISOString() : null
+  };
 };
 
 const readProfileByLogin = async (login) => {
-  const sqlProfile = await readSqlProfile(login).catch((error) => {
-    console.warn('Profile SQL read failed during login:', error.message);
-    return null;
-  });
-  if (sqlProfile) return sqlProfile;
-
-  const archiveProfiles = await readProfilesArchive();
-  return archiveProfiles[normalizeLogin(login)] || {};
+  const sqlProfile = await readSqlProfile(login);
+  return sqlProfile || {};
 };
 
 const writeSqlProfile = async (login, profile = {}) => {
@@ -541,11 +541,16 @@ const writeSqlProfile = async (login, profile = {}) => {
   }
   const normalizedLogin = normalizeLogin(login);
   const updatedAt = new Date(profile.updatedAt || Date.now());
+  const { avatarStoredName, avatarMime, avatarSize, avatarUpdatedAt, avatar, ...profileJson } = profile;
   const nextProfile = {
-    ...profile,
+    ...profileJson,
+    avatarStoredName: avatarStoredName || '',
+    avatarMime: avatarMime || '',
+    avatarSize: Number(avatarSize || 0),
+    avatarUpdatedAt: avatarUpdatedAt || null,
     updatedAt: updatedAt.toISOString()
   };
-  const params = [normalizedLogin, JSON.stringify(nextProfile), updatedAt];
+  const params = [normalizedLogin, JSON.stringify({ ...profileJson, updatedAt: nextProfile.updatedAt }), updatedAt];
 
   await db.execute(
     `INSERT INTO employee_profiles (login, profile_json, updated_at)
@@ -559,40 +564,14 @@ const writeSqlProfile = async (login, profile = {}) => {
   return nextProfile;
 };
 
-const readProfilesArchive = async () => {
-  await ensureProfilesStorage();
-  try {
-    const raw = await fs.readFile(profilesFilePath, 'utf-8');
-    const parsed = JSON.parse(raw || '{}');
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch (error) {
-    console.error('Profiles read error:', error);
-    return {};
-  }
-};
-
-const writeProfilesArchive = async (items) => {
-  await ensureProfilesStorage();
-  const tempPath = `${profilesFilePath}.${process.pid}.${Date.now()}.tmp`;
-  await fs.writeFile(tempPath, JSON.stringify(items, null, 2), 'utf-8');
-  await fs.rename(tempPath, profilesFilePath);
-};
-
 const readProfiles = async () => {
-  const archiveProfiles = await readProfilesArchive();
-  const sqlProfiles = await readSqlProfiles().catch((error) => {
-    console.warn('Profile SQL read failed, using JSON archive:', error.message);
-    return null;
-  });
-  if (!sqlProfiles) return archiveProfiles;
-
-  const merged = mergeProfileMaps(archiveProfiles, sqlProfiles);
-  const missingSqlLogins = Object.keys(archiveProfiles).filter((login) => !sqlProfiles[login]);
-  if (missingSqlLogins.length) {
-    Promise.all(missingSqlLogins.map((login) => writeSqlProfile(login, archiveProfiles[login])))
-      .catch((error) => console.warn('Profile archive migration failed:', error.message));
+  const sqlProfiles = await readSqlProfiles();
+  if (sqlProfiles === null) {
+    const error = new Error('Постоянное хранилище профилей временно недоступно');
+    error.status = 503;
+    throw error;
   }
-  return merged;
+  return sqlProfiles;
 };
 
 let profilesWriteQueue = Promise.resolve();
@@ -606,9 +585,7 @@ const persistProfiles = async (items) => {
     login,
     await writeSqlProfile(login, profile)
   ]));
-  const durableProfiles = Object.fromEntries(savedProfiles);
-  await writeProfilesArchive(durableProfiles);
-  return durableProfiles;
+  return Object.fromEntries(savedProfiles);
 };
 
 const enqueueProfileWrite = (operation) => {
@@ -626,8 +603,6 @@ const mutateProfile = async (login, mutator) => enqueueProfileWrite(async () => 
   const normalizedLogin = normalizeLogin(login);
   const nextProfile = await mutator({ ...(profiles[normalizedLogin] || {}) });
   const savedProfile = await writeSqlProfile(normalizedLogin, nextProfile);
-  profiles[normalizedLogin] = savedProfile;
-  await writeProfilesArchive(profiles);
   return savedProfile;
 });
 
@@ -735,6 +710,7 @@ const mapUser = (user) => ({
   login: user.login,
   role: user.role,
   full_name: user.full_name,
+  position: user.position || '',
   department: user.department,
   phone: user.phone,
   room: user.room,
@@ -853,7 +829,7 @@ router.post('/register', requireAuth, requireRole('admin'), async (req, res) => 
 router.get('/employees', requireAuth, async (req, res) => {
   try {
     const [users] = await db.execute(
-      'SELECT id, login, role, full_name, department, phone, room FROM users WHERE role IN ("employee", "manager", "admin") ORDER BY login'
+      'SELECT id, login, role, full_name, position, department, phone, room FROM users WHERE role IN ("employee", "manager", "admin") ORDER BY login'
     );
     const profiles = await readProfiles();
     res.set('Cache-Control', 'no-store');
@@ -862,12 +838,11 @@ router.get('/employees', requireAuth, async (req, res) => {
         const mapped = mapUser(user);
         const extras = profiles[normalizeLogin(user.login)] || {};
         const avatarRevision = encodeURIComponent(extras.updatedAt || '');
-        const avatar = extras.avatar
+        const avatar = extras.avatarStoredName
           ? `/api/auth/profile/${encodeURIComponent(user.login)}/avatar?rev=${avatarRevision}`
           : '';
         return {
           ...mapped,
-          position: extras.position || '',
           bio: extras.bio || '',
           websiteLanguage: extras.websiteLanguage || DEFAULT_PROFILE_WEBSITE_LANGUAGE,
           website: getStoredProfileWebsite(extras),
@@ -875,6 +850,11 @@ router.get('/employees', requireAuth, async (req, res) => {
           avatar,
           profile: {
             ...extras,
+            full_name: mapped.full_name,
+            position: mapped.position,
+            department: mapped.department,
+            phone: mapped.phone,
+            room: mapped.room,
             avatar
           }
         };
@@ -1049,7 +1029,7 @@ router.get('/profile', requireAuth, async (req, res) => {
     }
 
     const [users] = await db.execute(
-      'SELECT id, login, role, full_name, department, phone, room FROM users WHERE LOWER(login) = ?',
+      'SELECT id, login, role, full_name, position, department, phone, room FROM users WHERE LOWER(login) = ?',
       [normalizedLogin]
     );
 
@@ -1065,16 +1045,16 @@ router.get('/profile', requireAuth, async (req, res) => {
       profile: {
         login: user.login,
         role: user.role,
-        full_name: user.full_name || extras.full_name || normalizedLogin,
-        department: user?.department || extras.department || '',
-        phone: user?.phone || extras.phone || '',
-        room: user?.room || extras.room || '',
-        position: extras.position || '',
+        full_name: user.full_name || normalizedLogin,
+        department: user.department || '',
+        phone: user.phone || '',
+        room: user.room || '',
+        position: user.position || '',
         bio: extras.bio || '',
         websiteLanguage: extras.websiteLanguage || DEFAULT_PROFILE_WEBSITE_LANGUAGE,
         website: getStoredProfileWebsite(extras),
         statusText: extras.statusText || DEFAULT_PROFILE_STATUS,
-        avatar: extras.avatar || '',
+        avatar: extras.avatarStoredName ? `/api/auth/profile/${encodeURIComponent(user.login)}/avatar?rev=${encodeURIComponent(extras.avatarUpdatedAt || extras.updatedAt || '')}` : '',
         preferences: extras.preferences && typeof extras.preferences === 'object' ? extras.preferences : {},
         updatedAt: extras.updatedAt || null
       }
@@ -1088,35 +1068,9 @@ router.get('/profile', requireAuth, async (req, res) => {
 router.put('/profile', requireAuth, async (req, res) => {
   try {
     const normalizedLogin = req.auth.login;
-    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'avatar')) {
-      validateAvatar(req.body.avatar);
-    }
-
-    const [users] = await db.execute(
-      'SELECT id FROM users WHERE LOWER(login) = ?',
-      [normalizedLogin]
-    );
-
-    if (users.length > 0) {
-      await db.execute(
-        'UPDATE users SET full_name = ?, department = ?, phone = ?, room = ? WHERE LOWER(login) = ?',
-        [
-          req.body?.full_name || normalizedLogin,
-          req.body?.department || null,
-          req.body?.phone || null,
-          req.body?.room || null,
-          normalizedLogin
-        ]
-      );
-    }
 
     const savedProfile = await mutateProfile(normalizedLogin, (currentProfile) => ({
       ...currentProfile,
-      full_name: getRequestValue(req.body, 'full_name', currentProfile.full_name || normalizedLogin),
-      department: getRequestValue(req.body, 'department', currentProfile.department || ''),
-      phone: getRequestValue(req.body, 'phone', currentProfile.phone || ''),
-      room: getRequestValue(req.body, 'room', currentProfile.room || ''),
-      position: getRequestValue(req.body, 'position', currentProfile.position || ''),
       bio: getRequestValue(req.body, 'bio', currentProfile.bio || ''),
       websiteLanguage: getRequestValue(req.body, 'websiteLanguage', currentProfile.websiteLanguage || DEFAULT_PROFILE_WEBSITE_LANGUAGE),
       website: getRequestValue(
@@ -1125,7 +1079,6 @@ router.put('/profile', requireAuth, async (req, res) => {
         currentProfile.website || PROFILE_WEBSITE_BY_LANGUAGE[req.body?.websiteLanguage] || DEFAULT_PROFILE_WEBSITE
       ),
       statusText: getRequestValue(req.body, 'statusText', currentProfile.statusText || DEFAULT_PROFILE_STATUS),
-      avatar: getRequestValue(req.body, 'avatar', currentProfile.avatar || ''),
       preferences: sanitizeProfilePreferences(currentProfile.preferences),
       updatedAt: new Date().toISOString()
     }));
@@ -1165,20 +1118,82 @@ router.get('/profile/:login/avatar', requireAuthAllowQuery, async (req, res) => 
   try {
     const normalizedLogin = normalizeLogin(decodeURIComponent(req.params.login || ''));
     if (!normalizedLogin) return res.status(400).json({ message: 'login обязателен' });
-    const profiles = await readProfiles();
-    const avatar = String(profiles[normalizedLogin]?.avatar || '');
-    const match = avatar.match(/^data:([^;,]+);base64,(.+)$/i);
-    if (!match) return res.status(404).json({ message: 'Аватар не найден' });
-
-    const buffer = Buffer.from(match[2], 'base64');
-    if (!buffer.length) return res.status(404).json({ message: 'Аватар не найден' });
-    res.setHeader('Content-Type', match[1] || 'image/jpeg');
-    res.setHeader('Content-Length', buffer.length);
+    const profile = await readProfileByLogin(normalizedLogin);
+    const storedName = path.basename(String(profile.avatarStoredName || ''));
+    const avatarPath = path.join(profileAvatarDir, storedName);
+    if (!storedName || !avatarPath.startsWith(`${profileAvatarDir}${path.sep}`)) return res.status(404).json({ message: 'Аватар не найден' });
+    const stats = await fs.stat(avatarPath).catch(() => null);
+    if (!stats?.isFile()) return res.status(404).json({ message: 'Аватар не найден' });
+    res.setHeader('Content-Type', profile.avatarMime || 'image/jpeg');
+    res.setHeader('Content-Length', stats.size);
     res.setHeader('Cache-Control', 'private, max-age=300');
-    return res.send(buffer);
+    return fsSync.createReadStream(avatarPath).pipe(res);
   } catch (error) {
     console.error('Profile avatar get error:', error);
     return res.status(500).json({ message: 'Не удалось загрузить аватар' });
+  }
+});
+
+router.post('/profile/avatar', requireAuth, async (req, res) => {
+  let temporaryPath = '';
+  try {
+    const mime = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+    const extension = AVATAR_MIME_TYPES.get(mime);
+    if (!extension) return res.status(400).json({ message: 'Разрешены только PNG, JPG и WEBP' });
+    await ensureProfilesSqlSchema();
+    await fs.mkdir(profileAvatarDir, { recursive: true });
+    temporaryPath = path.join(profileAvatarDir, `.upload-${process.pid}-${crypto.randomUUID()}.tmp`);
+    const output = fsSync.createWriteStream(temporaryPath, { flags: 'wx' });
+    let size = 0;
+    const chunks = [];
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > MAX_AVATAR_BYTES) {
+        output.destroy();
+        const error = new Error('Размер аватара не должен превышать 1 МБ');
+        error.status = 413;
+        throw error;
+      }
+      if (chunks.reduce((total, item) => total + item.length, 0) < 16) chunks.push(chunk);
+      if (!output.write(chunk)) await new Promise((resolve) => output.once('drain', resolve));
+    }
+    await new Promise((resolve, reject) => { output.once('error', reject); output.end(resolve); });
+    const signature = Buffer.concat(chunks).subarray(0, 16);
+    if (!size || !isValidAvatarSignature(signature, mime)) {
+      const error = new Error('Файл не является корректным изображением');
+      error.status = 400;
+      throw error;
+    }
+    const normalizedLogin = req.auth.login;
+    const currentProfile = await readProfileByLogin(normalizedLogin);
+    const oldName = path.basename(String(currentProfile.avatarStoredName || ''));
+    const storedName = `${normalizedLogin.replace(/[^a-z0-9_-]/gi, '_')}-${Date.now()}-${crypto.randomUUID()}.${extension}`;
+    await fs.rename(temporaryPath, path.join(profileAvatarDir, storedName));
+    temporaryPath = '';
+    const nextProfile = await writeSqlProfile(normalizedLogin, { ...currentProfile, updatedAt: new Date().toISOString() });
+    await db.execute(
+      `UPDATE employee_profiles SET avatar_stored_name = ?, avatar_mime = ?, avatar_size = ?, avatar_updated_at = NOW(), updated_at = NOW() WHERE login = ?`,
+      [storedName, mime, size, normalizedLogin]
+    );
+    if (oldName && oldName !== storedName) await fs.unlink(path.join(profileAvatarDir, oldName)).catch(() => {});
+    res.json({ message: 'Аватар обновлён', avatar: `/api/auth/profile/${encodeURIComponent(normalizedLogin)}/avatar?rev=${Date.now()}`, profile: { ...nextProfile, avatarStoredName: storedName } });
+  } catch (error) {
+    if (temporaryPath) await fs.unlink(temporaryPath).catch(() => {});
+    console.error('Profile avatar upload error:', error);
+    res.status(error.status || 500).json({ message: error.message || 'Не удалось сохранить аватар' });
+  }
+});
+
+router.delete('/profile/avatar', requireAuth, async (req, res) => {
+  try {
+    const profile = await readProfileByLogin(req.auth.login);
+    const oldName = path.basename(String(profile.avatarStoredName || ''));
+    await db.execute('UPDATE employee_profiles SET avatar_stored_name = NULL, avatar_mime = NULL, avatar_size = NULL, avatar_updated_at = NULL, updated_at = NOW() WHERE login = ?', [req.auth.login]);
+    if (oldName) await fs.unlink(path.join(profileAvatarDir, oldName)).catch(() => {});
+    res.json({ message: 'Аватар удалён' });
+  } catch (error) {
+    console.error('Profile avatar delete error:', error);
+    res.status(500).json({ message: 'Не удалось удалить аватар' });
   }
 });
 

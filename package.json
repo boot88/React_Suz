@@ -28,6 +28,9 @@
     "server": "nodemon server/server.js",
     "client": "PORT=${CLIENT_PORT:-3000} react-scripts start",
     "migrate:chat-storage": "node server/scripts/migrate-chat-storage.js",
+    "export:profiles": "node server/scripts/export-profiles-archive.js",
+    "restore:profiles": "node server/scripts/restore-profiles-archive.js",
+    "migrate:profile-avatars": "node server/scripts/migrate-profile-avatars.js",
     "heroku-postbuild": "npm run build"
   },
   "eslintConfig": {
