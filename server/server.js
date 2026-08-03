@@ -1032,9 +1032,23 @@ app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), a
     const has = (field) => Object.prototype.hasOwnProperty.call(req.body, field);
     const pick = (field, fallback = null) => (has(field) ? handleNullValues(req.body[field], fallback) : existingApp[field]);
     const pickDate = (field) => (has(field) ? formatDateForMySQL(req.body[field]) : existingApp[field]);
-    const requestedStatus = has('fl') && Boolean(fl) ? 'done' : (has('status') ? (status || 'new') : (has('fl') ? 'new' : existingApp.status));
+    // The legacy edit screen exposes a single "completed" checkbox rather
+    // than the full workflow. Treat it as an explicit manager action: closing
+    // is allowed from any open state, and unchecking a closed request reopens
+    // it. The dedicated workflow endpoints below still use strict transitions.
+    const completionRequested = has('fl') && Boolean(fl);
+    const reopeningRequested = has('fl') && !Boolean(fl) && existingApp.status === 'done';
+    const requestedStatus = completionRequested
+      ? 'done'
+      : (reopeningRequested ? 'reopened' : (has('status') ? (status || 'new') : existingApp.status));
     const nextStatus = normalizeApplicationStatus(requestedStatus, existingApp.status);
-    assertApplicationTransition(existingApp.status, nextStatus);
+    const isManualClosure = completionRequested && existingApp.status !== 'done';
+    if (!isManualClosure) {
+      assertApplicationTransition(existingApp.status, nextStatus);
+    }
+    const closedAt = nextStatus === 'done'
+      ? (existingApp.employee_confirmed_at || formatNowForMySQL())
+      : existingApp.employee_confirmed_at;
     const processedData = {
       name: pick('name', ''), cabinet: pick('cabinet', ''), N_tel: pick('N_tel', ''),
       application: pick('application', ''), process: pick('process', ''), executor: pick('executor', ''),
@@ -1042,7 +1056,8 @@ app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), a
       fl: nextStatus === 'done' || (has('fl') ? Boolean(fl) : existingApp.fl) ? 1 : 0, status: nextStatus,
       employee_login: pick('employee_login', ''), category: pick('category', ''), priority: pick('priority', ''),
       accepted_by: existingApp.accepted_by, accepted_at: existingApp.accepted_at, work_started_at: existingApp.work_started_at,
-      resolved_at: existingApp.resolved_at, employee_confirmed_at: existingApp.employee_confirmed_at,
+      resolved_at: nextStatus === 'done' ? (existingApp.resolved_at || closedAt) : existingApp.resolved_at,
+      employee_confirmed_at: closedAt,
       admin_comment: pick('admin_comment', ''), eta_minutes: has('eta_minutes') ? (eta_minutes || null) : existingApp.eta_minutes,
       waiting_seconds: existingApp.waiting_seconds,
       arrival_seconds: existingApp.arrival_seconds,
@@ -1070,7 +1085,11 @@ app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), a
         processedData.chat_thread_id, processedData.source_message_id, processedData.employee_comment, id
       ]
     );
-    await addApplicationEvent(connection, id, req.auth.login, req.auth.role, 'manual_update', 'Заявка обновлена вручную');
+    const eventType = isManualClosure ? 'manual_closed' : (reopeningRequested ? 'manual_reopened' : 'manual_update');
+    const eventComment = isManualClosure
+      ? 'Заявка вручную отмечена выполненной'
+      : (reopeningRequested ? 'Заявка вручную переоткрыта' : 'Заявка обновлена вручную');
+    await addApplicationEvent(connection, id, req.auth.login, req.auth.role, eventType, eventComment);
     return getApplicationByIdForUpdate(connection, id);
     });
     publishApplicationUpdate(updatedApplication, 'manual_update');
