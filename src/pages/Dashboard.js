@@ -46,15 +46,14 @@ const TABLE_STATUS_ORDER = {
 };
 const DASHBOARD_COLUMNS_KEY = 'dashboard.visibleColumns.v1';
 const DASHBOARD_COMPACT_KEY = 'dashboard.compactMode.v1';
-const DEFAULT_DASHBOARD_COLUMNS = ['employee', 'request', 'executor', 'created', 'sla', 'status', 'actions'];
+const DEFAULT_DASHBOARD_COLUMNS = ['employee', 'request', 'executor', 'created', 'sla', 'status'];
 const DASHBOARD_COLUMNS = [
   { id: 'employee', label: 'Сотрудник' },
   { id: 'request', label: 'Заявка' },
   { id: 'executor', label: 'Исполнитель' },
   { id: 'created', label: 'Создана' },
   { id: 'sla', label: 'SLA' },
-  { id: 'status', label: 'Статус' },
-  { id: 'actions', label: 'Действия' }
+  { id: 'status', label: 'Статус' }
 ];
 const SAVED_DASHBOARD_VIEWS = [
   { id: 'my', label: 'Мои заявки', filter: 'my', sort: 'sla' },
@@ -618,7 +617,7 @@ const Dashboard = () => {
   const formatTimeRange = (app) => {
     const status = app.status || (app.fl ? 'done' : 'new');
     const isDone = app.fl || status === 'done';
-    const startValue = app.start_data || app.work_started_at || app.accepted_at || (isDone && !isEmployeeCreatedApplication(app) ? (app.created_at || app.data) : null);
+    const startValue = app.work_started_at || app.accepted_at || app.start_data || (isDone && !isEmployeeCreatedApplication(app) ? (app.created_at || app.data) : null);
     const displayWorkSeconds = getDisplayWorkSeconds(app);
     const calculatedEnd = startValue && displayWorkSeconds != null
       ? new Date(new Date(startValue).getTime() + displayWorkSeconds * 1000)
@@ -1215,7 +1214,7 @@ const getSlaBadge = (app = {}) => {
                         </td>}
 
                         {isColumnVisible('created') && <td className="cell-date cell-created">
-                          <strong>{formatCreatedAt(app.data)}</strong>
+                          <strong>{formatCreatedAt(app.created_at || app.data)}</strong>
                           <span>{formatTimeRange(app)}</span>
                         </td>}
                         {isColumnVisible('sla') && <td className="cell-sla">
@@ -1316,7 +1315,7 @@ const getSlaBadge = (app = {}) => {
             <div><strong>Приоритет</strong><span>{selectedApplication.priority || 'Обычный'}</span></div>
             <div><strong>Источник</strong><span>{selectedApplication.source || 'admin'}</span></div>
             <div><strong>Исполнитель</strong><span>{selectedApplication.executor || 'Не назначен'}</span></div>
-            <div><strong>Создана</strong><span>{formatCreatedAt(selectedApplication.data)}</span></div>
+            <div><strong>Создана</strong><span>{formatCreatedAt(selectedApplication.created_at || selectedApplication.data)}</span></div>
             <div><strong>Рабочий интервал</strong><span>{formatTimeRange(selectedApplication)}</span></div>
             {getWaitingSeconds(selectedApplication) != null && <div><strong>Ожидание</strong><span>{formatDuration(getWaitingSeconds(selectedApplication))}</span></div>}
             {!(selectedApplication.fl || selectedApplication.status === 'done') && <div><strong>Работа</strong><span>{formatDuration(getDisplayWorkSeconds(selectedApplication))}</span></div>}
