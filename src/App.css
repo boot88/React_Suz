@@ -94,10 +94,15 @@
   margin-bottom: 12px;
 }
 
-.logo-icon {
-  font-size: 35px;
-  background: linear-gradient(135deg, #4caf50 0%, #2c5aa0 100%);
-  padding: 12px;
+.logo-mark {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  font-weight: 800;
+  background: #fff;
+  color: #1a365d;
   border-radius: 50%;
   box-shadow: 0 6px 15px rgba(0, 0, 0, 0.3);
 }
@@ -164,11 +169,35 @@
 }
 
 .nav-icon {
-  font-size: 18px;
   margin-right: 12px;
   width: 22px;
+  height: 22px;
   text-align: center;
+  position: relative;
+  flex: 0 0 22px;
 }
+
+.nav-icon::before,
+.nav-icon::after { content: ''; position: absolute; box-sizing: border-box; }
+.nav-icon--requests::before { inset: 3px; border: 2px solid currentColor; border-radius: 3px; }
+.nav-icon--requests::after { left: 7px; top: 8px; width: 8px; height: 2px; background: currentColor; box-shadow: 0 4px 0 currentColor; }
+.nav-icon--add::before { left: 10px; top: 3px; width: 2px; height: 16px; background: currentColor; }
+.nav-icon--add::after { left: 3px; top: 10px; width: 16px; height: 2px; background: currentColor; }
+.nav-icon--chat::before { inset: 3px 2px 5px; border: 2px solid currentColor; border-radius: 5px; }
+.nav-icon--chat::after { left: 6px; bottom: 2px; border: 4px solid transparent; border-top-color: currentColor; }
+.nav-icon--chart::before { left: 3px; bottom: 3px; width: 16px; height: 16px; border-left: 2px solid currentColor; border-bottom: 2px solid currentColor; }
+.nav-icon--chart::after { left: 6px; top: 8px; width: 10px; height: 6px; border-left: 2px solid currentColor; border-top: 2px solid currentColor; transform: skewY(-35deg); }
+.nav-icon--people::before { left: 7px; top: 2px; width: 7px; height: 7px; border: 2px solid currentColor; border-radius: 50%; }
+.nav-icon--people::after { left: 3px; bottom: 2px; width: 15px; height: 9px; border: 2px solid currentColor; border-bottom: 0; border-radius: 10px 10px 0 0; }
+.nav-icon--book::before { inset: 3px 4px; border: 2px solid currentColor; border-radius: 2px; }
+.nav-icon--book::after { left: 10px; top: 4px; height: 14px; border-left: 2px solid currentColor; }
+.nav-icon--account::before { inset: 3px; border: 2px solid currentColor; border-radius: 50%; }
+.nav-icon--account::after { left: 8px; top: 5px; width: 6px; height: 6px; border: 1px solid currentColor; border-radius: 50%; box-shadow: 0 7px 0 -1px #2c5aa0, 0 7px 0 0 currentColor; }
+.nav-icon--network::before { inset: 4px; border: 2px solid currentColor; border-radius: 50%; }
+.nav-icon--network::after { left: 2px; top: 10px; width: 18px; border-top: 2px solid currentColor; box-shadow: 0 -5px 0 -1px #2c5aa0, 0 -5px 0 0 currentColor, 0 5px 0 -1px #2c5aa0, 0 5px 0 0 currentColor; }
+
+.nav-group-title { margin: 18px 8px 7px; color: rgba(255,255,255,.62); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .12em; }
+.nav-group-title:first-child { margin-top: 0; }
 
 .nav-text {
   font-size: 14px;

@@ -665,7 +665,7 @@ const Dashboard = () => {
 
   const getCategoryLabel = (category) => String(category || '').trim() || 'Без категории';
 
-  const getSlaBadge = (app = {}) => {
+const getSlaBadge = (app = {}) => {
     const sla = getSlaState(app);
     const status = app.status || (app.fl ? 'done' : 'new');
     if (app.fl || status === 'done') {
@@ -730,6 +730,7 @@ const Dashboard = () => {
 
   const submitWorkflowModal = (event) => {
     event.preventDefault();
+    if (workflowModal?.type === 'bulk-close') return confirmBulkClose();
     if (!workflowModal?.app) return;
     if (workflowModal.type === 'accept') {
       runWorkflowAction(workflowModal.app, 'accept', {
@@ -786,18 +787,29 @@ const Dashboard = () => {
 
   const runBulkClose = async () => {
     if (selectedIds.length === 0) return;
-    if (!window.confirm(`Закрыть выбранные заявки (${selectedIds.length})?`)) return;
+    const selectedApplications = displayedApplications.filter((app) => selectedIds.includes(app.id));
+    const eligible = selectedApplications.filter((app) => (app.status || '') === 'waiting_employee_confirmation');
+    const blocked = selectedApplications.filter((app) => (app.status || '') !== 'waiting_employee_confirmation');
+    if (blocked.length > 0) showToast(`Можно закрывать только заявки, ожидающие подтверждения. Исключено: ${blocked.length}.`, 'warning');
+    if (eligible.length === 0) return;
+    setWorkflowModal({ type: 'bulk-close', apps: eligible, blocked, values: { reason: '' } });
+  };
+
+  const confirmBulkClose = async () => {
+    const apps = workflowModal?.apps || [];
+    const reason = workflowModal?.values?.reason?.trim();
+    if (!reason || apps.length === 0) return;
     setActionBusyId('bulk');
     try {
-      await Promise.all(selectedIds.map((id) => authFetch(`${API_BASE_URL}/applications/${id}/confirm`, {
+      const responses = await Promise.all(apps.map((app) => authFetch(`${API_BASE_URL}/applications/${app.id}/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          employee_comment: 'Закрыто массовым действием администратора'
-        })
+        body: JSON.stringify({ employee_comment: `Закрыто массовым действием администратора: ${reason}` })
       })));
-      showToast(`Закрыто заявок: ${selectedIds.length}`, 'success');
+      if (responses.some((response) => !response.ok)) throw new Error('Не все заявки удалось закрыть');
+      showToast(`Закрыто заявок: ${apps.length}`, 'success');
       setSelectedIds([]);
+      setWorkflowModal(null);
       fetchApplications();
       fetchGeneralStats();
     } catch (error) {
@@ -884,10 +896,9 @@ const Dashboard = () => {
   };
 
   const statCards = [
-    { id: 'queue', label: '📥 Новые', value: stats.queue || 0, hint: 'Ждут просмотра' },
-    { id: 'active', label: '🛠️ В работе', value: stats.active || 0, hint: 'Назначены или выполняются' },
-    { id: 'confirmation', label: '👤 Ждут подтверждения', value: stats.confirmation || 0, hint: 'Нужно подтверждение сотрудника' },
-    { id: 'overdue', label: '⚠️ Просроченные', value: stats.overdue || 0, hint: 'Нарушен SLA', tone: 'danger' }
+    { id: 'queue', label: 'Новые', value: stats.queue || 0, hint: 'Ждут назначения' },
+    { id: 'active', label: 'В работе', value: stats.active || 0, hint: 'Назначены или выполняются' },
+    { id: 'overdue', label: 'Просроченные', value: stats.overdue || 0, hint: 'Нарушен SLA', tone: 'danger' }
   ];
 
   const displayedApplications = useMemo(() => {
@@ -923,7 +934,9 @@ const Dashboard = () => {
     <div className="dashboard-container">
       {/* Заголовок */}
       <div className="dashboard-header">
-        <h1>⚗️ Панель управления — Заявки</h1>
+        <div><h1>Заявки</h1><p className="dashboard-subtitle">Очередь, сроки и действия по обращениям</p></div>
+        <div className="header-tools">
+          <div className="table-search table-search--header"><input type="text" value={searchTerm} onChange={(e) => handleSearch(e.target.value)} placeholder="Поиск по заявкам" className="search-input" aria-label="Поиск по заявкам" />{searchTerm && <button type="button" onClick={clearSearch} className="clear-search" title="Очистить поиск">×</button>}</div>
         <button
           onClick={exportToExcel}
           disabled={exportLoading || stats.total === 0}
@@ -942,18 +955,11 @@ const Dashboard = () => {
             </>
           )}
         </button>
+        </div>
       </div>
 
       {/* Статистика */}
       <div className="stats-grid dashboard-stats-expanded">
-        <div
-          className={`stat-card ${filter === 'all' && !dateFilterActive && !searchTerm ? 'stat-active' : ''}`}
-          onClick={clearFilters}
-        >
-          <span className="stat-label">📊 Всего заявок</span>
-          <div className="stat-number">{stats.total}</div>
-          <small>Всего в системе</small>
-        </div>
         {statCards.map((card) => (
           <div
             key={card.id}
@@ -971,27 +977,17 @@ const Dashboard = () => {
 
       {/* Фильтры */}
       <div className="filters-section filters-section-compact">
+        <div className="queue-filter-row" aria-label="Очереди заявок">
+          <button type="button" className={filter === 'all' ? 'active' : ''} onClick={clearFilters}>Все</button>
+          {QUEUE_FILTERS.map((queue) => <button key={queue.id} type="button" className={filter === queue.id ? 'active' : ''} onClick={() => setFilterAndResetPage(queue.id)}>{queue.label}</button>)}
+        </div>
+        <details className="dashboard-settings">
+          <summary>Фильтры и настройки</summary>
+          <div className="dashboard-settings-body">
         <div className="saved-views-row" aria-label="Сохранённые представления">
           <strong>Представления:</strong>
           {SAVED_DASHBOARD_VIEWS.map((view) => (
             <button key={view.id} type="button" onClick={() => applySavedView(view)}>{view.label}</button>
-          ))}
-        </div>
-        <div className="queue-filter-row" aria-label="Очереди заявок">
-          <button type="button" className={filter === 'all' ? 'active' : ''} onClick={clearFilters}>
-            <span>📊</span>
-            Все
-          </button>
-          {QUEUE_FILTERS.map((queue) => (
-            <button
-              key={queue.id}
-              type="button"
-              className={filter === queue.id ? 'active' : ''}
-              onClick={() => setFilterAndResetPage(queue.id)}
-            >
-              <span>{queue.icon}</span>
-              {queue.label}
-            </button>
           ))}
         </div>
         <div className="filters-group period-filter-card">
@@ -1042,6 +1038,8 @@ const Dashboard = () => {
             {compactMode ? 'Обычный режим' : 'Компактный режим'}
           </button>
         </div>
+          </div>
+        </details>
       </div>
 
       {activeFilterChips.length > 0 && (
@@ -1077,16 +1075,6 @@ const Dashboard = () => {
               <p>Поиск работает по заявке, кабинету, сотруднику, телефону и исполнителю.</p>
             </div>
             <div className="table-tools">
-              <div className="table-search">
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => handleSearch(e.target.value)}
-                  placeholder="Поиск: заявка, кабинет, сотрудник..."
-                  className="search-input"
-                />
-                {searchTerm && <button type="button" onClick={clearSearch} className="clear-search" title="Очистить поиск">×</button>}
-              </div>
               <label className="page-size-control">
                 <span>Сортировка</span>
                 <select
@@ -1314,6 +1302,11 @@ const Dashboard = () => {
             <strong>{getSlaState(selectedApplication).label}</strong>
             <span>{selectedApplication.fl || selectedApplication.status === 'done' ? `Работа: ${formatDuration(getDisplayWorkSeconds(selectedApplication))}` : formatDuration(getSlaState(selectedApplication).seconds)}</span>
           </div>
+          <div className="next-action-card">
+            <span>Следующее действие</span>
+            <strong>{getNextAction(selectedApplication)}</strong>
+            <p>{getStatusDescription(selectedApplication)}</p>
+          </div>
           <div className="side-panel-section">
             <h3>Описание</h3>
             <p>{selectedApplication.application}</p>
@@ -1351,6 +1344,7 @@ const Dashboard = () => {
             {getSlaState(selectedApplication).level === 'critical' && !getSlaState(selectedApplication).paused && <button type="button" onClick={() => runWorkflowAction(selectedApplication, 'pause-overdue')}>Остановить таймер просрочки</button>}
             {getSlaState(selectedApplication).paused && <button type="button" disabled>Таймер просрочки остановлен</button>}
             {selectedApplication.employee_login && <a href={`/employee?dialog=${encodeURIComponent(selectedApplication.employee_login)}&application=${selectedApplication.id}`}>Открыть чат</a>}
+            <a href={`/edit/${selectedApplication.id}`}>Редактировать заявку</a>
           </div>
           <div className="side-panel-section">
             <h3>История действий</h3>
@@ -1372,17 +1366,24 @@ const Dashboard = () => {
       {workflowModal && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setWorkflowModal(null)}>
           <form className="workflow-modal" onSubmit={submitWorkflowModal} onMouseDown={(event) => event.stopPropagation()}>
-            <h2>{workflowModal.type === 'accept' ? 'Взять заявку в работу' : 'Что сделано'}</h2>
+            <h2>{workflowModal.type === 'accept' ? 'Взять заявку в работу' : workflowModal.type === 'bulk-close' ? 'Подтвердить массовое закрытие' : 'Что сделано'}</h2>
             {workflowModal.type === 'accept' ? (
               <>
                 <label>Исполнитель<input value={workflowModal.values.executor} onChange={(event) => updateWorkflowModalValue('executor', event.target.value)} required /></label>
                 <label>Подойдут через, минут<input type="number" min="1" value={workflowModal.values.eta_minutes} onChange={(event) => updateWorkflowModalValue('eta_minutes', event.target.value)} required /></label>
                 <label>Комментарий сотруднику<textarea rows={4} value={workflowModal.values.admin_comment} onChange={(event) => updateWorkflowModalValue('admin_comment', event.target.value)} /></label>
               </>
+            ) : workflowModal.type === 'bulk-close' ? (
+              <>
+                <p className="bulk-close-warning">Будут закрыты только заявки, по которым исполнитель уже завершил работу и ожидается подтверждение сотрудника.</p>
+                <ul className="bulk-close-list">{workflowModal.apps.map((app) => <li key={app.id}>#{app.id} — {app.application || 'Без описания'}</li>)}</ul>
+                {workflowModal.blocked?.length > 0 && <p className="bulk-close-warning">Не будут закрыты: {workflowModal.blocked.length} заявок с другим статусом.</p>}
+                <label>Причина массового закрытия<textarea rows={4} value={workflowModal.values.reason} onChange={(event) => updateWorkflowModalValue('reason', event.target.value)} required placeholder="Например: подтверждено по телефону" /></label>
+              </>
             ) : (
               <label>Что было сделано<textarea rows={5} value={workflowModal.values.process} onChange={(event) => updateWorkflowModalValue('process', event.target.value)} required /></label>
             )}
-            <div className="modal-actions"><button type="button" onClick={() => setWorkflowModal(null)}>Отмена</button><button type="submit" disabled={actionBusyId === workflowModal.app.id}>{actionBusyId === workflowModal.app.id ? 'Сохраняем…' : 'Сохранить'}</button></div>
+            <div className="modal-actions"><button type="button" onClick={() => setWorkflowModal(null)}>Отмена</button><button type="submit" disabled={actionBusyId === (workflowModal.app?.id || 'bulk')}>{actionBusyId === (workflowModal.app?.id || 'bulk') ? 'Сохраняем…' : workflowModal.type === 'bulk-close' ? 'Закрыть выбранные' : 'Сохранить'}</button></div>
           </form>
         </div>
       )}
@@ -1390,6 +1391,16 @@ const Dashboard = () => {
       {toast && <div className={`dashboard-toast ${toast.type}`}>{toast.message}</div>}
     </div>
   );
+};
+
+const getStatusDescription = (app = {}) => {
+  const status = app.status || (app.fl ? 'done' : 'new');
+  return ({ new: 'Заявка ожидает назначения исполнителя.', reopened: 'Заявка снова открыта и ожидает действий администратора.', accepted: 'Исполнитель выбран, работа ещё не начата.', in_progress: 'Исполнитель выполняет заявку.', waiting_employee_confirmation: 'Исполнитель завершил работу, ожидается подтверждение сотрудника.', done: 'Заявка закрыта.' })[status] || 'Статус заявки уточняется.';
+};
+
+const getNextAction = (app = {}) => {
+  const status = app.status || (app.fl ? 'done' : 'new');
+  return ({ new: 'Назначьте исполнителя', reopened: 'Назначьте исполнителя', accepted: 'Начните работу', in_progress: 'Зафиксируйте выполненную работу', waiting_employee_confirmation: 'Проверьте результат и подтверждение сотрудника', done: 'Заявка закрыта' })[status] || 'Откройте заявку для проверки';
 };
 
 export default Dashboard;

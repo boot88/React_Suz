@@ -13,7 +13,7 @@ import EmployeeChat from './pages/EmployeeChat';
 import { ApplicationsProvider } from './context/ApplicationsProvider';
 import './App.css';
 import Support from './components/Support';
-import Statistics from './pages/Statistics';
+import Statistics from './pages/StatisticsOverview';
 import { API_BASE_URL } from './utils/apiConfig';
 import { authFetch } from './utils/authFetch';
 
@@ -144,30 +144,33 @@ function Sidebar() {
 
       <div className={`sidebar ${isMobileOpen ? 'open' : ''}`}>
         <div className="sidebar-header">
-          <div className="sidebar-logo"><span className="logo-icon">⚗️</span></div>
+          <div className="sidebar-logo"><span className="logo-mark">Н</span></div>
           <div className="sidebar-title">
             <h2>НИОХ Система</h2>
             <p>Учёт заявок</p>
           </div>
         </div>
 
-        <nav className="sidebar-nav">
+        <nav className="sidebar-nav" aria-label="Основная навигация">
           <ul>
+            <li className="nav-group-title">Работа</li>
             <li className={isActive('/') ? 'nav-item active' : 'nav-item'}>
               <Link to="/" className="nav-link">
-                <span className="nav-icon">📊</span>
+                <span className="nav-icon nav-icon--requests" aria-hidden="true" />
                 <span className="nav-text">Заявки</span>
                 {newRequestsCount > 0 && <span className="nav-badge">{newRequestsCount}</span>}
               </Link>
             </li>
-            <li className={isActive('/add') ? 'nav-item active' : 'nav-item'}><Link to="/add" className="nav-link"><span className="nav-icon">➕</span><span className="nav-text">Новая заявка</span></Link></li>
-            <li className={isActive('/edit/0') ? 'nav-item active' : 'nav-item'}><Link to="/edit/0" className="nav-link"><span className="nav-icon">✏️</span><span className="nav-text">Редактирование</span></Link></li>
-            <li className={isActive('/employee') ? 'nav-item active' : 'nav-item'}><Link to="/employee" className="nav-link"><span className="nav-icon">💬</span><span className="nav-text">Чат</span></Link></li>
-            <li className={isActive('/statistics') ? 'nav-item active' : 'nav-item'}><Link to="/statistics" className="nav-link"><span className="nav-icon">📊</span><span className="nav-text">Статистика</span></Link></li>
-            <li className={isActive('/employee-search') ? 'nav-item active' : 'nav-item'}><Link to="/employee-search" className="nav-link"><span className="nav-icon">👥</span><span className="nav-text">Сотрудники</span></Link></li>
-            <li className={isActive('/register') ? 'nav-item active' : 'nav-item'}><Link to="/register" className="nav-link"><span className="nav-icon">🔐</span><span className="nav-text">Учётные записи</span></Link></li>
-            <li className={isActive('/knowledge-base') ? 'nav-item active' : 'nav-item'}><Link to="/knowledge-base" className="nav-link"><span className="nav-icon">📚</span><span className="nav-text">База Знаний</span></Link></li>
-            <li className={isActive('/network-map') ? 'nav-item active' : 'nav-item'}><Link to="/network-map" className="nav-link"><span className="nav-icon">🌐</span><span className="nav-text">Сетка</span></Link></li>
+            <li className={isActive('/add') ? 'nav-item active' : 'nav-item'}><Link to="/add" className="nav-link"><span className="nav-icon nav-icon--add" aria-hidden="true" /><span className="nav-text">Новая заявка</span></Link></li>
+            <li className={isActive('/employee') ? 'nav-item active' : 'nav-item'}><Link to="/employee" className="nav-link"><span className="nav-icon nav-icon--chat" aria-hidden="true" /><span className="nav-text">Чат</span></Link></li>
+            <li className="nav-group-title">Аналитика</li>
+            <li className={isActive('/statistics') ? 'nav-item active' : 'nav-item'}><Link to="/statistics" className="nav-link"><span className="nav-icon nav-icon--chart" aria-hidden="true" /><span className="nav-text">Статистика</span></Link></li>
+            <li className="nav-group-title">Справочники</li>
+            <li className={isActive('/employee-search') ? 'nav-item active' : 'nav-item'}><Link to="/employee-search" className="nav-link"><span className="nav-icon nav-icon--people" aria-hidden="true" /><span className="nav-text">Сотрудники</span></Link></li>
+            <li className={isActive('/knowledge-base') ? 'nav-item active' : 'nav-item'}><Link to="/knowledge-base" className="nav-link"><span className="nav-icon nav-icon--book" aria-hidden="true" /><span className="nav-text">База знаний</span></Link></li>
+            <li className="nav-group-title">Администрирование</li>
+            <li className={isActive('/register') ? 'nav-item active' : 'nav-item'}><Link to="/register" className="nav-link"><span className="nav-icon nav-icon--account" aria-hidden="true" /><span className="nav-text">Учётные записи</span></Link></li>
+            <li className={isActive('/network-map') ? 'nav-item active' : 'nav-item'}><Link to="/network-map" className="nav-link"><span className="nav-icon nav-icon--network" aria-hidden="true" /><span className="nav-text">Сетка</span></Link></li>
           </ul>
         </nav>
 
