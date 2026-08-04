@@ -2,8 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import './EditApplicationsTable.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
+import { useAuth } from '../context/AuthContext';
 
 function EditApplicationsTable() {
+  const { isLoading: authLoading } = useAuth();
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -23,7 +25,8 @@ function EditApplicationsTable() {
     return new Date(localDate.getTime() + timezoneOffset * 60000);
   };
 
-  const fetchApplications = useCallback(async () => {
+  const fetchApplications = useCallback(async (attempt = 0) => {
+    if (authLoading) return;
     setLoading(true);
     setError(null);
     try {
@@ -42,15 +45,19 @@ function EditApplicationsTable() {
       setTotalItems(data.total ?? data.stats?.total ?? 0);
       setLoading(false);
     } catch (err) {
+      if (attempt < 2) {
+        window.setTimeout(() => fetchApplications(attempt + 1), 400 * (attempt + 1));
+        return;
+      }
       console.error('Ошибка загрузки:', err.message);
       setError('Не удалось загрузить данные. Проверьте подключение к серверу.');
       setLoading(false);
     }
-  }, [currentPage, itemsPerPage, statusFilter]);
+  }, [authLoading, currentPage, itemsPerPage, statusFilter]);
 
   useEffect(() => {
-    fetchApplications();
-  }, [fetchApplications]);
+    if (!authLoading) fetchApplications();
+  }, [authLoading, fetchApplications]);
 
   const validateField = (name, value) => {
     let error = '';
