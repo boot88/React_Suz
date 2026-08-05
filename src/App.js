@@ -9,6 +9,7 @@ import Register from './pages/Register';
 import EmployeeSearch from './pages/EmployeeSearch';
 import KnowledgeBase from './pages/KnowledgeBase';
 import NetworkMap from './pages/NetworkMap';
+import AdminSettings from './pages/AdminSettings';
 import EmployeeChat from './pages/EmployeeChat';
 import { ApplicationsProvider } from './context/ApplicationsProvider';
 import './App.css';
@@ -51,6 +52,7 @@ function App() {
               <Route path="/employee-search" element={<AdminRoute><EmployeeSearch /></AdminRoute>} />
               <Route path="/knowledge-base" element={<AdminRoute><KnowledgeBase /></AdminRoute>} />
               <Route path="/network-map" element={<AdminRoute><NetworkMap /></AdminRoute>} />
+              <Route path="/settings" element={<AdminRoute><AdminSettings /></AdminRoute>} />
               <Route path="/statistics" element={<AdminRoute><Statistics /></AdminRoute>} />
 
               <Route path="/support" element={<Support />} />
@@ -165,7 +167,7 @@ function Sidebar() {
             <li className={isActive('/employee') ? 'nav-item active' : 'nav-item'}><Link to="/employee" className="nav-link"><span className="nav-icon nav-icon--chat" aria-hidden="true" /><span className="nav-text">Чат</span></Link></li>
             <li className="nav-group-title">Аналитика</li>
             <li className={isActive('/statistics') ? 'nav-item active' : 'nav-item'}><Link to="/statistics" className="nav-link"><span className="nav-icon nav-icon--chart" aria-hidden="true" /><span className="nav-text">Статистика</span></Link></li>
-            <li className="nav-group-title">Настройки</li>
+            <li className={isActive('/settings') ? 'nav-item active' : 'nav-item'}><Link to="/settings" className="nav-link"><span className="nav-icon nav-icon--account" aria-hidden="true" /><span className="nav-text">Настройки</span></Link></li>
             <li className={isActive('/employee-search') ? 'nav-item active' : 'nav-item'}><Link to="/employee-search" className="nav-link"><span className="nav-icon nav-icon--people" aria-hidden="true" /><span className="nav-text">Справочник сотрудников</span></Link></li>
             <li className={isActive('/register') ? 'nav-item active' : 'nav-item'}><Link to="/register" className="nav-link"><span className="nav-icon nav-icon--account" aria-hidden="true" /><span className="nav-text">Управление доступом</span></Link></li>
             <li className={isActive('/knowledge-base') ? 'nav-item active' : 'nav-item'}><Link to="/knowledge-base" className="nav-link"><span className="nav-icon nav-icon--book" aria-hidden="true" /><span className="nav-text">База знаний</span></Link></li>

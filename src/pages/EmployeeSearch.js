@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { searchEmployees, getDepartments, syncEmployees } from '../services/employeeService';
+import { searchEmployees, getDepartments } from '../services/employeeService';
 import './EmployeeSearch.css'; // Импортируем CSS файл
 
 const EmployeeSearch = () => {
@@ -9,7 +9,6 @@ const EmployeeSearch = () => {
   const [results, setResults] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [syncLoading, setSyncLoading] = useState(false);
   const [error, setError] = useState('');
   const [syncMessage, setSyncMessage] = useState('');
   const [syncChanges, setSyncChanges] = useState(null);
@@ -74,28 +73,6 @@ const EmployeeSearch = () => {
     setSyncChanges(null);
   };
 
-  const handleSync = async () => {
-    if (!window.confirm('Обновить справочник сотрудников? Операция изменит актуальные записи.')) return;
-    setSyncLoading(true);
-    setError('');
-    setSyncMessage('');
-    setSyncChanges(null);
-
-    try {
-      const data = await syncEmployees();
-      const loadedPages = Array.isArray(data.pages) ? data.pages.length : 0;
-      setSyncMessage(
-        `Справочник обновлён: найдено ${data.parsed}, страниц обработано ${loadedPages}/${data.expectedPages || loadedPages} (последний start=${data.lastStart ?? '—'}), добавлено ${data.inserted}, обновлено ${data.updated}, скрыто ${data.deactivated} ранее активных записей, которых нет в текущем источнике.`
-      );
-      setSyncChanges(data.changes || null);
-      await loadDepartments();
-    } catch (err) {
-      setError(err.message || 'Ошибка при обновлении справочника сотрудников');
-      console.error('Sync error:', err);
-    } finally {
-      setSyncLoading(false);
-    }
-  };
 
 
   const renderEmployeeCells = (employee = {}) => (
@@ -210,14 +187,6 @@ const EmployeeSearch = () => {
               🗑️ Очистить
             </button>
 
-            <button
-              type="button"
-              onClick={handleSync}
-              disabled={syncLoading}
-              className="sync-button"
-            >
-              {syncLoading ? '⏳ Обновляем...' : '🔄 Обновить справочник'}
-            </button>
           </div>
         </div>
       </form>

@@ -115,7 +115,8 @@ const NetworkMap = () => {
   };
 
   useEffect(() => {
-    fetchNetworkMap({ silent: true });
+    const cached = sessionStorage.getItem('network-map-cache');
+    if (cached) { const data = JSON.parse(cached); setNetworkZoneText(data.zoneText || ''); setNetworkUpdatedAt(data.fetchedAt || ''); }
   }, []);
 
   const networkGroups = useMemo(() => parseNetworkZone(networkZoneText), [networkZoneText]);
@@ -154,9 +155,6 @@ const NetworkMap = () => {
           <span className="network-eyebrow">Сетка / маска сети</span>
           <h1>Свободные и занятые IP-адреса</h1>
         </div>
-        <button type="button" className="network-refresh-btn" onClick={() => { if (window.confirm('Обновить данные IP-сетки?')) fetchNetworkMap({ silent: false }); }} disabled={networkLoading}>
-          {networkLoading ? 'Обновляем...' : 'Обновить сетку'}
-        </button>
       </div>
 
       <div className="network-resource-link">

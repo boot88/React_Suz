@@ -146,8 +146,9 @@ const Register = () => {
         <main className="register-content">
           <div className="register-card">
             <div className="register-header">
-              <h2>Employee registration</h2>
-              <p className="register-subtitle">Fill in employee data to create an account</p>
+              <span className="register-eyebrow">Управление доступом</span>
+              <h2>Новая учётная запись</h2>
+              <p className="register-subtitle">Создайте доступ сотрудника. Данные справочника можно выбрать из подсказок.</p>
             </div>
 
             <form onSubmit={handleRegister} className="register-form">
