@@ -91,7 +91,6 @@ const Login = ({ mode = 'employee' }) => {
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [showAllSuggestions, setShowAllSuggestions] = useState(false);
   const [selectedLogin, setSelectedLogin] = useState('');
-  const defaultLoginAppliedRef = useRef(false);
   const loginFieldRef = useRef(null);
 
 
@@ -114,12 +113,6 @@ const Login = ({ mode = 'employee' }) => {
         const suggestions = Array.isArray(data?.suggestions) ? data.suggestions : [];
         setAllLoginSuggestions(suggestions);
         setSuggestionsError('');
-
-        if (!defaultLoginAppliedRef.current && suggestions[0]?.login) {
-          defaultLoginAppliedRef.current = true;
-          setSelectedLogin(suggestions[0].login || '');
-          setFormData((prev) => prev.username ? prev : { ...prev, username: formatSuggestionName(suggestions[0].display_name || suggestions[0].full_name || suggestions[0].login) });
-        }
       } catch {
         if (!isCancelled) {
           setAllLoginSuggestions([]);
@@ -128,7 +121,10 @@ const Login = ({ mode = 'employee' }) => {
       }
     };
 
-    defaultLoginAppliedRef.current = false;
+    // The account must always be chosen explicitly. In particular, switching
+    // between /login and /admin must not leave a person from the other directory selected.
+    setSelectedLogin('');
+    setFormData((prev) => ({ ...prev, username: '' }));
     setAllLoginSuggestions([]);
     setLoginSuggestions([]);
     setSuggestionsError('');
