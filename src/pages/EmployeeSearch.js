@@ -75,6 +75,7 @@ const EmployeeSearch = () => {
   };
 
   const handleSync = async () => {
+    if (!window.confirm('Обновить справочник сотрудников? Операция изменит актуальные записи.')) return;
     setSyncLoading(true);
     setError('');
     setSyncMessage('');

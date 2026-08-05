@@ -165,12 +165,11 @@ function Sidebar() {
             <li className={isActive('/employee') ? 'nav-item active' : 'nav-item'}><Link to="/employee" className="nav-link"><span className="nav-icon nav-icon--chat" aria-hidden="true" /><span className="nav-text">Чат</span></Link></li>
             <li className="nav-group-title">Аналитика</li>
             <li className={isActive('/statistics') ? 'nav-item active' : 'nav-item'}><Link to="/statistics" className="nav-link"><span className="nav-icon nav-icon--chart" aria-hidden="true" /><span className="nav-text">Статистика</span></Link></li>
-            <li className="nav-group-title">Справочники</li>
-            <li className={isActive('/employee-search') ? 'nav-item active' : 'nav-item'}><Link to="/employee-search" className="nav-link"><span className="nav-icon nav-icon--people" aria-hidden="true" /><span className="nav-text">Сотрудники</span></Link></li>
+            <li className="nav-group-title">Настройки</li>
+            <li className={isActive('/employee-search') ? 'nav-item active' : 'nav-item'}><Link to="/employee-search" className="nav-link"><span className="nav-icon nav-icon--people" aria-hidden="true" /><span className="nav-text">Справочник сотрудников</span></Link></li>
+            <li className={isActive('/register') ? 'nav-item active' : 'nav-item'}><Link to="/register" className="nav-link"><span className="nav-icon nav-icon--account" aria-hidden="true" /><span className="nav-text">Управление доступом</span></Link></li>
             <li className={isActive('/knowledge-base') ? 'nav-item active' : 'nav-item'}><Link to="/knowledge-base" className="nav-link"><span className="nav-icon nav-icon--book" aria-hidden="true" /><span className="nav-text">База знаний</span></Link></li>
-            <li className="nav-group-title">Администрирование</li>
-            <li className={isActive('/register') ? 'nav-item active' : 'nav-item'}><Link to="/register" className="nav-link"><span className="nav-icon nav-icon--account" aria-hidden="true" /><span className="nav-text">Учётные записи</span></Link></li>
-            <li className={isActive('/network-map') ? 'nav-item active' : 'nav-item'}><Link to="/network-map" className="nav-link"><span className="nav-icon nav-icon--network" aria-hidden="true" /><span className="nav-text">Сетка</span></Link></li>
+            <li className={isActive('/network-map') ? 'nav-item active' : 'nav-item'}><Link to="/network-map" className="nav-link"><span className="nav-icon nav-icon--network" aria-hidden="true" /><span className="nav-text">Диагностика сети</span></Link></li>
           </ul>
         </nav>
 

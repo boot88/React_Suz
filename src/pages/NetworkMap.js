@@ -154,7 +154,7 @@ const NetworkMap = () => {
           <span className="network-eyebrow">Сетка / маска сети</span>
           <h1>Свободные и занятые IP-адреса</h1>
         </div>
-        <button type="button" className="network-refresh-btn" onClick={() => fetchNetworkMap({ silent: false })} disabled={networkLoading}>
+        <button type="button" className="network-refresh-btn" onClick={() => { if (window.confirm('Обновить данные IP-сетки?')) fetchNetworkMap({ silent: false }); }} disabled={networkLoading}>
           {networkLoading ? 'Обновляем...' : 'Обновить сетку'}
         </button>
       </div>

@@ -51,7 +51,7 @@ const DASHBOARD_COLUMNS = [
   { id: 'employee', label: 'Сотрудник' },
   { id: 'request', label: 'Заявка' },
   { id: 'executor', label: 'Исполнитель' },
-  { id: 'created', label: 'Создана' },
+  { id: 'created', label: 'Дата' },
   { id: 'sla', label: 'SLA' },
   { id: 'status', label: 'Статус' }
 ];
@@ -1135,7 +1135,7 @@ const getSlaBadge = (app = {}) => {
                     {isColumnVisible('employee') && <th>Сотрудник</th>}
                     {isColumnVisible('request') && <th>Заявка</th>}
                     {isColumnVisible('executor') && <th>Исполнитель</th>}
-                    {isColumnVisible('created') && <th>Создана</th>}
+                    {isColumnVisible('created') && <th>Дата</th>}
                     {isColumnVisible('sla') && <th>SLA</th>}
                     {isColumnVisible('status') && <th>Статус</th>}
                     {isColumnVisible('actions') && <th>Действия</th>}
@@ -1214,8 +1214,7 @@ const getSlaBadge = (app = {}) => {
                         </td>}
 
                         {isColumnVisible('created') && <td className="cell-date cell-created">
-                          <strong>{formatCreatedAt(app.created_at || app.data)}</strong>
-                          <span>{formatTimeRange(app)}</span>
+                          <strong>{new Date(app.created_at || app.data).toLocaleDateString('ru-RU')}</strong>
                         </td>}
                         {isColumnVisible('sla') && <td className="cell-sla">
                           {(() => {
@@ -1310,16 +1309,18 @@ const getSlaBadge = (app = {}) => {
             <h3>Описание</h3>
             <p>{selectedApplication.application}</p>
           </div>
-          <div className="side-panel-grid">
+          <div className="side-panel-section"><h3>Хронология</h3><div className="side-panel-grid">
             <div><strong>Категория</strong><span>{selectedApplication.category || '—'}</span></div>
             <div><strong>Приоритет</strong><span>{selectedApplication.priority || 'Обычный'}</span></div>
             <div><strong>Источник</strong><span>{selectedApplication.source || 'admin'}</span></div>
             <div><strong>Исполнитель</strong><span>{selectedApplication.executor || 'Не назначен'}</span></div>
             <div><strong>Создана</strong><span>{formatCreatedAt(selectedApplication.created_at || selectedApplication.data)}</span></div>
-            <div><strong>Рабочий интервал</strong><span>{formatTimeRange(selectedApplication)}</span></div>
+            {selectedApplication.accepted_at && <div><strong>Назначена</strong><span>{formatCreatedAt(selectedApplication.accepted_at)}</span></div>}
+            {selectedApplication.work_started_at && <div><strong>Взята в работу</strong><span>{formatCreatedAt(selectedApplication.work_started_at)}</span></div>}
+            {(selectedApplication.completed_at || selectedApplication.done_at) && <div><strong>Завершена</strong><span>{formatCreatedAt(selectedApplication.completed_at || selectedApplication.done_at)}</span></div>}
             {getWaitingSeconds(selectedApplication) != null && <div><strong>Ожидание</strong><span>{formatDuration(getWaitingSeconds(selectedApplication))}</span></div>}
             {!(selectedApplication.fl || selectedApplication.status === 'done') && <div><strong>Работа</strong><span>{formatDuration(getDisplayWorkSeconds(selectedApplication))}</span></div>}
-          </div>
+          </div></div>
           {selectedApplication.admin_comment && (
             <div className="side-panel-section">
               <h3>Комментарий администратора</h3>
