@@ -174,6 +174,7 @@ const Dashboard = () => {
   const [sortMode, setSortMode] = useState('sla');
   const [visibleColumns, setVisibleColumns] = useState(readVisibleColumns);
   const [compactMode, setCompactMode] = useState(() => localStorage.getItem(DASHBOARD_COMPACT_KEY) === 'true');
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('dashboard.viewMode') || 'table');
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
   const [bulkExecutor, setBulkExecutor] = useState('');
@@ -588,7 +589,7 @@ const Dashboard = () => {
 
   const formatTime = (dateString) => {
     if (!dateString) return '—';
-    return new Date(dateString).toLocaleTimeString('ru-RU', {
+    return new Date(dateString).toLocaleTimeString('ru-RU', { timeZone: 'UTC',
       hour: '2-digit',
       minute: '2-digit'
     });
@@ -606,9 +607,10 @@ const Dashboard = () => {
       month: '2-digit',
       year: '2-digit'
     };
-    if (isDateOnlyValue(dateString) || isMidnightValue(date)) return date.toLocaleDateString('ru-RU', dateFormat);
+    if (isDateOnlyValue(dateString) || isMidnightValue(date)) return date.toLocaleDateString('ru-RU', { ...dateFormat, timeZone: 'UTC' });
     return date.toLocaleString('ru-RU', {
       ...dateFormat,
+      timeZone: 'UTC',
       hour: '2-digit',
       minute: '2-digit'
     });
@@ -1074,6 +1076,7 @@ const getSlaBadge = (app = {}) => {
               <p>Поиск работает по заявке, кабинету, сотруднику, телефону и исполнителю.</p>
             </div>
             <div className="table-tools">
+              <div className="view-switch" role="group" aria-label="Вид заявок"><button type="button" className={viewMode === 'table' ? 'active' : ''} onClick={() => { setViewMode('table'); localStorage.setItem('dashboard.viewMode', 'table'); }}>Таблица</button><button type="button" className={viewMode === 'timeline' ? 'active' : ''} onClick={() => { setViewMode('timeline'); localStorage.setItem('dashboard.viewMode', 'timeline'); }}>По времени</button></div>
               <label className="page-size-control">
                 <span>Сортировка</span>
                 <select
@@ -1127,7 +1130,7 @@ const getSlaBadge = (app = {}) => {
                 )}
               </div>
             )}
-            <div className="table-responsive">
+            {viewMode === 'timeline' ? <div className="request-timeline">{Object.entries(displayedApplications.reduce((groups, app) => { const key = new Date(app.created_at || app.data).toLocaleDateString('ru-RU', { timeZone: 'UTC' }); (groups[key] ||= []).push(app); return groups; }, {})).map(([date, apps]) => <section className="timeline-day" key={date}><h4>{date}</h4><div className="timeline-row">{apps.sort((a, b) => new Date(a.created_at || a.data) - new Date(b.created_at || b.data)).map(app => <button type="button" className="timeline-request" key={app.id} onClick={() => openApplicationPanel(app)}><small>#{app.id} · {formatTime(app.created_at || app.data)}</small><strong>{app.application || 'Без описания'}</strong><span>{getCategoryLabel(app.category)} · {getPriorityLabel(app.priority)} · {getApplicationSourceLabel(app)}</span></button>)}</div></section>)}</div> : <div className="table-responsive">
               <table className={`applications-table ${compactMode ? 'applications-table-compact' : ''}`}>
                 <thead>
                   <tr>
@@ -1279,7 +1282,7 @@ const getSlaBadge = (app = {}) => {
                   )}
                 </tbody>
               </table>
-            </div>
+            </div>}
           </div>
 
           {/* Пагинация */}
