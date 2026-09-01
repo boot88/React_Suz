@@ -75,7 +75,7 @@
 
 .network-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 180px;
+  grid-template-columns: minmax(220px, 1fr) 180px auto;
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -86,6 +86,26 @@
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   font-size: 14px;
+}
+
+.network-refresh-button {
+  padding: 10px 16px;
+  border: 1px solid #2563eb;
+  border-radius: 6px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.network-refresh-button:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.network-refresh-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .network-summary-grid {

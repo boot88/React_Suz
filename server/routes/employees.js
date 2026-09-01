@@ -359,9 +359,6 @@ const ensurePhoneBookData = async () => {
 
 // Поиск сотрудников
 router.get('/search', async (req, res) => {
-  console.log('Поиск сотрудников вызван:', new Date().toISOString());
-  console.log('Параметры:', req.query);
-
   try {
     await ensurePhoneBookSchema();
 
@@ -379,7 +376,6 @@ router.get('/search', async (req, res) => {
     const sql = `SELECT * FROM phone_book WHERE is_active = 1 AND ${field} LIKE ? ORDER BY full_name`;
     const [results] = await pool.execute(sql, [`%${query}%`]);
 
-    console.log('Найдено записей в БД:', results.length);
     res.json(results);
   } catch (error) {
     console.error('Search error:', error);

@@ -32,4 +32,18 @@ describe('authenticated API requests', () => {
     expect(withAccessToken('/api/chat/files/file-1/download'))
       .toBe('/api/chat/files/file-1/download?access_token=signed-token');
   });
+
+  test('prefers a short-lived media token for file URLs when cached', () => {
+    localStorage.setItem('authState', JSON.stringify({
+      user: { accessToken: 'signed-token' }
+    }));
+
+    // Кэш media-токенов изолирован от тестов: сначала убеждаемся, что fallback
+    // работает, а затем заполняем кэш и проверяем ветку с ?mt=.
+    const { storeMediaToken } = require('./mediaTokenCache');
+    storeMediaToken('file-1', 'media-token-1', Date.now() + 600000);
+
+    expect(withAccessToken('/api/chat/files/file-1/download'))
+      .toBe('/api/chat/files/file-1/download?mt=media-token-1');
+  });
 });

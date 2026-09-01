@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import './NetworkMap.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
@@ -95,7 +95,7 @@ const NetworkMap = () => {
   const [networkSearch, setNetworkSearch] = useState('');
   const [networkFilter, setNetworkFilter] = useState('all');
 
-  const fetchNetworkMap = async ({ silent = false } = {}) => {
+  const fetchNetworkMap = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setNetworkLoading(true);
     setNetworkError('');
 
@@ -106,18 +106,31 @@ const NetworkMap = () => {
 
       setNetworkZoneText(data.zoneText || '');
       setNetworkUpdatedAt(data.fetchedAt || new Date().toISOString());
+      sessionStorage.setItem('network-map-cache', JSON.stringify({
+        zoneText: data.zoneText || '',
+        fetchedAt: data.fetchedAt || new Date().toISOString()
+      }));
     } catch (err) {
       console.error('Ошибка загрузки сетки:', err);
       setNetworkError(err.message || 'Не удалось загрузить сетку');
     } finally {
       if (!silent) setNetworkLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     const cached = sessionStorage.getItem('network-map-cache');
-    if (cached) { const data = JSON.parse(cached); setNetworkZoneText(data.zoneText || ''); setNetworkUpdatedAt(data.fetchedAt || ''); }
-  }, []);
+    if (cached) {
+      try {
+        const data = JSON.parse(cached);
+        setNetworkZoneText(data.zoneText || '');
+        setNetworkUpdatedAt(data.fetchedAt || '');
+      } catch {
+        // Кэш повреждён — игнорируем и загружаем свежие данные
+      }
+    }
+    fetchNetworkMap();
+  }, [fetchNetworkMap]);
 
   const networkGroups = useMemo(() => parseNetworkZone(networkZoneText), [networkZoneText]);
 
@@ -174,6 +187,14 @@ const NetworkMap = () => {
           <option value="free">Только свободные</option>
           <option value="occupied">Только занятые</option>
         </select>
+        <button
+          type="button"
+          className="network-refresh-button"
+          onClick={() => fetchNetworkMap()}
+          disabled={networkLoading}
+        >
+          {networkLoading ? 'Обновление…' : '⟳ Обновить'}
+        </button>
       </div>
 
       <div className="network-summary-grid">

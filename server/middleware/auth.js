@@ -1,4 +1,4 @@
-const { verifyAccessToken } = require('../utils/accessToken');
+const { verifyAccessToken, verifyMediaToken } = require('../utils/accessToken');
 
 const normalizeLogin = (value = '') => String(value || '').trim().toLowerCase();
 const normalizeRole = (value = '') => String(value || 'employee').trim().toLowerCase();
@@ -12,6 +12,32 @@ const getRequestToken = (req, { allowQuery = false } = {}) => (
   getBearerToken(req)
   || (allowQuery ? String(req.query?.access_token || '').trim() : '')
 );
+
+// Аутентификация по полному токену в query (SSE-потоки) либо по
+// короткоживущему media-токену (скачивание файлов). Media-токен не даёт
+// identity для API-вызовов, только доступ к одному файлу, поэтому в этом
+// случае мы не заполняем req.auth — доступ проверяется в самом маршруте.
+const authenticateAllowQueryOrMedia = () => (req, res, next) => {
+  const mediaToken = String(req.query?.mt || '').trim();
+  const identity = verifyAccessToken(getRequestToken(req, { allowQuery: true }));
+  if (identity) {
+    req.auth = {
+      login: normalizeLogin(identity.login),
+      role: normalizeRole(identity.role),
+      expiresAt: identity.expiresAt
+    };
+    req.user = req.auth;
+    return next();
+  }
+  if (mediaToken) {
+    const mediaIdentity = verifyMediaToken(mediaToken);
+    if (mediaIdentity) {
+      req.mediaAuth = mediaIdentity;
+      return next();
+    }
+  }
+  return res.status(401).json({ message: 'Требуется действующий токен авторизации' });
+};
 
 const authenticate = ({ allowQuery = false } = {}) => (req, res, next) => {
   const identity = verifyAccessToken(getRequestToken(req, { allowQuery }));
@@ -30,6 +56,7 @@ const authenticate = ({ allowQuery = false } = {}) => (req, res, next) => {
 
 const requireAuth = authenticate();
 const requireAuthAllowQuery = authenticate({ allowQuery: true });
+const requireAuthAllowQueryOrMedia = authenticateAllowQueryOrMedia();
 
 const requireRole = (...allowedRoles) => {
   const allowed = new Set(allowedRoles.flat().map(normalizeRole).filter(Boolean));
@@ -67,6 +94,7 @@ module.exports = {
   getRequestToken,
   requireAuth,
   requireAuthAllowQuery,
+  requireAuthAllowQueryOrMedia,
   requireRole,
   requireSelfOrRole,
   hasRole,

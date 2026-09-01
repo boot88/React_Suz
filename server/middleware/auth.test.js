@@ -1,9 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createAccessToken } = require('../utils/accessToken');
+const { createAccessToken, createMediaToken } = require('../utils/accessToken');
 const {
   requireAuth,
   requireAuthAllowQuery,
+  requireAuthAllowQueryOrMedia,
   requireRole,
   requireSelfOrRole
 } = require('./auth');
@@ -54,6 +55,31 @@ test('allows query tokens only for streams and protected media', () => {
 
   assert.equal(standard.res.statusCode, 401);
   assert.equal(stream.nextCalled, true);
+});
+
+test('allows a short-lived media token for file downloads', () => {
+  const mediaToken = createMediaToken({ fileId: 'file_123', scope: 'chat' });
+
+  const viaMedia = runMiddleware(requireAuthAllowQueryOrMedia, {
+    headers: {},
+    query: { mt: mediaToken }
+  });
+  assert.equal(viaMedia.nextCalled, true);
+  assert.equal(viaMedia.req.mediaAuth.fileId, 'file_123');
+
+  // Без токена — 401.
+  const without = runMiddleware(requireAuthAllowQueryOrMedia, {
+    headers: {},
+    query: {}
+  });
+  assert.equal(without.res.statusCode, 401);
+
+  // Media-токен не даёт identity для обычных API-вызовов.
+  const identity = runMiddleware(requireAuthAllowQueryOrMedia, {
+    headers: {},
+    query: { mt: mediaToken }
+  });
+  assert.equal(identity.req.auth, undefined);
 });
 
 test('enforces roles and self ownership', () => {

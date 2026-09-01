@@ -31,3 +31,11 @@ yarn-error.log*
 /server/uploads
 /server/data/backups
 /server/data/*.tmp
+/server/data/chatThreads.json
+/server/data/employeeFeed.json
+/server/data/presence.json
+/server/data/profiles.json
+/server/data/managerNotifications.json
+
+# Exported reports
+/все_заявки_*.xlsx

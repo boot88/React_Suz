@@ -21,7 +21,13 @@ test('stores new passwords with salted bcrypt hashes', async () => {
 test('accepts legacy hashes only so login can upgrade them', async () => {
   const sha256 = hashLegacySha256('legacy-password');
   assert.equal(await verifyPassword('legacy-password', sha256), true);
-  assert.equal(await verifyPassword('legacy-password', 'legacy-password'), true);
   assert.equal(passwordNeedsUpgrade(sha256), true);
   assert.equal(passwordNeedsUpgrade('legacy-password'), true);
+});
+
+test('never compares plaintext passwords from unknown storage formats', async () => {
+  // Раньше неизвестный формат сравнивался с открытым паролем. Теперь такие
+  // записи считаются невалидными — пользователь должен сбросить пароль.
+  assert.equal(await verifyPassword('legacy-password', 'legacy-password'), false);
+  assert.equal(await verifyPassword('anything', ''), false);
 });

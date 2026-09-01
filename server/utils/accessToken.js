@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+const MEDIA_TOKEN_TTL_MS = 10 * 60 * 1000;
 const DEVELOPMENT_SECRET = crypto.randomBytes(32).toString('hex');
 
 const getSecret = () => {
@@ -30,6 +31,48 @@ const createAccessToken = ({ login, role = 'employee' } = {}) => {
   return `${payload}.${sign(payload)}`;
 };
 
+// Короткоживущий подписанный токен для скачивания конкретного файла.
+// Позволяет не помещать полный access_token в query-строку (история браузера,
+// рефереры, логи). Токен действителен MEDIA_TOKEN_TTL_MS (10 минут) и привязан
+// к одному fileId, поэтому его нельзя использовать для доступа к другим файлам.
+const createMediaToken = ({ fileId = '', scope = '' } = {}) => {
+  const normalizedFileId = String(fileId || '').trim();
+  if (!normalizedFileId) throw new Error('fileId is required for a media token');
+  const now = Date.now();
+  const payload = encode({
+    kind: 'media',
+    fileId: normalizedFileId,
+    scope: String(scope || '').trim(),
+    issuedAt: now,
+    expiresAt: now + MEDIA_TOKEN_TTL_MS
+  });
+  return `${payload}.${sign(payload)}`;
+};
+
+const verifyMediaToken = (token = '') => {
+  const [payload, signature] = String(token || '').split('.');
+  if (!payload || !signature) return null;
+  const expected = sign(payload);
+  const actualBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (
+    actualBuffer.length !== expectedBuffer.length
+    || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)
+  ) return null;
+
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (parsed?.kind !== 'media' || !parsed?.fileId || Number(parsed.expiresAt || 0) <= Date.now()) return null;
+    return {
+      fileId: String(parsed.fileId),
+      scope: String(parsed.scope || ''),
+      expiresAt: Number(parsed.expiresAt)
+    };
+  } catch {
+    return null;
+  }
+};
+
 const verifyAccessToken = (token = '') => {
   const [payload, signature] = String(token || '').split('.');
   if (!payload || !signature) return null;
@@ -56,5 +99,8 @@ const verifyAccessToken = (token = '') => {
 
 module.exports = {
   createAccessToken,
-  verifyAccessToken
+  verifyAccessToken,
+  createMediaToken,
+  verifyMediaToken,
+  MEDIA_TOKEN_TTL_MS
 };

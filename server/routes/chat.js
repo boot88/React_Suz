@@ -7,6 +7,10 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 const db = require('../config/database');
 const {
+  createMediaToken,
+  MEDIA_TOKEN_TTL_MS
+} = require('../utils/accessToken');
+const {
   buildFeedCommentPreviewsQuery,
   buildFeedCommentsPageQuery,
   buildFeedPostsPageQuery,
@@ -24,6 +28,7 @@ const {
 const {
   requireAuth,
   requireAuthAllowQuery,
+  requireAuthAllowQueryOrMedia,
   requireRole,
   hasRole,
   isSameLogin
@@ -38,7 +43,11 @@ router.use((req, res, next) => {
       || /^\/files\/[^/]+\/download$/.test(req.path)
     )
   );
-  return (queryTokenAllowed ? requireAuthAllowQuery : requireAuth)(req, res, next);
+  // Для скачивания файлов разрешаем короткоживущий media-токен (?mt=),
+  // чтобы полный access_token не попадал в URL.
+  const isFileDownload = req.method === 'GET' && /^\/files\/[^/]+\/download$/.test(req.path);
+  const middleware = isFileDownload ? requireAuthAllowQueryOrMedia : (queryTokenAllowed ? requireAuthAllowQuery : requireAuth);
+  return middleware(req, res, next);
 });
 
 const dataDir = path.join(__dirname, '..', 'data');
@@ -1678,7 +1687,28 @@ router.get('/files/:fileId/download', async (req, res) => {
   try {
     const fileId = decodeURIComponent(req.params.fileId || '').trim();
     if (!fileId) return res.status(400).json({ message: 'fileId обязателен' });
-    const file = await ensureFileDownloadAccess(req, fileId);
+
+    let file;
+    if (req.mediaAuth) {
+      // Короткоживущий media-токен: привязан к конкретному fileId.
+      if (req.mediaAuth.fileId !== fileId) {
+        return res.status(403).json({ message: 'Нет прав на скачивание файла' });
+      }
+      file = await readSqlFileMetadata(fileId);
+      if (!file || file.deleted_at) {
+        const error = new Error('Файл не найден');
+        error.status = 404;
+        throw error;
+      }
+      if (file.is_verified === 0 || file.is_verified === false) {
+        const error = new Error('Файл не прошёл проверку безопасности');
+        error.status = 403;
+        throw error;
+      }
+    } else {
+      file = await ensureFileDownloadAccess(req, fileId);
+    }
+
     const variant = req.query?.variant === 'thumbnail' ? 'thumbnail' : '';
     const download = resolveStoredDownload(file, variant);
     if (!download) return res.status(404).json({ message: 'Файл не найден' });
@@ -1704,6 +1734,30 @@ router.get('/files/:fileId/download', async (req, res) => {
       return;
     }
     res.status(error.status || 500).json({ message: error.message || 'Не удалось скачать файл' });
+  }
+});
+
+// Выдача короткоживущего media-токена для скачивания конкретного файла.
+// Позволяет клиенту использовать ?mt= вместо ?access_token= в URL файла.
+router.post('/files/:fileId/media-token', async (req, res) => {
+  try {
+    const fileId = decodeURIComponent(req.params.fileId || '').trim();
+    if (!fileId) return res.status(400).json({ message: 'fileId обязателен' });
+
+    // Проверяем, что пользователь имеет право на скачивание файла.
+    await ensureFileDownloadAccess(req, fileId);
+
+    const scope = req.body?.scope === 'feed' ? 'feed' : 'chat';
+    const token = createMediaToken({ fileId, scope });
+    res.json({
+      fileId,
+      token,
+      expiresInMs: MEDIA_TOKEN_TTL_MS,
+      expiresAt: new Date(Date.now() + MEDIA_TOKEN_TTL_MS).toISOString()
+    });
+  } catch (error) {
+    console.error('Chat POST /files/media-token error:', error.message);
+    res.status(error.status || 500).json({ message: error.message || 'Не удалось выдать токен для файла' });
   }
 });
 

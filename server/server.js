@@ -1,6 +1,7 @@
 // server/server.js
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const path = require('path');
 const employeeRoutes = require('./routes/employees');
 const authRoutes = require('./routes/auth');
@@ -25,7 +26,26 @@ if (process.env.NODE_ENV === 'production') {
   app.set('trust proxy', 1);
 }
 
-app.options('*', cors());
+app.use(helmet({
+  contentSecurityPolicy: process.env.DISABLE_CSP === '1'
+    ? false
+    : {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", 'data:', 'blob:'],
+          mediaSrc: ["'self'", 'data:', 'blob:'],
+          connectSrc: ["'self'"],
+          fontSrc: ["'self'", 'data:'],
+          objectSrc: ["'none'"],
+          frameAncestors: ["'self'"],
+          baseUri: ["'self'"]
+        }
+      },
+  crossOriginEmbedderPolicy: false,
+  referrerPolicy: { policy: 'no-referrer' }
+}));
 
 // Middleware
 const isAllowedCorsOrigin = (origin) => {
@@ -57,13 +77,15 @@ app.use(cors({
   credentials: true,
   exposedHeaders: ['Content-Type', 'Authorization']
 }));
-app.use(express.json({ limit: '150mb' })); // Увеличиваем лимит для изображений и видео-вложений
-app.use(express.urlencoded({ extended: true, limit: '150mb' }));
+app.use(express.json({ limit: '25mb' })); // Лимит для JSON-base64 изображений базы знаний
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 app.use('/api/employees', requireAuth, employeeRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
 
-// Функция для преобразования дат в правильный формат MySQL
+// Функция для преобразования дат в правильный формат MySQL.
+// Пул MySQL настроен на timezone 'Z' (UTC), поэтому используем UTC-компоненты даты,
+// иначе на серверах с ненулевым смещением даты будут сдвинуты на разницу поясов.
 const formatDateForMySQL = (dateString) => {
   if (!dateString) return null;
   
@@ -71,12 +93,12 @@ const formatDateForMySQL = (dateString) => {
     const date = new Date(dateString);
     if (isNaN(date.getTime())) return null;
     
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    const seconds = String(date.getSeconds()).padStart(2, '0');
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    const hours = String(date.getUTCHours()).padStart(2, '0');
+    const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+    const seconds = String(date.getUTCSeconds()).padStart(2, '0');
     
     return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
   } catch (error) {

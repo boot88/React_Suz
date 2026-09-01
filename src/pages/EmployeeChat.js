@@ -9,6 +9,7 @@ import {
   removeCachedConversation
 } from '../utils/chatMessageCache';
 import { readCachedFeed, writeCachedFeed } from '../utils/feedCache';
+import { ensureMediaTokens, getFileIdFromUrl } from '../utils/mediaTokenCache';
 import ChatComposerForm from '../components/employeeChat/ChatComposerForm';
 import ChatDialogHeader from '../components/employeeChat/ChatDialogHeader';
 import ChatLoadingOverlay from '../components/employeeChat/ChatLoadingOverlay';
@@ -1453,6 +1454,49 @@ const getAttachmentAspectRatio = (file = {}, fallback = 4 / 3) => {
 const getPostShareUrl = (postId = '') => `${window.location.origin}${window.location.pathname}?feedPost=${encodeURIComponent(postId)}`;
 const isPostAuthor = (post = {}, currentUser = {}) => sameLogin(post.author, currentUser?.username || '') || sameLogin(post.login, currentUser?.username || '') || sameLogin(post.sender, currentUser?.username || '');
 
+const getAttachmentFileIds = (attachments = []) => [...new Set(
+  (Array.isArray(attachments) ? attachments : [])
+    .map((file) => file?.fileId || file?.id || getFileIdFromUrl(file?.url || file?.thumbnailUrl || file?.previewUrl || ''))
+    .filter(Boolean)
+    .map((value) => String(value))
+)];
+
+const collectThreadFileIds = (threads = {}) => {
+  const ids = [];
+  Object.values(threads || {}).forEach((messages) => {
+    (Array.isArray(messages) ? messages : []).forEach((message) => {
+      if (!message?.id) return;
+      ids.push(...getAttachmentFileIds([
+        ...(Array.isArray(message.attachments) ? message.attachments : []),
+        message.attachment || null
+      ].filter(Boolean)));
+    });
+  });
+  return [...new Set(ids)];
+};
+
+const collectFeedFileIds = (posts = []) => {
+  const ids = [];
+  (Array.isArray(posts) ? posts : []).forEach((post) => {
+    if (!post?.id) return;
+    ids.push(...getAttachmentFileIds([
+      ...(Array.isArray(post.attachments) ? post.attachments : []),
+      post.attachment || null,
+      ...(Array.isArray(post.comments) ? post.comments : []).flatMap((comment) => [
+        ...(Array.isArray(comment.attachments) ? comment.attachments : []),
+        comment.attachment || null
+      ].filter(Boolean))
+    ].filter(Boolean)));
+  });
+  return [...new Set(ids)];
+};
+
+const prefetchMediaTokens = (fileIds, scope = 'chat') => {
+  const accessToken = getCurrentAttachmentIdentity().accessToken;
+  if (!fileIds.length || !accessToken) return;
+  ensureMediaTokens({ fileIds, scope, getToken: () => accessToken });
+};
+
 
 const canManageFeedPost = (post = {}, currentUser = {}, isManager = false, isAdmin = false) => {
   if (isManager || isAdmin) return true;
@@ -2262,6 +2306,7 @@ const EmployeeChat = () => {
       const messages = Array.isArray(data?.messages) ? data.messages : [];
       setThreads((prev) => ({ ...prev, [conversationId]: messages }));
       writeCachedConversation(user.username, conversationId, messages);
+      prefetchMediaTokens(collectThreadFileIds({ [conversationId]: messages }), 'chat');
       setThreadHasMore((prev) => ({
         ...prev,
         [conversationId]: Boolean(data?.hasMore) && messages.length >= CHAT_MESSAGES_PAGE_SIZE
@@ -2380,6 +2425,7 @@ const EmployeeChat = () => {
       ) return;
       const nextPosts = getVisibleFeedPosts(data?.posts);
       setFeedPosts((current) => (getFeedPostsSignature(current) === getFeedPostsSignature(nextPosts) ? current : nextPosts));
+      prefetchMediaTokens(collectFeedFileIds(nextPosts), 'feed');
       setFeedHasMore(Boolean(data?.hasMore));
       setFeedBefore(data?.cursor || '');
       setVisibleFeedPostCount(FEED_POSTS_PAGE_SIZE);
@@ -2414,6 +2460,7 @@ const EmployeeChat = () => {
         const byId = new Map([...current, ...nextPosts].filter((post) => post?.id).map((post) => [post.id, post]));
         return sortFeedPosts([...byId.values()]);
       });
+      prefetchMediaTokens(collectFeedFileIds(nextPosts), 'feed');
       setFeedHasMore(Boolean(data?.hasMore));
       setFeedBefore(data?.cursor || '');
     } catch (error) {
@@ -2550,6 +2597,7 @@ const EmployeeChat = () => {
         if (cachedMessages.length) {
           hasCachedCopy = true;
           setThreads((prev) => ({ ...prev, [currentConversationId]: cachedMessages }));
+          prefetchMediaTokens(collectThreadFileIds({ [currentConversationId]: cachedMessages }), 'chat');
           setLoadingConversationIds((prev) => ({ ...prev, [currentConversationId]: false }));
         }
       }
@@ -2607,6 +2655,7 @@ const EmployeeChat = () => {
         const conversationId = payload.conversationId;
         const message = payload.item;
         if (!conversationId || !message?.id) return;
+        prefetchMediaTokens(collectThreadFileIds({ [conversationId]: [message] }), 'chat');
         const wasKnown = (threadsRef.current[conversationId] || []).some((item) => item.id === message.id);
         setThreads((prev) => {
           if (!Object.prototype.hasOwnProperty.call(prev, conversationId)) return prev;
@@ -2857,6 +2906,7 @@ const EmployeeChat = () => {
         if (cached?.posts?.length) {
           hasCachedCopy = true;
           setFeedPosts(getVisibleFeedPosts(cached.posts));
+          prefetchMediaTokens(collectFeedFileIds(cached.posts), 'feed');
           setFeedBefore(cached.cursor || '');
           setFeedHasMore(Boolean(cached.hasMore));
           setVisibleFeedPostCount(FEED_POSTS_PAGE_SIZE);

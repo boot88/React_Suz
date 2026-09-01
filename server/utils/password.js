@@ -15,7 +15,8 @@ const verifyPassword = async (rawPassword, storedPassword = '') => {
   if (!stored) return false;
   if (BCRYPT_PATTERN.test(stored)) return bcrypt.compare(String(rawPassword), stored);
   if (stored.startsWith('sha256$')) return stored === hashLegacySha256(rawPassword);
-  return stored === String(rawPassword);
+  // Неизвестный формат хранения: не сравниваем с открытым паролем.
+  return false;
 };
 
 const passwordNeedsUpgrade = (storedPassword = '') => !BCRYPT_PATTERN.test(String(storedPassword || ''));

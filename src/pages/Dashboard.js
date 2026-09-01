@@ -616,22 +616,6 @@ const Dashboard = () => {
     });
   };
 
-  const formatTimeRange = (app) => {
-    const status = app.status || (app.fl ? 'done' : 'new');
-    const isDone = app.fl || status === 'done';
-    const startValue = app.work_started_at || app.accepted_at || app.start_data || (isDone && !isEmployeeCreatedApplication(app) ? (app.created_at || app.data) : null);
-    const displayWorkSeconds = getDisplayWorkSeconds(app);
-    const calculatedEnd = startValue && displayWorkSeconds != null
-      ? new Date(new Date(startValue).getTime() + displayWorkSeconds * 1000)
-      : null;
-    const start = formatTime(startValue);
-    const end = formatTime(app.end_data || app.resolved_at || calculatedEnd);
-    if (start === '—' && end === '—') return '—';
-    if (start !== '—' && end !== '—') return `${start} — ${end}`;
-    if (start !== '—') return `${start} — …`;
-    return `… — ${end}`;
-  };
-
   const formatCompactDuration = (seconds) => {
     if (seconds === null || seconds === undefined || seconds === '') return '—';
     const safe = Math.max(0, Math.floor(Number(seconds) || 0));
