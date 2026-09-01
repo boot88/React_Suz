@@ -3,9 +3,12 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const path = require('path');
+const ExcelJS = require('exceljs');
 const employeeRoutes = require('./routes/employees');
 const authRoutes = require('./routes/auth');
 const chatRoutes = require('./routes/chat');
+const knowledgeBaseRoutes = require('./routes/knowledgeBase');
+const networkMapRoutes = require('./routes/networkMap');
 const pool = require('./config/database');
 const {
   requireAuth,
@@ -82,6 +85,8 @@ app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 app.use('/api/employees', requireAuth, employeeRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/network-map', requireAuth, networkMapRoutes);
+app.use('/api/knowledge-base', requireAuth, knowledgeBaseRoutes);
 
 // Функция для преобразования дат в правильный формат MySQL.
 // Пул MySQL настроен на timezone 'Z' (UTC), поэтому используем UTC-компоненты даты,
@@ -367,232 +372,6 @@ app.get('/api/applications/stream', requireAuthAllowQuery, (req, res) => {
   });
 });
 
-// Безопасный парсинг JSON для изображений
-const safeParseImages = (imagesString) => {
-  if (!imagesString) return [];
-  
-  try {
-    // Если imagesString уже массив, возвращаем его
-    if (Array.isArray(imagesString)) {
-      return imagesString;
-    }
-    
-    // Если это строка, пытаемся распарсить
-    if (typeof imagesString === 'string') {
-      // Проверяем, не пустая ли строка
-      if (imagesString.trim() === '') {
-        return [];
-      }
-      
-      const parsed = JSON.parse(imagesString);
-      return Array.isArray(parsed) ? parsed : [];
-    }
-    
-    return [];
-  } catch (error) {
-    console.error('Ошибка парсинга изображений:', error, 'Строка:', imagesString);
-    return [];
-  }
-};
-
-const NETWORK_MAP_SOURCE_URL = process.env.NETWORK_MAP_SOURCE_URL || 'http://nioch.nioch.nsc.ru/nioch/nioch.txt';
-
-app.get('/api/network-map', requireAuth, async (req, res) => {
-  try {
-    const response = await fetch(NETWORK_MAP_SOURCE_URL);
-    if (!response.ok) {
-      return res.status(response.status).json({ error: `Не удалось загрузить сетку: ${response.status}` });
-    }
-
-    const zoneText = await response.text();
-    res.json({
-      sourceUrl: NETWORK_MAP_SOURCE_URL,
-      fetchedAt: new Date().toISOString(),
-      zoneText
-    });
-  } catch (error) {
-    console.error('Error fetching network map:', error);
-    res.status(500).json({ error: 'Не удалось загрузить сетку' });
-  }
-});
-
-// API для базы знаний - ОБНОВЛЕННЫЕ МАРШРУТЫ С БЕЗОПАСНЫМ ПАРСИНГОМ
-app.get('/api/knowledge-base', requireAuth, async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT * FROM knowledge_base ORDER BY created_at DESC');
-    
-    // Используем безопасный парсинг для изображений
-    const formattedRows = rows.map(row => ({
-      ...row,
-      images: safeParseImages(row.images),
-      category: row.category || 'Общее'
-    }));
-    
-    res.json(formattedRows);
-  } catch (error) {
-    console.error('Error fetching knowledge base:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-app.post('/api/knowledge-base', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
-  try {
-    const { title, solution, category, images } = req.body;
-    
-    if (!title || !solution) {
-      return res.status(400).json({ error: 'Title and solution are required' });
-    }
-
-    // Обрабатываем images - преобразуем в JSON строку или NULL
-    let imagesJson = null;
-    if (images && images.length > 0) {
-      try {
-        // Проверяем, что images - это массив
-        if (!Array.isArray(images)) {
-          throw new Error('Images must be an array');
-        }
-        
-        // Ограничиваем размер данных изображений
-        const processedImages = images.map(img => ({
-          name: img.name || `image_${Date.now()}`,
-          type: img.type || 'image/jpeg',
-          size: img.size || 0,
-          data: img.data, // Оставляем base64 данные
-          uploadedAt: img.uploadedAt || new Date().toISOString()
-        }));
-        
-        imagesJson = JSON.stringify(processedImages);
-        
-        // Проверяем общий размер (примерно)
-        const totalSize = imagesJson.length;
-        if (totalSize > 10 * 1024 * 1024) { // 10MB лимит
-          return res.status(400).json({ error: 'Total images size too large' });
-        }
-      } catch (parseError) {
-        console.error('Error processing images:', parseError);
-        return res.status(400).json({ error: 'Invalid images format' });
-      }
-    }
-
-    const categoryValue = category || 'Общее';
-
-    await pool.execute(
-      'INSERT INTO knowledge_base (title, solution, category, images) VALUES (?, ?, ?, ?)',
-      [title, solution, categoryValue, imagesJson]
-    );
-    
-    // Получаем созданную запись
-    const [rows] = await pool.execute(
-      'SELECT * FROM knowledge_base WHERE id = LAST_INSERT_ID()'
-    );
-    
-    // Форматируем ответ с безопасным парсингом
-    const formattedRow = {
-      ...rows[0],
-      images: safeParseImages(rows[0].images),
-      category: rows[0].category || 'Общее'
-    };
-    
-    res.json(formattedRow);
-  } catch (error) {
-    console.error('Error creating knowledge base article:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-app.put('/api/knowledge-base/:id', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { title, solution, category, images } = req.body;
-    
-    if (!title || !solution) {
-      return res.status(400).json({ error: 'Title and solution are required' });
-    }
-
-    // Обрабатываем images - преобразуем в JSON строку или NULL
-    let imagesJson = null;
-    if (images && images.length > 0) {
-      try {
-        // Проверяем, что images - это массив
-        if (!Array.isArray(images)) {
-          throw new Error('Images must be an array');
-        }
-        
-        // Ограничиваем размер данных изображений
-        const processedImages = images.map(img => ({
-          name: img.name || `image_${Date.now()}`,
-          type: img.type || 'image/jpeg',
-          size: img.size || 0,
-          data: img.data, // Оставляем base64 данные
-          uploadedAt: img.uploadedAt || new Date().toISOString()
-        }));
-        
-        imagesJson = JSON.stringify(processedImages);
-        
-        // Проверяем общий размер (примерно)
-        const totalSize = imagesJson.length;
-        if (totalSize > 10 * 1024 * 1024) { // 10MB лимит
-          return res.status(400).json({ error: 'Total images size too large' });
-        }
-      } catch (parseError) {
-        console.error('Error processing images:', parseError);
-        return res.status(400).json({ error: 'Invalid images format' });
-      }
-    }
-
-    const categoryValue = category || 'Общее';
-
-    const [result] = await pool.execute(
-      'UPDATE knowledge_base SET title = ?, solution = ?, `category` = ?, images = ?, updated_at = CURRENT_TIMESTAMP WHERE `id` = ?',
-      [title, solution, categoryValue, imagesJson, id]
-    );
-    
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ error: 'Article not found' });
-    }
-    
-    // Получаем обновленную запись
-    const [rows] = await pool.execute(
-      'SELECT * FROM knowledge_base WHERE `id` = ?',
-      [id]
-    );
-    
-    // Форматируем ответ с безопасным парсингом
-    const formattedRow = {
-      ...rows[0],
-      images: safeParseImages(rows[0].images),
-      category: rows[0].category || 'Общее'
-    };
-    
-    res.json(formattedRow);
-  } catch (error) {
-    console.error('Error updating knowledge base article:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-app.delete('/api/knowledge-base/:id', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const [result] = await pool.execute(
-      'DELETE FROM knowledge_base WHERE `id` = ?',
-      [id]
-    );
-    
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ error: 'Article not found' });
-    }
-    
-    res.json({ message: 'Article deleted successfully' });
-  } catch (error) {
-    console.error('Error deleting knowledge base article:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// ... остальной существующий код для заявок ...
-
 // Функция для обработки NULL значений
 const handleNullValues = (value, defaultValue = null) => {
   if (value === null || value === undefined || value === '') {
@@ -677,6 +456,84 @@ app.get('/api/applications/export', requireAuth, requireRole('admin', 'manager')
   } catch (error) {
     console.error('Ошибка при экспорте заявок:', error);
     res.status(500).json({ error: 'Ошибка сервера при экспорте заявок' });
+  }
+});
+
+// Генерация xlsx-файла на сервере (exceljs) вместо клиентской библиотеки xlsx.
+app.post('/api/applications/export-xlsx', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const { applications = [], sheetName = 'Заявки' } = req.body;
+
+    if (!Array.isArray(applications)) {
+      return res.status(400).json({ error: 'Ожидается массив заявок' });
+    }
+    if (applications.length > 10000) {
+      return res.status(400).json({ error: 'Слишком много записей для экспорта' });
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'ITS Dashboard';
+    workbook.created = new Date();
+    const worksheet = workbook.addWorksheet(sheetName);
+
+    const headers = [
+      { header: 'ID', key: 'id', width: 8 },
+      { header: 'Клиент', key: 'name', width: 20 },
+      { header: 'Кабинет', key: 'cabinet', width: 10 },
+      { header: 'Телефон', key: 'N_tel', width: 15 },
+      { header: 'Заявка', key: 'application', width: 30 },
+      { header: 'Что сделано', key: 'process', width: 30 },
+      { header: 'Исполнитель', key: 'executor', width: 15 },
+      { header: 'Дата подачи', key: 'data', width: 20 },
+      { header: 'Дата начала', key: 'start_data', width: 20 },
+      { header: 'Дата окончания', key: 'end_data', width: 20 },
+      { header: 'Статус', key: 'status', width: 12 }
+    ];
+    worksheet.columns = headers;
+
+    const STATUS_LABELS = {
+      new: 'Новая',
+      reopened: 'Переоткрыта',
+      accepted: 'Принята',
+      in_progress: 'В работе',
+      waiting_employee_confirmation: 'Ждёт подтверждения',
+      done: 'Выполнено'
+    };
+
+    applications.forEach((app) => {
+      worksheet.addRow({
+        id: app.id,
+        name: app.name || '',
+        cabinet: app.cabinet || '',
+        N_tel: app.N_tel || '',
+        application: app.application || '',
+        process: app.process || '',
+        executor: app.executor || '',
+        data: app.data ? new Date(app.data).toLocaleString('ru-RU') : '',
+        start_data: app.start_data ? new Date(app.start_data).toLocaleString('ru-RU') : '',
+        end_data: app.end_data ? new Date(app.end_data).toLocaleString('ru-RU') : '',
+        status: STATUS_LABELS[app.status] || (app.fl ? 'Выполнено' : 'Новая')
+      });
+    });
+
+    worksheet.getRow(1).font = { bold: true };
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="applications-${Date.now()}.xlsx"`
+    );
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    console.error('Ошибка генерации xlsx:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Не удалось сформировать файл Excel' });
+    }
   }
 });
 

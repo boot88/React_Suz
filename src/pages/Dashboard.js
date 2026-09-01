@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import * as XLSX from 'xlsx';
 import './Dashboard.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { useAuth } from '../context/AuthContext';
@@ -167,6 +166,17 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [exportLoading, setExportLoading] = useState(false);
+
+  const downloadBlob = (blob, fileName) => {
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
   const [searchTerm, setSearchTerm] = useState('');
   const [workflowMessage, setWorkflowMessage] = useState('');
   const [actionBusyId, setActionBusyId] = useState(null);
@@ -219,38 +229,24 @@ const Dashboard = () => {
         return;
       }
 
-      const excelData = allApplications.map(app => ({
-        'ID': app.id,
-        'Клиент': app.name,
-        'Кабинет': app.cabinet || '',
-        'Телефон': app.N_tel || '',
-        'Заявка': app.application,
-        'Что сделано': app.process || '',
-        'Исполнитель': app.executor || '',
-        'Дата подачи': app.data ? new Date(app.data).toLocaleString('ru-RU') : '',
-        'Дата начала': app.start_data ? new Date(app.start_data).toLocaleString('ru-RU') : '',
-        'Дата окончания': app.end_data ? new Date(app.end_data).toLocaleString('ru-RU') : '',
-        'Статус': STATUS_META[app.status]?.label || (app.fl ? 'Выполнено' : 'Новая')
-      }));
-
-      const workbook = XLSX.utils.book_new();
-      const worksheet = XLSX.utils.json_to_sheet(excelData);
-
-      const colWidths = [
-        { wch: 8 },  { wch: 20 }, { wch: 10 }, { wch: 15 },
-        { wch: 30 }, { wch: 30 }, { wch: 15 }, { wch: 20 },
-        { wch: 20 }, { wch: 20 }, { wch: 12 }
-      ];
-      worksheet['!cols'] = colWidths;
-
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Заявки');
-
       const date = new Date().toLocaleDateString('ru-RU').replace(/\./g, '-');
       const fileName = searchTerm
         ? `заявки_поиск_${searchTerm}_${date}.xlsx`
         : `все_заявки_${date}.xlsx`;
 
-      XLSX.writeFile(workbook, fileName);
+      const exportResponse = await authFetch(`${API_BASE_URL}/applications/export-xlsx`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ applications: allApplications, sheetName: 'Заявки' })
+      });
+
+      if (!exportResponse.ok) {
+        const errorData = await exportResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Не удалось сформировать файл Excel');
+      }
+
+      const blob = await exportResponse.blob();
+      downloadBlob(blob, fileName);
       showToast(`Данные экспортированы: ${fileName}`, 'success');
 
     } catch (error) {
@@ -804,22 +800,24 @@ const getSlaBadge = (app = {}) => {
     }
   };
 
-  const exportSelectedApplications = () => {
+  const exportSelectedApplications = async () => {
     const selectedApplications = displayedApplications.filter((app) => selectedIds.includes(app.id));
     if (selectedApplications.length === 0) return;
-    const worksheet = XLSX.utils.json_to_sheet(selectedApplications.map((app) => ({
-      ID: app.id,
-      Сотрудник: app.name || '',
-      Кабинет: app.cabinet || '',
-      Телефон: app.N_tel || '',
-      Заявка: app.application || '',
-      Исполнитель: app.executor || '',
-      SLA: getSlaState(app).label,
-      Статус: STATUS_META[app.status]?.label || (app.fl ? 'Выполнено' : 'Новая')
-    })));
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Выбранные заявки');
-    XLSX.writeFile(workbook, `selected-applications-${new Date().toISOString().split('T')[0]}.xlsx`);
+    try {
+      const exportResponse = await authFetch(`${API_BASE_URL}/applications/export-xlsx`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ applications: selectedApplications, sheetName: 'Выбранные заявки' })
+      });
+      if (!exportResponse.ok) throw new Error('Не удалось сформировать файл Excel');
+      const blob = await exportResponse.blob();
+      const fileName = `selected-applications-${new Date().toISOString().split('T')[0]}.xlsx`;
+      downloadBlob(blob, fileName);
+      showToast(`Экспортировано заявок: ${selectedApplications.length}`, 'success');
+    } catch (error) {
+      console.error('Ошибка при экспорте выбранных заявок:', error);
+      showToast('Не удалось экспортировать выбранные заявки', 'error');
+    }
   };
 
   const renderPagination = () => {
