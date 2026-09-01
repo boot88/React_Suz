@@ -1452,11 +1452,6 @@ const readThreads = async () => {
   }
 };
 
-const ensureThreadsCache = async () => {
-  if (!cachedThreads) await readThreads();
-  return cachedThreads || {};
-};
-
 const nextStreamEventId = () => {
   const candidate = Date.now() * 1000;
   lastStreamEventId = Math.max(lastStreamEventId + 1, candidate);

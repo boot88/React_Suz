@@ -126,7 +126,6 @@ const ADMIN_FULL_NAMES = [
   'Сальников Георгий Ефимович',
   'Польников Д.В.'
 ];
-let lastProvisionAt = 0;
 let missingProvisionPasswordsWarned = false;
 let usersSchemaReady = false;
 let usersSchemaPromise = null;
@@ -361,8 +360,6 @@ const provisionUsersFromPhoneBook = async () => {
     );
   }
 
-  lastProvisionAt = Date.now();
-
   return {
     total: desiredUsers.length,
     employees: desiredUsers.filter((item) => item.role === 'employee').length,
@@ -576,18 +573,6 @@ const readProfiles = async () => {
 
 let profilesWriteQueue = Promise.resolve();
 
-const persistProfiles = async (items) => {
-  const nextProfiles = Object.fromEntries(Object.entries(items || {}).map(([login, profile]) => {
-    const updatedAt = profile?.updatedAt || new Date().toISOString();
-    return [normalizeLogin(login), { ...(profile || {}), updatedAt }];
-  }));
-  const savedProfiles = await Promise.all(Object.entries(nextProfiles).map(async ([login, profile]) => [
-    login,
-    await writeSqlProfile(login, profile)
-  ]));
-  return Object.fromEntries(savedProfiles);
-};
-
 const enqueueProfileWrite = (operation) => {
   const run = profilesWriteQueue
     .catch(() => {})
@@ -595,8 +580,6 @@ const enqueueProfileWrite = (operation) => {
   profilesWriteQueue = run;
   return run;
 };
-
-const writeProfiles = async (items) => enqueueProfileWrite(() => persistProfiles(items));
 
 const mutateProfile = async (login, mutator) => enqueueProfileWrite(async () => {
   const profiles = await readProfiles();

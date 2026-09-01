@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main, codex/fix-feed-mutations]
+  pull_request:
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    env:
+      CI: true
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Server tests (node:test)
+        run: npm run test:server
+
+      - name: Client tests (jest)
+        run: npm test -- --watchAll=false
+
+      - name: Production build
+        run: npm run build
+
+      - name: Server syntax check
+        run: node --check server/server.js

@@ -67,7 +67,7 @@ const fetchPhoneBookHtml = async (start = 0) => {
 };
 
 const extractTableRows = (html = '') => {
-  const tableMatch = String(html).match(/<table[^>]*id=[\"']cardnList[\"'][^>]*>[\s\S]*?<\/table>/i);
+  const tableMatch = String(html).match(/<table[^>]*id=['"]cardnList['"][^>]*>[\s\S]*?<\/table>/i);
   const tableHtml = tableMatch ? tableMatch[0] : String(html);
   const bodyMatch = tableHtml.match(/<tbody[^>]*>[\s\S]*?<\/tbody>/i);
   const rowsHtml = bodyMatch ? bodyMatch[0] : tableHtml;

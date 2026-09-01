@@ -476,7 +476,7 @@ app.post('/api/knowledge-base', requireAuth, requireRole('admin', 'manager'), as
 
     const categoryValue = category || 'Общее';
 
-    const [result] = await pool.execute(
+    await pool.execute(
       'INSERT INTO knowledge_base (title, solution, category, images) VALUES (?, ?, ?, ?)',
       [title, solution, categoryValue, imagesJson]
     );
@@ -1038,11 +1038,7 @@ app.post('/api/applications/from-chat', requireAuth, async (req, res) => {
 
 app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   const { id } = req.params;
-  const {
-    name, cabinet, N_tel, application, process, executor,
-    data, start_data, end_data, fl, status, employee_login, category,
-    priority, admin_comment, eta_minutes, employee_comment
-  } = req.body;
+  const { fl, status, eta_minutes } = req.body;
 
   try {
     await ensureApplicationWorkflowSchema();

@@ -23,6 +23,7 @@
     "test": "react-scripts test",
     "test:server": "node --test server/utils/*.test.js server/middleware/*.test.js",
     "test:all": "npm run test:server && CI=true npm test -- --watchAll=false",
+    "lint": "eslint src/ server/ --ext .js,.jsx",
     "eject": "react-scripts eject",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "nodemon server/server.js",
