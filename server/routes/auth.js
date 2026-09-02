@@ -995,6 +995,7 @@ router.get('/manager-notifications', requireAuth, requireRole('manager', 'admin'
 router.get('/presence', requireAuth, async (req, res) => {
   try {
     const presence = await readPresence();
+    res.set('Cache-Control', 'no-store');
     res.json({
       presence: presence.map((item) => ({
         email: item.login,

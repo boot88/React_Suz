@@ -111,6 +111,7 @@ function Sidebar({ language, theme, onLanguageChange, onThemeChange }) {
       return 0;
     }
   });
+  const [chatUnreadCount, setChatUnreadCount] = useState(0);
 
   useEffect(() => {
     const handleResize = () => {
@@ -138,31 +139,46 @@ function Sidebar({ language, theme, onLanguageChange, onThemeChange }) {
       }
     };
 
-    fetchNewRequests();
-    const firstRetry = setTimeout(fetchNewRequests, 250);
-    const secondRetry = setTimeout(fetchNewRequests, 1000);
-    const interval = setInterval(fetchNewRequests, 5000);
-    const markApplicationsViewed = (event) => {
-      fetchNewRequests();
-    };
-    const refreshOnVisible = () => {
-      if (document.visibilityState === 'visible') fetchNewRequests();
+    const fetchChatUnread = async () => {
+      try {
+        const response = await authFetch(`${API_BASE_URL}/chat/threads/unread-count`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || isCancelled) return;
+        setChatUnreadCount(Number(data?.count || 0));
+      } catch (error) {
+        // Канал уведомлений чата может быть недоступен — не критично.
+      }
     };
 
-    window.addEventListener('focus', fetchNewRequests);
+    const refreshAll = () => {
+      fetchNewRequests();
+      fetchChatUnread();
+    };
+
+    refreshAll();
+    const firstRetry = setTimeout(refreshAll, 250);
+    const secondRetry = setTimeout(refreshAll, 1000);
+    const interval = setInterval(refreshAll, 5000);
+    const refreshOnVisible = () => {
+      if (document.visibilityState === 'visible') refreshAll();
+    };
+
+    window.addEventListener('focus', refreshAll);
     document.addEventListener('visibilitychange', refreshOnVisible);
     window.addEventListener('applications:refresh', fetchNewRequests);
-    window.addEventListener('applications:viewed', markApplicationsViewed);
+    window.addEventListener('applications:viewed', fetchNewRequests);
+    window.addEventListener('chat:read-all', fetchChatUnread);
 
     return () => {
       isCancelled = true;
       clearTimeout(firstRetry);
       clearTimeout(secondRetry);
       clearInterval(interval);
-      window.removeEventListener('focus', fetchNewRequests);
+      window.removeEventListener('focus', refreshAll);
       document.removeEventListener('visibilitychange', refreshOnVisible);
       window.removeEventListener('applications:refresh', fetchNewRequests);
-      window.removeEventListener('applications:viewed', markApplicationsViewed);
+      window.removeEventListener('applications:viewed', fetchNewRequests);
+      window.removeEventListener('chat:read-all', fetchChatUnread);
     };
   }, [user?.name, user?.username]);
 
@@ -198,7 +214,7 @@ function Sidebar({ language, theme, onLanguageChange, onThemeChange }) {
               </Link>
             </li>
             <li className={isActive('/add') ? 'nav-item active' : 'nav-item'}><Link to="/add" className="nav-link"><span className="nav-icon nav-icon--add" aria-hidden="true" /><span className="nav-text">{copy.add}</span></Link></li>
-            <li className={isActive('/employee') ? 'nav-item active' : 'nav-item'}><Link to="/employee" className="nav-link"><span className="nav-icon nav-icon--chat" aria-hidden="true" /><span className="nav-text">{copy.chat}</span></Link></li>
+            <li className={isActive('/employee') ? 'nav-item active' : 'nav-item'}><Link to="/employee" className="nav-link"><span className="nav-icon nav-icon--chat" aria-hidden="true" /><span className="nav-text">{copy.chat}</span>{chatUnreadCount > 0 && <span className="nav-badge">{chatUnreadCount > 99 ? '99+' : chatUnreadCount}</span>}</Link></li>
             <li className="nav-group-title">{copy.analytics}</li>
             <li className={isActive('/statistics') ? 'nav-item active' : 'nav-item'}><Link to="/statistics" className="nav-link"><span className="nav-icon nav-icon--chart" aria-hidden="true" /><span className="nav-text">{copy.statistics}</span></Link></li>
             <li className="nav-group-title">{copy.system}</li>

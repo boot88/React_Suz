@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch, withAccessToken } from '../utils/authFetch';
@@ -121,8 +120,6 @@ const RUSSIAN_LABELS = {
   openDialog: 'Открыть диалог',
   fullName: 'ФИО',
   login: 'Логин',
-  adminPanel: 'Панель управления',
-  adminPanelTitle: 'Перейти в панель управления',
   websiteVersion: 'Версия сайта',
   status: 'Статус',
   securityPhoto: 'Безопасность и фото',
@@ -382,8 +379,6 @@ const ENGLISH_LABELS = {
   openDialog: 'Open dialog',
   fullName: 'Full name',
   login: 'Login',
-  adminPanel: 'Admin panel',
-  adminPanelTitle: 'Open the admin panel',
   websiteVersion: 'Website version',
   status: 'Status',
   securityPhoto: 'Security and photo',
@@ -1779,7 +1774,6 @@ const getApplicationStatusMeta = (status, isEnglish = false) => {
 };
 
 const EmployeeChat = () => {
-  const navigate = useNavigate();
   const { user, logout, employeeDirectory, changeServicePassword } = useAuth();
   const isManager = user?.role === 'manager' || user?.role === 'admin';
   const baseDisplayName = user?.name || user?.username || 'Сотрудник';
@@ -1925,6 +1919,8 @@ const EmployeeChat = () => {
   const uploadControllersRef = useRef(new Map());
   const seenStreamEventIdsRef = useRef(new Set());
   const settingsSyncTimerRef = useRef(null);
+  const fetchThreadsRef = useRef(null);
+  const markAllReadOnMountRef = useRef(false);
 
   const openModal = useCallback((config) => new Promise((resolve) => {
     modalResolverRef.current = resolve;
@@ -2299,6 +2295,33 @@ const EmployeeChat = () => {
       console.error('Ошибка загрузки переписки:', error);
     }
   }, [chatAuthHeaders, user.username]);
+
+  useEffect(() => {
+    fetchThreadsRef.current = fetchThreads;
+  }, [fetchThreads]);
+
+  // Администратор, открывший чат, «просмотрел» уведомления: сбрасываем счётчик
+  // непрочитанных в админ-панели и обновляем локальные прочтения.
+  useEffect(() => {
+    if (!user?.username || !isAdmin || markAllReadOnMountRef.current) return undefined;
+    markAllReadOnMountRef.current = true;
+
+    const markAllRead = async () => {
+      try {
+        const response = await authFetch(`${API_BASE_URL}/chat/threads/read-all`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        if (!response.ok) return;
+        window.dispatchEvent(new Event('chat:read-all'));
+        await fetchThreadsRef.current?.();
+      } catch {
+        // Сброс некритичен: повторится при следующем входе в чат.
+      }
+    };
+    markAllRead();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, user?.username]);
 
   const fetchConversationMessages = useCallback(async (conversationId, { silent = false, signal } = {}) => {
     if (!conversationId) return;
@@ -2993,6 +3016,9 @@ const EmployeeChat = () => {
 
     const presenceMap = new Map(employeeDirectory.map((item) => [item.email?.toLowerCase(), item]));
     const sourceEmployees = [...directoryEmployees];
+    // Сервер считает статус устаревшим через 2 минуты — используем то же окно,
+    // чтобы фоновая вкладка с приторможенным heartbeat не выглядела офлайн.
+    const PRESENCE_RECENT_WINDOW_MS = 2 * 60 * 1000;
 
     return sourceEmployees
       .filter((item) => item.login !== user?.username)
@@ -3000,7 +3026,7 @@ const EmployeeChat = () => {
         const presence = presenceMap.get(item.login.toLowerCase());
         const lastSeen = presence?.lastSeen || null;
         const lastSeenMs = lastSeen ? new Date(lastSeen).getTime() : 0;
-        const isRecentlySeen = Boolean(lastSeenMs) && Date.now() - lastSeenMs < 45000;
+        const isRecentlySeen = Boolean(lastSeenMs) && Date.now() - lastSeenMs < PRESENCE_RECENT_WINDOW_MS;
         const computedRole = presence?.role || item.role || 'employee';
         return {
           email: item.login,
@@ -5055,7 +5081,7 @@ const EmployeeChat = () => {
             <strong>{profileForm.full_name || baseDisplayName}</strong>
             <span>{profileForm.position || user?.position || profileForm.department || t('workingChat')}</span>
           </div>
-          <div className="brand-actions"><button type="button" className="icon-btn" onClick={() => { setActiveTab('profile'); setProfileViewLogin(''); }}>{t('profile')}</button>{isAdmin && <button type="button" className="icon-btn" title={t('adminPanelTitle')} aria-label={t('adminPanel')} onClick={() => navigate('/')}>⚙</button>}</div>
+          <div className="brand-actions"><button type="button" className="icon-btn" onClick={() => { setActiveTab('profile'); setProfileViewLogin(''); }}>{t('profile')}</button></div>
         </div>
 
         <nav className="employee-chat-tabs" aria-label={t('chatSections')}>

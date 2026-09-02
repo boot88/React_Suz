@@ -2179,6 +2179,57 @@ router.post('/feed/posts/:postId/pin', requireRole('admin', 'manager'), async (r
   }
 });
 
+router.get('/threads/unread-count', async (req, res) => {
+  try {
+    const login = getRequestLogin(req);
+    if (!login) return res.status(401).json({ message: 'Для загрузки диалогов требуется вход' });
+    if (!await ensureChatSqlSchema()) {
+      return res.json({ count: 0 });
+    }
+    const [rows] = await db.execute(
+      `SELECT COUNT(*) AS count
+       FROM chat_messages m
+       LEFT JOIN chat_read_state r
+         ON r.conversation_id = m.conversation_id AND r.user_login = ?
+       WHERE (m.participant_a = ? OR m.participant_b = ?)
+         AND m.deleted_at IS NULL
+         AND m.sender_login <> ?
+         AND m.created_at > COALESCE(r.last_read_at, '1970-01-01 00:00:00')`,
+      [login, login, login, login]
+    );
+    res.set('Cache-Control', 'no-store');
+    res.json({ count: Number(rows[0]?.count || 0) });
+  } catch (error) {
+    console.error('Chat GET /threads/unread-count error:', error);
+    res.status(500).json({ message: 'Не удалось подсчитать непрочитанные сообщения' });
+  }
+});
+
+router.post('/threads/read-all', async (req, res) => {
+  try {
+    const login = getRequestLogin(req);
+    if (!login) return res.status(401).json({ message: 'Для загрузки диалогов требуется вход' });
+    if (!await ensureChatSqlSchema()) {
+      return res.json({ message: 'ok' });
+    }
+    await db.execute(
+      `INSERT INTO chat_read_state (conversation_id, user_login, last_read_message_id, last_read_at)
+       SELECT conversation_id, ?, '', NOW()
+       FROM chat_messages
+       WHERE participant_a = ? OR participant_b = ?
+       GROUP BY conversation_id
+       ON DUPLICATE KEY UPDATE
+         last_read_at = NOW(),
+         updated_at = CURRENT_TIMESTAMP`,
+      [login, login, login]
+    );
+    res.json({ message: 'Все диалоги отмечены прочитанными' });
+  } catch (error) {
+    console.error('Chat POST /threads/read-all error:', error);
+    res.status(500).json({ message: 'Не удалось отметить сообщения прочитанными' });
+  }
+});
+
 router.get('/threads', async (req, res) => {
   try {
     const login = getRequestLogin(req);

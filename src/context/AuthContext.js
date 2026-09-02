@@ -21,6 +21,19 @@ const saveEmployees = (employees) => {
   localStorage.setItem(LOCAL_EMPLOYEES_KEY, JSON.stringify(employees));
 };
 
+// Общая активность сессии в localStorage обновляется активной вкладкой.
+// Позволяет не «гасить» онлайн-статус при выходе/истечении сессии в одной
+// вкладке, пока тот же пользователь работает в другой.
+const hasRecentSharedActivity = (withinMs = 2 * 60 * 1000) => {
+  try {
+    const savedState = JSON.parse(localStorage.getItem(AUTH_STATE_KEY) || 'null');
+    const lastActivityAt = Number(savedState?.lastActivityAt || 0);
+    return lastActivityAt > 0 && Date.now() - lastActivityAt < withinMs;
+  } catch {
+    return false;
+  }
+};
+
 const pushPresenceToServer = async ({ isOnline }) => {
   try {
     await authFetch(`${API_BASE_URL}/auth/presence`, {
@@ -215,13 +228,18 @@ export const AuthProvider = ({ children }) => {
 
   const verifyEmployeeEmail = () => true;
 
-  const logout = useCallback(() => {
+  const logout = useCallback((options = {}) => {
     if (user?.username) {
       if (user?.role === 'employee') {
         const nextEmployees = upsertEmployeeOnlineStatus(user.username, false);
         mergeEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
       }
-      pushPresenceToServer({ login: user.username, isOnline: false, role: user.role || 'employee' });
+      // При истечении сессии в фоновой вкладке не сбиваем статус, если
+      // тот же пользователь всё ещё активен в другом окне (общий localStorage).
+      const pushOffline = !(options?.reason === 'expired' && hasRecentSharedActivity());
+      if (pushOffline) {
+        pushPresenceToServer({ login: user.username, isOnline: false, role: user.role || 'employee' });
+      }
     }
 
     clearSessionTimer();
@@ -330,7 +348,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     const expireSession = () => {
-      logout();
+      logout({ reason: 'expired' });
     };
 
     const scheduleExpiry = (expiresAt) => {
@@ -351,7 +369,7 @@ export const AuthProvider = ({ children }) => {
       const savedState = readSavedState();
       const expiresAt = Number(savedState?.expiresAt || 0);
       if (!savedState?.isAuthenticated || !savedState?.user || expiresAt <= Date.now()) {
-        logout();
+        logout({ reason: 'expired' });
         return false;
       }
       scheduleExpiry(expiresAt);
@@ -412,14 +430,26 @@ export const AuthProvider = ({ children }) => {
       pushPresenceToServer({ login: user.username, isOnline: false, role: user.role || 'employee' });
     };
 
+    // Фоновая вкладка тормозит setInterval, поэтому при возврате к вкладке
+    // сразу обновляем присутствие, а не ждём следующий heartbeat.
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') markOnline();
+    };
+
     markOnline();
     window.addEventListener('beforeunload', markOffline);
+    window.addEventListener('pagehide', markOffline);
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', markOnline);
 
     const heartbeat = setInterval(markOnline, 15000);
 
     return () => {
       clearInterval(heartbeat);
       window.removeEventListener('beforeunload', markOffline);
+      window.removeEventListener('pagehide', markOffline);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', markOnline);
     };
   }, [mergeEmployeeDirectory, user]);
 
