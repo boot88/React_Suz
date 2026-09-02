@@ -99,6 +99,14 @@ const isEmployeeCreatedApplication = (app = {}) => (
   app.source === 'chat' || Boolean(String(app.employee_login || '').trim())
 );
 
+const getOpenChatHref = (app = {}) => {
+  const params = new URLSearchParams();
+  if (app.employee_login) params.set('dialog', app.employee_login);
+  if (app.id) params.set('application', app.id);
+  if (app.chat_thread_id) params.set('thread', app.chat_thread_id);
+  return `/employee?${params.toString()}`;
+};
+
 const getWaitingSeconds = (app = {}) => {
   if (!isEmployeeCreatedApplication(app)) return null;
   const status = app.status || (app.fl ? 'done' : 'new');
@@ -1238,7 +1246,7 @@ const getSlaBadge = (app = {}) => {
                               {openActionMenuId === app.id && (
                                 <div className="row-action-menu" onClick={(event) => event.stopPropagation()}>
                                   <button type="button" onClick={(event) => runTableAction(event, app, openApplicationPanel)}>Открыть карточку</button>
-                                  {app.employee_login && <a href={`/employee?dialog=${encodeURIComponent(app.employee_login)}&application=${app.id}`}>Открыть чат</a>}
+                                  {app.employee_login && <a href={getOpenChatHref(app)}>Открыть чат</a>}
                                   {['new', 'reopened'].includes(status) && <button type="button" onClick={(event) => runTableAction(event, app, openAcceptModal)}>Взять в работу</button>}
                                   {status === 'accepted' && <button type="button" onClick={(event) => runTableAction(event, app, () => runWorkflowAction(app, 'start-work'))}>Запустить таймер</button>}
                                   {['accepted', 'in_progress'].includes(status) && <button type="button" onClick={(event) => runTableAction(event, app, openResolveModal)}>Что сделано</button>}
@@ -1328,7 +1336,7 @@ const getSlaBadge = (app = {}) => {
             {['accepted', 'in_progress'].includes(selectedApplication.status) && <button type="button" onClick={() => openResolveModal(selectedApplication)}>Что сделано</button>}
             {getSlaState(selectedApplication).level === 'critical' && !getSlaState(selectedApplication).paused && <button type="button" onClick={() => runWorkflowAction(selectedApplication, 'pause-overdue')}>Остановить таймер просрочки</button>}
             {getSlaState(selectedApplication).paused && <button type="button" disabled>Таймер просрочки остановлен</button>}
-            {selectedApplication.employee_login && <a href={`/employee?dialog=${encodeURIComponent(selectedApplication.employee_login)}&application=${selectedApplication.id}`}>Открыть чат</a>}
+            {selectedApplication.employee_login && <a href={getOpenChatHref(selectedApplication)}>Открыть чат</a>}
             <a href={`/edit/${selectedApplication.id}`}>Редактировать заявку</a>
           </div>
           <div className="side-panel-section">

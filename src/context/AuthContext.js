@@ -135,16 +135,19 @@ export const AuthProvider = ({ children }) => {
     }
 
     const serverRole = data?.user?.role || 'employee';
+    // Администратор сохраняет полную роль независимо от точки входа (/login или /admin),
+    // чтобы переписка в чате и панель управления использовали один аккаунт.
+    const effectiveRole = serverRole === 'admin' ? 'admin' : serverRole;
     const employeeUser = {
       username: data?.user?.login || loginValue,
-      role: loginScope === 'employee' && serverRole === 'admin' ? 'manager' : serverRole,
+      role: effectiveRole,
       serverRole,
       name: data?.user?.full_name || data?.user?.login || loginValue,
       position: data?.user?.position || '',
       accessToken: data?.token || ''
     };
 
-    if (loginScope === 'employee' && !['employee', 'manager'].includes(employeeUser.role)) {
+    if (loginScope === 'employee' && !['employee', 'manager', 'admin'].includes(effectiveRole)) {
       throw new Error('Неверный логин/email или пароль');
     }
     if (loginScope === 'admin' && serverRole !== 'admin') {

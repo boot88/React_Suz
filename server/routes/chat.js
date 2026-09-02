@@ -316,12 +316,12 @@ const readSqlThreadSummaries = async (login) => {
 
   const [rows] = await db.execute(
     `SELECT
-       conversation_id,
-       message_json,
-       created_at,
-       message_count,
-       deleted_count,
-       attachment_count
+       m.conversation_id,
+       m.message_json,
+       m.created_at,
+       m.message_count,
+       m.deleted_count,
+       COALESCE(f.attachment_count, 0) AS attachment_count
      FROM (
        SELECT
          conversation_id,
@@ -330,17 +330,19 @@ const readSqlThreadSummaries = async (login) => {
          id,
          ROW_NUMBER() OVER (PARTITION BY conversation_id ORDER BY created_at DESC, id DESC) AS message_rank,
          COUNT(*) OVER (PARTITION BY conversation_id) AS message_count,
-         SUM(deleted_at IS NOT NULL) OVER (PARTITION BY conversation_id) AS deleted_count,
-         SUM(
-           message_json LIKE '%"attachments":[%'
-           OR message_json LIKE '%"attachment":{%'
-         ) OVER (PARTITION BY conversation_id) AS attachment_count
+         SUM(deleted_at IS NOT NULL) OVER (PARTITION BY conversation_id) AS deleted_count
        FROM chat_messages
        WHERE participant_a = ? OR participant_b = ?
-     ) AS ranked_messages
-     WHERE message_rank = 1
-     ORDER BY created_at DESC`,
-    [normalizedLogin, normalizedLogin]
+     ) AS m
+     LEFT JOIN (
+       SELECT conversation_id, COUNT(*) AS attachment_count
+       FROM chat_message_files
+       WHERE participant_a = ? OR participant_b = ?
+       GROUP BY conversation_id
+     ) AS f ON f.conversation_id = m.conversation_id
+     WHERE m.message_rank = 1
+     ORDER BY m.created_at DESC`,
+    [normalizedLogin, normalizedLogin, normalizedLogin, normalizedLogin]
   );
 
   return Object.fromEntries((rows || []).map((row) => {

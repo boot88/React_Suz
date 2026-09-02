@@ -348,7 +348,7 @@ function AdminRoute({ children }) {
 
   return (
     <ProtectedRoute loginPath="/admin">
-      {user?.role === 'admin' ? children : <Navigate to="/employee" replace />}
+      {user?.role === 'admin' || user?.serverRole === 'admin' ? children : <Navigate to="/employee" replace />}
     </ProtectedRoute>
   );
 }

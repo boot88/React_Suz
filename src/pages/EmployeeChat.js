@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch, withAccessToken } from '../utils/authFetch';
@@ -120,6 +121,8 @@ const RUSSIAN_LABELS = {
   openDialog: 'Открыть диалог',
   fullName: 'ФИО',
   login: 'Логин',
+  adminPanel: 'Панель управления',
+  adminPanelTitle: 'Перейти в панель управления',
   websiteVersion: 'Версия сайта',
   status: 'Статус',
   securityPhoto: 'Безопасность и фото',
@@ -379,6 +382,8 @@ const ENGLISH_LABELS = {
   openDialog: 'Open dialog',
   fullName: 'Full name',
   login: 'Login',
+  adminPanel: 'Admin panel',
+  adminPanelTitle: 'Open the admin panel',
   websiteVersion: 'Website version',
   status: 'Status',
   securityPhoto: 'Security and photo',
@@ -1774,6 +1779,7 @@ const getApplicationStatusMeta = (status, isEnglish = false) => {
 };
 
 const EmployeeChat = () => {
+  const navigate = useNavigate();
   const { user, logout, employeeDirectory, changeServicePassword } = useAuth();
   const isManager = user?.role === 'manager' || user?.role === 'admin';
   const baseDisplayName = user?.name || user?.username || 'Сотрудник';
@@ -2926,10 +2932,44 @@ const EmployeeChat = () => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const dialog = params.get('dialog');
+    const thread = params.get('thread');
+    const applicationId = params.get('application');
+
+    const openByThread = (threadId) => {
+      if (!threadId) return false;
+      const participants = getParticipantsFromThreadId(threadId);
+      const other = participants.find((login) => !sameLogin(login, user?.username || ''));
+      if (!other) return false;
+      setSelectedEmail(other);
+      setActiveTab('chat');
+      return true;
+    };
+
     if (dialog) {
       setSelectedEmail(dialog);
       setActiveTab('chat');
+    } else if (openByThread(thread)) {
+      // Открыли тред напрямую (например, из ссылки админки).
     }
+
+    if (applicationId && !dialog) {
+      authFetch(`${API_BASE_URL}/applications/${encodeURIComponent(applicationId)}`)
+        .then((response) => readApiJson(response, 'Не удалось загрузить заявку'))
+        .then((data) => {
+          const application = data?.application;
+          if (!application) return;
+          if (application.chat_thread_id) openByThread(application.chat_thread_id);
+          if (application.employee_login) {
+            setSelectedEmail(application.employee_login);
+            setActiveTab('chat');
+          }
+        })
+        .catch((error) => {
+          console.error('Не удалось открыть переписку заявки:', error);
+        });
+    }
+    // Запускается один раз при монтировании.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -3304,7 +3344,7 @@ const EmployeeChat = () => {
         notify('Нет соединения. Сообщение отправится автоматически.', 'Офлайн');
         return;
       }
-      setThreads((prev) => ({ ...prev, [currentConversationId]: currentMessages }));
+      setThreads((prev) => ({ ...prev, [currentConversationId]: (prev[currentConversationId] || []).filter((item) => item.id !== newMessage.id) }));
       notify(error.message || 'Не удалось отправить сообщение', 'Сообщение');
     } finally {
       setIsSendingMessage(false);
@@ -3599,7 +3639,6 @@ const EmployeeChat = () => {
         if (createdTicket) setMyApplications((prev) => [createdTicket, ...prev.filter((item) => item.id !== createdTicket.id)]);
         setRequestStatus({ state: 'sent', textKey: 'requestSubmitted', text: '', ticketId: data?.id || data?.insertId || createMessageId().slice(0, 8) });
         setRequestText('');
-        fetchMyApplications({ silent: true });
         return;
       } catch (error) {
         lastError = error;
@@ -5016,7 +5055,7 @@ const EmployeeChat = () => {
             <strong>{profileForm.full_name || baseDisplayName}</strong>
             <span>{profileForm.position || user?.position || profileForm.department || t('workingChat')}</span>
           </div>
-          <div className="brand-actions"><button type="button" className="icon-btn" onClick={() => { setActiveTab('profile'); setProfileViewLogin(''); }}>{t('profile')}</button></div>
+          <div className="brand-actions"><button type="button" className="icon-btn" onClick={() => { setActiveTab('profile'); setProfileViewLogin(''); }}>{t('profile')}</button>{isAdmin && <button type="button" className="icon-btn" title={t('adminPanelTitle')} aria-label={t('adminPanel')} onClick={() => navigate('/')}>⚙</button>}</div>
         </div>
 
         <nav className="employee-chat-tabs" aria-label={t('chatSections')}>
@@ -5472,7 +5511,7 @@ const EmployeeChat = () => {
                 <label>{t('category')}<select value={requestCategory} onChange={(e) => setRequestCategory(e.target.value)}>{REQUEST_CATEGORIES.map((item) => <option key={item}>{getRequestCategoryLabel(item)}</option>)}</select></label>
                 <label>{t('priority')}<select value={requestPriority} onChange={(e) => setRequestPriority(e.target.value)}>{REQUEST_PRIORITIES.map((item) => <option key={item}>{getRequestPriorityLabel(item)}</option>)}</select></label>
               </div>
-              <textarea rows={7} placeholder={t('requestPlaceholder')} value={requestText} onChange={(e) => setRequestText(e.target.value)} />
+              <textarea rows={7} maxLength={500} placeholder={t('requestPlaceholder')} value={requestText} onChange={(e) => setRequestText(e.target.value)} />
               <div className="request-form-actions"><button type="submit" disabled={requestStatus.state === 'sending'}>{requestStatus.state === 'sending' ? t('sendingRequest') : t('sendRequest')}</button><button type="button" onClick={() => fetchMyApplications({ silent: false })}>{applicationsLoading ? t('refreshing') : t('refreshStatuses')}</button></div>
               {applicationsError && <div className="request-inline-error">{t('requestsUnavailable')}: {localizeRuntimeText(applicationsError)}</div>}
             </form>

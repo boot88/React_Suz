@@ -221,10 +221,27 @@ const createBaseLoginFromName = (fullName = '') => getShortPersonName(fullName)
   .trim()
   .replace(/\.$/, '');
 
-const isConfiguredAdminName = (fullName = '') => {
-  const normalized = normalizePersonName(fullName);
-  return ADMIN_FULL_NAMES.some((adminName) => normalizePersonName(adminName) === normalized);
+// Совпадение «короткого» имени администратора («Повисок Е.В.») с полным ФИО
+// из справочника («Повисок Евгений Вячеславович»): фамилия совпадает, а
+// каждую инициал в коротком имени сравниваем с началом соответствующей части.
+const matchesAdminShortName = (fullName = '', adminName = '') => {
+  const personParts = getNameParts(fullName).map((part) => part.toLowerCase());
+  const adminParts = getNameParts(adminName).map((part) => part.replace(/\./g, '').toLowerCase());
+  if (!personParts.length || !adminParts.length) return false;
+  if (adminParts[0] !== personParts[0]) return false;
+  if (adminParts.length === 1) return true;
+  return adminParts.slice(1).every((initial, index) => {
+    const personPart = personParts[index + 1];
+    return Boolean(personPart) && personPart[0] === initial[0];
+  });
 };
+
+const isConfiguredAdminName = (fullName = '') => (
+  ADMIN_FULL_NAMES.some((adminName) => (
+    normalizePersonName(adminName) === normalizePersonName(fullName)
+    || matchesAdminShortName(fullName, adminName)
+  ))
+);
 
 const createUniqueLogin = (baseLogin, usedLogins) => {
   let login = baseLogin || `employee${usedLogins.size + 1}`;
@@ -322,7 +339,10 @@ const provisionUsersFromPhoneBook = async () => {
   });
 
   for (const adminName of ADMIN_FULL_NAMES) {
-    if (desiredUsers.some((item) => normalizePersonName(item.full_name) === normalizePersonName(adminName))) continue;
+    if (desiredUsers.some((item) => (
+      normalizePersonName(item.full_name) === normalizePersonName(adminName)
+      || matchesAdminShortName(item.full_name, adminName)
+    ))) continue;
     const login = createUniqueLogin(createBaseLoginFromName(adminName), usedLogins);
     desiredUsers.push({
       login,

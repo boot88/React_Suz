@@ -167,13 +167,14 @@ const Login = ({ mode = 'employee' }) => {
 
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
-      if (user?.role === 'admin') {
-        navigate('/', { replace: true });
+      // Через обычный вход открываем чат; через отдельный вход — панель управления.
+      if (!isAdminMode) {
+        navigate('/employee', { replace: true });
         return;
       }
-      navigate('/employee', { replace: true });
+      navigate('/', { replace: true });
     }
-  }, [isAuthenticated, isLoading, navigate, user]);
+  }, [isAdminMode, isAuthenticated, isLoading, navigate, user]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -201,7 +202,9 @@ const Login = ({ mode = 'employee' }) => {
         return;
       }
 
-      if (!isAdminMode && !isEmployeeUser) {
+      // Администратор может войти и через обычный вход — тогда он попадает
+      // в чат с правами администратора.
+      if (!isAdminMode && !isEmployeeUser && !isAdminUser) {
         logout();
         setFailedAttempts((prev) => prev + 1);
         setError(t('employeeOnly'));
@@ -210,7 +213,7 @@ const Login = ({ mode = 'employee' }) => {
 
       setFailedAttempts(0);
       const from = location.state?.from?.pathname;
-      navigate(from || (isAdminUser ? '/' : '/employee'), { replace: true });
+      navigate(from || (isAdminMode ? '/' : '/employee'), { replace: true });
     } catch (err) {
       setFailedAttempts((prev) => prev + 1);
       setError(err.message || t('genericError'));

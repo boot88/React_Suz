@@ -758,6 +758,16 @@ app.get('/api/applications/my', requireAuth, async (req, res) => {
   }
 });
 
+app.get('/api/applications/:id', requireAuth, requireApplicationOwnerOrManager, async (req, res) => {
+  try {
+    res.set('Cache-Control', 'no-store');
+    res.json({ application: req.application });
+  } catch (error) {
+    console.error('Ошибка при получении заявки:', error);
+    res.status(500).json({ error: 'Не удалось получить заявку' });
+  }
+});
+
 app.post('/api/applications', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   const {
     name, cabinet, N_tel, application, process, executor,
@@ -829,6 +839,15 @@ app.post('/api/applications/from-chat', requireAuth, async (req, res) => {
   const employeeLogin = req.auth.login;
   const idempotencyKey = getIdempotencyKey(req);
 
+  const applicationText = String(application || '').trim().slice(0, 500);
+  if (!applicationText) {
+    return res.status(400).json({ error: 'Опишите проблему в заявке' });
+  }
+  const allowedRequestCategories = new Set(['Техника', 'Сеть', 'ПО', 'Доступы', 'Другое']);
+  const allowedRequestPriorities = new Set(['Обычный', 'Важный', 'Срочный']);
+  const safeCategory = allowedRequestCategories.has(category) ? category : 'Другое';
+  const safePriority = allowedRequestPriorities.has(priority) ? priority : 'Обычный';
+
   try {
     await ensureApplicationWorkflowSchema();
     const [actorRows] = await pool.execute(
@@ -876,9 +895,9 @@ app.post('/api/applications/from-chat', requireAuth, async (req, res) => {
       'INSERT INTO application (`name`, `cabinet`, `N_tel`, `application`, `process`, `executor`, `data`, `start_data`, `end_data`, `fl`, `status`, `employee_login`, `category`, `priority`, `source`, `chat_thread_id`, `source_message_id`, `source_attachments_json`, `idempotency_key`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         handleNullValues(actor.full_name, employeeLogin), handleNullValues(actor.room, ''), handleNullValues(actor.phone, ''),
-        handleNullValues(application, ''), '', '', now, null, null, 0, 'new',
-        employeeLogin, handleNullValues(category, 'Другое'),
-        handleNullValues(priority, 'Обычный'), 'chat', safeConversationId,
+        applicationText, '', '', now, null, null, 0, 'new',
+        employeeLogin, safeCategory,
+        safePriority, 'chat', safeConversationId,
         safeSourceMessageId, sourceAttachmentsJson, idempotencyKey || null
       ]);
       await addApplicationEvent(connection, result.insertId, req.auth.login, req.auth.role, 'created_from_chat', 'Заявка создана из чата сотрудника');
