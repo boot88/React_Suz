@@ -202,6 +202,9 @@ const Dashboard = () => {
   const [workflowModal, setWorkflowModal] = useState(null);
   const [toast, setToast] = useState(null);
   const didInitialLoadRef = useRef(false);
+  const applicationsRef = useRef([]);
+  const loadingRef = useRef(true);
+  const recoveryIntervalRef = useRef(null);
 
   const [stats, setStats] = useState({
     total: 0,
@@ -278,7 +281,10 @@ const Dashboard = () => {
   };
 
   const fetchApplications = async ({ silent = false } = {}) => {
-    if (!silent) setLoading(true);
+    if (!silent) {
+      setLoading(true);
+      loadingRef.current = true;
+    }
     try {
       let url = `/applications?page=${currentPage}&limit=${limit}`;
 
@@ -308,6 +314,7 @@ const Dashboard = () => {
       const nextStats = data.stats || { total: 0, completed: 0, pending: 0 };
       const nextApplications = data.applications || [];
       setApplications(nextApplications);
+      applicationsRef.current = nextApplications;
       setTotalPages(data.totalPages || 1);
       setFilteredStats(nextStats);
       if (!searchTerm.trim() && !dateFilterActive && filter === 'all') {
@@ -321,11 +328,15 @@ const Dashboard = () => {
       // чтобы интерфейс не показывал всплывающее окно подтверждения.
       if (!silent) {
         setApplications([]);
+        applicationsRef.current = [];
         setFilteredStats({ total: 0, completed: 0, pending: 0 });
       }
       return false;
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent) {
+        setLoading(false);
+        loadingRef.current = false;
+      }
     }
   };
 
@@ -416,14 +427,17 @@ const Dashboard = () => {
 
   useEffect(() => {
     let isCancelled = false;
-    const retryDelays = [200, 800, 1800];
     const retryTimers = [];
 
     const loadInitialData = async () => {
       await Promise.all([fetchGeneralStats(), fetchApplications()]);
       didInitialLoadRef.current = true;
 
-      retryDelays.forEach((delay) => {
+      // Устойчивые повторные попытки: сервер может быть недоступен пару секунд
+      // (например, dev-перезапуск nodemon), поэтому дозагружаем молча, пока
+      // таблица не появится.
+      const retryDelaysExtended = [200, 800, 1800, 3000, 5000, 8000];
+      retryDelaysExtended.forEach((delay) => {
         const timer = setTimeout(() => {
           if (isCancelled) return;
           fetchGeneralStats();
@@ -431,13 +445,24 @@ const Dashboard = () => {
         }, delay);
         retryTimers.push(timer);
       });
+
+      // Фоновая дозагрузка, пока таблица ещё пуста.
+      const recoveryTimer = setInterval(() => {
+        if (isCancelled || applicationsRef.current.length > 0 || loadingRef.current) return;
+        fetchApplications({ silent: true });
+      }, 4000);
+      recoveryIntervalRef.current = recoveryTimer;
     };
 
     loadInitialData();
 
     return () => {
       isCancelled = true;
-      retryTimers.forEach(clearTimeout);
+      retryTimers.forEach((timer) => clearTimeout(timer));
+      if (recoveryIntervalRef.current) {
+        clearInterval(recoveryIntervalRef.current);
+        recoveryIntervalRef.current = null;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

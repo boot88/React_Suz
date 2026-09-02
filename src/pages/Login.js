@@ -94,33 +94,34 @@ const Login = ({ mode = 'employee' }) => {
   const loginFieldRef = useRef(null);
 
 
-  useEffect(() => {
+  const loginSuggestionsRequestRef = useRef(0);
+
+  // Загрузка справочника логинов. Вызывается при монтировании и повторно,
+  // если первый запрос не успел выполниться (например, сервер перезапускался).
+  const fetchLoginSuggestions = useCallback(async () => {
     const role = isAdminMode ? 'admin' : 'employee';
-    let isCancelled = false;
-
-    const loadSuggestions = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/auth/login-suggestions?role=${role}&query=`);
-        if (!response.ok) {
-          if (!isCancelled) {
-            setAllLoginSuggestions([]);
-            setSuggestionsError(t('directoryLoadError'));
-          }
-          return;
-        }
-        const data = await response.json();
-        if (isCancelled) return;
-        const suggestions = Array.isArray(data?.suggestions) ? data.suggestions : [];
-        setAllLoginSuggestions(suggestions);
-        setSuggestionsError('');
-      } catch {
-        if (!isCancelled) {
-          setAllLoginSuggestions([]);
-          setSuggestionsError(t('directoryLoadError'));
-        }
+    const requestId = ++loginSuggestionsRequestRef.current;
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/login-suggestions?role=${role}&query=`);
+      if (requestId !== loginSuggestionsRequestRef.current) return;
+      if (!response.ok) {
+        setAllLoginSuggestions([]);
+        setSuggestionsError(t('directoryLoadError'));
+        return;
       }
-    };
+      const data = await response.json();
+      if (requestId !== loginSuggestionsRequestRef.current) return;
+      const suggestions = Array.isArray(data?.suggestions) ? data.suggestions : [];
+      setAllLoginSuggestions(suggestions);
+      setSuggestionsError('');
+    } catch {
+      if (requestId !== loginSuggestionsRequestRef.current) return;
+      setAllLoginSuggestions([]);
+      setSuggestionsError(t('directoryLoadError'));
+    }
+  }, [isAdminMode, t]);
 
+  useEffect(() => {
     // The account must always be chosen explicitly. In particular, switching
     // between /login and /admin must not leave a person from the other directory selected.
     setSelectedLogin('');
@@ -128,10 +129,9 @@ const Login = ({ mode = 'employee' }) => {
     setAllLoginSuggestions([]);
     setLoginSuggestions([]);
     setSuggestionsError('');
-    loadSuggestions();
-
-    return () => { isCancelled = true; };
-  }, [isAdminMode, t]);
+    fetchLoginSuggestions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdminMode]);
 
   useEffect(() => {
     const query = formData.username.trim().toLowerCase();
@@ -343,8 +343,8 @@ const Login = ({ mode = 'employee' }) => {
                   placeholder={t('usernamePlaceholder')}
                   value={formData.username}
                   onChange={(e) => { setSelectedLogin(''); setShowAllSuggestions(false); setFormData((prev) => ({ ...prev, username: e.target.value })); setSuggestionsOpen(true); }}
-                  onFocus={() => { setShowAllSuggestions(true); setSuggestionsOpen(true); }}
-                  onClick={() => { setShowAllSuggestions(true); setSuggestionsOpen(true); }}
+                  onFocus={() => { setShowAllSuggestions(true); setSuggestionsOpen(true); if (allLoginSuggestions.length === 0) fetchLoginSuggestions(); }}
+                  onClick={() => { setShowAllSuggestions(true); setSuggestionsOpen(true); if (allLoginSuggestions.length === 0) fetchLoginSuggestions(); }}
                   autoComplete="off"
                   spellCheck="false"
                   required
