@@ -15,6 +15,7 @@ const STATUS_META = {
 const WORKFLOW_FILTERS = [
   { id: 'all', label: 'Все' },
   { id: 'queue', label: 'Новые' },
+  { id: 'inwork', label: 'В работе' },
   { id: 'my', label: 'Мои' },
   { id: 'active', label: 'В работе' },
   { id: 'unassigned', label: 'Без исполнителя' },
@@ -23,15 +24,17 @@ const WORKFLOW_FILTERS = [
   { id: 'overdue', label: 'Просроченные' }
 ];
 const QUEUE_FILTERS = [
+  { id: 'all', label: 'Все' },
   { id: 'queue', label: 'Новые', icon: '📥' },
+  { id: 'inwork', label: 'В работе', icon: '🛠️' },
   { id: 'my', label: 'Мои', icon: '👤' },
-  { id: 'overdue', label: 'Просроченные', icon: '⚠️' },
-  { id: 'unassigned', label: 'Без исполнителя', icon: '🧭' }
+  { id: 'unassigned', label: 'Без исполнителя', icon: '🧭' },
+  { id: 'done', label: 'Выполненные', icon: '✅' },
+  { id: 'confirmation', label: 'Ждут подтверждения', icon: '👤' }
 ];
 const SORT_OPTIONS = [
-  { id: 'sla', label: 'SLA: сначала срочные' },
-  { id: 'status', label: 'Статус' },
   { id: 'date_desc', label: 'Дата: новые сверху' },
+  { id: 'status', label: 'Статус' },
   { id: 'date_asc', label: 'Дата: старые сверху' },
   { id: 'executor', label: 'Исполнитель' }
 ];
@@ -45,19 +48,17 @@ const TABLE_STATUS_ORDER = {
 };
 const DASHBOARD_COLUMNS_KEY = 'dashboard.visibleColumns.v1';
 const DASHBOARD_COMPACT_KEY = 'dashboard.compactMode.v1';
-const DEFAULT_DASHBOARD_COLUMNS = ['employee', 'request', 'executor', 'created', 'sla', 'status'];
+const DEFAULT_DASHBOARD_COLUMNS = ['employee', 'request', 'executor', 'created', 'status'];
 const DASHBOARD_COLUMNS = [
   { id: 'employee', label: 'Сотрудник' },
   { id: 'request', label: 'Заявка' },
   { id: 'executor', label: 'Исполнитель' },
   { id: 'created', label: 'Дата' },
-  { id: 'sla', label: 'SLA' },
   { id: 'status', label: 'Статус' }
 ];
 const SAVED_DASHBOARD_VIEWS = [
-  { id: 'my', label: 'Мои заявки', filter: 'my', sort: 'sla' },
-  { id: 'it', label: 'IT', filter: 'all', sort: 'sla', search: 'IT' },
-  { id: 'urgent', label: 'Срочные', filter: 'overdue', sort: 'sla' },
+  { id: 'my', label: 'Мои заявки', filter: 'my', sort: 'date_desc' },
+  { id: 'it', label: 'IT', filter: 'all', sort: 'date_desc', search: 'IT' },
   { id: 'today', label: 'Сегодня', filter: 'all', sort: 'date_desc', dateRange: 'today' }
 ];
 const readVisibleColumns = () => {
@@ -77,6 +78,29 @@ const formatDuration = (seconds) => {
   const m = Math.floor((safe % 3600) / 60);
   const s = safe % 60;
   return [h, m, s].map((part) => String(part).padStart(2, '0')).join(':');
+};
+
+// Три ключевых времени заявки и производные длительности.
+const getApplicationTimes = (app = {}) => {
+  const createdRaw = app.created_at || app.data || '';
+  const takenRaw = app.work_started_at || app.accepted_at || '';
+  const closedRaw = app.employee_confirmed_at || app.end_data || app.resolved_at || '';
+  const created = createdRaw ? new Date(createdRaw).getTime() : 0;
+  const taken = takenRaw ? new Date(takenRaw).getTime() : 0;
+  const isDone = Boolean(app.fl) || app.status === 'done';
+  const closed = closedRaw ? new Date(closedRaw).getTime() : 0;
+  const endMs = closed || Date.now();
+  return {
+    createdAt: created || null,
+    takenAt: taken || null,
+    closedAt: isDone ? (closed || Date.now()) : null,
+    // общее время от подачи до закрытия
+    totalSeconds: created ? Math.max(0, Math.round((endMs - created) / 1000)) : null,
+    // время от подачи до взятия в работу
+    waitSeconds: created && taken ? Math.max(0, Math.round((taken - created) / 1000)) : null,
+    // время от взятия до закрытия
+    workSeconds: taken ? Math.max(0, Math.round((endMs - taken) / 1000)) : null
+  };
 };
 
 
@@ -137,12 +161,6 @@ const getWorkSeconds = (app = {}) => {
   return null;
 };
 
-const getDisplayWorkSeconds = (app = {}) => {
-  const workSeconds = getWorkSeconds(app);
-  if (workSeconds == null) return null;
-  return Math.max(workSeconds, 30 * 60);
-};
-
 const getSlaState = (app = {}) => {
   const status = app.status || (app.fl ? 'done' : 'new');
   const paused = Boolean(app.sla_paused_at);
@@ -189,10 +207,10 @@ const Dashboard = () => {
   const [workflowMessage, setWorkflowMessage] = useState('');
   const [actionBusyId, setActionBusyId] = useState(null);
   const [openActionMenuId, setOpenActionMenuId] = useState(null);
-  const [sortMode, setSortMode] = useState('sla');
+  const [sortMode, setSortMode] = useState(() => localStorage.getItem('dashboard.sortMode') || 'date_desc');
   const [visibleColumns, setVisibleColumns] = useState(readVisibleColumns);
   const [compactMode, setCompactMode] = useState(() => localStorage.getItem(DASHBOARD_COMPACT_KEY) === 'true');
-  const [viewMode, setViewMode] = useState(() => localStorage.getItem('dashboard.viewMode') || 'table');
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('dashboard.viewMode') || 'timeline');
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
   const [bulkExecutor, setBulkExecutor] = useState('');
@@ -225,11 +243,26 @@ const Dashboard = () => {
   const exportToExcel = async () => {
     setExportLoading(true);
     try {
+      // Экспортируем ровно то, что сейчас отфильтровано в таблице
+      // (статус/очередь, период, поиск).
+      const params = new URLSearchParams();
+      if (filter !== 'all') {
+        if (['my', 'unassigned'].includes(filter)) {
+          params.set('queue', filter);
+          if (filter === 'my') {
+            params.set('assignee', user?.name || user?.username || '');
+          }
+        } else {
+          params.set('status', filter);
+        }
+      }
+      if (fromDate) params.set('from', fromDate);
+      if (toDate) params.set('to', toDate);
+      if (searchTerm && searchTerm.trim()) params.set('search', searchTerm.trim());
+
       let url = '/applications/export';
-      if (filter !== 'all' && !['my', 'unassigned'].includes(filter)) url += `?status=${encodeURIComponent(filter)}`;
-      if (fromDate) url += `${url.includes('?') ? '&' : '?'}from=${fromDate}`;
-      if (toDate) url += `${url.includes('?') ? '&' : '?'}to=${toDate}`;
-      if (searchTerm) url += `${url.includes('?') ? '&' : '?'}search=${encodeURIComponent(searchTerm.trim())}`;
+      const query = params.toString();
+      if (query) url += `?${query}`;
 
       const response = await authFetch(`${API_BASE_URL}${url}`);
       const data = await response.json();
@@ -410,14 +443,6 @@ const Dashboard = () => {
         eta_minutes: app.eta_minutes || 10,
         admin_comment: app.admin_comment || 'К вам подойдут через 10 минут'
       }
-    });
-  };
-
-  const openResolveModal = (app) => {
-    setWorkflowModal({
-      type: 'resolve',
-      app,
-      values: { process: app.process || 'Проблема устранена' }
     });
   };
 
@@ -645,17 +670,6 @@ const Dashboard = () => {
     });
   };
 
-  const formatCompactDuration = (seconds) => {
-    if (seconds === null || seconds === undefined || seconds === '') return '—';
-    const safe = Math.max(0, Math.floor(Number(seconds) || 0));
-    if (safe < 60) return '<1 мин';
-    const minutes = Math.round(safe / 60);
-    if (minutes < 60) return `${minutes} мин`;
-    const hours = Math.floor(minutes / 60);
-    const rest = minutes % 60;
-    return rest ? `${hours} ч ${rest} мин` : `${hours} ч`;
-  };
-
   const getApplicationSourceLabel = (app = {}) => {
     if (app.source === 'chat' || app.employee_login) return 'Из чата';
     if (app.source === 'employee') return 'От сотрудника';
@@ -679,19 +693,6 @@ const Dashboard = () => {
 
   const getCategoryLabel = (category) => String(category || '').trim() || 'Без категории';
 
-const getSlaBadge = (app = {}) => {
-    const sla = getSlaState(app);
-    const status = app.status || (app.fl ? 'done' : 'new');
-    if (app.fl || status === 'done') {
-      return { ...sla, title: 'SLA закрыта', value: 'готово' };
-    }
-    return {
-      ...sla,
-      title: sla.label,
-      value: formatCompactDuration(sla.seconds)
-    };
-  };
-
   const getStatusLabel = (app) => {
     const status = app.status || (app.fl ? 'done' : 'new');
     const meta = STATUS_META[status] || STATUS_META.new;
@@ -700,10 +701,7 @@ const getSlaBadge = (app = {}) => {
 
   const getPrimaryTableAction = (app = {}) => {
     const status = app.status || (app.fl ? 'done' : 'new');
-    if (['new', 'reopened'].includes(status)) return { label: 'Взять', action: () => openAcceptModal(app) };
-    if (status === 'accepted') return { label: 'Начать', action: () => runWorkflowAction(app, 'start-work') };
-    if (status === 'in_progress') return { label: 'Завершить', action: () => openResolveModal(app) };
-    if (status === 'waiting_employee_confirmation') return { label: 'Проверить', action: () => openApplicationPanel(app) };
+    if (['new', 'reopened'].includes(status)) return { label: 'Взять в работу', action: () => openAcceptModal(app) };
     return { label: 'Открыть', action: () => openApplicationPanel(app) };
   };
 
@@ -752,9 +750,6 @@ const getSlaBadge = (app = {}) => {
         eta_minutes: Number(workflowModal.values.eta_minutes) || 10,
         admin_comment: workflowModal.values.admin_comment
       });
-    }
-    if (workflowModal.type === 'resolve') {
-      runWorkflowAction(workflowModal.app, 'resolve', { process: workflowModal.values.process });
     }
   };
 
@@ -912,9 +907,9 @@ const getSlaBadge = (app = {}) => {
   };
 
   const statCards = [
-    { id: 'queue', label: 'Новые', value: stats.queue || 0, hint: 'Ждут назначения' },
-    { id: 'active', label: 'В работе', value: stats.active || 0, hint: 'Назначены или выполняются' },
-    { id: 'overdue', label: 'Просроченные', value: stats.overdue || 0, hint: 'Нарушен SLA', tone: 'danger' }
+    { id: 'all', label: 'Все', value: stats.total || 0, hint: 'Все заявки' },
+    { id: 'inwork', label: 'В работе', value: (stats.inwork != null ? stats.inwork : ((stats.active || 0) + (stats.confirmation || 0))), hint: 'Приняты и выполняются' },
+    { id: 'queue', label: 'Новые', value: stats.queue || 0, hint: 'Новые заявки сотрудников' }
   ];
 
   const displayedApplications = useMemo(() => {
@@ -945,6 +940,8 @@ const getSlaBadge = (app = {}) => {
     });
     return sorted;
   }, [applications, sortMode]);
+
+  const selectedAppTimes = selectedApplication ? getApplicationTimes(selectedApplication) : null;
 
   return (
     <div className="dashboard-container">
@@ -980,7 +977,7 @@ const getSlaBadge = (app = {}) => {
           <div
             key={card.id}
             className={`stat-card ${card.tone === 'danger' ? 'stat-danger' : ''} ${filter === card.id ? 'stat-active' : ''}`}
-            onClick={() => setFilterAndResetPage(card.id)}
+            onClick={() => (card.id === 'all' ? clearFilters() : setFilterAndResetPage(card.id))}
           >
             <span className="stat-label">{card.label}</span>
             <div className="stat-number">{card.value}</div>
@@ -993,13 +990,12 @@ const getSlaBadge = (app = {}) => {
 
       {/* Фильтры */}
       <div className="filters-section filters-section-compact">
-        <div className="queue-filter-row" aria-label="Очереди заявок">
-          <button type="button" className={filter === 'all' ? 'active' : ''} onClick={clearFilters}>Все</button>
-          {QUEUE_FILTERS.map((queue) => <button key={queue.id} type="button" className={filter === queue.id ? 'active' : ''} onClick={() => setFilterAndResetPage(queue.id)}>{queue.label}</button>)}
-        </div>
         <details className="dashboard-settings">
           <summary>Фильтры и настройки</summary>
           <div className="dashboard-settings-body">
+        <div className="queue-filter-row" aria-label="Очереди заявок">
+          {QUEUE_FILTERS.map((queue) => <button key={queue.id} type="button" className={filter === queue.id ? 'active' : ''} onClick={() => (queue.id === 'all' ? clearFilters() : setFilterAndResetPage(queue.id))}>{queue.label}</button>)}
+        </div>
         <div className="saved-views-row" aria-label="Сохранённые представления">
           <strong>Представления:</strong>
           {SAVED_DASHBOARD_VIEWS.map((view) => (
@@ -1098,6 +1094,7 @@ const getSlaBadge = (app = {}) => {
                   value={sortMode}
                   onChange={(e) => {
                     setSortMode(e.target.value);
+                    localStorage.setItem('dashboard.sortMode', e.target.value);
                     setCurrentPage(1);
                   }}
                 >
@@ -1145,7 +1142,13 @@ const getSlaBadge = (app = {}) => {
                 )}
               </div>
             )}
-            {viewMode === 'timeline' ? <div className="request-timeline">{Object.entries(displayedApplications.reduce((groups, app) => { const key = new Date(app.created_at || app.data).toLocaleDateString('ru-RU', { timeZone: 'UTC' }); (groups[key] ||= []).push(app); return groups; }, {})).map(([date, apps]) => <section className="timeline-day" key={date}><h4>{date}</h4><div className="timeline-row">{apps.sort((a, b) => new Date(a.created_at || a.data) - new Date(b.created_at || b.data)).map(app => <button type="button" className="timeline-request" key={app.id} onClick={() => openApplicationPanel(app)}><small>#{app.id} · {formatTime(app.created_at || app.data)}</small><strong>{app.application || 'Без описания'}</strong><span>{getCategoryLabel(app.category)} · {getPriorityLabel(app.priority)} · {getApplicationSourceLabel(app)}</span></button>)}</div></section>)}</div> : <div className="table-responsive">
+            {viewMode === 'timeline' ? <div className="request-timeline">{Object.entries(displayedApplications.reduce((groups, app) => { const key = new Date(app.created_at || app.data).toLocaleDateString('ru-RU', { timeZone: 'UTC' }); (groups[key] ||= []).push(app); return groups; }, {})).map(([date, apps]) => <section className="timeline-day" key={date}><h4>{date}</h4><div className="timeline-row">{apps.sort((a, b) => new Date(a.created_at || a.data) - new Date(b.created_at || b.data)).map(app => (
+  <button type="button" className="timeline-request" key={app.id} onClick={() => openApplicationPanel(app)}>
+    <small>#{app.id} · {formatTime(app.created_at || app.data)} · {getStatusLabel(app)}</small>
+    <strong>{app.name || 'Без ФИО'} · каб. {app.cabinet || '—'}</strong>
+    <span className="timeline-text">{app.application || 'Без описания'}</span>
+  </button>
+))}</div></section>)}</div> : <div className="table-responsive">
               <table className={`applications-table ${compactMode ? 'applications-table-compact' : ''}`}>
                 <thead>
                   <tr>
@@ -1154,7 +1157,6 @@ const getSlaBadge = (app = {}) => {
                     {isColumnVisible('request') && <th>Заявка</th>}
                     {isColumnVisible('executor') && <th>Исполнитель</th>}
                     {isColumnVisible('created') && <th>Дата</th>}
-                    {isColumnVisible('sla') && <th>SLA</th>}
                     {isColumnVisible('status') && <th>Статус</th>}
                     {isColumnVisible('actions') && <th>Действия</th>}
                   </tr>
@@ -1164,11 +1166,10 @@ const getSlaBadge = (app = {}) => {
 	                    displayedApplications.map((app) => {
                         const primaryAction = getPrimaryTableAction(app);
                         const status = app.status || (app.fl ? 'done' : 'new');
-                        const canPauseOverdue = getSlaState(app).level === 'critical' && !getSlaState(app).paused;
                         return (
 	                      <tr
 	                        key={app.id}
-                        className={`${app.fl ? 'row-completed' : `row-${app.status || 'new'}`} row-sla-${getSlaState(app).level} ${selectedApplication?.id === app.id ? 'row-selected' : ''}`}
+                        className={`${app.fl ? 'row-completed' : `row-${app.status || 'new'}`} ${selectedApplication?.id === app.id ? 'row-selected' : ''}`}
 	                        onClick={() => openApplicationPanel(app)}
 	                      >
 	                        <td className="select-column" onClick={(event) => event.stopPropagation()}>
@@ -1234,17 +1235,6 @@ const getSlaBadge = (app = {}) => {
                         {isColumnVisible('created') && <td className="cell-date cell-created">
                           <strong>{new Date(app.created_at || app.data).toLocaleDateString('ru-RU')}</strong>
                         </td>}
-                        {isColumnVisible('sla') && <td className="cell-sla">
-                          {(() => {
-                            const sla = getSlaBadge(app);
-                            return (
-                              <span className={`sla-badge sla-badge-${sla.level}`} title={sla.title}>
-                                <strong>{sla.value}</strong>
-                                <small>{sla.title}</small>
-                              </span>
-                            );
-                          })()}
-                        </td>}
                         {isColumnVisible('status') && <td>{getStatusLabel(app)}</td>}
                         {isColumnVisible('actions') && <td className="cell-actions">
                           <div className="workflow-actions workflow-actions-compact">
@@ -1273,9 +1263,6 @@ const getSlaBadge = (app = {}) => {
                                   <button type="button" onClick={(event) => runTableAction(event, app, openApplicationPanel)}>Открыть карточку</button>
                                   {app.employee_login && <a href={getOpenChatHref(app)}>Открыть чат</a>}
                                   {['new', 'reopened'].includes(status) && <button type="button" onClick={(event) => runTableAction(event, app, openAcceptModal)}>Взять в работу</button>}
-                                  {status === 'accepted' && <button type="button" onClick={(event) => runTableAction(event, app, () => runWorkflowAction(app, 'start-work'))}>Запустить таймер</button>}
-                                  {['accepted', 'in_progress'].includes(status) && <button type="button" onClick={(event) => runTableAction(event, app, openResolveModal)}>Что сделано</button>}
-                                  {canPauseOverdue && <button type="button" className="danger-menu-action" onClick={(event) => runTableAction(event, app, () => runWorkflowAction(app, 'pause-overdue'))}>Остановить просрочку</button>}
                                 </div>
                               )}
                             </div>
@@ -1314,9 +1301,15 @@ const getSlaBadge = (app = {}) => {
             <h2>Заявка #{selectedApplication.id}</h2>
             <p>{selectedApplication.name} · каб. {selectedApplication.cabinet || '—'} · тел: {selectedApplication.N_tel || '—'}</p>
           </div>
-          <div className={`sla-card sla-${getSlaState(selectedApplication).level}`}>
-            <strong>{getSlaState(selectedApplication).label}</strong>
-            <span>{selectedApplication.fl || selectedApplication.status === 'done' ? `Работа: ${formatDuration(getDisplayWorkSeconds(selectedApplication))}` : formatDuration(getSlaState(selectedApplication).seconds)}</span>
+          <div className="time-summary-card">
+            <strong>{getStatusLabel(selectedApplication)}</strong>
+            {selectedAppTimes && (
+              <span>
+                {selectedAppTimes.totalSeconds != null && <em>Всего: {formatDuration(selectedAppTimes.totalSeconds)}</em>}
+                {selectedAppTimes.workSeconds != null && <em>В работе: {formatDuration(selectedAppTimes.workSeconds)}</em>}
+                {selectedAppTimes.waitSeconds != null && <em>Ожидание: {formatDuration(selectedAppTimes.waitSeconds)}</em>}
+              </span>
+            )}
           </div>
           <div className="next-action-card">
             <span>Следующее действие</span>
@@ -1330,14 +1323,14 @@ const getSlaBadge = (app = {}) => {
           <div className="side-panel-section"><h3>Хронология</h3><div className="side-panel-grid">
             <div><strong>Категория</strong><span>{selectedApplication.category || '—'}</span></div>
             <div><strong>Приоритет</strong><span>{selectedApplication.priority || 'Обычный'}</span></div>
-            <div><strong>Источник</strong><span>{selectedApplication.source || 'admin'}</span></div>
-            <div><strong>Исполнитель</strong><span>{selectedApplication.executor || 'Не назначен'}</span></div>
-            <div><strong>Создана</strong><span>{formatCreatedAt(selectedApplication.created_at || selectedApplication.data)}</span></div>
-            {selectedApplication.accepted_at && <div><strong>Назначена</strong><span>{formatCreatedAt(selectedApplication.accepted_at)}</span></div>}
-            {selectedApplication.work_started_at && <div><strong>Взята в работу</strong><span>{formatCreatedAt(selectedApplication.work_started_at)}</span></div>}
-            {(selectedApplication.completed_at || selectedApplication.done_at) && <div><strong>Завершена</strong><span>{formatCreatedAt(selectedApplication.completed_at || selectedApplication.done_at)}</span></div>}
-            {getWaitingSeconds(selectedApplication) != null && <div><strong>Ожидание</strong><span>{formatDuration(getWaitingSeconds(selectedApplication))}</span></div>}
-            {!(selectedApplication.fl || selectedApplication.status === 'done') && <div><strong>Работа</strong><span>{formatDuration(getDisplayWorkSeconds(selectedApplication))}</span></div>}
+            <div><strong>Источник</strong><span>{getApplicationSourceLabel(selectedApplication)}</span></div>
+            <div><strong>Исполнитель</strong><span>{selectedApplication.executor || selectedApplication.accepted_by || 'Не назначен'}</span></div>
+            <div><strong>Подана</strong><span>{formatCreatedAt(selectedApplication.created_at || selectedApplication.data)}</span></div>
+            {selectedAppTimes?.takenAt ? <div><strong>Взята в работу</strong><span>{formatCreatedAt(new Date(selectedAppTimes.takenAt).toISOString())}</span></div> : null}
+            {selectedAppTimes?.closedAt ? <div><strong>Закрыта</strong><span>{formatCreatedAt(new Date(selectedAppTimes.closedAt).toISOString())}</span></div> : null}
+            {selectedAppTimes?.totalSeconds != null && <div><strong>Подача → закрытие</strong><span>{formatDuration(selectedAppTimes.totalSeconds)}</span></div>}
+            {selectedAppTimes?.waitSeconds != null && <div><strong>Подача → взятие</strong><span>{formatDuration(selectedAppTimes.waitSeconds)}</span></div>}
+            {selectedAppTimes?.workSeconds != null && <div><strong>Взятие → закрытие</strong><span>{formatDuration(selectedAppTimes.workSeconds)}</span></div>}
           </div></div>
           {selectedApplication.admin_comment && (
             <div className="side-panel-section">
@@ -1357,10 +1350,6 @@ const getSlaBadge = (app = {}) => {
           )}
           <div className="side-panel-actions">
             {['new', 'reopened'].includes(selectedApplication.status || 'new') && <button type="button" onClick={() => openAcceptModal(selectedApplication)}>Взять в работу</button>}
-            {selectedApplication.status === 'accepted' && <button type="button" onClick={() => runWorkflowAction(selectedApplication, 'start-work')}>Запустить таймер</button>}
-            {['accepted', 'in_progress'].includes(selectedApplication.status) && <button type="button" onClick={() => openResolveModal(selectedApplication)}>Что сделано</button>}
-            {getSlaState(selectedApplication).level === 'critical' && !getSlaState(selectedApplication).paused && <button type="button" onClick={() => runWorkflowAction(selectedApplication, 'pause-overdue')}>Остановить таймер просрочки</button>}
-            {getSlaState(selectedApplication).paused && <button type="button" disabled>Таймер просрочки остановлен</button>}
             {selectedApplication.employee_login && <a href={getOpenChatHref(selectedApplication)}>Открыть чат</a>}
             <a href={`/edit/${selectedApplication.id}`}>Редактировать заявку</a>
           </div>
@@ -1413,12 +1402,26 @@ const getSlaBadge = (app = {}) => {
 
 const getStatusDescription = (app = {}) => {
   const status = app.status || (app.fl ? 'done' : 'new');
-  return ({ new: 'Заявка ожидает назначения исполнителя.', reopened: 'Заявка снова открыта и ожидает действий администратора.', accepted: 'Исполнитель выбран, работа ещё не начата.', in_progress: 'Исполнитель выполняет заявку.', waiting_employee_confirmation: 'Исполнитель завершил работу, ожидается подтверждение сотрудника.', done: 'Заявка закрыта.' })[status] || 'Статус заявки уточняется.';
+  return ({
+    new: 'Сотрудник подал заявку, ожидает взятия в работу.',
+    reopened: 'Заявка переоткрыта сотрудником, ожидает взятия в работу.',
+    accepted: 'Заявка в работе (назначена исполнителю).',
+    in_progress: 'Заявка в работе. Закроет сотрудник либо администратор через редактирование.',
+    waiting_employee_confirmation: 'Работа выполнена, ожидается подтверждение сотрудника.',
+    done: 'Заявка закрыта.'
+  })[status] || 'Статус заявки уточняется.';
 };
 
 const getNextAction = (app = {}) => {
   const status = app.status || (app.fl ? 'done' : 'new');
-  return ({ new: 'Назначьте исполнителя', reopened: 'Назначьте исполнителя', accepted: 'Начните работу', in_progress: 'Зафиксируйте выполненную работу', waiting_employee_confirmation: 'Проверьте результат и подтверждение сотрудника', done: 'Заявка закрыта' })[status] || 'Откройте заявку для проверки';
+  return ({
+    new: 'Взять в работу',
+    reopened: 'Взять в работу',
+    accepted: 'В работе',
+    in_progress: 'В работе',
+    waiting_employee_confirmation: 'Ожидание подтверждения сотрудника',
+    done: 'Заявка закрыта'
+  })[status] || 'Откройте заявку';
 };
 
 export default Dashboard;

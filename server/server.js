@@ -381,12 +381,13 @@ const handleNullValues = (value, defaultValue = null) => {
 };
 
 app.get('/api/applications/export', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
-  const { status, from, to, search, employee_login } = req.query; // Добавлен параметр search
+  const { status, from, to, search, employee_login, queue, assignee } = req.query; // Добавлен параметр search
   const statusGroups = {
     done: ['done'],
     pending: ['new', 'accepted', 'in_progress', 'waiting_employee_confirmation', 'reopened'],
     queue: ['new', 'reopened'],
     active: ['accepted', 'in_progress'],
+    inwork: ['accepted', 'in_progress', 'waiting_employee_confirmation'],
     confirmation: ['waiting_employee_confirmation']
   };
 
@@ -432,6 +433,16 @@ app.get('/api/applications/export', requireAuth, requireRole('admin', 'manager')
   if (employee_login && employee_login.trim()) {
     whereClause.push('LOWER(`employee_login`) = ?');
     queryParams.push(employee_login.trim().toLowerCase());
+  }
+
+  if (queue === 'unassigned') {
+    whereClause.push("COALESCE(`fl`, 0) = 0 AND COALESCE(NULLIF(TRIM(`executor`), ''), NULLIF(TRIM(`accepted_by`), '')) IS NULL");
+  }
+
+  if (queue === 'my' && assignee && assignee.trim()) {
+    const normalizedAssignee = assignee.trim().toLowerCase();
+    whereClause.push('(LOWER(COALESCE(`executor`, \'\')) LIKE ? OR LOWER(COALESCE(`accepted_by`, \'\')) = ?)');
+    queryParams.push(`%${normalizedAssignee}%`, normalizedAssignee);
   }
 
   const whereSql = whereClause.length > 0 ? 'WHERE ' + whereClause.join(' AND ') : '';
@@ -574,6 +585,7 @@ app.get('/api/applications', requireAuth, requireRole('admin', 'manager'), async
     pending: ['new', 'accepted', 'in_progress', 'waiting_employee_confirmation', 'reopened'],
     queue: ['new', 'reopened'],
     active: ['accepted', 'in_progress'],
+    inwork: ['accepted', 'in_progress', 'waiting_employee_confirmation'],
     confirmation: ['waiting_employee_confirmation']
   };
 
@@ -692,7 +704,7 @@ app.get('/api/applications', requireAuth, requireRole('admin', 'manager'), async
       applications: formattedApplications,
       totalPages,
       currentPage: page,
-      stats: { total, completed, pending, queue: queueResult[0].count, accepted: acceptedResult[0].count, in_progress: inProgressResult[0].count, active: activeResult[0].count, confirmation: confirmationResult[0].count, overdue: overdueResult[0].count }
+      stats: { total, completed, pending, queue: queueResult[0].count, accepted: acceptedResult[0].count, in_progress: inProgressResult[0].count, active: activeResult[0].count, inwork: Number(activeResult[0].count) + Number(confirmationResult[0].count), confirmation: confirmationResult[0].count, overdue: overdueResult[0].count }
     });
   } catch (error) {
     console.error('Ошибка при запросе к БД:', error);
@@ -702,19 +714,17 @@ app.get('/api/applications', requireAuth, requireRole('admin', 'manager'), async
 
 
 app.get('/api/applications/unseen-count', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
-  const adminLogin = req.auth.login;
   try {
     await ensureApplicationWorkflowSchema();
+    // Счётчик «новых заявок»: горит, пока заявку не возьмут в работу
+    // (статус перестаёт быть new/reopened). Просмотр карточки не гасит цифру.
     const [rows] = await pool.execute(
-      `SELECT COUNT(*) AS count
-       FROM application a
-       LEFT JOIN application_views v ON v.application_id = a.id AND v.admin_login = ?
-       WHERE a.\`deleted_at\` IS NULL AND a.\`status\` IN ('new', 'reopened') AND v.id IS NULL`,
-      [adminLogin]
+      'SELECT COUNT(*) AS count FROM application WHERE `deleted_at` IS NULL AND `status` IN (?, ?)',
+      ['new', 'reopened']
     );
     res.json({ count: rows[0]?.count || 0 });
   } catch (error) {
-    console.error('Ошибка подсчёта непросмотренных заявок:', error);
+    console.error('Ошибка подсчёта новых заявок:', error);
     res.status(500).json({ error: 'Не удалось получить количество новых заявок' });
   }
 });
@@ -771,32 +781,41 @@ app.get('/api/applications/:id', requireAuth, requireApplicationOwnerOrManager, 
 app.post('/api/applications', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   const {
     name, cabinet, N_tel, application, process, executor,
-    data, start_data, end_data, fl, status, employee_login, category,
+    data, fl, status, employee_login, category,
     priority
   } = req.body;
 
   try {
     await ensureApplicationWorkflowSchema();
-    const normalizedStatus = normalizeApplicationStatus(status, fl ? 'done' : 'new');
+    const now = formatNowForMySQL();
     const idempotencyKey = getIdempotencyKey(req);
+    const requestedCompleted = Boolean(fl) || status === 'done';
+    // Заявка, созданная администратором, сразу считается «в работе»: админ сам
+    // её выполняет. «Выполнена» помечается галочкой в форме.
+    const statusValue = requestedCompleted ? 'done' : 'in_progress';
     const processedData = {
       name: handleNullValues(name, ''),
       cabinet: handleNullValues(cabinet, ''),
       N_tel: handleNullValues(N_tel, ''),
       application: handleNullValues(application, ''),
       process: handleNullValues(process, ''),
-      executor: handleNullValues(executor, ''),
-      data: formatDateForMySQL(data) || formatNowForMySQL(),
-      start_data: formatDateForMySQL(start_data),
-      end_data: formatDateForMySQL(end_data),
-      fl: normalizedStatus === 'done' || fl ? 1 : 0,
-      status: normalizedStatus,
+      executor: handleNullValues(executor, req.auth.login),
+      data: formatDateForMySQL(data) || now,
+      start_data: requestedCompleted ? null : now,
+      end_data: requestedCompleted ? now : null,
+      fl: requestedCompleted ? 1 : 0,
+      status: statusValue,
       employee_login: handleNullValues(employee_login, ''),
       category: handleNullValues(category, ''),
       priority: handleNullValues(priority, ''),
       source: 'admin',
       chat_thread_id: '',
-      source_message_id: '', idempotency_key: idempotencyKey || null
+      source_message_id: '',
+      idempotency_key: idempotencyKey || null,
+      accepted_by: requestedCompleted ? null : req.auth.login,
+      accepted_at: requestedCompleted ? null : now,
+      work_started_at: requestedCompleted ? null : now,
+      employee_confirmed_at: requestedCompleted ? now : null
     };
     const created = await withApplicationTransaction(async (connection) => {
       if (idempotencyKey) {
@@ -804,16 +823,17 @@ app.post('/api/applications', requireAuth, requireRole('admin', 'manager'), asyn
         if (rows[0]) return { id: rows[0].id, replayed: true };
       }
       const [result] = await connection.execute(
-        'INSERT INTO application (`name`, `cabinet`, `N_tel`, `application`, `process`, `executor`, `data`, `start_data`, `end_data`, `fl`, `status`, `employee_login`, `category`, `priority`, `source`, `chat_thread_id`, `source_message_id`, `idempotency_key`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO application (`name`, `cabinet`, `N_tel`, `application`, `process`, `executor`, `data`, `start_data`, `end_data`, `fl`, `status`, `employee_login`, `category`, `priority`, `source`, `chat_thread_id`, `source_message_id`, `idempotency_key`, `accepted_by`, `accepted_at`, `work_started_at`, `employee_confirmed_at`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
         processedData.name, processedData.cabinet, processedData.N_tel, processedData.application,
         processedData.process, processedData.executor, processedData.data, processedData.start_data,
         processedData.end_data, processedData.fl, processedData.status, processedData.employee_login,
         processedData.category, processedData.priority, processedData.source, processedData.chat_thread_id,
-        processedData.source_message_id, processedData.idempotency_key
+        processedData.source_message_id, processedData.idempotency_key, processedData.accepted_by,
+        processedData.accepted_at, processedData.work_started_at, processedData.employee_confirmed_at
         ]
       );
-      await addApplicationEvent(connection, result.insertId, req.auth.login, req.auth.role, 'created', 'Заявка создана');
+      await addApplicationEvent(connection, result.insertId, req.auth.login, req.auth.role, requestedCompleted ? 'created' : 'created_by_admin', requestedCompleted ? 'Заявка создана и закрыта администратором' : 'Заявка создана администратором, взята в работу');
       return { id: result.insertId, replayed: false };
     });
     const savedApplication = await getApplicationById(created.id);
@@ -892,7 +912,7 @@ app.post('/api/applications/from-chat', requireAuth, async (req, res) => {
         if (rows[0]) return { id: rows[0].id, replayed: true };
       }
       const [result] = await connection.execute(
-      'INSERT INTO application (`name`, `cabinet`, `N_tel`, `application`, `process`, `executor`, `data`, `start_data`, `end_data`, `fl`, `status`, `employee_login`, `category`, `priority`, `source`, `chat_thread_id`, `source_message_id`, `source_attachments_json`, `idempotency_key`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO application (`name`, `cabinet`, `N_tel`, `application`, `process`, `executor`, `data`, `start_data`, `end_data`, `fl`, `status`, `employee_login`, `category`, `priority`, `source`, `chat_thread_id`, `source_message_id`, `source_attachments_json`, `idempotency_key`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         handleNullValues(actor.full_name, employeeLogin), handleNullValues(actor.room, ''), handleNullValues(actor.phone, ''),
         applicationText, '', '', now, null, null, 0, 'new',
@@ -943,6 +963,16 @@ app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), a
     const closedAt = nextStatus === 'done'
       ? (existingApp.employee_confirmed_at || formatNowForMySQL())
       : existingApp.employee_confirmed_at;
+    // Для ручного закрытия (галочка «Выполнена») досчитываем фактическое время
+    // работы, чтобы у сотрудника и в отчётах были верные длительности.
+    let computedWorkSeconds = existingApp.work_seconds;
+    if (isManualClosure) {
+      const base = Number(existingApp.work_seconds || 0);
+      const gapFrom = existingApp.resolved_at
+        ? existingApp.resolved_at
+        : (existingApp.work_started_at || existingApp.accepted_at || existingApp.created_at || existingApp.data);
+      computedWorkSeconds = base + (secondsBetween(gapFrom, closedAt) || 0);
+    }
     const processedData = {
       name: pick('name', ''), cabinet: pick('cabinet', ''), N_tel: pick('N_tel', ''),
       application: pick('application', ''), process: pick('process', ''), executor: pick('executor', ''),
@@ -955,7 +985,7 @@ app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), a
       admin_comment: pick('admin_comment', ''), eta_minutes: has('eta_minutes') ? (eta_minutes || null) : existingApp.eta_minutes,
       waiting_seconds: existingApp.waiting_seconds,
       arrival_seconds: existingApp.arrival_seconds,
-      work_seconds: existingApp.work_seconds,
+      work_seconds: computedWorkSeconds,
       source: existingApp.source, chat_thread_id: existingApp.chat_thread_id,
       source_message_id: existingApp.source_message_id, employee_comment: pick('employee_comment', '')
     };
@@ -1029,11 +1059,11 @@ app.post('/api/applications/:id/accept', requireAuth, requireRole('admin', 'mana
       const now = formatNowForMySQL();
       return {
         sql: 'UPDATE application SET `status` = ?, `accepted_by` = ?, `executor` = ?, `eta_minutes` = ?, `admin_comment` = ?, `accepted_at` = ?, `work_started_at` = ?, `start_data` = ?, `waiting_seconds` = ?, `arrival_seconds` = ?, `fl` = 0 WHERE `id` = ?',
-        params: ['accepted', actorLogin, executor || actorLogin, eta_minutes || null, admin_comment || '', now, null, null, secondsBetween(app.created_at || app.data, now), 0, id]
+        params: ['in_progress', actorLogin, executor || actorLogin, eta_minutes || null, admin_comment || '', now, now, now, secondsBetween(app.created_at || app.data, now), 0, id]
       };
-    }, { actorLogin, actorRole: req.auth.role, eventType: 'accepted', nextStatus: 'accepted', comment: admin_comment || 'Заявка принята исполнителем' });
+    }, { actorLogin, actorRole: req.auth.role, eventType: 'accepted', nextStatus: 'in_progress', comment: admin_comment || 'Заявка взята в работу' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
-    res.json({ message: 'Заявка взята в работу, таймер выполнения запущен', application: updated });
+    res.json({ message: 'Заявка взята в работу', application: updated });
   } catch (error) {
     console.error('Ошибка при взятии заявки:', error);
     res.status(500).json({ error: 'Не удалось взять заявку' });

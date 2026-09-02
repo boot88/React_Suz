@@ -158,16 +158,13 @@ function EditApplicationsTable() {
     }));
     
     if (name === 'fl' && checked) {
-      const now = new Date();
-      const startDate = new Date(editingApp.start_data || now);
-      const plannedEndDate = new Date(startDate.getTime() + 30 * 60000);
-      
-      const actualEndDate = now > plannedEndDate ? now : plannedEndDate;
-      
+      // Админ закрыл заявку: фиксируем фактическое время закрытия.
+      const now = new Date().toISOString();
       setEditingApp(prev => ({
         ...prev,
         [name]: processedValue,
-        end_data: actualEndDate.toISOString()
+        end_data: prev.end_data || now,
+        employee_confirmed_at: now
       }));
     } else {
       setEditingApp(prev => ({
@@ -217,24 +214,13 @@ function EditApplicationsTable() {
 
     try {
       const appToSave = { ...editingApp };
-      
-      if (!appToSave.end_data && appToSave.start_data) {
-        const startDate = new Date(appToSave.start_data);
-        const endDate = new Date(startDate.getTime() + 30 * 60000);
-        appToSave.end_data = endDate.toISOString();
-      } else if (!appToSave.end_data) {
-        const now = new Date();
-        const endDate = new Date(now.getTime() + 30 * 60000);
-        appToSave.end_data = endDate.toISOString();
-      }
 
-      if (appToSave.fl && appToSave.start_data && appToSave.end_data) {
-        const startDate = new Date(appToSave.start_data);
-        const endDate = new Date(appToSave.end_data);
-        const minimumEndDate = new Date(startDate.getTime() + 30 * 60000);
-        if (!Number.isNaN(startDate.getTime()) && !Number.isNaN(endDate.getTime()) && endDate < minimumEndDate) {
-          appToSave.end_data = minimumEndDate.toISOString();
-        }
+      // Закрытие заявки фиксирует фактическое время закрытия.
+      if (appToSave.fl) {
+        const now = new Date().toISOString();
+        if (!appToSave.start_data) appToSave.start_data = appToSave.work_started_at || appToSave.accepted_at || appToSave.created_at || appToSave.data || now;
+        if (!appToSave.end_data) appToSave.end_data = now;
+        appToSave.employee_confirmed_at = appToSave.employee_confirmed_at || now;
       }
 
       const response = await authFetch(`${API_BASE_URL}/applications/${appToSave.id}`, {

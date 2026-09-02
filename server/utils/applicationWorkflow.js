@@ -8,10 +8,10 @@ const APPLICATION_STATUSES = new Set([
 ]);
 
 const ALLOWED_APPLICATION_TRANSITIONS = {
-  new: new Set(['accepted']),
-  reopened: new Set(['accepted']),
+  new: new Set(['accepted', 'in_progress']),
+  reopened: new Set(['accepted', 'in_progress']),
   accepted: new Set(['in_progress']),
-  in_progress: new Set(['waiting_employee_confirmation']),
+  in_progress: new Set(['waiting_employee_confirmation', 'done', 'reopened']),
   waiting_employee_confirmation: new Set(['done', 'reopened']),
   done: new Set(['reopened'])
 };
