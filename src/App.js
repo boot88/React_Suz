@@ -307,43 +307,110 @@ const translateAdminText = (value) => {
 };
 
 function AdminTextTranslator({ language }) {
-  const originalText = useRef(new WeakMap());
-  const originalAttributes = useRef(new WeakMap());
+  // Храним «оригиналы» ТОЛЬКО для узлов/атрибутов, которые мы реально
+  // перевели в английский. Это критично: нельзя кешировать любой текст —
+  // динамические значения (числа, счётчики) перерисовываются React, и
+  // «восстановление» устаревшего оригинала сбрасывало их в ноль.
+  const originalsRef = useRef(new WeakMap());
+  const elementOriginalsRef = useRef(new WeakMap());
 
   useEffect(() => {
     const root = document.querySelector('.admin-shell-content');
     if (!root) return undefined;
 
-    const applyTranslations = () => {
+    const translateTextNode = (node) => {
+      const current = node.textContent || '';
+      const translated = translateAdminText(current);
+      if (translated === current) return;
+      if (!originalsRef.current.has(node)) {
+        originalsRef.current.set(node, current);
+      }
+      if (node.textContent !== translated) node.textContent = translated;
+    };
+
+    const restoreTextNode = (node) => {
+      const original = originalsRef.current.get(node);
+      if (original === undefined || !node.isConnected) return;
+      if (node.textContent !== original) node.textContent = original;
+      originalsRef.current.delete(node);
+    };
+
+    const textPass = () => {
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
       let node = walker.nextNode();
       while (node) {
-        if (!node.parentElement?.closest('[data-no-translate]') && !['SCRIPT', 'STYLE'].includes(node.parentElement?.tagName)) {
-          if (!originalText.current.has(node)) originalText.current.set(node, node.textContent);
-          const source = originalText.current.get(node);
-          const next = language === 'en' ? translateAdminText(source) : source;
-          if (node.textContent !== next) node.textContent = next;
+        const parent = node.parentElement;
+        const skipped = !parent || ['SCRIPT', 'STYLE'].includes(parent.tagName) || Boolean(parent.closest('[data-no-translate]'));
+        if (!skipped) {
+          if (language === 'en') {
+            translateTextNode(node);
+          } else if (originalsRef.current.has(node)) {
+            restoreTextNode(node);
+          }
         }
         node = walker.nextNode();
       }
+    };
 
+    const attributePass = () => {
+      const attributes = ['placeholder', 'title', 'aria-label'];
       root.querySelectorAll('[placeholder], [title], [aria-label]').forEach((element) => {
-        if (!originalAttributes.current.has(element)) originalAttributes.current.set(element, {});
-        const saved = originalAttributes.current.get(element);
-        ['placeholder', 'title', 'aria-label'].forEach((attribute) => {
+        attributes.forEach((attribute) => {
           if (!element.hasAttribute(attribute)) return;
-          if (!(attribute in saved)) saved[attribute] = element.getAttribute(attribute);
-          const source = saved[attribute];
-          element.setAttribute(attribute, language === 'en' ? translateAdminText(source) : source);
+          const current = element.getAttribute(attribute);
+          const translated = translateAdminText(current);
+          if (language === 'en') {
+            if (translated === current) return;
+            if (!elementOriginalsRef.current.has(element)) {
+              elementOriginalsRef.current.set(element, {});
+            }
+            const saved = elementOriginalsRef.current.get(element);
+            if (!(attribute in saved)) saved[attribute] = current;
+            if (element.getAttribute(attribute) !== translated) element.setAttribute(attribute, translated);
+          } else {
+            const saved = elementOriginalsRef.current.get(element);
+            if (saved && attribute in saved) {
+              const original = saved[attribute];
+              if (element.getAttribute(attribute) !== original) element.setAttribute(attribute, original);
+              delete saved[attribute];
+              if (Object.keys(saved).length === 0) elementOriginalsRef.current.delete(element);
+            }
+          }
         });
       });
+    };
+
+    const applyTranslations = () => {
+      textPass();
+      attributePass();
       document.documentElement.lang = language;
     };
 
     applyTranslations();
     const observer = new MutationObserver(() => window.requestAnimationFrame(applyTranslations));
     observer.observe(root, { childList: true, subtree: true });
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      // Откатываем наши правки при смене языка/размонтировании.
+      if (language === 'en') {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        let node = walker.nextNode();
+        while (node) {
+          if (originalsRef.current.has(node)) restoreTextNode(node);
+          node = walker.nextNode();
+        }
+        root.querySelectorAll('[placeholder], [title], [aria-label]').forEach((element) => {
+          const saved = elementOriginalsRef.current.get(element);
+          if (!saved) return;
+          ['placeholder', 'title', 'aria-label'].forEach((attribute) => {
+            if (attribute in saved) element.setAttribute(attribute, saved[attribute]);
+          });
+          elementOriginalsRef.current.delete(element);
+        });
+      }
+      originalsRef.current = new WeakMap();
+      elementOriginalsRef.current = new WeakMap();
+    };
   }, [language]);
 
   return null;
