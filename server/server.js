@@ -161,7 +161,7 @@ const normalizeApplication = (app = {}) => {
   let sourceAttachments = [];
   try { sourceAttachments = JSON.parse(app.source_attachments_json || '[]'); } catch { sourceAttachments = []; }
   const timeline = [
-    ['created', 'Создана', app.data || app.created_at],
+    ['created', 'Создана', app.created_at || app.data],
     ['accepted', 'Принята', app.accepted_at],
     ['in_progress', 'В работе', app.work_started_at],
     ['done', 'Закрыта', app.employee_confirmed_at || (status === 'done' ? app.end_data : null)]
@@ -174,7 +174,7 @@ const normalizeApplication = (app = {}) => {
   status,
   statusLabel: APPLICATION_STATUS_LABELS[status] || 'Новая',
   source_attachments: Array.isArray(sourceAttachments) ? sourceAttachments : [],
-  last_updated_at: app.updated_at || app.employee_confirmed_at || app.resolved_at || app.work_started_at || app.accepted_at || app.data || app.created_at || null,
+  last_updated_at: app.updated_at || app.employee_confirmed_at || app.resolved_at || app.work_started_at || app.accepted_at || app.created_at || app.data || null,
   timeline,
   eta_minutes: app.eta_minutes == null ? null : Number(app.eta_minutes),
   waiting_seconds: app.waiting_seconds == null ? null : Number(app.waiting_seconds),
@@ -566,8 +566,8 @@ const APPLICATION_OVERDUE_SQL = `(
   COALESCE(\`fl\`, 0) = 0 AND (
     (\`sla_paused_at\` IS NOT NULL AND \`status\` IN ('new', 'reopened', 'accepted', 'in_progress', 'waiting_employee_confirmation'))
     OR
-    (\`status\` IN ('new', 'reopened') AND (\`source\` = 'chat' OR COALESCE(\`employee_login\`, '') <> '') AND TIMESTAMPDIFF(MINUTE, COALESCE(\`data\`, \`created_at\`, NOW()), NOW()) > 15)
-    OR (\`status\` IN ('accepted', 'in_progress') AND TIMESTAMPDIFF(MINUTE, COALESCE(\`work_started_at\`, \`accepted_at\`, \`start_data\`, \`data\`, \`created_at\`, NOW()), NOW()) > 30)
+    (\`status\` IN ('new', 'reopened') AND (\`source\` = 'chat' OR COALESCE(\`employee_login\`, '') <> '') AND TIMESTAMPDIFF(MINUTE, COALESCE(\`created_at\`, \`data\`, NOW()), NOW()) > 15)
+    OR (\`status\` IN ('accepted', 'in_progress') AND TIMESTAMPDIFF(MINUTE, COALESCE(\`work_started_at\`, \`accepted_at\`, \`start_data\`, \`created_at\`, \`data\`, NOW()), NOW()) > 30)
   )
 )`;
 
@@ -987,9 +987,19 @@ app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), a
         : (existingApp.work_started_at || existingApp.accepted_at || null);
       computedWorkSeconds = gapFrom ? base + (secondsBetween(gapFrom, closedAt) || 0) : null;
     }
+    const isEmployeeApplication = existingApp.source === 'chat' || Boolean(existingApp.employee_login);
+    let manualClosureExecutor = '';
+    if (isManualClosure && isEmployeeApplication) {
+      const [actorRows] = await pool.execute(
+        'SELECT full_name FROM users WHERE LOWER(login) = ? LIMIT 1',
+        [req.auth.login]
+      );
+      manualClosureExecutor = handleNullValues(actorRows[0]?.full_name, req.auth.login);
+    }
     const processedData = {
       name: pick('name', ''), cabinet: pick('cabinet', ''), N_tel: pick('N_tel', ''),
-      application: pick('application', ''), process: pick('process', ''), executor: pick('executor', ''),
+      application: pick('application', ''), process: pick('process', ''),
+      executor: manualClosureExecutor || pick('executor', ''),
       data: pickDate('data'),
       start_data: isManualClosure && !existingApp.work_started_at && !existingApp.accepted_at
         ? null
@@ -1062,9 +1072,9 @@ const getCurrentSlaSeconds = (app = {}, now = new Date()) => {
   if (app.sla_paused_seconds != null) return Number(app.sla_paused_seconds) || 0;
   const status = app.status || (app.fl ? 'done' : 'new');
   if (['accepted', 'in_progress'].includes(status)) {
-    return secondsBetween(app.work_started_at || app.accepted_at || app.start_data || app.data || app.created_at, now) || 0;
+    return secondsBetween(app.work_started_at || app.accepted_at || app.start_data || app.created_at || app.data, now) || 0;
   }
-  return secondsBetween(app.data || app.created_at, now) || 0;
+  return secondsBetween(app.created_at || app.data, now) || 0;
 };
 
 app.post('/api/applications/:id/accept', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
@@ -1077,7 +1087,7 @@ app.post('/api/applications/:id/accept', requireAuth, requireRole('admin', 'mana
       const now = formatNowForMySQL();
       return {
         sql: 'UPDATE application SET `status` = ?, `accepted_by` = ?, `executor` = ?, `eta_minutes` = ?, `admin_comment` = ?, `accepted_at` = ?, `work_started_at` = ?, `start_data` = ?, `waiting_seconds` = ?, `arrival_seconds` = ?, `fl` = 0 WHERE `id` = ?',
-        params: ['in_progress', actorLogin, executor || actorLogin, eta_minutes || null, admin_comment || '', now, now, now, secondsBetween(app.data || app.created_at, now), 0, id]
+        params: ['in_progress', actorLogin, executor || actorLogin, eta_minutes || null, admin_comment || '', now, now, now, secondsBetween(app.created_at || app.data, now), 0, id]
       };
     }, { actorLogin, actorRole: req.auth.role, eventType: 'accepted', nextStatus: 'in_progress', comment: admin_comment || 'Заявка взята в работу' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
@@ -1096,7 +1106,7 @@ app.post('/api/applications/:id/start-work', requireAuth, requireRole('admin', '
       const now = formatNowForMySQL();
       return {
         sql: 'UPDATE application SET `status` = ?, `work_started_at` = ?, `start_data` = ?, `arrival_seconds` = ?, `fl` = 0 WHERE `id` = ?',
-        params: ['in_progress', now, now, secondsBetween(app.accepted_at || app.data || app.created_at, now), id]
+        params: ['in_progress', now, now, secondsBetween(app.accepted_at || app.created_at || app.data, now), id]
       };
     }, { actorLogin: req.auth.login, actorRole: req.auth.role, eventType: 'work_started', nextStatus: 'in_progress', comment: 'Исполнитель начал работу' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
@@ -1115,7 +1125,7 @@ app.post('/api/applications/:id/resolve', requireAuth, requireRole('admin', 'man
     const updated = await updateApplicationWorkflow(id, (app) => {
       const now = formatNowForMySQL();
       const previousWorkSeconds = Number(app.work_seconds || 0);
-      const currentWorkSeconds = secondsBetween(app.work_started_at || app.accepted_at || app.data || app.created_at, now) || 0;
+      const currentWorkSeconds = secondsBetween(app.work_started_at || app.accepted_at || app.created_at || app.data, now) || 0;
       return {
         sql: 'UPDATE application SET `status` = ?, `resolved_at` = ?, `process` = ?, `work_seconds` = ?, `fl` = 0 WHERE `id` = ?',
         params: ['waiting_employee_confirmation', now, process || app.process || '', previousWorkSeconds + currentWorkSeconds, id]
@@ -1137,7 +1147,7 @@ app.post('/api/applications/:id/confirm', requireAuth, requireApplicationOwnerOr
     const updated = await updateApplicationWorkflow(id, (app) => {
       const now = formatNowForMySQL();
       const previousWorkSeconds = Number(app.work_seconds || 0);
-      const activeWorkSeconds = secondsBetween(app.resolved_at || app.work_started_at || app.accepted_at || app.data || app.created_at, now) || 0;
+      const activeWorkSeconds = secondsBetween(app.resolved_at || app.work_started_at || app.accepted_at || app.created_at || app.data, now) || 0;
       const workSeconds = previousWorkSeconds + activeWorkSeconds;
       return {
         sql: 'UPDATE application SET `status` = ?, `resolved_at` = ?, `work_seconds` = ?, `employee_confirmed_at` = ?, `employee_comment` = ?, `end_data` = ?, `fl` = 1 WHERE `id` = ?',

@@ -161,7 +161,7 @@ const getWaitingSeconds = (app = {}) => {
   const status = app.status || (app.fl ? 'done' : 'new');
   if (app.sla_paused_at && ['new', 'reopened'].includes(status)) return app.sla_paused_seconds ?? null;
   if (app.waiting_seconds != null) return app.waiting_seconds;
-  const createdAt = app.data || app.created_at;
+  const createdAt = app.created_at || app.data;
   const stoppedAt = app.accepted_at || app.work_started_at || app.start_data || app.resolved_at || app.end_data;
   if (stoppedAt) return secondsBetweenValues(createdAt, stoppedAt);
   if (app.fl || status === 'done') return null;
@@ -931,8 +931,8 @@ const Dashboard = () => {
         return (TABLE_STATUS_ORDER[leftStatus] || 99) - (TABLE_STATUS_ORDER[rightStatus] || 99);
       }
       if (sortMode === 'date_asc' || sortMode === 'date_desc') {
-        const leftDate = new Date(left.data || left.created_at || 0).getTime() || 0;
-        const rightDate = new Date(right.data || right.created_at || 0).getTime() || 0;
+        const leftDate = new Date(left.created_at || left.data || 0).getTime() || 0;
+        const rightDate = new Date(right.created_at || right.data || 0).getTime() || 0;
         return sortMode === 'date_asc' ? leftDate - rightDate : rightDate - leftDate;
       }
       if (sortMode === 'executor') {
@@ -1144,9 +1144,9 @@ const Dashboard = () => {
                 )}
               </div>
             )}
-            {viewMode === 'timeline' ? <div className="request-timeline">{Object.entries(displayedApplications.reduce((groups, app) => { const key = new Date(app.data || app.created_at).toLocaleDateString('ru-RU', { timeZone: APPLICATION_TIME_ZONE }); (groups[key] ||= []).push(app); return groups; }, {})).map(([date, apps]) => <section className="timeline-day" key={date}><h4>{date}</h4><div className="timeline-row">{apps.sort((a, b) => new Date(a.data || a.created_at) - new Date(b.data || b.created_at)).map(app => (
+            {viewMode === 'timeline' ? <div className="request-timeline">{Object.entries(displayedApplications.reduce((groups, app) => { const key = new Date(app.created_at || app.data).toLocaleDateString('ru-RU', { timeZone: APPLICATION_TIME_ZONE }); (groups[key] ||= []).push(app); return groups; }, {})).map(([date, apps]) => <section className="timeline-day" key={date}><h4>{date}</h4><div className="timeline-row">{apps.sort((a, b) => new Date(a.created_at || a.data) - new Date(b.created_at || b.data)).map(app => (
   <button type="button" className="timeline-request" key={app.id} onClick={() => openApplicationPanel(app)}>
-    <small>#{app.id} · {formatTime(app.data || app.created_at)} · {getStatusLabel(app)}</small>
+    <small>#{app.id} · {formatTime(app.created_at || app.data)} · {getStatusLabel(app)}</small>
     <strong>{app.name || 'Без ФИО'} · каб. {app.cabinet || '—'}</strong>
     <span className="timeline-text">{app.application || 'Без описания'}</span>
   </button>
@@ -1235,7 +1235,7 @@ const Dashboard = () => {
                         </td>}
 
                         {isColumnVisible('created') && <td className="cell-date cell-created">
-                          <strong>{new Date(app.data || app.created_at).toLocaleDateString('ru-RU', { timeZone: APPLICATION_TIME_ZONE })}</strong>
+                          <strong>{new Date(app.created_at || app.data).toLocaleDateString('ru-RU', { timeZone: APPLICATION_TIME_ZONE })}</strong>
                         </td>}
                         {isColumnVisible('status') && <td>{getStatusLabel(app)}</td>}
                         {isColumnVisible('actions') && <td className="cell-actions">
@@ -1307,9 +1307,8 @@ const Dashboard = () => {
             <strong>{getStatusLabel(selectedApplication)}</strong>
             {selectedAppTimes && (
               <span>
-                {selectedAppTimes.totalSeconds != null && <em>Всего: {formatApplicationDuration(selectedAppTimes.totalSeconds)}</em>}
                 {selectedAppTimes.workSeconds != null && <em>В работе: {formatApplicationDuration(selectedAppTimes.workSeconds)}</em>}
-                {selectedAppTimes.waitSeconds != null && <em>Ожидание: {formatApplicationDuration(selectedAppTimes.waitSeconds)}</em>}
+                {selectedAppTimes.closedAt && selectedAppTimes.totalSeconds != null && <em>Подали → закрыли: {formatApplicationDuration(selectedAppTimes.totalSeconds)}</em>}
               </span>
             )}
           </div>
@@ -1327,10 +1326,10 @@ const Dashboard = () => {
             <div><strong>Приоритет</strong><span>{selectedApplication.priority || 'Обычный'}</span></div>
             <div><strong>Источник</strong><span>{getApplicationSourceLabel(selectedApplication)}</span></div>
             <div><strong>Исполнитель</strong><span>{selectedApplication.executor || selectedApplication.accepted_by || 'Не назначен'}</span></div>
-            <div><strong>Подана</strong><span>{formatCreatedAt(selectedApplication.data || selectedApplication.created_at)}</span></div>
+            <div><strong>Подана</strong><span>{formatCreatedAt(selectedApplication.created_at || selectedApplication.data)}</span></div>
             {selectedAppTimes?.takenAt ? <div><strong>Взята в работу</strong><span>{formatCreatedAt(selectedAppTimes.takenAt)}</span></div> : null}
             {selectedAppTimes?.closedAt ? <div><strong>Закрыта</strong><span>{formatCreatedAt(selectedAppTimes.closedAt)}</span></div> : null}
-            {selectedAppTimes?.totalSeconds != null && <div><strong>Подача → закрытие</strong><span>{formatApplicationDuration(selectedAppTimes.totalSeconds)}</span></div>}
+            {selectedAppTimes?.closedAt && selectedAppTimes.totalSeconds != null && <div><strong>Подача → закрытие</strong><span>{formatApplicationDuration(selectedAppTimes.totalSeconds)}</span></div>}
             {selectedAppTimes?.waitSeconds != null && <div><strong>Подача → взятие</strong><span>{formatApplicationDuration(selectedAppTimes.waitSeconds)}</span></div>}
             {selectedAppTimes?.workSeconds != null && <div><strong>Взятие → закрытие</strong><span>{formatApplicationDuration(selectedAppTimes.workSeconds)}</span></div>}
           </div></div>

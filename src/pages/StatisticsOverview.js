@@ -5,7 +5,7 @@ import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
 
 const done = (app) => app.fl || app.status === 'done';
-const dateOf = (app) => new Date(app.data || app.created_at || 0);
+const dateOf = (app) => new Date(app.created_at || app.data || 0);
 const seconds = (from, to) => {
   const start = new Date(from || 0).getTime(); const end = new Date(to || 0).getTime();
   return start && end && end >= start ? Math.round((end - start) / 1000) : null;
@@ -14,7 +14,7 @@ const minutes = (value) => value == null ? '—' : value < 60 ? `${Math.round(va
 const isOverdue = (app) => {
   if (done(app)) return false;
   const status = app.status || 'new';
-  const start = ['new', 'reopened'].includes(status) ? (app.data || app.created_at) : (app.work_started_at || app.accepted_at || app.start_data);
+  const start = ['new', 'reopened'].includes(status) ? (app.created_at || app.data) : (app.work_started_at || app.accepted_at || app.start_data);
   const limit = ['new', 'reopened'].includes(status) ? 15 : 30;
   return start && (Date.now() - new Date(start).getTime()) / 60000 > limit;
 };
@@ -45,7 +45,7 @@ export default function StatisticsOverview() {
   }, [applications, period, executor, category]);
 
   const metrics = useMemo(() => {
-    const wait = filtered.map((app) => seconds(app.data || app.created_at, app.accepted_at || app.work_started_at)).filter((value) => value != null).map((value) => value / 60);
+    const wait = filtered.map((app) => seconds(app.created_at || app.data, app.accepted_at || app.work_started_at)).filter((value) => value != null).map((value) => value / 60);
     const work = filtered.filter(done).map((app) => seconds(app.work_started_at || app.accepted_at || app.start_data, app.resolved_at || app.end_data || app.employee_confirmed_at)).filter((value) => value != null).map((value) => value / 60);
     const overdue = filtered.filter(isOverdue).length;
     return { total: filtered.length, wait: wait.length ? wait.reduce((sum, value) => sum + value, 0) / wait.length : null, work: work.length ? work.reduce((sum, value) => sum + value, 0) / work.length : null, overdue: filtered.length ? overdue / filtered.length * 100 : 0 };

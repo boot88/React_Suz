@@ -12,7 +12,6 @@ import { readCachedFeed, writeCachedFeed } from '../utils/feedCache';
 import { ensureMediaTokens, getFileIdFromUrl } from '../utils/mediaTokenCache';
 import {
   formatApplicationDateTime,
-  formatApplicationDuration,
   getApplicationTiming
 } from '../utils/applicationTime';
 import ChatComposerForm from '../components/employeeChat/ChatComposerForm';
@@ -5572,7 +5571,7 @@ const EmployeeChat = () => {
                   </article>
                 );
               })}
-              {completedApplications.length > 0 && <details className="ticket-history"><summary>{t('completedHistory')} ({completedApplications.length})</summary>{completedApplications.slice(0, 10).map((ticket) => { const timing = getApplicationTiming(ticket); const durations = []; if (timing.waitingSeconds > 0) durations.push(`${isEnglishInterface ? 'Waiting' : 'Ожидание'}: ${formatApplicationDuration(timing.waitingSeconds)}`); if (timing.workSeconds > 0) durations.push(`${isEnglishInterface ? 'Work' : 'Работа'}: ${formatApplicationDuration(timing.workSeconds)}`); return <div key={ticket.id} className="ticket-history-row"><span>#{ticket.id}</span><span>{ticket.application}</span><span>{isEnglishInterface ? 'Submitted' : 'Подана'}: {formatApplicationDateTime(ticket.data || ticket.created_at, interfaceLocale)}</span>{timing.takenAt && <span>{isEnglishInterface ? 'Accepted' : 'Взята'}: {formatApplicationDateTime(timing.takenAt, interfaceLocale)}</span>}<span>{isEnglishInterface ? 'Completed' : 'Закрыта'}: {formatApplicationDateTime(ticket.employee_confirmed_at || ticket.resolved_at || ticket.end_data, interfaceLocale)}</span><span>{isEnglishInterface ? 'Specialist' : 'Исполнитель'}: {ticket.executor || ticket.accepted_by || '—'}</span>{durations.length > 0 && <strong>{durations.join(' · ')}</strong>}</div>; })}</details>}
+              {completedApplications.length > 0 && <details className="ticket-history"><summary>{t('completedHistory')} ({completedApplications.length})</summary>{completedApplications.slice(0, 10).map((ticket) => { const timing = getApplicationTiming(ticket); return <div key={ticket.id} className="ticket-history-row"><span>#{ticket.id}</span><span>{ticket.application}</span><span>{isEnglishInterface ? 'Submitted' : 'Подана'}: {formatApplicationDateTime(ticket.created_at || ticket.data, interfaceLocale)}</span>{timing.takenAt && <span>{isEnglishInterface ? 'Accepted' : 'Взята'}: {formatApplicationDateTime(timing.takenAt, interfaceLocale)}</span>}<span>{isEnglishInterface ? 'Completed' : 'Закрыта'}: {formatApplicationDateTime(ticket.employee_confirmed_at || ticket.resolved_at || ticket.end_data, interfaceLocale)}</span><span>{isEnglishInterface ? 'Specialist' : 'Исполнитель'}: {ticket.executor || ticket.accepted_by || '—'}</span></div>; })}</details>}
             </section>
           </div>
         )}

@@ -42,10 +42,9 @@ export const formatApplicationDateTime = (value, locale = 'ru-RU', options = {})
 };
 
 export const getApplicationTiming = (application = {}, now = Date.now()) => {
-  // `data` is written explicitly by the application in UTC. Some older
-  // MySQL `created_at` values were produced by CURRENT_TIMESTAMP in the
-  // database server's local timezone and can therefore be seven hours ahead.
-  const createdAt = application.data || application.created_at || '';
+  // `data` is a legacy DATE column and therefore contains no clock time.
+  // Exact lifecycle calculations must use the UTC `created_at` timestamp.
+  const createdAt = application.created_at || application.data || '';
   const hasTakenMarker = Boolean(
     application.work_started_at
     || application.accepted_at
