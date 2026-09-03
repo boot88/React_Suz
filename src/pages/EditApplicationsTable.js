@@ -218,7 +218,6 @@ function EditApplicationsTable() {
       // Закрытие заявки фиксирует фактическое время закрытия.
       if (appToSave.fl) {
         const now = new Date().toISOString();
-        if (!appToSave.start_data) appToSave.start_data = appToSave.work_started_at || appToSave.accepted_at || appToSave.created_at || appToSave.data || now;
         if (!appToSave.end_data) appToSave.end_data = now;
         appToSave.employee_confirmed_at = appToSave.employee_confirmed_at || now;
       }

@@ -42,8 +42,19 @@ export const formatApplicationDateTime = (value, locale = 'ru-RU', options = {})
 };
 
 export const getApplicationTiming = (application = {}, now = Date.now()) => {
-  const createdAt = application.created_at || application.data || '';
-  const takenAt = application.work_started_at || application.accepted_at || application.start_data || '';
+  // `data` is written explicitly by the application in UTC. Some older
+  // MySQL `created_at` values were produced by CURRENT_TIMESTAMP in the
+  // database server's local timezone and can therefore be seven hours ahead.
+  const createdAt = application.data || application.created_at || '';
+  const hasTakenMarker = Boolean(
+    application.work_started_at
+    || application.accepted_at
+    || application.accepted_by
+  );
+  const takenAt = application.work_started_at
+    || application.accepted_at
+    || (hasTakenMarker ? application.start_data : '')
+    || '';
   const isClosed = Boolean(application.fl) || application.status === 'done';
   const closedAt = isClosed
     ? (application.employee_confirmed_at || application.end_data || application.resolved_at || '')
@@ -55,7 +66,7 @@ export const getApplicationTiming = (application = {}, now = Date.now()) => {
     takenAt,
     closedAt,
     totalSeconds: createdAt ? secondsBetweenApplicationDates(createdAt, liveEnd) : null,
-    waitingSeconds: createdAt
+    waitingSeconds: createdAt && (takenAt || !isClosed)
       ? secondsBetweenApplicationDates(createdAt, takenAt || liveEnd)
       : null,
     workSeconds: takenAt

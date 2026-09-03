@@ -3277,19 +3277,18 @@ const EmployeeChat = () => {
 
     try {
       const optimizedAvatar = await processAvatar(file);
-      const response = await authFetch(`${API_BASE_URL}/auth/profile`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...profileForm,
-          avatar: optimizedAvatar
-        })
+      const avatarBlob = dataUrlToBlob(optimizedAvatar);
+      const response = await authFetch(`${API_BASE_URL}/auth/profile/avatar`, {
+        method: 'POST',
+        headers: { 'Content-Type': avatarBlob.type || 'image/jpeg' },
+        body: avatarBlob
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(data.message || 'Не удалось сохранить аватар');
       }
-      const savedAvatar = data?.profile?.avatar || optimizedAvatar;
+      const savedAvatar = resolveAttachmentUrl(data.avatar);
+      if (!savedAvatar) throw new Error('Сервер не вернул адрес аватара');
       setAvatarUrl(savedAvatar);
       localStorage.setItem(getAvatarKey(user.username), savedAvatar);
       saveProfileDraft(user.username, { ...profileForm, avatar: savedAvatar });
@@ -3302,13 +3301,8 @@ const EmployeeChat = () => {
   };
 
   const removeAvatar = async () => {
-    const response = await authFetch(`${API_BASE_URL}/auth/profile`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...profileForm,
-        avatar: ''
-      })
+    const response = await authFetch(`${API_BASE_URL}/auth/profile/avatar`, {
+      method: 'DELETE'
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -5572,13 +5566,13 @@ const EmployeeChat = () => {
                     <p>{ticket.application}</p>
                     <RequestTimerMetrics ticket={ticket} t={t} />
                     {(ticket.executor || ticket.accepted_by || ticket.admin_comment || ticket.eta_minutes) && <div className="ticket-admin-note"><strong>{ticket.executor || ticket.accepted_by || t('administrator')}</strong><span>{ticket.admin_comment || (ticket.eta_minutes ? t('administratorEta').replace('{minutes}', ticket.eta_minutes) : t('administratorAccepted'))}</span></div>}
-                    {Array.isArray(ticket.timeline) && <ol className="ticket-timeline" aria-label={isEnglishInterface ? 'Request progress' : 'Ход заявки'}>{ticket.timeline.filter((step) => step.completed && ['created', 'accepted', 'in_progress', 'done'].includes(step.key)).map((step) => <li key={step.key} className="completed"><span>{step.label}</span><time>{formatApplicationDateTime(step.at, interfaceLocale)}</time></li>)}</ol>}
+                    {Array.isArray(ticket.timeline) && <ol className="ticket-timeline" aria-label={isEnglishInterface ? 'Request progress' : 'Ход заявки'}>{ticket.timeline.filter((step) => step.completed && ['created', 'accepted', 'done'].includes(step.key)).map((step) => <li key={step.key} className="completed"><span>{step.label}</span><time>{formatApplicationDateTime(step.at, interfaceLocale)}</time></li>)}</ol>}
                     {ticket.process && <div className="ticket-admin-note"><strong>{t('workCompleted')}</strong><span>{ticket.process}</span></div>}
                     {['in_progress', 'waiting_employee_confirmation'].includes(ticket.status) && <div className="ticket-actions"><button type="button" onClick={() => confirmApplicationDone(ticket.id)}>✅ {t('requestDone')}</button><button type="button" onClick={() => reopenApplication(ticket.id)}>{t('issueRemains')}</button></div>}
                   </article>
                 );
               })}
-              {completedApplications.length > 0 && <details className="ticket-history"><summary>{t('completedHistory')} ({completedApplications.length})</summary>{completedApplications.slice(0, 10).map((ticket) => { const timing = getApplicationTiming(ticket); return <div key={ticket.id} className="ticket-history-row"><span>#{ticket.id}</span><span>{ticket.application}</span><span>{isEnglishInterface ? 'Submitted' : 'Подана'}: {formatApplicationDateTime(ticket.created_at || ticket.data, interfaceLocale)}</span><span>{isEnglishInterface ? 'Accepted' : 'Взята'}: {formatApplicationDateTime(ticket.work_started_at || ticket.accepted_at || ticket.start_data, interfaceLocale)}</span><span>{isEnglishInterface ? 'Completed' : 'Закрыта'}: {formatApplicationDateTime(ticket.employee_confirmed_at || ticket.end_data, interfaceLocale)}</span><span>{isEnglishInterface ? 'Specialist' : 'Исполнитель'}: {ticket.executor || ticket.accepted_by || '—'}</span><strong>{isEnglishInterface ? 'Waiting' : 'Ожидание'}: {formatApplicationDuration(timing.waitingSeconds || 0)} · {isEnglishInterface ? 'Work' : 'Работа'}: {formatApplicationDuration(timing.workSeconds || 0)}</strong></div>; })}</details>}
+              {completedApplications.length > 0 && <details className="ticket-history"><summary>{t('completedHistory')} ({completedApplications.length})</summary>{completedApplications.slice(0, 10).map((ticket) => { const timing = getApplicationTiming(ticket); const durations = []; if (timing.waitingSeconds > 0) durations.push(`${isEnglishInterface ? 'Waiting' : 'Ожидание'}: ${formatApplicationDuration(timing.waitingSeconds)}`); if (timing.workSeconds > 0) durations.push(`${isEnglishInterface ? 'Work' : 'Работа'}: ${formatApplicationDuration(timing.workSeconds)}`); return <div key={ticket.id} className="ticket-history-row"><span>#{ticket.id}</span><span>{ticket.application}</span><span>{isEnglishInterface ? 'Submitted' : 'Подана'}: {formatApplicationDateTime(ticket.data || ticket.created_at, interfaceLocale)}</span>{timing.takenAt && <span>{isEnglishInterface ? 'Accepted' : 'Взята'}: {formatApplicationDateTime(timing.takenAt, interfaceLocale)}</span>}<span>{isEnglishInterface ? 'Completed' : 'Закрыта'}: {formatApplicationDateTime(ticket.employee_confirmed_at || ticket.resolved_at || ticket.end_data, interfaceLocale)}</span><span>{isEnglishInterface ? 'Specialist' : 'Исполнитель'}: {ticket.executor || ticket.accepted_by || '—'}</span>{durations.length > 0 && <strong>{durations.join(' · ')}</strong>}</div>; })}</details>}
             </section>
           </div>
         )}

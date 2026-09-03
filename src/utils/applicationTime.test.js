@@ -26,3 +26,26 @@ test('calculates request lifecycle intervals from created, accepted and closed t
     workSeconds: 3300
   });
 });
+
+test('uses the explicit application date instead of a shifted MySQL created_at value', () => {
+  expect(getApplicationTiming({
+    status: 'new',
+    data: '2026-09-03T05:46:00.000Z',
+    created_at: '2026-09-03T12:46:00.000Z'
+  }, new Date('2026-09-03T05:47:00.000Z').getTime()).waitingSeconds).toBe(60);
+});
+
+test('does not invent taken or work time when an administrator closes a new request directly', () => {
+  expect(getApplicationTiming({
+    status: 'done',
+    fl: true,
+    data: '2026-09-03T05:46:00.000Z',
+    start_data: '2026-09-03T05:46:00.000Z',
+    employee_confirmed_at: '2026-09-03T05:51:00.000Z'
+  })).toMatchObject({
+    totalSeconds: 300,
+    waitingSeconds: null,
+    workSeconds: null,
+    takenAt: ''
+  });
+});

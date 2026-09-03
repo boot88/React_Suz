@@ -17,18 +17,6 @@ const AddApplication = () => {
   const [message, setMessage] = useState({ text: '', type: '' });
   const [errors, setErrors] = useState({});
 
-  // Функция для получения текущей даты и времени для Новосибирска (UTC+7)
-  const getCurrentNovosibirskDateTime = () => {
-    const now = new Date();
-    const timezoneOffset = now.getTimezoneOffset() + 840; // +7 часов
-    return new Date(now.getTime() + timezoneOffset * 60000);
-  };
-
-  // Функция для форматирования даты в формат для datetime-local
-  const formatDateTimeForInput = (date) => {
-    return date.toISOString().slice(0, 16);
-  };
-
   // Валидационные функции
   const validateName = (value) => {
     if (!value.trim()) return 'ФИО обязательно для заполнения';
@@ -154,11 +142,6 @@ const AddApplication = () => {
     setMessage({ text: '', type: '' });
 
     try {
-      // Получаем текущую дату и время для Новосибирска
-      const currentDateTime = getCurrentNovosibirskDateTime();
-      const startData = formData.fl ? formatDateTimeForInput(currentDateTime) : null;
-      const endData = formData.fl ? formatDateTimeForInput(new Date(currentDateTime.getTime() + 30 * 60000)) : null;
-
       // Санитизация данных перед отправкой
       const sanitizedData = sanitizeData({
         name: formData.name || '',
@@ -166,9 +149,6 @@ const AddApplication = () => {
         N_tel: formData.N_tel || '',
         application: formData.application || '',
         executor: formData.executor || '',
-        data: currentDateTime.toISOString().split('T')[0], // Текущая дата
-        start_data: startData,
-        end_data: endData,
         fl: Boolean(formData.fl),
         status: formData.fl ? 'done' : 'new',
         source: 'admin',

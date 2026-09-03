@@ -32,7 +32,7 @@ const RequestTimerMetrics = memo(function RequestTimerMetrics({ ticket, t }) {
 
   return (
     <div className="ticket-metrics">
-      {metrics.waitingSeconds != null && (
+      {metrics.waitingSeconds != null && metrics.waitingSeconds > 0 && (
         <span>{t('waitingTime')}: {formatApplicationDuration(metrics.waitingSeconds)}</span>
       )}
       {metrics.workSeconds != null && (
