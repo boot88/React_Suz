@@ -150,7 +150,7 @@ const AddApplication = () => {
         application: formData.application || '',
         executor: formData.executor || '',
         fl: Boolean(formData.fl),
-        status: formData.fl ? 'done' : 'new',
+        status: formData.fl ? 'done' : 'in_progress',
         source: 'admin',
         process: formData.fl ? '-' : ''
       });
