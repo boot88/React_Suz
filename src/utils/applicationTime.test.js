@@ -35,6 +35,14 @@ test('uses the exact creation timestamp instead of the legacy date-only value', 
   }, new Date('2026-09-03T05:47:00.000Z').getTime()).waitingSeconds).toBe(60);
 });
 
+test('counts waiting time for an open chat request until it is accepted', () => {
+  expect(getApplicationTiming({
+    status: 'new',
+    source: 'chat',
+    created_at: '2026-09-03T05:46:00.000Z'
+  }, new Date('2026-09-03T05:46:03.000Z').getTime()).waitingSeconds).toBe(3);
+});
+
 test('does not invent taken or work time when an administrator closes a new request directly', () => {
   expect(getApplicationTiming({
     status: 'done',
