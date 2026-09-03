@@ -5,9 +5,12 @@ import {
 } from '../../utils/applicationTime';
 
 const ACTIVE_WORK_STATUSES = new Set(['accepted', 'in_progress', 'waiting_employee_confirmation']);
+const WAITING_STATUSES = new Set(['new', 'reopened']);
 
 const RequestTimerMetrics = memo(function RequestTimerMetrics({ ticket, t }) {
-  const shouldTick = ACTIVE_WORK_STATUSES.has(ticket.status);
+  const isWaiting = WAITING_STATUSES.has(ticket.status);
+  const isWorking = ACTIVE_WORK_STATUSES.has(ticket.status);
+  const shouldTick = isWaiting || isWorking;
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -18,17 +21,21 @@ const RequestTimerMetrics = memo(function RequestTimerMetrics({ ticket, t }) {
 
   const metrics = useMemo(() => {
     const timing = getApplicationTiming(ticket, now);
-    const workSeconds = ACTIVE_WORK_STATUSES.has(ticket.status)
+    const workSeconds = isWorking
       ? timing.workSeconds
       : (ticket.work_seconds ?? timing.workSeconds);
-    return { workSeconds };
-  }, [now, ticket]);
+    return {
+      waitingSeconds: isWaiting ? timing.waitingSeconds : null,
+      workSeconds: isWorking ? workSeconds : null
+    };
+  }, [isWaiting, isWorking, now, ticket]);
 
-  if (metrics.workSeconds == null) return null;
+  if (metrics.waitingSeconds == null && metrics.workSeconds == null) return null;
 
   return (
     <div className="ticket-metrics">
-      <span>{t('workTime')}: {formatApplicationDuration(metrics.workSeconds)}</span>
+      {metrics.waitingSeconds != null && <span>{t('waitingTime')}: {formatApplicationDuration(metrics.waitingSeconds)}</span>}
+      {metrics.workSeconds != null && <span>{t('workTime')}: {formatApplicationDuration(metrics.workSeconds)}</span>}
     </div>
   );
 });
