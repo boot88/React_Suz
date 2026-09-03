@@ -803,9 +803,11 @@ app.post('/api/applications', requireAuth, requireRole('admin', 'manager'), asyn
     const now = formatNowForMySQL();
     const idempotencyKey = getIdempotencyKey(req);
     const requestedCompleted = Boolean(fl) || status === 'done';
-    // Создание и взятие в работу — разные действия. Поэтому новая заявка из
-    // админ-панели не получает время принятия автоматически.
-    const statusValue = requestedCompleted ? 'done' : 'new';
+    // Заявку, созданную администратором, не требуется класть в очередь: он
+    // уже начал работу с ней. В очередь (new) попадают только обращения,
+    // поданные сотрудниками из чата.
+    const isStartedByAdmin = !requestedCompleted;
+    const statusValue = requestedCompleted ? 'done' : 'in_progress';
     const processedData = {
       name: handleNullValues(name, ''),
       cabinet: handleNullValues(cabinet, ''),
@@ -815,7 +817,7 @@ app.post('/api/applications', requireAuth, requireRole('admin', 'manager'), asyn
       executor: handleNullValues(executor, ''),
       data: now,
       created_at: now,
-      start_data: null,
+      start_data: isStartedByAdmin ? now : null,
       end_data: requestedCompleted ? now : null,
       fl: requestedCompleted ? 1 : 0,
       status: statusValue,
@@ -826,9 +828,9 @@ app.post('/api/applications', requireAuth, requireRole('admin', 'manager'), asyn
       chat_thread_id: '',
       source_message_id: '',
       idempotency_key: idempotencyKey || null,
-      accepted_by: null,
-      accepted_at: null,
-      work_started_at: null,
+      accepted_by: isStartedByAdmin ? req.auth.login : null,
+      accepted_at: isStartedByAdmin ? now : null,
+      work_started_at: isStartedByAdmin ? now : null,
       employee_confirmed_at: requestedCompleted ? now : null
     };
     const created = await withApplicationTransaction(async (connection) => {
