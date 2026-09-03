@@ -162,12 +162,31 @@ function Sidebar({ language, theme, onLanguageChange, onThemeChange }) {
     const refreshOnVisible = () => {
       if (document.visibilityState === 'visible') refreshAll();
     };
+    const handleChatRead = (event) => {
+      const decrement = Math.max(0, Number(event?.detail?.decrement) || 0);
+      if (decrement > 0) {
+        setChatUnreadCount((current) => Math.max(0, current - decrement));
+      }
+      fetchChatUnread();
+    };
+    const handleApplicationStatusChanged = (event) => {
+      const from = String(event?.detail?.from || '');
+      const to = String(event?.detail?.to || '');
+      const wasNew = ['new', 'reopened'].includes(from);
+      const isNew = ['new', 'reopened'].includes(to);
+      if (wasNew !== isNew) {
+        setNewRequestsCount((current) => Math.max(0, current + (isNew ? 1 : -1)));
+      }
+      fetchNewRequests();
+    };
 
     window.addEventListener('focus', refreshAll);
     document.addEventListener('visibilitychange', refreshOnVisible);
     window.addEventListener('applications:refresh', fetchNewRequests);
     window.addEventListener('applications:viewed', fetchNewRequests);
     window.addEventListener('chat:read-all', fetchChatUnread);
+    window.addEventListener('chat:read', handleChatRead);
+    window.addEventListener('applications:status-changed', handleApplicationStatusChanged);
 
     return () => {
       isCancelled = true;
@@ -179,6 +198,8 @@ function Sidebar({ language, theme, onLanguageChange, onThemeChange }) {
       window.removeEventListener('applications:refresh', fetchNewRequests);
       window.removeEventListener('applications:viewed', fetchNewRequests);
       window.removeEventListener('chat:read-all', fetchChatUnread);
+      window.removeEventListener('chat:read', handleChatRead);
+      window.removeEventListener('applications:status-changed', handleApplicationStatusChanged);
     };
   }, [user?.name, user?.username]);
 

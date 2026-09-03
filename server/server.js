@@ -130,16 +130,28 @@ const APPLICATION_STATUS_LABELS = {
   new: 'Новая',
   accepted: 'Назначена',
   in_progress: 'В работе',
-  waiting_employee_confirmation: 'Ждёт подтверждения',
+  waiting_employee_confirmation: 'В работе',
   done: 'Выполнена',
   reopened: 'Переоткрыта'
 };
 
 const formatNowForMySQL = () => formatDateForMySQL(new Date());
+const toApplicationTimestamp = (value) => {
+  if (!value) return NaN;
+  if (value instanceof Date) return value.getTime();
+  const raw = String(value).trim();
+  // Application DATETIME values are written from UTC components. Make that
+  // contract explicit instead of letting the host operating-system timezone
+  // reinterpret a value such as "2026-09-03 09:44:14".
+  const normalized = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(raw)
+    ? `${raw.replace(' ', 'T')}Z`
+    : raw;
+  return new Date(normalized).getTime();
+};
 const secondsBetween = (start, end) => {
   if (!start || !end) return null;
-  const startMs = new Date(start).getTime();
-  const endMs = new Date(end).getTime();
+  const startMs = toApplicationTimestamp(start);
+  const endMs = toApplicationTimestamp(end);
   if (Number.isNaN(startMs) || Number.isNaN(endMs)) return null;
   return Math.max(0, Math.round((endMs - startMs) / 1000));
 };
@@ -152,9 +164,10 @@ const normalizeApplication = (app = {}) => {
     ['created', 'Создана', app.created_at || app.data],
     ['accepted', 'Принята', app.accepted_at],
     ['in_progress', 'В работе', app.work_started_at],
-    ['waiting_employee_confirmation', 'Ожидает подтверждения', app.resolved_at],
     ['done', 'Закрыта', app.employee_confirmed_at || (status === 'done' ? app.end_data : null)]
-  ].map(([key, label, at]) => ({ key, label, at: at || null, completed: Boolean(at) }));
+  ]
+    .filter(([, , at]) => Boolean(at))
+    .map(([key, label, at]) => ({ key, label, at, completed: true }));
   return {
   ...app,
   fl: Boolean(app.fl),

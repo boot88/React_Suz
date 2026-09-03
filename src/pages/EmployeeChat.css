@@ -1540,8 +1540,15 @@ button:disabled {
 }
 
 .ticket-history-row {
+  display: grid;
+  grid-template-columns: minmax(70px, auto) minmax(180px, 1fr);
+  align-items: start;
   padding: 8px 0;
   border-top: 1px solid var(--chat-border);
+}
+
+.ticket-history-row > :nth-child(n + 3) {
+  grid-column: 2;
 }
 
 /* Request tab must scroll independently inside the fixed chat shell. */

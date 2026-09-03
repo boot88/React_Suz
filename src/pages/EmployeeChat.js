@@ -10,6 +10,11 @@ import {
 } from '../utils/chatMessageCache';
 import { readCachedFeed, writeCachedFeed } from '../utils/feedCache';
 import { ensureMediaTokens, getFileIdFromUrl } from '../utils/mediaTokenCache';
+import {
+  formatApplicationDateTime,
+  formatApplicationDuration,
+  getApplicationTiming
+} from '../utils/applicationTime';
 import ChatComposerForm from '../components/employeeChat/ChatComposerForm';
 import ChatDialogHeader from '../components/employeeChat/ChatDialogHeader';
 import ChatLoadingOverlay from '../components/employeeChat/ChatLoadingOverlay';
@@ -800,7 +805,7 @@ const APPLICATION_STATUS_META = {
   new: { label: 'Новая', labelEn: 'New', hint: 'Ожидает администратора', hintEn: 'Waiting for an administrator', tone: 'new' },
   accepted: { label: 'Принята', labelEn: 'Accepted', hint: 'Администратор назначил исполнителя', hintEn: 'An administrator assigned a specialist', tone: 'accepted' },
   in_progress: { label: 'В работе', labelEn: 'In progress', hint: 'Если работа уже выполнена — подтвердите её закрытие', hintEn: 'Confirm completion if the work is already done', tone: 'confirm' },
-  waiting_employee_confirmation: { label: 'Проверьте выполнение', labelEn: 'Check completion', hint: 'Подтвердите, если проблема решена', hintEn: 'Confirm if the issue is resolved', tone: 'confirm' },
+  waiting_employee_confirmation: { label: 'В работе', labelEn: 'In progress', hint: 'Если проблема решена, заявку можно закрыть', hintEn: 'Close the request if the issue is resolved', tone: 'confirm' },
   done: { label: 'Выполнена', labelEn: 'Completed', hint: 'Заявка закрыта', hintEn: 'Request closed', tone: 'done' },
   reopened: { label: 'Переоткрыта', labelEn: 'Reopened', hint: 'Администратор снова увидит заявку', hintEn: 'An administrator will see the request again', tone: 'reopened' }
 };
@@ -1722,15 +1727,6 @@ const FeedMediaCard = React.memo(function FeedMediaCard({ file, onOpen, onQuickR
   );
 });
 
-const formatDuration = (seconds) => {
-  const safeSeconds = Math.max(0, Math.floor(Number(seconds) || 0));
-  const hours = Math.floor(safeSeconds / 3600);
-  const minutes = Math.floor((safeSeconds % 3600) / 60);
-  const rest = safeSeconds % 60;
-  return [hours, minutes, rest].map((item) => String(item).padStart(2, '0')).join(':');
-};
-
-
 const hasMessageAttachments = (message = {}) => Boolean(message.attachment)
   || (Array.isArray(message.attachments) && message.attachments.length > 0);
 
@@ -1856,6 +1852,7 @@ const EmployeeChat = () => {
   const [forwardingTargetEmail, setForwardingTargetEmail] = useState('');
   const [mediaViewer, setMediaViewer] = useState(null);
   const [readState, setReadState] = useState(() => readReadState(user?.username || 'guest'));
+  const [readViewportVersion, setReadViewportVersion] = useState(0);
   const [feedReadAt, setFeedReadAt] = useState(() => readFeedReadAt(user?.username || 'guest'));
   const [directoryEmployees, setDirectoryEmployees] = useState(() => readDirectoryCache());
   const [isDirectoryLoaded, setIsDirectoryLoaded] = useState(() => readDirectoryCache().length > 0);
@@ -3132,8 +3129,13 @@ const EmployeeChat = () => {
   }, [activeTab, selectedEmail]);
 
   useEffect(() => {
-    if (!currentConversationId) return;
-    const latestIncoming = (threads[currentConversationId] || [])
+    if (!currentConversationId || activeTab !== 'chat') return;
+    const wrap = messagesWrapRef.current;
+    if (!wrap) return;
+    const distanceFromBottom = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight;
+    if (distanceFromBottom > 80) return;
+    const conversationMessages = threads[currentConversationId] || [];
+    const latestIncoming = conversationMessages
       .filter((message) => message.sender !== user.username)
       .reduce((latest, message) => {
         if (!latest) return message;
@@ -3146,6 +3148,11 @@ const EmployeeChat = () => {
       || getReadTimestamp(currentReadState) >= new Date(latestIncoming.createdAt).getTime()
     ) return;
 
+    const unreadInConversation = conversationMessages.filter((message) => (
+      message.sender !== user.username
+      && new Date(message.createdAt).getTime() > getReadTimestamp(currentReadState)
+    )).length;
+
     setReadState((prev) => {
       const next = {
         ...prev,
@@ -3157,6 +3164,9 @@ const EmployeeChat = () => {
       saveReadState(user.username, next);
       return next;
     });
+    window.dispatchEvent(new CustomEvent('chat:read', {
+      detail: { decrement: unreadInConversation }
+    }));
     authFetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(currentConversationId)}/read`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
@@ -3172,7 +3182,7 @@ const EmployeeChat = () => {
     }).catch(() => {
       // Local read state remains available while the connection recovers.
     });
-  }, [chatAuthHeaders, currentConversationId, readState, threads, user.username]);
+  }, [activeTab, chatAuthHeaders, currentConversationId, readState, readViewportVersion, threads, user.username]);
 
   useEffect(() => {
     const nextConversationId = currentConversationId || '';
@@ -3224,7 +3234,9 @@ const EmployeeChat = () => {
   useEffect(() => {
     const wrap = messagesWrapRef.current;
     if (!wrap) return;
+    forceScrollRef.current = true;
     wrap.scrollTop = wrap.scrollHeight;
+    setReadViewportVersion((current) => current + 1);
   }, [currentConversationId]);
 
   useEffect(() => {
@@ -3234,12 +3246,14 @@ const EmployeeChat = () => {
     if (forceScrollRef.current) {
       wrap.scrollTop = wrap.scrollHeight;
       forceScrollRef.current = false;
+      setReadViewportVersion((current) => current + 1);
       return;
     }
 
     const distanceFromBottom = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight;
     if (distanceFromBottom < 140) {
       wrap.scrollTop = wrap.scrollHeight;
+      setReadViewportVersion((current) => current + 1);
     }
   }, [currentMessages.length]);
 
@@ -5211,6 +5225,11 @@ const EmployeeChat = () => {
                     else if (selectedMessageId) setSelectedMessageId('');
                   }}
                   onScroll={(event) => {
+                    const wrap = event.currentTarget;
+                    const distanceFromBottom = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight;
+                    if (distanceFromBottom <= 80 && unreadByEmail[selectedEmail] > 0) {
+                      setReadViewportVersion((current) => current + 1);
+                    }
                     if (event.currentTarget.scrollTop > 32 || hiddenDialogMessagesCount > 0 || !threadHasMore[currentConversationId]) return;
                     loadOlderDialogMessages();
                   }}
@@ -5553,13 +5572,13 @@ const EmployeeChat = () => {
                     <p>{ticket.application}</p>
                     <RequestTimerMetrics ticket={ticket} t={t} />
                     {(ticket.executor || ticket.accepted_by || ticket.admin_comment || ticket.eta_minutes) && <div className="ticket-admin-note"><strong>{ticket.executor || ticket.accepted_by || t('administrator')}</strong><span>{ticket.admin_comment || (ticket.eta_minutes ? t('administratorEta').replace('{minutes}', ticket.eta_minutes) : t('administratorAccepted'))}</span></div>}
-                    {Array.isArray(ticket.timeline) && <ol className="ticket-timeline" aria-label={isEnglishInterface ? 'Request progress' : 'Ход заявки'}>{ticket.timeline.map((step) => <li key={step.key} className={step.completed ? 'completed' : ''}><span>{step.label}</span>{step.at && <time>{new Date(step.at).toLocaleString(isEnglishInterface ? 'en-US' : 'ru-RU')}</time>}</li>)}</ol>}
+                    {Array.isArray(ticket.timeline) && <ol className="ticket-timeline" aria-label={isEnglishInterface ? 'Request progress' : 'Ход заявки'}>{ticket.timeline.filter((step) => step.completed && ['created', 'accepted', 'in_progress', 'done'].includes(step.key)).map((step) => <li key={step.key} className="completed"><span>{step.label}</span><time>{formatApplicationDateTime(step.at, interfaceLocale)}</time></li>)}</ol>}
                     {ticket.process && <div className="ticket-admin-note"><strong>{t('workCompleted')}</strong><span>{ticket.process}</span></div>}
                     {['in_progress', 'waiting_employee_confirmation'].includes(ticket.status) && <div className="ticket-actions"><button type="button" onClick={() => confirmApplicationDone(ticket.id)}>✅ {t('requestDone')}</button><button type="button" onClick={() => reopenApplication(ticket.id)}>{t('issueRemains')}</button></div>}
                   </article>
                 );
               })}
-              {completedApplications.length > 0 && <details className="ticket-history"><summary>{t('completedHistory')} ({completedApplications.length})</summary>{completedApplications.slice(0, 10).map((ticket) => <div key={ticket.id} className="ticket-history-row"><span>#{ticket.id}</span><span>{ticket.application}</span><strong>{formatDuration(ticket.waiting_seconds || 0)} / {formatDuration(ticket.work_seconds || 0)}</strong></div>)}</details>}
+              {completedApplications.length > 0 && <details className="ticket-history"><summary>{t('completedHistory')} ({completedApplications.length})</summary>{completedApplications.slice(0, 10).map((ticket) => { const timing = getApplicationTiming(ticket); return <div key={ticket.id} className="ticket-history-row"><span>#{ticket.id}</span><span>{ticket.application}</span><span>{isEnglishInterface ? 'Submitted' : 'Подана'}: {formatApplicationDateTime(ticket.created_at || ticket.data, interfaceLocale)}</span><span>{isEnglishInterface ? 'Accepted' : 'Взята'}: {formatApplicationDateTime(ticket.work_started_at || ticket.accepted_at || ticket.start_data, interfaceLocale)}</span><span>{isEnglishInterface ? 'Completed' : 'Закрыта'}: {formatApplicationDateTime(ticket.employee_confirmed_at || ticket.end_data, interfaceLocale)}</span><span>{isEnglishInterface ? 'Specialist' : 'Исполнитель'}: {ticket.executor || ticket.accepted_by || '—'}</span><strong>{isEnglishInterface ? 'Waiting' : 'Ожидание'}: {formatApplicationDuration(timing.waitingSeconds || 0)} · {isEnglishInterface ? 'Work' : 'Работа'}: {formatApplicationDuration(timing.workSeconds || 0)}</strong></div>; })}</details>}
             </section>
           </div>
         )}

@@ -3,12 +3,18 @@ import './Dashboard.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { useAuth } from '../context/AuthContext';
 import { authFetch } from '../utils/authFetch';
+import {
+  APPLICATION_TIME_ZONE,
+  formatApplicationDateTime,
+  formatApplicationDuration,
+  getApplicationTiming
+} from '../utils/applicationTime';
 
 const STATUS_META = {
   new: { label: 'Новая', icon: '📥' },
   accepted: { label: 'Назначена', icon: '🤝' },
   in_progress: { label: 'В работе', icon: '🛠️' },
-  waiting_employee_confirmation: { label: 'Ждёт подтверждения', icon: '👤' },
+  waiting_employee_confirmation: { label: 'В работе', icon: '🛠️' },
   done: { label: 'Выполнено', icon: '✅' },
   reopened: { label: 'Переоткрыта', icon: '↩️' }
 };
@@ -19,7 +25,6 @@ const WORKFLOW_FILTERS = [
   { id: 'my', label: 'Мои' },
   { id: 'active', label: 'В работе' },
   { id: 'unassigned', label: 'Без исполнителя' },
-  { id: 'confirmation', label: 'Ждут подтверждения' },
   { id: 'done', label: 'Выполненные' },
   { id: 'overdue', label: 'Просроченные' }
 ];
@@ -30,7 +35,6 @@ const QUEUE_FILTERS = [
   { id: 'my', label: 'Мои', icon: '👤' },
   { id: 'unassigned', label: 'Без исполнителя', icon: '🧭' },
   { id: 'done', label: 'Выполненные', icon: '✅' },
-  { id: 'confirmation', label: 'Ждут подтверждения', icon: '👤' }
 ];
 const SORT_OPTIONS = [
   { id: 'date_desc', label: 'Дата: новые сверху' },
@@ -71,35 +75,12 @@ const readVisibleColumns = () => {
     return DEFAULT_DASHBOARD_COLUMNS;
   }
 };
-const formatDuration = (seconds) => {
-  if (seconds === null || seconds === undefined || seconds === '') return '—';
-  const safe = Math.max(0, Math.floor(Number(seconds) || 0));
-  const h = Math.floor(safe / 3600);
-  const m = Math.floor((safe % 3600) / 60);
-  const s = safe % 60;
-  return [h, m, s].map((part) => String(part).padStart(2, '0')).join(':');
-};
-
 // Три ключевых времени заявки и производные длительности.
-const getApplicationTimes = (app = {}) => {
-  const createdRaw = app.created_at || app.data || '';
-  const takenRaw = app.work_started_at || app.accepted_at || '';
-  const closedRaw = app.employee_confirmed_at || app.end_data || app.resolved_at || '';
-  const created = createdRaw ? new Date(createdRaw).getTime() : 0;
-  const taken = takenRaw ? new Date(takenRaw).getTime() : 0;
-  const isDone = Boolean(app.fl) || app.status === 'done';
-  const closed = closedRaw ? new Date(closedRaw).getTime() : 0;
-  const endMs = closed || Date.now();
+const getApplicationTimes = (app = {}, now = Date.now()) => {
+  const timing = getApplicationTiming(app, now);
   return {
-    createdAt: created || null,
-    takenAt: taken || null,
-    closedAt: isDone ? (closed || Date.now()) : null,
-    // общее время от подачи до закрытия
-    totalSeconds: created ? Math.max(0, Math.round((endMs - created) / 1000)) : null,
-    // время от подачи до взятия в работу
-    waitSeconds: created && taken ? Math.max(0, Math.round((taken - created) / 1000)) : null,
-    // время от взятия до закрытия
-    workSeconds: taken ? Math.max(0, Math.round((endMs - taken) / 1000)) : null
+    ...timing,
+    waitSeconds: timing.waitingSeconds
   };
 };
 
@@ -122,6 +103,50 @@ const secondsBetweenValues = (startValue, endValue) => {
 const isEmployeeCreatedApplication = (app = {}) => (
   app.source === 'chat' || Boolean(String(app.employee_login || '').trim())
 );
+
+const getApplicationStatus = (app = {}) => app.status || (app.fl ? 'done' : 'new');
+const isQueueApplication = (app = {}) => ['new', 'reopened'].includes(getApplicationStatus(app));
+const isInWorkApplication = (app = {}) => ['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(getApplicationStatus(app));
+
+const matchesDashboardFilter = (app = {}, filter = 'all', assignee = '') => {
+  const status = getApplicationStatus(app);
+  if (filter === 'all') return true;
+  if (filter === 'queue') return isQueueApplication(app);
+  if (filter === 'inwork') return isInWorkApplication(app);
+  if (filter === 'active') return ['accepted', 'in_progress'].includes(status);
+  if (filter === 'done') return status === 'done' || Boolean(app.fl);
+  if (filter === 'confirmation') return status === 'waiting_employee_confirmation';
+  if (filter === 'unassigned') return !app.fl && !String(app.executor || app.accepted_by || '').trim();
+  if (filter === 'my') {
+    const target = String(assignee || '').trim().toLowerCase();
+    return target && (
+      String(app.executor || '').toLowerCase().includes(target)
+      || String(app.accepted_by || '').toLowerCase() === target
+    );
+  }
+  return status === filter;
+};
+
+const updateStatsForApplicationTransition = (current = {}, before = {}, after = {}) => {
+  const next = { ...current };
+  const buckets = {
+    completed: (app) => getApplicationStatus(app) === 'done' || Boolean(app.fl),
+    pending: (app) => !app.fl && ['new', 'accepted', 'in_progress', 'waiting_employee_confirmation', 'reopened'].includes(getApplicationStatus(app)),
+    queue: isQueueApplication,
+    accepted: (app) => getApplicationStatus(app) === 'accepted',
+    in_progress: (app) => getApplicationStatus(app) === 'in_progress',
+    active: (app) => ['accepted', 'in_progress'].includes(getApplicationStatus(app)),
+    inwork: isInWorkApplication,
+    confirmation: (app) => getApplicationStatus(app) === 'waiting_employee_confirmation'
+  };
+  Object.entries(buckets).forEach(([key, test]) => {
+    const delta = Number(test(after)) - Number(test(before));
+    if (delta !== 0 || Object.prototype.hasOwnProperty.call(next, key)) {
+      next[key] = Math.max(0, Number(next[key] || 0) + delta);
+    }
+  });
+  return next;
+};
 
 const getOpenChatHref = (app = {}) => {
   const params = new URLSearchParams();
@@ -219,10 +244,8 @@ const Dashboard = () => {
   const [eventsLoading, setEventsLoading] = useState(false);
   const [workflowModal, setWorkflowModal] = useState(null);
   const [toast, setToast] = useState(null);
-  const didInitialLoadRef = useRef(false);
-  const applicationsRef = useRef([]);
-  const loadingRef = useRef(true);
-  const recoveryIntervalRef = useRef(null);
+  const [dashboardNow, setDashboardNow] = useState(Date.now());
+  const applicationsRequestIdRef = useRef(0);
 
   const [stats, setStats] = useState({
     total: 0,
@@ -314,9 +337,10 @@ const Dashboard = () => {
   };
 
   const fetchApplications = async ({ silent = false } = {}) => {
+    const requestId = applicationsRequestIdRef.current + 1;
+    applicationsRequestIdRef.current = requestId;
     if (!silent) {
       setLoading(true);
-      loadingRef.current = true;
     }
     try {
       let url = `/applications?page=${currentPage}&limit=${limit}`;
@@ -343,11 +367,12 @@ const Dashboard = () => {
 
       const response = await authFetch(`${API_BASE_URL}${url}`);
       const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Ошибка загрузки заявок');
+      if (requestId !== applicationsRequestIdRef.current) return false;
 
       const nextStats = data.stats || { total: 0, completed: 0, pending: 0 };
       const nextApplications = data.applications || [];
       setApplications(nextApplications);
-      applicationsRef.current = nextApplications;
       setTotalPages(data.totalPages || 1);
       setFilteredStats(nextStats);
       if (!searchTerm.trim() && !dateFilterActive && filter === 'all') {
@@ -356,19 +381,18 @@ const Dashboard = () => {
       window.dispatchEvent(new Event('applications:refresh'));
       return true;
     } catch (error) {
+      if (requestId !== applicationsRequestIdRef.current) return false;
       console.error('Ошибка загрузки:', error);
       // Убираем блокирующий alert при стартовой загрузке,
       // чтобы интерфейс не показывал всплывающее окно подтверждения.
       if (!silent) {
         setApplications([]);
-        applicationsRef.current = [];
         setFilteredStats({ total: 0, completed: 0, pending: 0 });
       }
       return false;
     } finally {
-      if (!silent) {
+      if (!silent && requestId === applicationsRequestIdRef.current) {
         setLoading(false);
-        loadingRef.current = false;
       }
     }
   };
@@ -376,11 +400,15 @@ const Dashboard = () => {
   const handleSearch = (value) => {
     setSearchTerm(value);
     setCurrentPage(1);
+    setApplications([]);
+    setLoading(true);
   };
 
   const clearSearch = () => {
     setSearchTerm('');
     setCurrentPage(1);
+    setApplications([]);
+    setLoading(true);
   };
 
   const markApplicationsViewed = (ids) => {
@@ -451,57 +479,26 @@ const Dashboard = () => {
   };
 
   useEffect(() => {
-    let isCancelled = false;
-    const retryTimers = [];
-
-    const loadInitialData = async () => {
-      await Promise.all([fetchGeneralStats(), fetchApplications()]);
-      didInitialLoadRef.current = true;
-
-      // Устойчивые повторные попытки: сервер может быть недоступен пару секунд
-      // (например, dev-перезапуск nodemon), поэтому дозагружаем молча, пока
-      // таблица не появится.
-      const retryDelaysExtended = [200, 800, 1800, 3000, 5000, 8000];
-      retryDelaysExtended.forEach((delay) => {
-        const timer = setTimeout(() => {
-          if (isCancelled) return;
-          fetchGeneralStats();
-          fetchApplications({ silent: true });
-        }, delay);
-        retryTimers.push(timer);
-      });
-
-      // Фоновая дозагрузка, пока таблица ещё пуста.
-      const recoveryTimer = setInterval(() => {
-        if (isCancelled || applicationsRef.current.length > 0 || loadingRef.current) return;
-        fetchApplications({ silent: true });
-      }, 4000);
-      recoveryIntervalRef.current = recoveryTimer;
-    };
-
-    loadInitialData();
-
-    return () => {
-      isCancelled = true;
-      retryTimers.forEach((timer) => clearTimeout(timer));
-      if (recoveryIntervalRef.current) {
-        clearInterval(recoveryIntervalRef.current);
-        recoveryIntervalRef.current = null;
-      }
-    };
+    fetchGeneralStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (!didInitialLoadRef.current) return undefined;
-
-    const timer = setTimeout(() => {
-      fetchApplications({ silent: true });
-    }, 500);
-
-    return () => clearTimeout(timer);
+    fetchApplications();
+    return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, limit, filter, fromDate, toDate, dateFilterActive, searchTerm, sortMode]);
+
+  useEffect(() => () => {
+    applicationsRequestIdRef.current += 1;
+  }, []);
+
+  useEffect(() => {
+    if (!selectedApplication || getApplicationStatus(selectedApplication) === 'done') return undefined;
+    setDashboardNow(Date.now());
+    const timer = window.setInterval(() => setDashboardNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [selectedApplication]);
 
   useEffect(() => {
     const onVisible = () => {
@@ -517,13 +514,15 @@ const Dashboard = () => {
       window.removeEventListener('focus', onVisible);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [currentPage, limit, filter, fromDate, toDate, dateFilterActive, searchTerm, sortMode]);
 
   const formatDateInput = (date) => date.toISOString().slice(0, 10);
 
   const setFilterAndResetPage = (newFilter) => {
     setFilter(newFilter);
     setCurrentPage(1);
+    setApplications([]);
+    setLoading(true);
   };
 
   const applyFilters = () => {
@@ -570,6 +569,8 @@ const Dashboard = () => {
     setCurrentPage(1);
     setDateFilterActive(false);
     setSearchTerm('');
+    setApplications([]);
+    setLoading(true);
   };
 
   const isColumnVisible = (columnId) => visibleColumns.includes(columnId);
@@ -643,7 +644,7 @@ const Dashboard = () => {
 
   const formatTime = (dateString) => {
     if (!dateString) return '—';
-    return new Date(dateString).toLocaleTimeString('ru-RU', { timeZone: 'UTC',
+    return new Date(dateString).toLocaleTimeString('ru-RU', { timeZone: APPLICATION_TIME_ZONE,
       hour: '2-digit',
       minute: '2-digit'
     });
@@ -661,13 +662,8 @@ const Dashboard = () => {
       month: '2-digit',
       year: '2-digit'
     };
-    if (isDateOnlyValue(dateString) || isMidnightValue(date)) return date.toLocaleDateString('ru-RU', { ...dateFormat, timeZone: 'UTC' });
-    return date.toLocaleString('ru-RU', {
-      ...dateFormat,
-      timeZone: 'UTC',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    if (isDateOnlyValue(dateString) || isMidnightValue(date)) return date.toLocaleDateString('ru-RU', { ...dateFormat, timeZone: APPLICATION_TIME_ZONE });
+    return formatApplicationDateTime(dateString);
   };
 
   const getApplicationSourceLabel = (app = {}) => {
@@ -724,13 +720,21 @@ const Dashboard = () => {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || data.message || 'Не удалось изменить статус');
-      setApplications((prev) => prev.map((item) => (item.id === app.id ? data.application : item)));
+      const updatedApplication = data.application;
+      const assignee = user?.name || user?.username || '';
+      setApplications((prev) => prev
+        .map((item) => (item.id === app.id ? updatedApplication : item))
+        .filter((item) => matchesDashboardFilter(item, filter, assignee)));
       setSelectedApplication((prev) => (prev?.id === app.id ? data.application : prev));
+      setStats((current) => updateStatsForApplicationTransition(current, app, updatedApplication));
       setWorkflowMessage(data.message || 'Статус заявки обновлён');
       showToast(data.message || 'Статус заявки обновлён', 'success');
       setWorkflowModal(null);
+      window.dispatchEvent(new CustomEvent('applications:status-changed', {
+        detail: { from: getApplicationStatus(app), to: getApplicationStatus(updatedApplication) }
+      }));
       fetchGeneralStats();
-      fetchApplications();
+      fetchApplications({ silent: true });
       fetchApplicationEvents(app.id);
     } catch (error) {
       setWorkflowMessage(error.message || 'Ошибка изменения статуса');
@@ -941,7 +945,7 @@ const Dashboard = () => {
     return sorted;
   }, [applications, sortMode]);
 
-  const selectedAppTimes = selectedApplication ? getApplicationTimes(selectedApplication) : null;
+  const selectedAppTimes = selectedApplication ? getApplicationTimes(selectedApplication, dashboardNow) : null;
 
   return (
     <div className="dashboard-container">
@@ -1142,7 +1146,7 @@ const Dashboard = () => {
                 )}
               </div>
             )}
-            {viewMode === 'timeline' ? <div className="request-timeline">{Object.entries(displayedApplications.reduce((groups, app) => { const key = new Date(app.created_at || app.data).toLocaleDateString('ru-RU', { timeZone: 'UTC' }); (groups[key] ||= []).push(app); return groups; }, {})).map(([date, apps]) => <section className="timeline-day" key={date}><h4>{date}</h4><div className="timeline-row">{apps.sort((a, b) => new Date(a.created_at || a.data) - new Date(b.created_at || b.data)).map(app => (
+            {viewMode === 'timeline' ? <div className="request-timeline">{Object.entries(displayedApplications.reduce((groups, app) => { const key = new Date(app.created_at || app.data).toLocaleDateString('ru-RU', { timeZone: APPLICATION_TIME_ZONE }); (groups[key] ||= []).push(app); return groups; }, {})).map(([date, apps]) => <section className="timeline-day" key={date}><h4>{date}</h4><div className="timeline-row">{apps.sort((a, b) => new Date(a.created_at || a.data) - new Date(b.created_at || b.data)).map(app => (
   <button type="button" className="timeline-request" key={app.id} onClick={() => openApplicationPanel(app)}>
     <small>#{app.id} · {formatTime(app.created_at || app.data)} · {getStatusLabel(app)}</small>
     <strong>{app.name || 'Без ФИО'} · каб. {app.cabinet || '—'}</strong>
@@ -1233,7 +1237,7 @@ const Dashboard = () => {
                         </td>}
 
                         {isColumnVisible('created') && <td className="cell-date cell-created">
-                          <strong>{new Date(app.created_at || app.data).toLocaleDateString('ru-RU')}</strong>
+                          <strong>{new Date(app.created_at || app.data).toLocaleDateString('ru-RU', { timeZone: APPLICATION_TIME_ZONE })}</strong>
                         </td>}
                         {isColumnVisible('status') && <td>{getStatusLabel(app)}</td>}
                         {isColumnVisible('actions') && <td className="cell-actions">
@@ -1305,9 +1309,9 @@ const Dashboard = () => {
             <strong>{getStatusLabel(selectedApplication)}</strong>
             {selectedAppTimes && (
               <span>
-                {selectedAppTimes.totalSeconds != null && <em>Всего: {formatDuration(selectedAppTimes.totalSeconds)}</em>}
-                {selectedAppTimes.workSeconds != null && <em>В работе: {formatDuration(selectedAppTimes.workSeconds)}</em>}
-                {selectedAppTimes.waitSeconds != null && <em>Ожидание: {formatDuration(selectedAppTimes.waitSeconds)}</em>}
+                {selectedAppTimes.totalSeconds != null && <em>Всего: {formatApplicationDuration(selectedAppTimes.totalSeconds)}</em>}
+                {selectedAppTimes.workSeconds != null && <em>В работе: {formatApplicationDuration(selectedAppTimes.workSeconds)}</em>}
+                {selectedAppTimes.waitSeconds != null && <em>Ожидание: {formatApplicationDuration(selectedAppTimes.waitSeconds)}</em>}
               </span>
             )}
           </div>
@@ -1326,11 +1330,11 @@ const Dashboard = () => {
             <div><strong>Источник</strong><span>{getApplicationSourceLabel(selectedApplication)}</span></div>
             <div><strong>Исполнитель</strong><span>{selectedApplication.executor || selectedApplication.accepted_by || 'Не назначен'}</span></div>
             <div><strong>Подана</strong><span>{formatCreatedAt(selectedApplication.created_at || selectedApplication.data)}</span></div>
-            {selectedAppTimes?.takenAt ? <div><strong>Взята в работу</strong><span>{formatCreatedAt(new Date(selectedAppTimes.takenAt).toISOString())}</span></div> : null}
-            {selectedAppTimes?.closedAt ? <div><strong>Закрыта</strong><span>{formatCreatedAt(new Date(selectedAppTimes.closedAt).toISOString())}</span></div> : null}
-            {selectedAppTimes?.totalSeconds != null && <div><strong>Подача → закрытие</strong><span>{formatDuration(selectedAppTimes.totalSeconds)}</span></div>}
-            {selectedAppTimes?.waitSeconds != null && <div><strong>Подача → взятие</strong><span>{formatDuration(selectedAppTimes.waitSeconds)}</span></div>}
-            {selectedAppTimes?.workSeconds != null && <div><strong>Взятие → закрытие</strong><span>{formatDuration(selectedAppTimes.workSeconds)}</span></div>}
+            {selectedAppTimes?.takenAt ? <div><strong>Взята в работу</strong><span>{formatCreatedAt(selectedAppTimes.takenAt)}</span></div> : null}
+            {selectedAppTimes?.closedAt ? <div><strong>Закрыта</strong><span>{formatCreatedAt(selectedAppTimes.closedAt)}</span></div> : null}
+            {selectedAppTimes?.totalSeconds != null && <div><strong>Подача → закрытие</strong><span>{formatApplicationDuration(selectedAppTimes.totalSeconds)}</span></div>}
+            {selectedAppTimes?.waitSeconds != null && <div><strong>Подача → взятие</strong><span>{formatApplicationDuration(selectedAppTimes.waitSeconds)}</span></div>}
+            {selectedAppTimes?.workSeconds != null && <div><strong>Взятие → закрытие</strong><span>{formatApplicationDuration(selectedAppTimes.workSeconds)}</span></div>}
           </div></div>
           {selectedApplication.admin_comment && (
             <div className="side-panel-section">
@@ -1361,7 +1365,7 @@ const Dashboard = () => {
               {applicationEvents.map((event) => (
                 <div key={event.id} className="event-item">
                   <strong>{event.event_type}</strong>
-                  <span>{event.actor_login || '—'} · {event.created_at ? new Date(event.created_at).toLocaleString('ru-RU') : '—'}</span>
+                  <span>{event.actor_login || '—'} · {event.created_at ? formatApplicationDateTime(event.created_at) : '—'}</span>
                   {event.comment && <p>{event.comment}</p>}
                 </div>
               ))}
@@ -1382,7 +1386,7 @@ const Dashboard = () => {
               </>
             ) : workflowModal.type === 'bulk-close' ? (
               <>
-                <p className="bulk-close-warning">Будут закрыты только заявки, по которым исполнитель уже завершил работу и ожидается подтверждение сотрудника.</p>
+                <p className="bulk-close-warning">Будут закрыты заявки, по которым исполнитель завершил работу.</p>
                 <ul className="bulk-close-list">{workflowModal.apps.map((app) => <li key={app.id}>#{app.id} — {app.application || 'Без описания'}</li>)}</ul>
                 {workflowModal.blocked?.length > 0 && <p className="bulk-close-warning">Не будут закрыты: {workflowModal.blocked.length} заявок с другим статусом.</p>}
                 <label>Причина массового закрытия<textarea rows={4} value={workflowModal.values.reason} onChange={(event) => updateWorkflowModalValue('reason', event.target.value)} required placeholder="Например: подтверждено по телефону" /></label>
@@ -1407,7 +1411,7 @@ const getStatusDescription = (app = {}) => {
     reopened: 'Заявка переоткрыта сотрудником, ожидает взятия в работу.',
     accepted: 'Заявка в работе (назначена исполнителю).',
     in_progress: 'Заявка в работе. Закроет сотрудник либо администратор через редактирование.',
-    waiting_employee_confirmation: 'Работа выполнена, ожидается подтверждение сотрудника.',
+    waiting_employee_confirmation: 'Работа выполнена. Заявку можно закрыть сотруднику или администратору.',
     done: 'Заявка закрыта.'
   })[status] || 'Статус заявки уточняется.';
 };
@@ -1419,7 +1423,7 @@ const getNextAction = (app = {}) => {
     reopened: 'Взять в работу',
     accepted: 'В работе',
     in_progress: 'В работе',
-    waiting_employee_confirmation: 'Ожидание подтверждения сотрудника',
+    waiting_employee_confirmation: 'Закрыть заявку',
     done: 'Заявка закрыта'
   })[status] || 'Откройте заявку';
 };
