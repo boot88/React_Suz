@@ -16,3 +16,7 @@ test('application workflow only accepts the defined status timeline', () => {
   assert.throws(() => assertApplicationTransition('accepted', 'done'), /Недопустимый/);
   assert.equal(normalizeApplicationStatus('unknown', 'reopened'), 'reopened');
 });
+
+test('a completed request can be reopened directly into work', () => {
+  assert.equal(canTransitionApplicationStatus('done', 'in_progress'), true);
+});
