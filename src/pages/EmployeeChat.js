@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 75649)
-Total output lines: 5954
-
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
@@ -1211,7 +1208,4059 @@ const createVideoThumbnailDataUrl = (file, maxSize = 640) => new Promise((resolv
   const video = document.createElement('video');
   const objectUrl = URL.createObjectURL(file);
   let settled = false;
-  let mediaMetadata = { wi…45649 tokens truncated…sage.forwardedFrom
+  let mediaMetadata = { width: 0, height: 0, aspectRatio: 0, duration: 0 };
+  const cleanup = () => {
+    URL.revokeObjectURL(objectUrl);
+  };
+  const finish = (thumbnailDataUrl = '') => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    resolve({ thumbnailDataUrl, ...mediaMetadata });
+  };
+
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = 'metadata';
+  video.onloadedmetadata = () => {
+    const width = video.videoWidth || 0;
+    const height = video.videoHeight || 0;
+    mediaMetadata = {
+      width,
+      height,
+      aspectRatio: width / Math.max(1, height),
+      duration: Number.isFinite(video.duration) ? video.duration : 0
+    };
+    try {
+      video.currentTime = Math.min(0.25, Math.max(0, (video.duration || 1) / 20));
+    } catch {
+      finish('');
+    }
+  };
+  video.onseeked = () => {
+    const width = video.videoWidth || maxSize;
+    const height = video.videoHeight || maxSize;
+    const ratio = Math.min(1, maxSize / Math.max(width, height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(width * ratio));
+    canvas.height = Math.max(1, Math.round(height * ratio));
+    const context = canvas.getContext('2d');
+    if (!context) {
+      finish('');
+      return;
+    }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    finish(canvas.toDataURL('image/jpeg', 0.78));
+  };
+  video.onerror = () => finish('');
+  window.setTimeout(() => finish(''), 3500);
+  video.src = objectUrl;
+});
+
+const createAttachmentThumbnailDataUrl = async (file) => {
+  if (String(file?.type || '').startsWith('image/')) return createImageThumbnailDataUrl(file);
+  if (isVideoAttachment(file)) return createVideoThumbnailDataUrl(file);
+  return { thumbnailDataUrl: '', width: 0, height: 0, aspectRatio: 0, duration: 0 };
+};
+
+const nudgeVideoToFirstFrame = (event) => {
+  const video = event.currentTarget;
+  if (!video || video.dataset.firstFrameReady === '1') return;
+  video.dataset.firstFrameReady = '1';
+  try {
+    if ((video.currentTime || 0) < 0.05) video.currentTime = Math.min(0.25, Math.max(0, (video.duration || 1) / 20));
+  } catch {
+    // noop: some browsers restrict seeking before metadata is fully ready
+  }
+};
+
+
+const normalizeText = (value = '') => String(value || '').toLowerCase().trim();
+
+const formatDateLabel = (dateValue, isEnglish = false) => {
+  const date = new Date(dateValue);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  const key = date.toDateString();
+  if (key === today.toDateString()) return isEnglish ? 'Today' : 'Сегодня';
+  if (key === yesterday.toDateString()) return isEnglish ? 'Yesterday' : 'Вчера';
+  return date.toLocaleDateString(isEnglish ? 'en-US' : 'ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+};
+
+const getDateKey = (dateValue) => new Date(dateValue).toDateString();
+
+const isVideoAttachment = (file = {}) => String(file.type || '').startsWith('video/') || VIDEO_EXTENSION_PATTERN.test(String(file.name || ''));
+
+const formatFileSize = (size = 0) => {
+  const bytes = Number(size) || 0;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+};
+
+const getFileIcon = (type = '') => {
+  if (type.startsWith('image/')) return '🖼️';
+  if (type.startsWith('video/')) return '🎬';
+  if (type.includes('pdf')) return '📕';
+  if (type.includes('word')) return '📘';
+  if (type.includes('excel') || type.includes('sheet')) return '📗';
+  return '📎';
+};
+
+const dataUrlToBlob = (dataUrl = '') => {
+  const [meta = '', payload = ''] = String(dataUrl).split(',');
+  const mimeMatch = meta.match(/data:([^;]+);base64/);
+  const mime = mimeMatch?.[1] || 'application/octet-stream';
+  const binary = window.atob(payload);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new Blob([bytes], { type: mime });
+};
+
+const openAttachmentInNewTab = (file = {}) => {
+  const sourceUrl = getOriginalAttachmentUrl(file);
+  if (!sourceUrl) return;
+  try {
+    const url = sourceUrl.startsWith('data:') ? URL.createObjectURL(dataUrlToBlob(sourceUrl)) : sourceUrl;
+    window.open(url, '_blank', 'noopener,noreferrer');
+    if (sourceUrl.startsWith('data:')) {
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+  } catch (error) {
+    console.error('Attachment open error:', error);
+  }
+};
+
+const formatFeedLogin = (login = '') => String(login || '').replace(/^@+/, '');
+
+const getFeedAttachments = (post = {}) => {
+  const attachments = Array.isArray(post.attachments) ? post.attachments.filter(Boolean) : [];
+  if (attachments.length) return attachments;
+  return post.attachment ? [post.attachment] : [];
+};
+
+const getFeedPostsSignature = (posts = []) => JSON.stringify((Array.isArray(posts) ? posts : []).map((post) => ({
+  id: post?.id,
+  author: post?.author,
+  authorName: post?.authorName,
+  text: post?.text,
+  category: post?.category,
+  pinned: Boolean(post?.pinned),
+  updatedAt: post?.updatedAt,
+  editedAt: post?.editedAt,
+  deletedAt: post?.deletedAt,
+  comments: Array.isArray(post?.comments) ? post.comments.map((comment) => `${comment?.id}:${comment?.updatedAt || ''}:${comment?.deletedAt || ''}`).join('|') : '',
+  commentCount: Number(post?.commentCount) || 0,
+  attachments: getFeedAttachments(post).map((file) => file?.id || file?.url || file?.name || '').join('|'),
+  reactions: post?.reactions
+    ? Object.entries(post.reactions).sort(([left], [right]) => left.localeCompare(right)).map(([emoji, items]) => `${emoji}:${Array.isArray(items) ? [...items].sort().join(',') : ''}`).join('|')
+    : ''
+})));
+
+const getVisibleFeedPosts = (posts = []) => (Array.isArray(posts) ? posts.filter((post) => post && !post.deletedAt) : []);
+const sortFeedPosts = (posts = []) => [...posts].sort((a, b) => (
+  Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
+  || new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+  || String(b.id || '').localeCompare(String(a.id || ''))
+));
+
+const setFeedReactionForUser = (post = {}, emoji, login, active) => {
+  const reactions = { ...(post.reactions || {}) };
+  const users = new Set(Array.isArray(reactions[emoji]) ? reactions[emoji] : []);
+  if (active) users.add(login);
+  else users.delete(login);
+  if (users.size) reactions[emoji] = [...users];
+  else delete reactions[emoji];
+  return { ...post, reactions };
+};
+
+const sameLogin = (left = '', right = '') => formatFeedLogin(left).trim().toLowerCase() === formatFeedLogin(right).trim().toLowerCase();
+
+const getFeedDraftKey = (username = 'guest') => `${FEED_DRAFT_KEY}:${username || 'guest'}`;
+const getHiddenFeedPostsKey = (username = 'guest') => `${FEED_HIDDEN_POSTS_KEY}:${username || 'guest'}`;
+
+const readSavedFeedDraft = (username = 'guest') => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(getFeedDraftKey(username)) || '{}');
+    return {
+      text: String(saved.text || ''),
+      category: FEED_CATEGORIES.includes(saved.category) ? saved.category : FEED_CATEGORIES[0]
+    };
+  } catch {
+    return { text: '', category: FEED_CATEGORIES[0] };
+  }
+};
+
+const saveFeedDraft = (username = 'guest', draft = {}) => {
+  localStorage.setItem(getFeedDraftKey(username), JSON.stringify({ text: draft.text || '', category: draft.category || FEED_CATEGORIES[0] }));
+};
+
+const clearSavedFeedDraft = (username = 'guest') => localStorage.removeItem(getFeedDraftKey(username));
+
+const readHiddenFeedPosts = (username = 'guest') => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(getHiddenFeedPostsKey(username)) || '[]');
+    return Array.isArray(saved) ? saved.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveHiddenFeedPosts = (username = 'guest', postIds = []) => {
+  localStorage.setItem(getHiddenFeedPostsKey(username), JSON.stringify([...new Set(postIds.filter(Boolean))]));
+};
+
+const isImageAttachment = (file = {}) => String(file.type || '').startsWith('image/');
+const isMediaAttachment = (file = {}) => isImageAttachment(file) || isVideoAttachment(file);
+const getCurrentAttachmentIdentity = () => {
+  try {
+    const authState = JSON.parse(localStorage.getItem('authState') || 'null');
+    return {
+      login: String(authState?.user?.username || '').trim(),
+      accessToken: String(authState?.user?.accessToken || '').trim()
+    };
+  } catch {
+    return { login: '', accessToken: '' };
+  }
+};
+
+const appendAttachmentLogin = (url = '') => {
+  const { accessToken } = getCurrentAttachmentIdentity();
+  if (
+    !accessToken
+    || (!url.includes('/api/chat/files/') && !url.includes('/api/auth/profile/'))
+  ) return url;
+  return withAccessToken(url);
+};
+
+const resolveAttachmentUrl = (url = '') => {
+  if (!url) return '';
+  if (url.startsWith('data:') || url.startsWith('blob:')) return url;
+  if (/^https?:\/\//i.test(url)) return appendAttachmentLogin(url);
+  const fileBaseUrl = API_BASE_URL.replace(/\/api\/?$/, '');
+  return appendAttachmentLogin(`${fileBaseUrl}${url.startsWith('/') ? url : `/${url}`}`);
+};
+const getAttachmentUrl = (file = {}) => resolveAttachmentUrl(file.thumbnailUrl || file.previewUrl || file.url || file.dataUrl || '');
+const getOriginalAttachmentUrl = (file = {}) => resolveAttachmentUrl(file.url || file.dataUrl || file.previewUrl || file.thumbnailUrl || '');
+const getVideoPosterUrl = (file = {}) => {
+  const originalSources = new Set([file.url, file.dataUrl].filter(Boolean));
+  const posterSource = [file.posterUrl, file.thumbnailUrl, file.previewUrl]
+    .find((source) => source && !originalSources.has(source));
+  return resolveAttachmentUrl(posterSource || '');
+};
+const getAttachmentAspectRatio = (file = {}, fallback = 4 / 3) => {
+  const storedRatio = Number(file.aspectRatio)
+    || (Number(file.width) / Math.max(1, Number(file.height)));
+  if (!Number.isFinite(storedRatio) || storedRatio <= 0) return fallback;
+  return Math.min(3, Math.max(0.35, storedRatio));
+};
+const getPostShareUrl = (postId = '') => `${window.location.origin}${window.location.pathname}?feedPost=${encodeURIComponent(postId)}`;
+const isPostAuthor = (post = {}, currentUser = {}) => sameLogin(post.author, currentUser?.username || '') || sameLogin(post.login, currentUser?.username || '') || sameLogin(post.sender, currentUser?.username || '');
+
+const getAttachmentFileIds = (attachments = []) => [...new Set(
+  (Array.isArray(attachments) ? attachments : [])
+    .map((file) => file?.fileId || file?.id || getFileIdFromUrl(file?.url || file?.thumbnailUrl || file?.previewUrl || ''))
+    .filter(Boolean)
+    .map((value) => String(value))
+)];
+
+const collectThreadFileIds = (threads = {}) => {
+  const ids = [];
+  Object.values(threads || {}).forEach((messages) => {
+    (Array.isArray(messages) ? messages : []).forEach((message) => {
+      if (!message?.id) return;
+      ids.push(...getAttachmentFileIds([
+        ...(Array.isArray(message.attachments) ? message.attachments : []),
+        message.attachment || null
+      ].filter(Boolean)));
+    });
+  });
+  return [...new Set(ids)];
+};
+
+const collectFeedFileIds = (posts = []) => {
+  const ids = [];
+  (Array.isArray(posts) ? posts : []).forEach((post) => {
+    if (!post?.id) return;
+    ids.push(...getAttachmentFileIds([
+      ...(Array.isArray(post.attachments) ? post.attachments : []),
+      post.attachment || null,
+      ...(Array.isArray(post.comments) ? post.comments : []).flatMap((comment) => [
+        ...(Array.isArray(comment.attachments) ? comment.attachments : []),
+        comment.attachment || null
+      ].filter(Boolean))
+    ].filter(Boolean)));
+  });
+  return [...new Set(ids)];
+};
+
+const prefetchMediaTokens = (fileIds, scope = 'chat') => {
+  const accessToken = getCurrentAttachmentIdentity().accessToken;
+  if (!fileIds.length || !accessToken) return;
+  ensureMediaTokens({ fileIds, scope, getToken: () => accessToken });
+};
+
+
+const canManageFeedPost = (post = {}, currentUser = {}, isManager = false, isAdmin = false) => {
+  if (isManager || isAdmin) return true;
+  const username = currentUser?.username || '';
+  if (!username) return false;
+  return sameLogin(post.author, username)
+    || sameLogin(post.login, username)
+    || sameLogin(post.sender, username);
+};
+
+const AttachmentPreviewImage = React.memo(function AttachmentPreviewImage({ file, alt, useOriginal = false, eager = false, isEnglish = false }) {
+  const preferredSource = useOriginal ? getOriginalAttachmentUrl(file) : getAttachmentUrl(file);
+  const fallbackSource = getOriginalAttachmentUrl(file);
+  const [source, setSource] = useState(preferredSource || fallbackSource);
+  const [state, setState] = useState('loading');
+
+  useEffect(() => {
+    setSource(preferredSource || fallbackSource);
+    setState('loading');
+  }, [fallbackSource, preferredSource]);
+
+  const handleError = () => {
+    if (fallbackSource && source !== fallbackSource) {
+      setSource(fallbackSource);
+      setState('loading');
+      return;
+    }
+    setState('error');
+  };
+
+  return (
+    <span className={`attachment-image-shell is-${state}`}>
+      {source && state !== 'error' && (
+        <img
+          src={source}
+          alt={alt}
+          loading={eager ? 'eager' : 'lazy'}
+          decoding="async"
+          onLoad={() => setState('ready')}
+          onError={handleError}
+        />
+      )}
+      {state !== 'ready' && (
+        <span className="attachment-image-placeholder" aria-hidden="true">
+          <span>{state === 'error' ? '🖼' : ''}</span>
+          <small>{state === 'error' ? (isEnglish ? 'Preview unavailable' : 'Превью недоступно') : ''}</small>
+        </span>
+      )}
+    </span>
+  );
+});
+
+const PlayableVideo = React.memo(function PlayableVideo({ file, className = '', onExpand, isEnglish = false, variant = 'message' }) {
+  const storedRatio = getAttachmentAspectRatio(file, 16 / 9);
+  const getOrientation = (ratio) => ratio < 0.82 ? 'portrait' : ratio > 1.2 ? 'landscape' : 'square';
+  const [orientation, setOrientation] = useState(() => getOrientation(storedRatio));
+
+  useEffect(() => {
+    setOrientation(getOrientation(getAttachmentAspectRatio(file, 16 / 9)));
+  }, [file]);
+
+  const handleMetadata = (event) => {
+    const video = event.currentTarget;
+    const ratio = Number(video.videoWidth || 0) / Math.max(1, Number(video.videoHeight || 0));
+    setOrientation(ratio < 0.82 ? 'portrait' : ratio > 1.2 ? 'landscape' : 'square');
+    nudgeVideoToFirstFrame(event);
+  };
+
+  return (
+    <div className={`playable-video-shell ${variant} is-${orientation} ${className}`} style={{ aspectRatio: storedRatio }}>
+      <video
+        className="attachment-video-player"
+        src={getOriginalAttachmentUrl(file)}
+        poster={getVideoPosterUrl(file) || undefined}
+        controls
+        preload="metadata"
+        playsInline
+        onLoadedMetadata={handleMetadata}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {isEnglish ? 'Your browser does not support video playback.' : 'Ваш браузер не поддерживает просмотр этого видео.'}
+      </video>
+      {onExpand && (
+        <button
+          type="button"
+          className="media-expand-button"
+          aria-label={isEnglish ? 'Open video viewer' : 'Открыть видео на весь экран'}
+          title={isEnglish ? 'Open viewer' : 'Развернуть'}
+          onClick={(event) => {
+            event.stopPropagation();
+            onExpand(event);
+          }}
+        >
+          ⛶
+        </button>
+      )}
+    </div>
+  );
+});
+
+const AttachmentCard = React.memo(function AttachmentCard({ file, cardKey, variant = 'message', onOpen, onSelect, onQuickReaction, metaLabel = '', statusLabel = '', isEnglish = false }) {
+  const fileName = file?.name || (isEnglish ? 'File' : 'Файл');
+  const fileType = String(file?.type || '');
+  const isImage = fileType.startsWith('image/');
+  const isVideo = isVideoAttachment(file);
+  const cardClassName = `${variant === 'feed' ? 'employee-feed-attachment-card' : 'message-attachment-card'} ${isVideo ? 'video-attachment' : ''}`;
+
+  if (variant === 'message' && isImage) {
+    return (
+      <div key={cardKey} className="message-photo-card" style={{ aspectRatio: getAttachmentAspectRatio(file) }}>
+        <button
+          type="button"
+          className="message-photo-open"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpen?.(event);
+          }}
+          onDoubleClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onQuickReaction?.(event);
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onSelect?.(event);
+          }}
+          aria-label={`${isEnglish ? 'Open photo' : 'Открыть фото'} ${fileName}`}
+        >
+          <AttachmentPreviewImage file={file} alt={fileName} eager isEnglish={isEnglish} />
+          {(metaLabel || statusLabel) && <span className="message-photo-meta">{metaLabel} {statusLabel}</span>}
+        </button>
+        {onSelect && (
+          <button
+            type="button"
+            className="media-reaction-trigger"
+            aria-label={isEnglish ? 'Open photo reactions' : 'Открыть реакции к фото'}
+            title={isEnglish ? 'Reactions' : 'Реакции'}
+            onClick={(event) => {
+              event.stopPropagation();
+              onSelect(event);
+            }}
+          >
+            ♡
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      key={cardKey}
+      className={cardClassName}
+      onClick={isVideo ? (event) => event.stopPropagation() : undefined}
+    >
+      {isVideo ? (
+        <PlayableVideo file={file} onExpand={onOpen} isEnglish={isEnglish} variant={variant} />
+      ) : isImage ? (
+        <AttachmentPreviewImage file={file} alt={fileName} useOriginal={variant === 'feed'} isEnglish={isEnglish} />
+      ) : (
+        <span className="file-icon">{getFileIcon(fileType)}</span>
+      )}
+      {variant === 'message' && isVideo ? (
+        <button
+          type="button"
+          className="media-attachment-reaction-zone"
+          aria-label={isEnglish ? `Open reactions for ${fileName}` : `Открыть реакции к ${fileName}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onSelect?.(event);
+          }}
+        >
+          <span>{fileName} · {formatFileSize(file?.size)}</span>
+          <b aria-hidden="true">☺</b>
+        </button>
+      ) : (variant !== 'message' || !isImage) && <small>{fileName} · {formatFileSize(file?.size)}</small>}
+      {variant !== 'message' && (
+        <div className="attachment-card-actions">
+          <a href={getOriginalAttachmentUrl(file)} download={fileName}>{isEnglish ? 'Download' : 'Скачать'}</a>
+          <button type="button" onClick={() => openAttachmentInNewTab(file)}>{isEnglish ? 'Open' : 'Открыть'}</button>
+        </div>
+      )}
+      {variant === 'message' && !isVideo && !isImage && (
+        <div className="attachment-card-actions">
+          <a href={getOriginalAttachmentUrl(file)} download={fileName}>{isEnglish ? 'Download' : 'Скачать'}</a>
+          <button type="button" onClick={() => openAttachmentInNewTab(file)}>{isEnglish ? 'Open' : 'Открыть'}</button>
+        </div>
+      )}
+    </div>
+  );
+});
+
+const FeedMediaCard = React.memo(function FeedMediaCard({ file, onOpen, onQuickReaction, isEnglish = false }) {
+  const isVideo = isVideoAttachment(file);
+  const fileName = file?.name || (isEnglish ? 'Media' : 'Медиа');
+
+  return (
+    <div className={`employee-feed-media-tile ${isVideo ? 'video' : 'photo'}`}>
+      {isVideo ? (
+        <PlayableVideo file={file} onExpand={onOpen} isEnglish={isEnglish} variant="feed" />
+      ) : (
+        <button
+          type="button"
+          className="feed-media-open"
+          style={{ aspectRatio: getAttachmentAspectRatio(file) }}
+          aria-label={`${isEnglish ? 'Open photo' : 'Открыть фото'} ${fileName}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpen?.(event);
+          }}
+          onDoubleClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onQuickReaction?.(event);
+          }}
+        >
+          <AttachmentPreviewImage file={file} alt={fileName} useOriginal isEnglish={isEnglish} />
+        </button>
+      )}
+      <span className="feed-media-caption">{fileName} · {formatFileSize(file?.size)}</span>
+    </div>
+  );
+});
+
+const hasMessageAttachments = (message = {}) => Boolean(message.attachment)
+  || (Array.isArray(message.attachments) && message.attachments.length > 0);
+
+const hasVisibleThreadContent = (messages = []) => messages.some((message) => {
+  if (!message || message.deletedAt) return false;
+  const hasText = String(message.text || '').trim().length > 0;
+  return hasText || hasMessageAttachments(message);
+});
+
+const getThreadActivityMeta = (messages = []) => {
+  const sortedMessages = [...messages].sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+  const lastMessage = sortedMessages[sortedMessages.length - 1] || null;
+  const visibleMessages = messages.filter((message) => !message.deletedAt && (String(message.text || '').trim() || hasMessageAttachments(message)));
+  return {
+    visible: hasVisibleThreadContent(messages),
+    messageCount: visibleMessages.length,
+    deletedCount: messages.filter((message) => Boolean(message.deletedAt)).length,
+    attachmentsCount: messages.filter((message) => hasMessageAttachments(message)).length,
+    lastAt: lastMessage?.createdAt || '',
+    lastTimestamp: lastMessage?.createdAt ? new Date(lastMessage.createdAt).getTime() : 0
+  };
+};
+
+const isThreadInPeriod = (lastTimestamp, period) => {
+  if (period === 'all') return true;
+  if (!lastTimestamp) return false;
+  const now = Date.now();
+  if (period === 'today') return new Date(lastTimestamp).toDateString() === new Date(now).toDateString();
+  if (period === 'week') return now - lastTimestamp <= 7 * 24 * 60 * 60 * 1000;
+  if (period === 'month') return now - lastTimestamp <= 30 * 24 * 60 * 60 * 1000;
+  return true;
+};
+
+const getApplicationStatusMeta = (status, isEnglish = false) => {
+  const meta = APPLICATION_STATUS_META[status] || APPLICATION_STATUS_META.new;
+  return {
+    ...meta,
+    label: isEnglish ? meta.labelEn : meta.label,
+    hint: isEnglish ? meta.hintEn : meta.hint
+  };
+};
+
+const EmployeeChat = () => {
+  const { user, logout, employeeDirectory, changeServicePassword } = useAuth();
+  const isManager = user?.role === 'manager' || user?.role === 'admin';
+  const baseDisplayName = user?.name || user?.username || 'Сотрудник';
+  const isAdmin = user?.serverRole === 'admin' || user?.role === 'admin';
+  const chatAuthHeaders = useMemo(() => ({
+    ...(user?.accessToken ? { Authorization: `Bearer ${user.accessToken}` } : {})
+  }), [user?.accessToken]);
+   
+  const avatarInputRef = useRef(null); 
+  const messageTextareaRef = useRef(null);
+  const profileDirtyRef = useRef(false);
+  const profileLoadedForRef = useRef('');
+  const notifyRef = useRef(() => {});
+  const directoryEmployeesRef = useRef([]);
+   
+  const [threads, setThreads] = useState({});
+  const [threadSummaries, setThreadSummaries] = useState({});
+  const [threadHasMore, setThreadHasMore] = useState({});
+  const [isLoadingOlderDialog, setIsLoadingOlderDialog] = useState(false);
+  const [loadingConversationIds, setLoadingConversationIds] = useState({});
+  const [selectedEmail, setSelectedEmail] = useState('');
+  const [selectedThreadId, setSelectedThreadId] = useState('');
+  const [draft, setDraft] = useState('');
+  const [attachmentDrafts, setAttachmentDrafts] = useState([]);
+  const [chatUploadQueue, setChatUploadQueue] = useState([]);
+  const [pendingMessages, setPendingMessages] = useState(() => readPendingMessages(user?.username || 'guest'));
+  const [isOnline, setIsOnline] = useState(() => typeof navigator === 'undefined' ? true : navigator.onLine);
+  const [dialogSearch, setDialogSearch] = useState('');
+  const [dialogSearchIndex, setDialogSearchIndex] = useState(0);
+  const [serverDialogSearchResults, setServerDialogSearchResults] = useState([]);
+  const [dialogSearchLoading, setDialogSearchLoading] = useState(false);
+  const [dialogSearchHasMore, setDialogSearchHasMore] = useState(false);
+  const [dialogSearchBefore, setDialogSearchBefore] = useState('');
+  const [dialogFilter, setDialogFilter] = useState('all');
+  const [visibleDialogMessageCount, setVisibleDialogMessageCount] = useState(CHAT_MESSAGES_PAGE_SIZE);
+  const [mediaPanelOpen, setMediaPanelOpen] = useState(false);
+  const [conversationMenuOpen, setConversationMenuOpen] = useState(false);
+  const [mediaPanelTab, setMediaPanelTab] = useState('media');
+  const [mediaPanelSearch, setMediaPanelSearch] = useState('');
+  const [chatDrafts, setChatDrafts] = useState(() => readChatDrafts(user?.username || 'guest'));
+  const chatDraftsRef = useRef(chatDrafts);
+  const skipDraftSaveRef = useRef(false);
+  const [chatLocalSettings, setChatLocalSettings] = useState(() => readChatLocalSettings(user?.username || 'guest'));
+  const [selectedMessageIds, setSelectedMessageIds] = useState([]);
+  const [multiSelectMode, setMultiSelectMode] = useState(false);
+  const [inlineEditMessageId, setInlineEditMessageId] = useState('');
+  const [inlineEditText, setInlineEditText] = useState('');
+  const [pinnedMessageIndex, setPinnedMessageIndex] = useState(0);
+  const [activeTab, setActiveTab] = useState('chat');
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [isPublishingFeed, setIsPublishingFeed] = useState(false);
+  const [isEmojiOpen, setIsEmojiOpen] = useState(false);
+  const [customTemplates, setCustomTemplates] = useState(() => readCustomTemplates(user?.username || 'guest'));
+  
+  const [replyTo, setReplyTo] = useState(null);
+  const [selectedMessageId, setSelectedMessageId] = useState('');
+  const [selectedMessageMenuPlacement, setSelectedMessageMenuPlacement] = useState('above');
+  const [selectedMessageMenuStyle, setSelectedMessageMenuStyle] = useState({});
+  const [messageReactionExpanded, setMessageReactionExpanded] = useState(false);
+  const [selectedFeedPostId, setSelectedFeedPostId] = useState('');
+  const [feedReactionExpanded, setFeedReactionExpanded] = useState(false);
+  const [openFeedMenuId, setOpenFeedMenuId] = useState('');
+  const [feedSearch, setFeedSearch] = useState('');
+  const [feedFilter, setFeedFilter] = useState('all');
+  const [visibleFeedPostCount, setVisibleFeedPostCount] = useState(FEED_POSTS_PAGE_SIZE);
+  const [feedCategory, setFeedCategory] = useState(() => readSavedFeedDraft(user?.username || 'guest').category);
+  const [editingFeedPostId, setEditingFeedPostId] = useState('');
+  const [editingFeedText, setEditingFeedText] = useState('');
+  const [hiddenFeedPostIds, setHiddenFeedPostIds] = useState(() => readHiddenFeedPosts(user?.username || 'guest'));
+  const commentSort = 'old';
+  const [expandedCommentPosts, setExpandedCommentPosts] = useState({});
+  const [feedLoading, setFeedLoading] = useState(false);
+  const [feedRefreshing, setFeedRefreshing] = useState(false);
+  const [feedLoadingMore, setFeedLoadingMore] = useState(false);
+  const [feedHasMore, setFeedHasMore] = useState(false);
+  const [feedBefore, setFeedBefore] = useState('');
+  const [viewerTouchStart, setViewerTouchStart] = useState(null);
+  const [forwardSourceMessage, setForwardSourceMessage] = useState(null);
+  const [forwardingTargetEmail, setForwardingTargetEmail] = useState('');
+  const [mediaViewer, setMediaViewer] = useState(null);
+  const [readState, setReadState] = useState(() => readReadState(user?.username || 'guest'));
+  const [readViewportVersion, setReadViewportVersion] = useState(0);
+  const [feedReadAt, setFeedReadAt] = useState(() => readFeedReadAt(user?.username || 'guest'));
+  const [directoryEmployees, setDirectoryEmployees] = useState(() => readDirectoryCache());
+  const [isDirectoryLoaded, setIsDirectoryLoaded] = useState(() => readDirectoryCache().length > 0);
+  const [avatarUrl, setAvatarUrl] = useState('');
+  const [welcomeNotice, setWelcomeNotice] = useState('');
+  const [avatarViewerOpen, setAvatarViewerOpen] = useState(false);
+  const [profileViewLogin, setProfileViewLogin] = useState('');
+  const [profilePreview, setProfilePreview] = useState(null);
+  const [profileForm, setProfileForm] = useState({
+    full_name: user?.name || '',
+    department: '',
+    phone: '',
+    room: '',
+    position: user?.position || '',
+    bio: '',
+    websiteLanguage: DEFAULT_PROFILE_WEBSITE_LANGUAGE,
+    website: getWebsiteByLanguage(),
+    statusText: ''
+  });
+  const isEnglishInterface = (profileForm.websiteLanguage || DEFAULT_PROFILE_WEBSITE_LANGUAGE) === 'en';
+  const interfaceLocale = isEnglishInterface ? 'en-US' : 'ru-RU';
+  const t = useCallback((key) => (isEnglishInterface ? ENGLISH_LABELS[key] : RUSSIAN_LABELS[key]) || key, [isEnglishInterface]);
+  const getTabLabel = useCallback((tab) => (isEnglishInterface ? ENGLISH_TAB_LABELS[tab.id] : tab.label) || tab.label, [isEnglishInterface]);
+  const getContactFilterLabel = useCallback((filter) => (isEnglishInterface ? ENGLISH_CONTACT_FILTER_LABELS[filter.id] : filter.label) || filter.label, [isEnglishInterface]);
+  const getOptionLabel = useCallback((item) => item?.labelKey ? t(item.labelKey) : (isEnglishInterface ? item?.labelEn : item?.label) || item?.label || item?.id, [isEnglishInterface, t]);
+  const getRequestCategoryLabel = useCallback((value) => isEnglishInterface ? (ENGLISH_REQUEST_CATEGORY_LABELS[value] || value) : value, [isEnglishInterface]);
+  const getRequestPriorityLabel = useCallback((value) => isEnglishInterface ? (ENGLISH_REQUEST_PRIORITY_LABELS[value] || value) : value, [isEnglishInterface]);
+  const getFeedCategoryLabel = useCallback((value) => isEnglishInterface ? (ENGLISH_FEED_CATEGORY_LABELS[value] || value) : value, [isEnglishInterface]);
+  const formatVisibleLogin = useCallback((login = '') => (isEnglishInterface ? formatEnglishProfileLogin(login) : login), [isEnglishInterface]);
+  const localizeRuntimeText = useCallback((value) => translateRuntimeText(value, isEnglishInterface), [isEnglishInterface]);
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
+  const [requestText, setRequestText] = useState('');
+  const [requestCategory, setRequestCategory] = useState(REQUEST_CATEGORIES[0]);
+  const [requestPriority, setRequestPriority] = useState(REQUEST_PRIORITIES[0]);
+  const [requestStatus, setRequestStatus] = useState({ state: 'idle', text: 'Черновик', ticketId: '' });
+  const [myApplications, setMyApplications] = useState([]);
+  const [applicationsLoading, setApplicationsLoading] = useState(false);
+  const [applicationsError, setApplicationsError] = useState('');
+  const [remoteTypingByConversation, setRemoteTypingByConversation] = useState({});
+  const [feedPosts, setFeedPosts] = useState([]);
+  const [pendingFeedActions, setPendingFeedActions] = useState([]);
+  const [feedError, setFeedError] = useState('');
+  const [feedDraft, setFeedDraft] = useState(() => readSavedFeedDraft(user?.username || 'guest').text);
+  const [feedAttachments, setFeedAttachments] = useState([]);
+  const [commentDrafts, setCommentDrafts] = useState({});
+  const [modal, setModal] = useState(null);
+  const modalResolverRef = useRef(null);
+  const messagesWrapRef = useRef(null);
+  const feedListRef = useRef(null);
+  const feedPostsRef = useRef([]);
+  const threadsRef = useRef({});
+  const pendingFeedActionsRef = useRef(new Set());
+  const pendingFeedPostIdsRef = useRef(new Set());
+  const feedMutationVersionRef = useRef(0);
+  const feedFetchSequenceRef = useRef(0);
+  const feedFetchControllerRef = useRef(null);
+  const conversationFetchControllerRef = useRef(null);
+  const forceScrollRef = useRef(false);
+  const typingRequestControllerRef = useRef(null);
+  const typingActiveConversationRef = useRef('');
+  const uploadControllersRef = useRef(new Map());
+  const seenStreamEventIdsRef = useRef(new Set());
+  const settingsSyncTimerRef = useRef(null);
+  const fetchThreadsRef = useRef(null);
+  const markAllReadOnMountRef = useRef(false);
+
+  const openModal = useCallback((config) => new Promise((resolve) => {
+    modalResolverRef.current = resolve;
+    setModal({
+      value: config.defaultValue || '',
+      ...config,
+      title: localizeRuntimeText(config.title),
+      message: localizeRuntimeText(config.message)
+    });
+  }), [localizeRuntimeText]);
+
+  const closeModal = useCallback((result) => {
+    const resolver = modalResolverRef.current;
+    modalResolverRef.current = null;
+    setModal(null);
+    if (resolver) resolver(result);
+  }, []);
+
+  const notify = useCallback((message, title = 'Готово') => {
+    setModal({ type: 'info', title: localizeRuntimeText(title), message: localizeRuntimeText(message) });
+  }, [localizeRuntimeText]);
+
+  useEffect(() => {
+    notifyRef.current = notify;
+  }, [notify]);
+
+  const queueChatSettingsSync = useCallback((settings) => {
+    const login = user?.username;
+    if (!login) return;
+    if (settingsSyncTimerRef.current) clearTimeout(settingsSyncTimerRef.current);
+    settingsSyncTimerRef.current = setTimeout(async () => {
+      try {
+        const response = await authFetch(`${API_BASE_URL}/auth/profile/preferences`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ preferences: settings }),
+          keepalive: true
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.message || 'Не удалось синхронизировать настройки');
+        }
+      } catch (error) {
+        console.error('Chat settings sync error:', error);
+      }
+    }, 350);
+  }, [user?.username]);
+
+  useEffect(() => () => {
+    if (settingsSyncTimerRef.current) clearTimeout(settingsSyncTimerRef.current);
+  }, []);
+
+  useEffect(() => () => {
+    uploadControllersRef.current.forEach((controller) => controller.abort());
+    uploadControllersRef.current.clear();
+  }, []);
+
+  const beginFeedAction = useCallback((key, postId = '') => {
+    if (
+      !key
+      || pendingFeedActionsRef.current.has(key)
+      || (postId && pendingFeedPostIdsRef.current.has(postId))
+    ) return false;
+    pendingFeedActionsRef.current.add(key);
+    if (postId) pendingFeedPostIdsRef.current.add(postId);
+    feedMutationVersionRef.current += 1;
+    setPendingFeedActions([...pendingFeedActionsRef.current]);
+    return true;
+  }, []);
+
+  const endFeedAction = useCallback((key, postId = '') => {
+    pendingFeedActionsRef.current.delete(key);
+    if (postId) pendingFeedPostIdsRef.current.delete(postId);
+    setPendingFeedActions([...pendingFeedActionsRef.current]);
+  }, []);
+
+  const isFeedPostPending = (postId) => pendingFeedPostIdsRef.current.has(postId);
+
+  const updateFeedPostFromServer = useCallback((postId, serverPost) => {
+    if (!postId || !serverPost) return;
+    setFeedPosts((current) => current.map((post) => (
+      post.id === postId ? { ...post, ...serverPost } : post
+    )));
+  }, []);
+
+  const confirmAction = useCallback((message, title = 'Подтверждение') => openModal({ type: 'confirm', title, message }), [openModal]);
+
+  const promptAction = useCallback((message, defaultValue = '', title = 'Редактирование') => openModal({
+    type: 'prompt',
+    title,
+    message,
+    defaultValue
+  }), [openModal]);
+
+  const appendToDraft = useCallback((text) => {
+    setDraft((prev) => {
+      const separator = prev && !prev.endsWith(' ') ? ' ' : '';
+      return `${prev}${separator}${text}`;
+    });
+  }, []);
+
+  const addCustomTemplate = useCallback(async () => {
+    const nextTemplate = await promptAction('Введите быстрый шаблон:', '', 'Мой шаблон');
+    const normalized = String(nextTemplate || '').trim();
+    if (!normalized || !user?.username) return;
+
+    setCustomTemplates((prev) => {
+      const next = [...prev.filter((item) => item !== normalized), normalized].slice(-12);
+      saveCustomTemplates(user.username, next);
+      return next;
+    });
+  }, [promptAction, user?.username]);
+
+  const removeCustomTemplate = useCallback((template) => {
+    if (!user?.username) return;
+    setCustomTemplates((prev) => {
+      const next = prev.filter((item) => item !== template);
+      saveCustomTemplates(user.username, next);
+      return next;
+    });
+  }, [user?.username]);
+
+  const updateProfileField = useCallback((field, value) => {
+    profileDirtyRef.current = true;
+    setProfileForm((prev) => {
+      const next = {
+        ...prev,
+        [field]: value,
+        ...(field === 'websiteLanguage' ? { website: getWebsiteByLanguage(value) } : {})
+      };
+      if (user?.username) {
+        saveProfileDraft(user.username, { ...next, avatar: avatarUrl });
+      }
+      return next;
+    });
+  }, [avatarUrl, user?.username]);
+
+  const [employeeForm, setEmployeeForm] = useState({
+    id: null,
+    login: '',
+    password: '',
+    role: 'employee',
+    full_name: '',
+    department: '',
+    phone: '',
+    room: ''
+  });
+  const [showEmployeePassword, setShowEmployeePassword] = useState(false);
+  const [auditSearch, setAuditSearch] = useState('');
+  const [auditFilters, setAuditFilters] = useState({
+    showEmpty: false,
+    attachmentsOnly: false,
+    deletedOnly: false,
+    period: 'all'
+  });
+
+
+  const currentConversationId = selectedEmail ? getConversationId(user.username, selectedEmail) : null;
+  const templateMessages = useMemo(() => [
+    ...(isEnglishInterface
+      ? (isManager ? MANAGER_TEMPLATE_MESSAGES_EN : EMPLOYEE_TEMPLATE_MESSAGES_EN)
+      : (isManager ? MANAGER_TEMPLATE_MESSAGES : EMPLOYEE_TEMPLATE_MESSAGES)),
+    ...customTemplates
+  ], [customTemplates, isEnglishInterface, isManager]);
+  const currentMessages = useMemo(() => (
+    currentConversationId ? (threads[currentConversationId] || []) : []
+  ), [currentConversationId, threads]);
+  const isCurrentConversationLoading = Boolean(currentConversationId && (
+    loadingConversationIds[currentConversationId]
+    || !Object.prototype.hasOwnProperty.call(threads, currentConversationId)
+  ));
+  const selectedThreadMessages = selectedThreadId ? (threads[selectedThreadId] || []) : [];
+
+  useEffect(() => {
+    setVisibleDialogMessageCount(CHAT_MESSAGES_PAGE_SIZE);
+  }, [currentConversationId, dialogFilter, dialogSearch]);
+
+  useEffect(() => {
+    setVisibleFeedPostCount(FEED_POSTS_PAGE_SIZE);
+  }, [feedFilter, feedSearch]);
+
+  const pinnedMessages = useMemo(
+    () => currentMessages.filter((message) => message.pinned && !message.deletedAt),
+    [currentMessages]
+  );
+
+  useEffect(() => {
+    const username = user?.username || 'guest';
+    setReadState(readReadState(username));
+    setChatDrafts(readChatDrafts(username));
+    setChatLocalSettings(readChatLocalSettings(username));
+    setPendingMessages(readPendingMessages(username));
+    setFeedReadAt(readFeedReadAt(username));
+    const savedFeedDraft = readSavedFeedDraft(username);
+    setFeedDraft(savedFeedDraft.text);
+    setFeedCategory(savedFeedDraft.category);
+    setHiddenFeedPostIds(readHiddenFeedPosts(username));
+    setCustomTemplates(readCustomTemplates(username));
+  }, [user?.username]);
+
+  useEffect(() => {
+    saveFeedDraft(user?.username || 'guest', { text: feedDraft, category: feedCategory });
+  }, [feedCategory, feedDraft, user?.username]);
+
+  useEffect(() => {
+    feedPostsRef.current = feedPosts;
+  }, [feedPosts]);
+
+  useEffect(() => {
+    if (!user?.username || feedPosts.length === 0) return;
+    writeCachedFeed(user.username, {
+      posts: feedPosts,
+      cursor: feedBefore,
+      hasMore: feedHasMore
+    });
+  }, [feedBefore, feedHasMore, feedPosts, user?.username]);
+
+  useEffect(() => {
+    threadsRef.current = threads;
+  }, [threads]);
+
+  useEffect(() => {
+    directoryEmployeesRef.current = directoryEmployees;
+  }, [directoryEmployees]);
+
+  useEffect(() => () => {
+    feedFetchControllerRef.current?.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!openFeedMenuId || typeof document === 'undefined') return undefined;
+
+    const closeFeedMenuOnOutsideClick = (event) => {
+      const target = event.target;
+      if (target?.closest?.('.feed-post-menu, .feed-post-menu-button')) return;
+      setOpenFeedMenuId('');
+    };
+
+    document.addEventListener('mousedown', closeFeedMenuOnOutsideClick);
+    document.addEventListener('touchstart', closeFeedMenuOnOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', closeFeedMenuOnOutsideClick);
+      document.removeEventListener('touchstart', closeFeedMenuOnOutsideClick);
+    };
+  }, [openFeedMenuId]);
+
+  useEffect(() => {
+    if (!selectedFeedPostId || typeof document === 'undefined') return undefined;
+
+    const closeFeedReactionsOnOutsideClick = (event) => {
+      const target = event.target;
+      if (target?.closest?.('.employee-feed-post, .feed-selected-menu')) return;
+      setSelectedFeedPostId('');
+      setFeedReactionExpanded(false);
+    };
+
+    document.addEventListener('mousedown', closeFeedReactionsOnOutsideClick);
+    document.addEventListener('touchstart', closeFeedReactionsOnOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', closeFeedReactionsOnOutsideClick);
+      document.removeEventListener('touchstart', closeFeedReactionsOnOutsideClick);
+    };
+  }, [selectedFeedPostId]);
+
+  useEffect(() => {
+    if (!user?.username) return;
+    const cachedAvatar = localStorage.getItem(getAvatarKey(user.username)) || '';
+    if (cachedAvatar) {
+      setAvatarUrl(cachedAvatar);
+    }
+    const hasSeenGreeting = sessionStorage.getItem(getGreetingKey(user.username)) === '1';
+    if (hasSeenGreeting) return undefined;
+
+    setWelcomeNotice(baseDisplayName);
+    sessionStorage.setItem(getGreetingKey(user.username), '1');
+    const timer = setTimeout(() => setWelcomeNotice(''), 3200);
+    return () => clearTimeout(timer);
+  }, [baseDisplayName, isEnglishInterface, user?.username]);
+
+  const handleLogout = () => {
+    if (user?.username) {
+      sessionStorage.removeItem(getGreetingKey(user.username));
+    }
+    logout();
+  };
+
+  const loadProfile = useCallback(async (login, mode = 'form') => {
+    const response = await authFetch(`${API_BASE_URL}/auth/profile?login=${encodeURIComponent(login)}`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.message || 'Не удалось загрузить анкету');
+    }
+
+    const profile = data?.profile || {};
+    const cachedProfile = readProfileDraft(login);
+    const directoryProfile = directoryEmployeesRef.current.find((employee) => employee.login === login) || {};
+    const mergedProfile = {
+      full_name: getProfileValue(profile, cachedProfile, 'full_name', 'fullName', 'name'),
+      department: getProfileValue(profile, cachedProfile, 'department'),
+      phone: getProfileValue(profile, cachedProfile, 'phone', 'internalPhone', 'internal_phone', 'N_tel'),
+      room: getProfileValue(profile, cachedProfile, 'room', 'cabinet'),
+      position: getProfileValue(profile, cachedProfile, 'position'),
+      bio: getProfileValue(profile, cachedProfile, 'bio'),
+      websiteLanguage: getProfileValue(profile, cachedProfile, 'websiteLanguage', 'website_language') || DEFAULT_PROFILE_WEBSITE_LANGUAGE,
+      website: getProfileValue(profile, cachedProfile, 'website') || getWebsiteByLanguage(getProfileValue(profile, cachedProfile, 'websiteLanguage', 'website_language') || DEFAULT_PROFILE_WEBSITE_LANGUAGE),
+      statusText: getProfileValue(profile, cachedProfile, 'statusText', 'status_text'),
+      avatar: resolveAttachmentUrl(getProfileValue(profile, cachedProfile, 'avatar'))
+    };
+
+    if (!mergedProfile.full_name) mergedProfile.full_name = directoryProfile.full_name || '';
+    if (!mergedProfile.department) mergedProfile.department = directoryProfile.department || '';
+    if (!mergedProfile.phone) mergedProfile.phone = directoryProfile.phone || directoryProfile.internal_phone || directoryProfile.N_tel || '';
+    if (!mergedProfile.room) mergedProfile.room = directoryProfile.room || directoryProfile.cabinet || '';
+    if (mode === 'form') {
+      const serverPreferences = profile.preferences && typeof profile.preferences === 'object'
+        ? profile.preferences
+        : null;
+      if (serverPreferences && Object.keys(serverPreferences).length > 0) {
+        const syncedSettings = {
+          ...readChatLocalSettings(login),
+          ...serverPreferences
+        };
+        setChatLocalSettings(syncedSettings);
+        saveChatLocalSettings(login, syncedSettings);
+      } else if (serverPreferences) {
+        queueChatSettingsSync(readChatLocalSettings(login));
+      }
+
+      const shouldHydrateForm = !profileDirtyRef.current || profileLoadedForRef.current !== login;
+
+      if (shouldHydrateForm) {
+        setProfileForm({
+          full_name: mergedProfile.full_name,
+          department: mergedProfile.department,
+          phone: mergedProfile.phone,
+          room: mergedProfile.room,
+          position: mergedProfile.position,
+          bio: mergedProfile.bio,
+          websiteLanguage: mergedProfile.websiteLanguage,
+          website: mergedProfile.website,
+          statusText: mergedProfile.statusText
+        });
+        profileLoadedForRef.current = login;
+        saveProfileDraft(login, mergedProfile);
+      }
+
+      const nextAvatar = mergedProfile.avatar || '';
+      setAvatarUrl(nextAvatar);
+      if (nextAvatar) localStorage.setItem(getAvatarKey(user.username), nextAvatar);
+      else localStorage.removeItem(getAvatarKey(user.username));
+      return;
+    }
+
+    setProfilePreview({ ...mergedProfile, login: profile.login || login });
+  }, [queueChatSettingsSync, user.username]);
+
+  const fetchThreads = useCallback(async () => {
+    try {
+      const response = await authFetch(`${API_BASE_URL}/chat/threads`, {
+        headers: chatAuthHeaders
+      });
+      const data = await readApiJson(response, 'Не удалось загрузить сообщения');
+      setThreadSummaries(data?.summaries && typeof data.summaries === 'object' ? data.summaries : {});
+      if (data?.readStates && typeof data.readStates === 'object') {
+        setReadState((current) => {
+          const next = { ...current, ...data.readStates };
+          saveReadState(user.username, next);
+          return next;
+        });
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки переписки:', error);
+    }
+  }, [chatAuthHeaders, user.username]);
+
+  useEffect(() => {
+    fetchThreadsRef.current = fetchThreads;
+  }, [fetchThreads]);
+
+  // Администратор, открывший чат, «просмотрел» уведомления: сбрасываем счётчик
+  // непрочитанных в админ-панели и обновляем локальные прочтения.
+  useEffect(() => {
+    if (!user?.username || !isAdmin || markAllReadOnMountRef.current) return undefined;
+    markAllReadOnMountRef.current = true;
+
+    const markAllRead = async () => {
+      try {
+        const response = await authFetch(`${API_BASE_URL}/chat/threads/read-all`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        if (!response.ok) return;
+        window.dispatchEvent(new Event('chat:read-all'));
+        await fetchThreadsRef.current?.();
+      } catch {
+        // Сброс некритичен: повторится при следующем входе в чат.
+      }
+    };
+    markAllRead();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, user?.username]);
+
+  const fetchConversationMessages = useCallback(async (conversationId, { silent = false, signal } = {}) => {
+    if (!conversationId) return;
+    if (!silent) setLoadingConversationIds((prev) => ({ ...prev, [conversationId]: true }));
+    try {
+      const response = await authFetch(
+        `${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages?limit=${CHAT_MESSAGES_PAGE_SIZE}`,
+        { headers: chatAuthHeaders, signal }
+      );
+      const data = await readApiJson(response, 'Не удалось загрузить сообщения');
+      const messages = Array.isArray(data?.messages) ? data.messages : [];
+      setThreads((prev) => ({ ...prev, [conversationId]: messages }));
+      writeCachedConversation(user.username, conversationId, messages);
+      prefetchMediaTokens(collectThreadFileIds({ [conversationId]: messages }), 'chat');
+      setThreadHasMore((prev) => ({
+        ...prev,
+        [conversationId]: Boolean(data?.hasMore) && messages.length >= CHAT_MESSAGES_PAGE_SIZE
+      }));
+      return messages;
+    } catch (error) {
+      if (error?.name === 'AbortError') return null;
+      console.error('Ошибка загрузки выбранного диалога:', error);
+      setThreads((prev) => (
+        Object.prototype.hasOwnProperty.call(prev, conversationId)
+          ? prev
+          : { ...prev, [conversationId]: [] }
+      ));
+      if (!silent) notifyRef.current(error.message || 'Не удалось загрузить выбранный диалог', 'Чат');
+      return null;
+    } finally {
+      if (!silent) setLoadingConversationIds((prev) => ({ ...prev, [conversationId]: false }));
+    }
+  }, [chatAuthHeaders, user.username]);
+
+  const fetchDialogSearchPage = useCallback(async ({ append = false, before = '', signal } = {}) => {
+    const query = dialogSearch.trim();
+    if (!currentConversationId || query.length < 2) return;
+    setDialogSearchLoading(true);
+    try {
+      const params = new URLSearchParams({ q: query, limit: '25' });
+      if (before) params.set('before', before);
+      const response = await authFetch(
+        `${API_BASE_URL}/chat/threads/${encodeURIComponent(currentConversationId)}/search?${params.toString()}`,
+        { headers: chatAuthHeaders, signal }
+      );
+      const data = await readApiJson(response, 'Не удалось выполнить поиск по переписке');
+      const messages = Array.isArray(data?.messages) ? data.messages : [];
+      setServerDialogSearchResults((current) => {
+        const combined = append ? [...current, ...messages] : messages;
+        return [...new Map(combined.map((message) => [message.id, message])).values()];
+      });
+      setThreads((current) => {
+        const loaded = current[currentConversationId] || [];
+        const merged = [...new Map([...loaded, ...messages].map((message) => [message.id, message])).values()]
+          .sort((left, right) => new Date(left.createdAt || 0) - new Date(right.createdAt || 0));
+        return { ...current, [currentConversationId]: merged };
+      });
+      setDialogSearchBefore(data?.before || '');
+      setDialogSearchHasMore(Boolean(data?.hasMore));
+    } catch (error) {
+      if (error?.name !== 'AbortError') notifyRef.current(error.message || 'Не удалось выполнить поиск', 'Чат');
+    } finally {
+      if (!signal?.aborted) setDialogSearchLoading(false);
+    }
+  }, [chatAuthHeaders, currentConversationId, dialogSearch]);
+
+  useEffect(() => {
+    setServerDialogSearchResults([]);
+    setDialogSearchBefore('');
+    setDialogSearchHasMore(false);
+    if (!currentConversationId || dialogSearch.trim().length < 2) {
+      setDialogSearchLoading(false);
+      return undefined;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      fetchDialogSearchPage({ signal: controller.signal });
+    }, 300);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [currentConversationId, dialogSearch, fetchDialogSearchPage]);
+
+  const loadOlderDialogMessages = useCallback(async () => {
+    if (isLoadingOlderDialog || !currentConversationId || !currentMessages.length) return;
+    const before = currentMessages[0]?.createdAt || '';
+    setIsLoadingOlderDialog(true);
+    try {
+      const response = await authFetch(
+        `${API_BASE_URL}/chat/threads/${encodeURIComponent(currentConversationId)}/messages?limit=${CHAT_MESSAGES_PAGE_SIZE}&before=${encodeURIComponent(before)}`,
+        { headers: chatAuthHeaders }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Не удалось загрузить предыдущие сообщения');
+      const olderMessages = Array.isArray(data?.messages) ? data.messages : [];
+      setThreads((prev) => {
+        const current = Array.isArray(prev[currentConversationId]) ? prev[currentConversationId] : [];
+        const byId = new Map([...olderMessages, ...current].filter((message) => message?.id).map((message) => [message.id, message]));
+        const merged = [...byId.values()].sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+        return { ...prev, [currentConversationId]: merged };
+      });
+      setThreadHasMore((prev) => ({ ...prev, [currentConversationId]: Boolean(data?.hasMore) && olderMessages.length >= CHAT_MESSAGES_PAGE_SIZE }));
+      setVisibleDialogMessageCount((prev) => prev + CHAT_MESSAGES_PAGE_SIZE);
+    } catch (error) {
+      notify(error.message || 'Не удалось загрузить предыдущие сообщения', 'Чат');
+    } finally {
+      setIsLoadingOlderDialog(false);
+    }
+  }, [chatAuthHeaders, currentConversationId, currentMessages, isLoadingOlderDialog, notify]);
+
+  const fetchFeed = useCallback(async ({ silent = true, force = false } = {}) => {
+    if (!force && pendingFeedActionsRef.current.size > 0) return;
+    const requestSequence = feedFetchSequenceRef.current + 1;
+    feedFetchSequenceRef.current = requestSequence;
+    const mutationVersionAtStart = feedMutationVersionRef.current;
+    feedFetchControllerRef.current?.abort();
+    const controller = new AbortController();
+    feedFetchControllerRef.current = controller;
+    const initialLoad = !silent && feedPostsRef.current.length === 0;
+    if (initialLoad) setFeedLoading(true);
+    else if (!silent) setFeedRefreshing(true);
+    try {
+      const response = await authFetch(`${API_BASE_URL}/chat/feed?limit=${FEED_POSTS_PAGE_SIZE}&commentsLimit=3`, { signal: controller.signal });
+      const data = await readApiJson(response, 'Не удалось загрузить ленту');
+      if (
+        requestSequence !== feedFetchSequenceRef.current
+        || mutationVersionAtStart !== feedMutationVersionRef.current
+        || pendingFeedActionsRef.current.size > 0
+      ) return;
+      const nextPosts = getVisibleFeedPosts(data?.posts);
+      setFeedPosts((current) => (getFeedPostsSignature(current) === getFeedPostsSignature(nextPosts) ? current : nextPosts));
+      prefetchMediaTokens(collectFeedFileIds(nextPosts), 'feed');
+      setFeedHasMore(Boolean(data?.hasMore));
+      setFeedBefore(data?.cursor || '');
+      setVisibleFeedPostCount(FEED_POSTS_PAGE_SIZE);
+      setFeedError('');
+    } catch (error) {
+      if (error?.name === 'AbortError') return;
+      const message = isNetworkFailure(error) ? getFriendlyNetworkMessage('Лента временно недоступна') : (error.message || 'Не удалось загрузить ленту');
+      console.error('Ошибка загрузки ленты:', error);
+      if (!silent && feedPostsRef.current.length === 0) {
+        setFeedError(message);
+        notify(message, 'Лента');
+        return;
+      }
+    } finally {
+      if (requestSequence === feedFetchSequenceRef.current) {
+        if (initialLoad) setFeedLoading(false);
+        if (!silent) setFeedRefreshing(false);
+      }
+    }
+  }, [notify]);
+
+  const loadMoreFeedPosts = useCallback(async () => {
+    if (feedLoadingMore || !feedHasMore || !feedBefore || pendingFeedActionsRef.current.size > 0) return;
+    const mutationVersionAtStart = feedMutationVersionRef.current;
+    setFeedLoadingMore(true);
+    try {
+      const response = await authFetch(`${API_BASE_URL}/chat/feed?limit=${FEED_POSTS_PAGE_SIZE}&commentsLimit=3&cursor=${encodeURIComponent(feedBefore)}`);
+      const data = await readApiJson(response, 'Не удалось загрузить ленту');
+      if (mutationVersionAtStart !== feedMutationVersionRef.current || pendingFeedActionsRef.current.size > 0) return;
+      const nextPosts = getVisibleFeedPosts(data?.posts);
+      setFeedPosts((current) => {
+        const byId = new Map([...current, ...nextPosts].filter((post) => post?.id).map((post) => [post.id, post]));
+        return sortFeedPosts([...byId.values()]);
+      });
+      prefetchMediaTokens(collectFeedFileIds(nextPosts), 'feed');
+      setFeedHasMore(Boolean(data?.hasMore));
+      setFeedBefore(data?.cursor || '');
+    } catch (error) {
+      notify(error.message || 'Не удалось загрузить ленту', 'Лента');
+    } finally {
+      setFeedLoadingMore(false);
+    }
+  }, [feedBefore, feedHasMore, feedLoadingMore, notify]);
+
+  const fetchMyApplications = useCallback(async ({ silent = true } = {}) => {
+    if (!user?.username) return;
+    if (!silent) setApplicationsLoading(true);
+    try {
+      const response = await authFetch(`${API_BASE_URL}/applications/my`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || data.message || 'Не удалось загрузить заявки');
+      setMyApplications(Array.isArray(data?.applications) ? data.applications : []);
+      setApplicationsError('');
+    } catch (error) {
+      const message = error.message || 'Не удалось загрузить заявки';
+      if (!silent) {
+        setApplicationsError(message);
+        notifyRef.current(message, 'Заявки');
+      }
+    } finally {
+      if (!silent) setApplicationsLoading(false);
+    }
+  }, [user?.username]);
+
+  const fetchEmployees = useCallback(async () => {
+    try {
+      const response = await authFetch(`${API_BASE_URL}/auth/employees`);
+      if (!response.ok) {
+        setIsDirectoryLoaded(true);
+        return;
+      }
+      const data = await response.json();
+      const employees = Array.isArray(data?.employees) ? data.employees : [];
+      setDirectoryEmployees(employees);
+      saveDirectoryCache(employees);
+      const ownEmployee = employees.find((employee) => sameLogin(employee.login, user?.username || ''));
+      if (ownEmployee) {
+        const currentAvatar = resolveAttachmentUrl(ownEmployee.avatar || ownEmployee.profile?.avatar || '');
+        setAvatarUrl(currentAvatar);
+        if (currentAvatar) localStorage.setItem(getAvatarKey(user.username), currentAvatar);
+        else localStorage.removeItem(getAvatarKey(user.username));
+        saveProfileDraft(user.username, {
+          ...readProfileDraft(user.username),
+          avatar: currentAvatar
+        });
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки сотрудников:', error);
+    } finally {
+      setIsDirectoryLoaded(true);
+    }
+  }, [user?.username]);
+
+  const persistThreadMessages = useCallback(async (conversationId, messages) => {
+    await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
+      body: JSON.stringify({ messages })
+    }, { fallbackMessage: 'Не удалось сохранить сообщение' });
+
+    setThreads((prev) => ({ ...prev, [conversationId]: messages }));
+  }, [chatAuthHeaders]);
+
+  const persistNewMessage = useCallback(async (conversationId, message) => {
+    await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
+      body: JSON.stringify({ message })
+    }, { attempts: 1, fallbackMessage: 'Не удалось сохранить сообщение' });
+    setThreadSummaries((prev) => {
+      const current = prev[conversationId] || {};
+      return {
+        ...prev,
+        [conversationId]: {
+          ...current,
+          conversationId,
+          lastMessage: message,
+          lastAt: message.createdAt || new Date().toISOString(),
+          lastTimestamp: new Date(message.createdAt || Date.now()).getTime(),
+          messageCount: Math.max((threads[conversationId] || []).length, Number(current.messageCount) || 0)
+        }
+      };
+    });
+  }, [chatAuthHeaders, threads]);
+
+  const persistMessagePatch = useCallback(async (conversationId, messageId, message) => {
+    await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
+      body: JSON.stringify({ message })
+    }, { fallbackMessage: 'Не удалось сохранить изменение' });
+  }, [chatAuthHeaders]);
+
+  useEffect(() => {
+    const refreshCoreData = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      fetchThreads();
+      fetchEmployees();
+      fetchMyApplications({ silent: true });
+    };
+    const handleVisibilityChange = () => {
+      if (document.hidden) return;
+      refreshCoreData();
+    };
+
+    refreshCoreData();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [fetchThreads, fetchEmployees, fetchMyApplications]);
+
+  useEffect(() => {
+    conversationFetchControllerRef.current?.abort();
+    if (!currentConversationId) return undefined;
+
+    const controller = new AbortController();
+    conversationFetchControllerRef.current = controller;
+    let active = true;
+
+    const loadConversation = async () => {
+      const hasMemoryCopy = Object.prototype.hasOwnProperty.call(threadsRef.current, currentConversationId);
+      let hasCachedCopy = false;
+      if (!hasMemoryCopy) {
+        setLoadingConversationIds((prev) => ({ ...prev, [currentConversationId]: true }));
+        const cachedMessages = await readCachedConversation(user.username, currentConversationId);
+        if (!active || controller.signal.aborted) return;
+        if (cachedMessages.length) {
+          hasCachedCopy = true;
+          setThreads((prev) => ({ ...prev, [currentConversationId]: cachedMessages }));
+          prefetchMediaTokens(collectThreadFileIds({ [currentConversationId]: cachedMessages }), 'chat');
+          setLoadingConversationIds((prev) => ({ ...prev, [currentConversationId]: false }));
+        }
+      }
+      await fetchConversationMessages(currentConversationId, {
+        silent: hasMemoryCopy || hasCachedCopy,
+        signal: controller.signal
+      });
+    };
+
+    loadConversation();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [currentConversationId, fetchConversationMessages, user.username]);
+
+  useEffect(() => {
+    if (!selectedThreadId || selectedThreadId === currentConversationId) return undefined;
+    const controller = new AbortController();
+    fetchConversationMessages(selectedThreadId, { signal: controller.signal });
+    return () => controller.abort();
+  }, [currentConversationId, fetchConversationMessages, selectedThreadId]);
+
+  useEffect(() => {
+    if (!user?.username || typeof EventSource === 'undefined') return undefined;
+    const lastEventStorageKey = `employeeChatLastEventId:${user.username.toLowerCase()}`;
+    const query = new URLSearchParams();
+    if (user.accessToken) query.set('access_token', user.accessToken);
+    const savedLastEventId = localStorage.getItem(lastEventStorageKey);
+    if (savedLastEventId) query.set('last_event_id', savedLastEventId);
+    const stream = new EventSource(`${API_BASE_URL}/chat/threads/stream?${query.toString()}`);
+
+    const readStreamEvent = (event) => {
+      const eventId = String(event.lastEventId || '');
+      if (eventId && seenStreamEventIdsRef.current.has(eventId)) return null;
+      try {
+        const payload = JSON.parse(event.data || '{}');
+        if (eventId) {
+          seenStreamEventIdsRef.current.add(eventId);
+          if (seenStreamEventIdsRef.current.size > 1000) {
+            seenStreamEventIdsRef.current = new Set([...seenStreamEventIdsRef.current].slice(-500));
+          }
+          localStorage.setItem(lastEventStorageKey, eventId);
+        }
+        return payload;
+      } catch {
+        return null;
+      }
+    };
+
+    const handleMessage = (event, { incrementCount = false } = {}) => {
+      try {
+        const payload = readStreamEvent(event);
+        if (!payload) return;
+        const conversationId = payload.conversationId;
+        const message = payload.item;
+        if (!conversationId || !message?.id) return;
+        prefetchMediaTokens(collectThreadFileIds({ [conversationId]: [message] }), 'chat');
+        const wasKnown = (threadsRef.current[conversationId] || []).some((item) => item.id === message.id);
+        setThreads((prev) => {
+          if (!Object.prototype.hasOwnProperty.call(prev, conversationId)) return prev;
+          const current = Array.isArray(prev[conversationId]) ? prev[conversationId] : [];
+          const exists = current.some((item) => item.id === message.id);
+          const next = exists
+            ? current.map((item) => (item.id === message.id ? { ...item, ...message } : item))
+            : [...current, message].sort((left, right) => (
+              new Date(left.createdAt || 0).getTime() - new Date(right.createdAt || 0).getTime()
+            ));
+          writeCachedConversation(user.username, conversationId, next);
+          return { ...prev, [conversationId]: next };
+        });
+        setThreadSummaries((prev) => {
+          const current = prev[conversationId] || {};
+          const currentTimestamp = Number(current.lastTimestamp)
+            || new Date(current.lastAt || current.lastMessage?.createdAt || 0).getTime()
+            || 0;
+          const messageTimestamp = new Date(message.createdAt || message.updatedAt || Date.now()).getTime();
+          const isLatest = messageTimestamp >= currentTimestamp;
+          return {
+            ...prev,
+            [conversationId]: {
+              ...current,
+              conversationId,
+              ...(isLatest ? {
+                lastMessage: message,
+                lastAt: message.createdAt || message.updatedAt || new Date().toISOString(),
+                lastTimestamp: messageTimestamp
+              } : {}),
+              messageCount: Math.max(0, Number(current.messageCount) || 0) + (incrementCount && !wasKnown ? 1 : 0)
+            }
+          };
+        });
+      } catch {
+        // Ignore malformed events; EventSource will continue receiving updates.
+      }
+    };
+
+    const handleConversationRefresh = (event) => {
+      try {
+        const payload = readStreamEvent(event);
+        if (!payload) return;
+        const conversationId = payload.conversationId;
+        if (!conversationId || !Object.prototype.hasOwnProperty.call(threadsRef.current, conversationId)) return;
+        fetchConversationMessages(conversationId, { silent: true });
+      } catch {
+        // noop
+      }
+    };
+
+    const handleConversationDelete = (event) => {
+      try {
+        const payload = readStreamEvent(event);
+        if (!payload) return;
+        const conversationId = payload.conversationId;
+        if (!conversationId) return;
+        setThreads((prev) => {
+          if (!Object.prototype.hasOwnProperty.call(prev, conversationId)) return prev;
+          const next = { ...prev };
+          delete next[conversationId];
+          return next;
+        });
+        setThreadSummaries((prev) => {
+          if (!Object.prototype.hasOwnProperty.call(prev, conversationId)) return prev;
+          const next = { ...prev };
+          delete next[conversationId];
+          return next;
+        });
+        removeCachedConversation(user.username, conversationId);
+      } catch {
+        // noop
+      }
+    };
+
+    const readFeedEvent = readStreamEvent;
+
+    const handleFeedPostCreated = (event) => {
+      const payload = readFeedEvent(event);
+      const post = payload?.post;
+      if (!post?.id) return;
+      feedMutationVersionRef.current += 1;
+      setFeedPosts((current) => {
+        const existing = current.find((item) => item.id === post.id);
+        const mergedPost = existing
+          ? {
+            ...existing,
+            ...post,
+            comments: Array.isArray(existing.comments) && existing.comments.length ? existing.comments : (post.comments || []),
+            reactions: Object.keys(existing.reactions || {}).length ? existing.reactions : (post.reactions || {})
+          }
+          : post;
+        return sortFeedPosts([mergedPost, ...current.filter((item) => item.id !== post.id)]);
+      });
+    };
+
+    const handleFeedPostUpdated = (event) => {
+      const payload = readFeedEvent(event);
+      if (!payload?.post?.id) return;
+      feedMutationVersionRef.current += 1;
+      setFeedPosts((current) => sortFeedPosts(current.map((post) => (
+        post.id === payload.post.id ? { ...post, ...payload.post } : post
+      ))));
+    };
+
+    const handleFeedPostDeleted = (event) => {
+      const payload = readFeedEvent(event);
+      if (!payload?.postId) return;
+      feedMutationVersionRef.current += 1;
+      setFeedPosts((current) => current.filter((post) => post.id !== payload.postId));
+    };
+
+    const handleFeedCommentCreated = (event) => {
+      const payload = readFeedEvent(event);
+      if (!payload?.postId || !payload?.comment?.id) return;
+      feedMutationVersionRef.current += 1;
+      setFeedPosts((current) => current.map((post) => {
+        if (post.id !== payload.postId) return post;
+        const comments = [
+          ...(post.comments || []).filter((comment) => comment.id !== payload.comment.id),
+          payload.comment
+        ];
+        return {
+          ...post,
+          comments,
+          commentCount: Number(payload.commentCount) || comments.filter((comment) => !comment.deletedAt).length,
+          updatedAt: payload.updatedAt || post.updatedAt
+        };
+      }));
+    };
+
+    const handleFeedCommentDeleted = (event) => {
+      const payload = readFeedEvent(event);
+      if (!payload?.postId || !payload?.commentId) return;
+      feedMutationVersionRef.current += 1;
+      setFeedPosts((current) => current.map((post) => (
+        post.id === payload.postId
+          ? {
+            ...post,
+            comments: (post.comments || []).filter((comment) => comment.id !== payload.commentId),
+            commentCount: Math.max(0, Number(payload.commentCount) || 0),
+            updatedAt: payload.updatedAt || post.updatedAt
+          }
+          : post
+      )));
+    };
+
+    const handleFeedReactionUpdated = (event) => {
+      const payload = readFeedEvent(event);
+      if (!payload?.postId) return;
+      feedMutationVersionRef.current += 1;
+      setFeedPosts((current) => current.map((post) => (
+        post.id === payload.postId
+          ? { ...post, reactions: payload.reactions || post.reactions, updatedAt: payload.updatedAt || post.updatedAt }
+          : post
+      )));
+    };
+
+    const handleFeedPinUpdated = (event) => {
+      const payload = readFeedEvent(event);
+      if (!payload?.postId) return;
+      feedMutationVersionRef.current += 1;
+      setFeedPosts((current) => sortFeedPosts(current.map((post) => (
+        post.id === payload.postId
+          ? { ...post, pinned: Boolean(payload.pinned), updatedAt: payload.updatedAt || post.updatedAt }
+          : post
+      ))));
+    };
+
+    const handleBulkDeleted = (event) => {
+      const payload = readStreamEvent(event);
+      if (!payload?.conversationId || !Array.isArray(payload.messageIds)) return;
+      const deletedIds = new Set(payload.messageIds);
+      setThreads((prev) => {
+        if (!Object.prototype.hasOwnProperty.call(prev, payload.conversationId)) return prev;
+        const nextMessages = (prev[payload.conversationId] || []).map((message) => (
+          deletedIds.has(message.id)
+            ? {
+              ...message,
+              text: '',
+              attachment: null,
+              attachments: [],
+              deletedAt: payload.deletedAt,
+              deletedBy: payload.deletedBy
+            }
+            : message
+        ));
+        writeCachedConversation(user.username, payload.conversationId, nextMessages);
+        return { ...prev, [payload.conversationId]: nextMessages };
+      });
+    };
+
+    const handleReadStateUpdated = (event) => {
+      const payload = readStreamEvent(event);
+      const state = payload?.state;
+      if (!payload?.conversationId || !state?.lastReadAt) return;
+      const readTimestamp = new Date(state.lastReadAt).getTime();
+      setThreads((prev) => {
+        if (!Object.prototype.hasOwnProperty.call(prev, payload.conversationId)) return prev;
+        return {
+          ...prev,
+          [payload.conversationId]: (prev[payload.conversationId] || []).map((message) => (
+            message.sender === user.username
+            && new Date(message.createdAt || 0).getTime() <= readTimestamp
+              ? { ...message, readAt: state.lastReadAt }
+              : message
+          ))
+        };
+      });
+    };
+
+    const handleTypingUpdated = (event) => {
+      const payload = readStreamEvent(event);
+      if (!payload?.conversationId || !payload?.login) return;
+      setRemoteTypingByConversation((prev) => ({
+        ...prev,
+        [payload.conversationId]: payload.active ? payload.login : ''
+      }));
+    };
+
+    stream.addEventListener('message-created', (event) => handleMessage(event, { incrementCount: true }));
+    stream.addEventListener('message-updated', handleMessage);
+    stream.addEventListener('messages-bulk-deleted', handleBulkDeleted);
+    stream.addEventListener('read-state-updated', handleReadStateUpdated);
+    stream.addEventListener('typing-updated', handleTypingUpdated);
+    stream.addEventListener('conversation-refresh', handleConversationRefresh);
+    stream.addEventListener('conversation-delete', handleConversationDelete);
+    stream.addEventListener('feed-post-created', handleFeedPostCreated);
+    stream.addEventListener('feed-post-updated', handleFeedPostUpdated);
+    stream.addEventListener('feed-post-deleted', handleFeedPostDeleted);
+    stream.addEventListener('feed-comment-created', handleFeedCommentCreated);
+    stream.addEventListener('feed-comment-deleted', handleFeedCommentDeleted);
+    stream.addEventListener('feed-reaction-updated', handleFeedReactionUpdated);
+    stream.addEventListener('feed-pin-updated', handleFeedPinUpdated);
+    return () => stream.close();
+  }, [fetchConversationMessages, user?.accessToken, user?.username]);
+
+  useEffect(() => {
+    if (activeTab !== 'feed' || !user?.username) return undefined;
+    let active = true;
+
+    const loadFeed = async () => {
+      const hasMemoryCopy = feedPostsRef.current.length > 0;
+      let hasCachedCopy = false;
+      if (!hasMemoryCopy) {
+        const cached = await readCachedFeed(user.username);
+        if (!active) return;
+        if (cached?.posts?.length) {
+          hasCachedCopy = true;
+          setFeedPosts(getVisibleFeedPosts(cached.posts));
+          prefetchMediaTokens(collectFeedFileIds(cached.posts), 'feed');
+          setFeedBefore(cached.cursor || '');
+          setFeedHasMore(Boolean(cached.hasMore));
+          setVisibleFeedPostCount(FEED_POSTS_PAGE_SIZE);
+          setFeedLoading(false);
+        }
+      }
+      await fetchFeed({ silent: hasMemoryCopy || hasCachedCopy });
+    };
+
+    loadFeed();
+    return () => {
+      active = false;
+      feedFetchControllerRef.current?.abort();
+    };
+  }, [activeTab, fetchFeed, user?.username]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const dialog = params.get('dialog');
+    const thread = params.get('thread');
+    const applicationId = params.get('application');
+
+    const openByThread = (threadId) => {
+      if (!threadId) return false;
+      const participants = getParticipantsFromThreadId(threadId);
+      const other = participants.find((login) => !sameLogin(login, user?.username || ''));
+      if (!other) return false;
+      setSelectedEmail(other);
+      setActiveTab('chat');
+      return true;
+    };
+
+    if (dialog) {
+      setSelectedEmail(dialog);
+      setActiveTab('chat');
+    } else if (openByThread(thread)) {
+      // Открыли тред напрямую (например, из ссылки админки).
+    }
+
+    if (applicationId && !dialog) {
+      authFetch(`${API_BASE_URL}/applications/${encodeURIComponent(applicationId)}`)
+        .then((response) => readApiJson(response, 'Не удалось загрузить заявку'))
+        .then((data) => {
+          const application = data?.application;
+          if (!application) return;
+          if (application.chat_thread_id) openByThread(application.chat_thread_id);
+          if (application.employee_login) {
+            setSelectedEmail(application.employee_login);
+            setActiveTab('chat');
+          }
+        })
+        .catch((error) => {
+          console.error('Не удалось открыть переписку заявки:', error);
+        });
+    }
+    // Запускается один раз при монтировании.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!user?.username) return;
+    loadProfile(user.username, 'form').catch((error) => {
+      console.error('Profile bootstrap error:', error);
+    });
+  }, [loadProfile, user?.username]);
+
+  useEffect(() => {
+    if (!user?.username || activeTab !== 'profile') return;
+    loadProfile(user.username, 'form').catch((error) => {
+      console.error('Profile panel refresh error:', error);
+    });
+  }, [activeTab, loadProfile, user?.username]);
+
+  const chatCandidates = useMemo(() => {
+    if (!isManager && !isDirectoryLoaded) {
+      return [];
+    }
+
+    const presenceMap = new Map(employeeDirectory.map((item) => [item.email?.toLowerCase(), item]));
+    const sourceEmployees = [...directoryEmployees];
+    // Сервер считает статус устаревшим через 2 минуты — используем то же окно,
+    // чтобы фоновая вкладка с приторможенным heartbeat не выглядела офлайн.
+    const PRESENCE_RECENT_WINDOW_MS = 2 * 60 * 1000;
+
+    return sourceEmployees
+      .filter((item) => item.login !== user?.username)
+      .map((item) => {
+        const presence = presenceMap.get(item.login.toLowerCase());
+        const lastSeen = presence?.lastSeen || null;
+        const lastSeenMs = lastSeen ? new Date(lastSeen).getTime() : 0;
+        const isRecentlySeen = Boolean(lastSeenMs) && Date.now() - lastSeenMs < PRESENCE_RECENT_WINDOW_MS;
+        const computedRole = presence?.role || item.role || 'employee';
+        return {
+          email: item.login,
+          isOnline: Boolean(presence?.isOnline) || isRecentlySeen,
+          lastSeen,
+          role: computedRole,
+          profile: item
+        };
+      })
+      .sort((a, b) => {
+        const aIsManager = ['manager', 'admin'].includes((a.role || '').toLowerCase());
+        const bIsManager = ['manager', 'admin'].includes((b.role || '').toLowerCase());
+
+        if (aIsManager !== bIsManager) return aIsManager ? -1 : 1;
+
+        const aOnline = Boolean(a.isOnline);
+        const bOnline = Boolean(b.isOnline);
+        if (aOnline !== bOnline) return bOnline - aOnline;
+        return a.email.localeCompare(b.email);
+      });
+  }, [directoryEmployees, employeeDirectory, isDirectoryLoaded, isManager, user?.username]);
+  const managerLogin = useMemo(
+    () => chatCandidates.find((item) => ['manager', 'admin'].includes(String(item.role || '').toLowerCase()))?.email || '',
+    [chatCandidates]
+  );
+
+  const unreadByEmail = useMemo(() => {
+    const map = {};
+    chatCandidates.forEach((employee) => {
+      const conversationId = getConversationId(user.username, employee.email);
+      const lastReadAt = getReadTimestamp(readState[conversationId]);
+      const summary = threadSummaries[conversationId];
+      const messages = threads[conversationId]?.length
+        ? threads[conversationId]
+        : summary?.lastMessage ? [summary.lastMessage] : [];
+      map[employee.email] = messages.filter((message) => (
+        message.sender !== user.username && new Date(message.createdAt).getTime() > lastReadAt
+      )).length;
+    });
+    return map;
+  }, [chatCandidates, readState, threadSummaries, threads, user.username]);
+
+  useEffect(() => {
+    if (!selectedEmail) return;
+    if (!chatCandidates.some((item) => item.email === selectedEmail)) setSelectedEmail('');
+  }, [chatCandidates, selectedEmail]);
+
+  useEffect(() => {
+    if (selectedEmail) setActiveTab('chat');
+  }, [selectedEmail]);
+
+  useEffect(() => {
+    chatDraftsRef.current = chatDrafts;
+  }, [chatDrafts]);
+
+  useEffect(() => {
+    if (!currentConversationId) return;
+    skipDraftSaveRef.current = true;
+    const saved = chatDraftsRef.current[currentConversationId] || {};
+    setDraft(saved.text || '');
+    setAttachmentDrafts(Array.isArray(saved.attachments) ? saved.attachments : []);
+  }, [currentConversationId]);
+
+  useEffect(() => {
+    if (!currentConversationId) return;
+    if (skipDraftSaveRef.current) {
+      skipDraftSaveRef.current = false;
+      return;
+    }
+    setChatDrafts((current) => {
+      const next = { ...current, [currentConversationId]: { text: draft, attachments: attachmentDrafts } };
+      chatDraftsRef.current = next;
+      saveChatDrafts(user?.username || 'guest', next);
+      return next;
+    });
+  }, [attachmentDrafts, currentConversationId, draft, user?.username]);
+
+  useEffect(() => {
+    savePendingMessages(user?.username || 'guest', pendingMessages);
+  }, [pendingMessages, user?.username]);
+
+  useEffect(() => {
+    const textarea = messageTextareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 220)}px`;
+  }, [draft]);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    setSelectedMessageId('');
+    setMessageReactionExpanded(false);
+  }, [activeTab, selectedEmail]);
+
+  useEffect(() => {
+    if (!currentConversationId || activeTab !== 'chat') return;
+    const wrap = messagesWrapRef.current;
+    if (!wrap) return;
+    const distanceFromBottom = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight;
+    if (distanceFromBottom > 80) return;
+    const conversationMessages = threads[currentConversationId] || [];
+    const latestIncoming = conversationMessages
+      .filter((message) => message.sender !== user.username)
+      .reduce((latest, message) => {
+        if (!latest) return message;
+        return new Date(message.createdAt).getTime() > new Date(latest.createdAt).getTime() ? message : latest;
+      }, null);
+    if (!latestIncoming) return;
+    const currentReadState = readState[currentConversationId];
+    if (
+      getReadMessageId(currentReadState) === latestIncoming.id
+      || getReadTimestamp(currentReadState) >= new Date(latestIncoming.createdAt).getTime()
+    ) return;
+
+    const unreadInConversation = conversationMessages.filter((message) => (
+      message.sender !== user.username
+      && new Date(message.createdAt).getTime() > getReadTimestamp(currentReadState)
+    )).length;
+
+    setReadState((prev) => {
+      const next = {
+        ...prev,
+        [currentConversationId]: {
+          lastReadMessageId: latestIncoming.id,
+          lastReadAt: latestIncoming.createdAt
+        }
+      };
+      saveReadState(user.username, next);
+      return next;
+    });
+    window.dispatchEvent(new CustomEvent('chat:read', {
+      detail: { decrement: unreadInConversation }
+    }));
+    authFetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(currentConversationId)}/read`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
+      body: JSON.stringify({ messageId: latestIncoming.id })
+    }).then(async (response) => {
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.state) return;
+      setReadState((prev) => {
+        const next = { ...prev, [currentConversationId]: data.state };
+        saveReadState(user.username, next);
+        return next;
+      });
+    }).catch(() => {
+      // Local read state remains available while the connection recovers.
+    });
+  }, [activeTab, chatAuthHeaders, currentConversationId, readState, readViewportVersion, threads, user.username]);
+
+  useEffect(() => {
+    const nextConversationId = currentConversationId || '';
+    const active = Boolean(nextConversationId && draft.trim());
+    const timer = window.setTimeout(() => {
+      const previousConversationId = typingActiveConversationRef.current;
+      if (previousConversationId && previousConversationId !== nextConversationId) {
+        authFetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(previousConversationId)}/typing`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
+          body: JSON.stringify({ active: false }),
+          keepalive: true
+        }).catch(() => {});
+      }
+      if (!nextConversationId) {
+        typingActiveConversationRef.current = '';
+        return;
+      }
+      typingRequestControllerRef.current?.abort();
+      const controller = new AbortController();
+      typingRequestControllerRef.current = controller;
+      authFetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(nextConversationId)}/typing`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
+        body: JSON.stringify({ active }),
+        signal: controller.signal
+      }).then(() => {
+        typingActiveConversationRef.current = active ? nextConversationId : '';
+      }).catch((error) => {
+        if (error?.name !== 'AbortError') console.debug('Typing state update skipped:', error.message);
+      });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [chatAuthHeaders, currentConversationId, draft]);
+
+  useEffect(() => () => {
+    const conversationId = typingActiveConversationRef.current;
+    typingRequestControllerRef.current?.abort();
+    if (!conversationId) return;
+    authFetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/typing`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
+      body: JSON.stringify({ active: false }),
+      keepalive: true
+    }).catch(() => {});
+  }, [chatAuthHeaders]);
+
+
+  useEffect(() => {
+    const wrap = messagesWrapRef.current;
+    if (!wrap) return;
+    forceScrollRef.current = true;
+    wrap.scrollTop = wrap.scrollHeight;
+    setReadViewportVersion((current) => current + 1);
+  }, [currentConversationId]);
+
+  useEffect(() => {
+    const wrap = messagesWrapRef.current;
+    if (!wrap) return;
+
+    if (forceScrollRef.current) {
+      wrap.scrollTop = wrap.scrollHeight;
+      forceScrollRef.current = false;
+      setReadViewportVersion((current) => current + 1);
+      return;
+    }
+
+    const distanceFromBottom = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight;
+    if (distanceFromBottom < 140) {
+      wrap.scrollTop = wrap.scrollHeight;
+      setReadViewportVersion((current) => current + 1);
+    }
+  }, [currentMessages.length]);
+
+  useEffect(() => {
+    if (!currentConversationId || !Object.prototype.hasOwnProperty.call(threadsRef.current, currentConversationId)) return;
+    writeCachedConversation(user.username, currentConversationId, currentMessages);
+  }, [currentConversationId, currentMessages, user.username]);
+
+  const handleAvatarUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      notify('Разрешены только PNG, JPG, WEBP.', 'Фото профиля');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      notify('Фото слишком большое. Рекомендуется до 5MB.', 'Фото профиля');
+      return;
+    }
+
+    try {
+      const optimizedAvatar = await processAvatar(file);
+      const avatarBlob = dataUrlToBlob(optimizedAvatar);
+      const response = await authFetch(`${API_BASE_URL}/auth/profile/avatar`, {
+        method: 'POST',
+        headers: { 'Content-Type': avatarBlob.type || 'image/jpeg' },
+        body: avatarBlob
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.message || 'Не удалось сохранить аватар');
+      }
+      const savedAvatar = resolveAttachmentUrl(data.avatar);
+      if (!savedAvatar) throw new Error('Сервер не вернул адрес аватара');
+      setAvatarUrl(savedAvatar);
+      localStorage.setItem(getAvatarKey(user.username), savedAvatar);
+      saveProfileDraft(user.username, { ...profileForm, avatar: savedAvatar });
+      await fetchEmployees();
+    } catch (error) {
+      notify(error.message || 'Не удалось обработать изображение. Попробуйте другое фото.', 'Фото профиля');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const removeAvatar = async () => {
+    const response = await authFetch(`${API_BASE_URL}/auth/profile/avatar`, {
+      method: 'DELETE'
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      notify(data.message || 'Не удалось удалить аватар', 'Фото профиля');
+      return;
+    }
+    setAvatarUrl('');
+    localStorage.removeItem(getAvatarKey(user.username));
+    saveProfileDraft(user.username, { ...profileForm, avatar: '' });
+    await fetchEmployees();
+  };
+
+  const queuePendingMessage = (conversationId, message) => {
+    setPendingMessages((prev) => {
+      if (prev.some((item) => item.message?.id === message.id)) return prev;
+      return [...prev, { conversationId, message: { ...message, deliveryStatus: 'waiting' } }];
+    });
+  };
+
+  const handleSend = async (e) => {
+    e.preventDefault();
+    if (isSendingMessage || (!draft.trim() && attachmentDrafts.length === 0) || !currentConversationId) return;
+    setIsSendingMessage(true);
+    if (attachmentDrafts.length > 1) {
+      const confirmed = await confirmAction(`Отправить ${attachmentDrafts.length} файлов одним сообщением?`, 'Подтверждение отправки');
+      if (!confirmed) {
+        setIsSendingMessage(false);
+        return;
+      }
+    }
+
+    const newMessage = {
+      id: createMessageId(),
+      sender: user.username,
+      text: draft.trim() || (attachmentDrafts.length ? '📎 Вложения' : ''),
+      createdAt: new Date().toISOString(),
+      editedAt: null,
+      reactions: {},
+      pinned: false,
+      deliveryStatus: isOnline ? 'sending' : 'waiting',
+      readAt: null,
+      replyTo: replyTo ? { id: replyTo.id, sender: replyTo.sender, text: replyTo.text } : null,
+      attachment: attachmentDrafts[0] || null,
+      attachments: attachmentDrafts
+    };
+
+    const nextMessages = [...currentMessages, newMessage];
+
+    try {
+      forceScrollRef.current = true;
+      setThreads((prev) => ({ ...prev, [currentConversationId]: nextMessages }));
+      setDraft('');
+      setAttachmentDrafts([]);
+      setReplyTo(null);
+      if (!isOnline) {
+        queuePendingMessage(currentConversationId, newMessage);
+        notify('Нет соединения. Сообщение ожидает отправки.', 'Офлайн');
+        return;
+      }
+      await persistNewMessage(currentConversationId, { ...newMessage, deliveryStatus: 'sent' });
+      setThreads((prev) => ({
+        ...prev,
+        [currentConversationId]: (prev[currentConversationId] || []).map((item) => (item.id === newMessage.id ? { ...item, deliveryStatus: 'sent' } : item))
+      }));
+    } catch (error) {
+      const isNetworkError = isNetworkFailure(error);
+      if (isNetworkError) {
+        queuePendingMessage(currentConversationId, newMessage);
+        setThreads((prev) => ({
+          ...prev,
+          [currentConversationId]: (prev[currentConversationId] || []).map((item) => (item.id === newMessage.id ? { ...item, deliveryStatus: 'waiting' } : item))
+        }));
+        notify('Нет соединения. Сообщение отправится автоматически.', 'Офлайн');
+        return;
+      }
+      setThreads((prev) => ({ ...prev, [currentConversationId]: (prev[currentConversationId] || []).filter((item) => item.id !== newMessage.id) }));
+      notify(error.message || 'Не удалось отправить сообщение', 'Сообщение');
+    } finally {
+      setIsSendingMessage(false);
+    }
+  };
+
+
+  const uploadAttachmentFile = async (file, scope = 'chat', { onProgress, signal } = {}) => {
+    const mediaMetadata = await createAttachmentThumbnailDataUrl(file);
+    if (signal?.aborted) throw new DOMException('Upload cancelled', 'AbortError');
+    const formData = new FormData();
+    formData.append('scope', scope);
+    formData.append('name', file.name);
+    formData.append('type', file.type || 'application/octet-stream');
+    formData.append('size', String(file.size || 0));
+    formData.append('uploadedBy', user?.username || '');
+    if (mediaMetadata.thumbnailDataUrl) formData.append('thumbnailDataUrl', mediaMetadata.thumbnailDataUrl);
+    if (mediaMetadata.width) formData.append('width', String(mediaMetadata.width));
+    if (mediaMetadata.height) formData.append('height', String(mediaMetadata.height));
+    if (mediaMetadata.aspectRatio) formData.append('aspectRatio', String(mediaMetadata.aspectRatio));
+    if (mediaMetadata.duration) formData.append('duration', String(mediaMetadata.duration));
+    formData.append('file', file, file.name);
+
+    return new Promise((resolve, reject) => {
+      const request = new XMLHttpRequest();
+      const abort = () => request.abort();
+      request.open('POST', `${API_BASE_URL}/chat/uploads`);
+      if (user?.accessToken) request.setRequestHeader('Authorization', `Bearer ${user.accessToken}`);
+      request.upload.onprogress = (event) => {
+        if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 100));
+      };
+      request.onload = () => {
+        signal?.removeEventListener('abort', abort);
+        let data = {};
+        try { data = JSON.parse(request.responseText || '{}'); } catch { data = {}; }
+        if (request.status >= 200 && request.status < 300 && data.file) {
+          resolve(data.file);
+        } else {
+          reject(new Error(data.message || 'Не удалось загрузить файл'));
+        }
+      };
+      request.onerror = () => {
+        signal?.removeEventListener('abort', abort);
+        reject(new Error('Не удалось загрузить файл'));
+      };
+      request.onabort = () => {
+        signal?.removeEventListener('abort', abort);
+        reject(new DOMException('Upload cancelled', 'AbortError'));
+      };
+      signal?.addEventListener('abort', abort, { once: true });
+      request.send(formData);
+    });
+  };
+
+  const uploadQueuedChatFile = async (queueItem) => {
+    const controller = new AbortController();
+    uploadControllersRef.current.set(queueItem.id, controller);
+    setChatUploadQueue((current) => current.map((item) => (
+      item.id === queueItem.id ? { ...item, status: 'uploading', progress: 0, error: '' } : item
+    )));
+    try {
+      const uploadedFile = await uploadAttachmentFile(queueItem.file, 'chat', {
+        signal: controller.signal,
+        onProgress: (progress) => setChatUploadQueue((current) => current.map((item) => (
+          item.id === queueItem.id ? { ...item, progress } : item
+        )))
+      });
+      setAttachmentDrafts((current) => [
+        ...current.filter((item) => item.id !== uploadedFile.id),
+        uploadedFile
+      ]);
+      setChatUploadQueue((current) => current.filter((item) => item.id !== queueItem.id));
+      setActiveTab('chat');
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        setChatUploadQueue((current) => current.filter((item) => item.id !== queueItem.id));
+      } else {
+        setChatUploadQueue((current) => current.map((item) => (
+          item.id === queueItem.id
+            ? { ...item, status: 'error', error: error.message || 'Не удалось загрузить файл' }
+            : item
+        )));
+      }
+    } finally {
+      uploadControllersRef.current.delete(queueItem.id);
+    }
+  };
+
+  const addAttachmentFiles = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+
+    const tooLarge = files.find((file) => file.size > MAX_ATTACHMENT_SIZE);
+    if (tooLarge) {
+      notify(`Файл ${tooLarge.name} слишком большой. Максимум ${MAX_ATTACHMENT_SIZE_MB} МБ.`, 'Вложения');
+      return;
+    }
+
+    const queueItems = files.map((file) => ({
+      id: createMessageId(),
+      file,
+      name: file.name,
+      size: file.size,
+      progress: 0,
+      status: 'queued',
+      error: ''
+    }));
+    setChatUploadQueue((current) => [...current, ...queueItems]);
+    for (const queueItem of queueItems) {
+      // Sequential upload keeps memory and network pressure predictable and
+      // lets a failed file be retried without losing successful uploads.
+      await uploadQueuedChatFile(queueItem);
+    }
+  };
+
+  const cancelChatUpload = (queueId) => {
+    uploadControllersRef.current.get(queueId)?.abort();
+    setChatUploadQueue((current) => current.filter((item) => item.id !== queueId));
+  };
+
+  const handleAttachmentChange = async (event) => {
+    await addAttachmentFiles(event.target.files);
+    event.target.value = '';
+  };
+
+  const handleAttachmentDrop = async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDraggingFiles(false);
+    await addAttachmentFiles(event.dataTransfer?.files);
+  };
+
+  const handleComposerPaste = async (event) => {
+    const files = Array.from(event.clipboardData?.files || []);
+    if (files.length > 0) {
+      event.preventDefault();
+      await addAttachmentFiles(files);
+      notify(files.some((file) => String(file.type || '').startsWith('image/')) ? 'Скриншот прикреплён' : 'Файл прикреплён', 'Вложения');
+    }
+  };
+
+  const handleComposerKeyDown = (event) => {
+    const enterToSend = chatLocalSettings.enterToSend !== false;
+    if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (!enterToSend) return;
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
+  };
+
+  const jumpToMessageDate = (dateValue) => {
+    if (!dateValue) return;
+    const target = currentMessages.find((message) => {
+      const messageDate = new Date(message.createdAt);
+      if (Number.isNaN(messageDate.getTime())) return false;
+      return messageDate.toISOString().slice(0, 10) === dateValue;
+    });
+    if (target) document.querySelector(`[data-message-id="${target.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    else notify('В этот день сообщений нет', 'Календарь');
+  };
+
+  const handleDragOver = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    setIsDraggingFiles(true);
+  };
+
+  const handleDragLeave = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!event.currentTarget.contains(event.relatedTarget)) setIsDraggingFiles(false);
+  };
+
+
+  const removeAttachmentDraft = async (attachmentId) => {
+    const file = attachmentDrafts.find((item, index) => (item.id || `${item.name}-${index}`) === attachmentId);
+    setAttachmentDrafts((prev) => prev.filter((file, index) => (file.id || `${file.name}-${index}`) !== attachmentId));
+    if (file?.id) {
+      await authFetch(`${API_BASE_URL}/chat/uploads/${encodeURIComponent(file.id)}`, {
+        method: 'DELETE',
+        headers: chatAuthHeaders
+      }).catch(() => {});
+    }
+  };
+
+  const saveMyProfile = async (event) => {
+    event.preventDefault();
+    const response = await authFetch(`${API_BASE_URL}/auth/profile`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...profileForm,
+        avatar: avatarUrl
+      })
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      notify(data.message || 'Не удалось сохранить анкету', 'Профиль');
+      return;
+    }
+
+    notify('Анкета сохранена', 'Профиль');
+    profileDirtyRef.current = false;
+    profileLoadedForRef.current = user.username;
+    saveProfileDraft(user.username, { ...profileForm, avatar: avatarUrl });
+    await fetchEmployees();
+  };
+
+  const changeMyPassword = async (event) => {
+    event.preventDefault();
+
+    if (user?.role === 'manager' || user?.role === 'admin') {
+      try {
+        await changeServicePassword({
+          currentPassword: passwordForm.currentPassword,
+          newPassword: passwordForm.newPassword
+        });
+        notify('Пароль обновлён. При следующем входе используйте новый пароль.', 'Пароль');
+        setPasswordForm({ currentPassword: '', newPassword: '' });
+      } catch (error) {
+        notify(error.message || 'Не удалось сменить пароль', 'Пароль');
+      }
+      return;
+    }
+
+    const response = await authFetch(`${API_BASE_URL}/auth/change-password`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      notify(data.message || 'Не удалось сменить пароль', 'Пароль');
+      return;
+    }
+    notify('Пароль обновлён', 'Пароль');
+    setPasswordForm({ currentPassword: '', newPassword: '' });
+  };
+
+  const openProfileCard = useCallback(async (login) => {
+    try {
+      await loadProfile(login, 'preview');
+      setProfileViewLogin(login);
+    } catch (error) {
+      notify(error.message || 'Не удалось открыть профиль сотрудника', 'Профиль');
+    }
+  }, [loadProfile, notify]);
+
+  const openEmployeeProfile = (login, event) => {
+    event?.stopPropagation?.();
+    const normalizedLogin = formatFeedLogin(login);
+    if (!normalizedLogin) return;
+    setActiveTab('profile');
+    openProfileCard(normalizedLogin);
+  };
+
+  const submitRequest = async (event) => {
+    event.preventDefault();
+    if (!requestText.trim()) {
+      setRequestStatus({ state: 'error', textKey: 'requestFillDescription', text: '', ticketId: '' });
+      return;
+    }
+    setRequestStatus({ state: 'sending', text: 'Отправка заявки...', ticketId: '' });
+    let lastError = null;
+    const idempotencyKey = (typeof window !== 'undefined' && window.crypto?.randomUUID)
+      ? window.crypto.randomUUID()
+      : `application-${Date.now()}-${createMessageId()}`;
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await authFetch(`${API_BASE_URL}/applications/from-chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+          body: JSON.stringify({
+            application: requestText.trim(),
+            category: requestCategory,
+            priority: requestPriority,
+            chat_thread_id: currentConversationId || '',
+            source_message_id: replyTo?.id || '',
+            idempotency_key: idempotencyKey
+          })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || data.message || 'Не удалось отправить заявку');
+        }
+        const createdTicket = data?.application || null;
+        if (createdTicket) setMyApplications((prev) => [createdTicket, ...prev.filter((item) => item.id !== createdTicket.id)]);
+        setRequestStatus({ state: 'sent', textKey: 'requestSubmitted', text: '', ticketId: data?.id || data?.insertId || createMessageId().slice(0, 8) });
+        setRequestText('');
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt === 0) {
+          await sleep(350);
+        }
+      }
+    }
+
+    setRequestStatus({ state: 'error', textKey: lastError?.message ? '' : 'requestNetworkError', text: lastError?.message || '', ticketId: '' });
+  };
+
+  const refreshApplicationInList = (application) => {
+    if (!application) return;
+    setMyApplications((prev) => [application, ...prev.filter((item) => item.id !== application.id)]);
+  };
+
+  useEffect(() => {
+    const accessToken = String(user?.accessToken || '').trim();
+    if (!accessToken || typeof EventSource === 'undefined') return undefined;
+    const stream = new EventSource(`${API_BASE_URL}/applications/stream?access_token=${encodeURIComponent(accessToken)}`);
+    const onApplication = (event) => {
+      try {
+        const payload = JSON.parse(event.data || '{}');
+        const application = payload?.application;
+        if (!application?.id) return;
+        setMyApplications((previous) => payload.eventType === 'deleted'
+          ? previous.filter((item) => item.id !== application.id)
+          : [application, ...previous.filter((item) => item.id !== application.id)]);
+      } catch { /* Ignore a malformed realtime event and keep the current list. */ }
+    };
+    stream.addEventListener('application', onApplication);
+    return () => {
+      stream.removeEventListener('application', onApplication);
+      stream.close();
+    };
+  }, [user?.accessToken]);
+
+  const confirmApplicationDone = async (applicationId) => {
+    const employeeComment = await promptAction('Если хотите, оставьте комментарий к закрытию заявки. Можно оставить пустым.', '', 'Комментарий к закрытию');
+    if (employeeComment === '') {
+      const confirmed = await confirmAction('Закрыть заявку без комментария?', 'Заявка выполнена');
+      if (!confirmed) return;
+    }
+    try {
+      const response = await authFetch(`${API_BASE_URL}/applications/${applicationId}/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee_comment: String(employeeComment || '').trim() })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || data.message || 'Не удалось подтвердить заявку');
+      refreshApplicationInList(data.application);
+      notify('Спасибо! Заявка закрыта и время выполнения сохранено.', 'Заявка выполнена');
+    } catch (error) {
+      notify(error.message || 'Не удалось подтвердить заявку', 'Заявка');
+    }
+  };
+
+  const reopenApplication = async (applicationId) => {
+    const comment = await promptAction('Что осталось неисправным? Администратор увидит комментарий.', '', 'Проблема осталась');
+    if (!comment) return;
+    try {
+      const response = await authFetch(`${API_BASE_URL}/applications/${applicationId}/reopen`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee_comment: comment })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || data.message || 'Не удалось переоткрыть заявку');
+      refreshApplicationInList(data.application);
+      notify('Заявка возвращена администратору.', 'Заявка переоткрыта');
+    } catch (error) {
+      notify(error.message || 'Не удалось переоткрыть заявку', 'Заявка');
+    }
+  };
+
+
+  const updateChatLocalSettings = useCallback((updater) => {
+    setChatLocalSettings((prev) => {
+      const next = updater(prev);
+      saveChatLocalSettings(user?.username || 'guest', next);
+      queueChatSettingsSync(next);
+      return next;
+    });
+  }, [queueChatSettingsSync, user?.username]);
+
+  const toggleLocalListValue = useCallback((key, value) => {
+    updateChatLocalSettings((prev) => {
+      const current = new Set(prev[key] || []);
+      if (current.has(value)) current.delete(value);
+      else current.add(value);
+      return { ...prev, [key]: [...current] };
+    });
+  }, [updateChatLocalSettings]);
+
+  const updateChatUiSetting = (key, value) => {
+    updateChatLocalSettings((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const toggleDialogToolSetting = (key) => {
+    updateChatLocalSettings((prev) => {
+      const enabled = prev[key] === true;
+      if (key === 'showDialogMediaPanel' && enabled) setMediaPanelOpen(false);
+      return { ...prev, [key]: !enabled };
+    });
+  };
+
+  const toggleFeedToolSetting = (key) => {
+    updateChatLocalSettings((prev) => {
+      const enabled = prev[key] === true;
+      if (key === 'showFeedFilters' && enabled) setFeedFilter('all');
+      return { ...prev, [key]: !enabled };
+    });
+  };
+
+  const clearCurrentDraft = () => {
+    if (!currentConversationId) return;
+    setDraft('');
+    setAttachmentDrafts([]);
+    const next = { ...chatDrafts };
+    delete next[currentConversationId];
+    setChatDrafts(next);
+    saveChatDrafts(user?.username || 'guest', next);
+  };
+
+  const getConversationMediaItems = useCallback((scope = 'message', sourceMessage = null) => {
+    const sourceMessages = scope === 'dialog' ? currentMessages : sourceMessage ? [sourceMessage] : [];
+    return sourceMessages.flatMap((message) => getMessageMediaAttachments(message).map((file, index) => ({ file, message, fileIndex: index })));
+  }, [currentMessages]);
+
+  const retryMessageSend = async (message) => {
+    if (!currentConversationId || !message?.id) return;
+    setThreads((prev) => ({ ...prev, [currentConversationId]: (prev[currentConversationId] || []).map((item) => (item.id === message.id ? { ...item, deliveryStatus: 'sending' } : item)) }));
+    try {
+      await persistNewMessage(currentConversationId, { ...message, deliveryStatus: 'sent' });
+      setThreads((prev) => ({ ...prev, [currentConversationId]: (prev[currentConversationId] || []).map((item) => (item.id === message.id ? { ...item, deliveryStatus: 'sent' } : item)) }));
+    } catch (error) {
+      setThreads((prev) => ({ ...prev, [currentConversationId]: (prev[currentConversationId] || []).map((item) => (item.id === message.id ? { ...item, deliveryStatus: isNetworkFailure(error) ? 'waiting' : 'error' } : item)) }));
+      if (!isNetworkFailure(error)) notify(error.message || 'Не удалось отправить сообщение', 'Сообщение');
+    }
+  };
+
+  useEffect(() => {
+    if (!isOnline || pendingMessages.length === 0) return undefined;
+    let cancelled = false;
+    const flushPendingMessages = async () => {
+      const remaining = [];
+      for (const item of pendingMessages) {
+        try {
+          await persistNewMessage(item.conversationId, { ...item.message, deliveryStatus: 'sent' });
+          if (cancelled) return;
+          setThreads((prev) => ({
+            ...prev,
+            [item.conversationId]: (prev[item.conversationId] || []).map((message) => (
+              message.id === item.message.id ? { ...message, deliveryStatus: 'sent' } : message
+            ))
+          }));
+        } catch (error) {
+          if (isNetworkFailure(error)) remaining.push(item);
+          else {
+            setThreads((prev) => ({
+              ...prev,
+              [item.conversationId]: (prev[item.conversationId] || []).map((message) => (
+                message.id === item.message.id ? { ...message, deliveryStatus: 'error' } : message
+              ))
+            }));
+          }
+        }
+      }
+      if (!cancelled) setPendingMessages(remaining);
+    };
+    flushPendingMessages();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOnline, pendingMessages, persistNewMessage]);
+
+  const startInlineEditMessage = (message) => {
+    setInlineEditMessageId(message.id);
+    setInlineEditText(message.text || '');
+    setSelectedMessageId('');
+  };
+
+  const saveInlineEditMessage = async (message) => {
+    if (!inlineEditText.trim() && getMessageAttachments(message).length === 0) {
+      notify('Нельзя сохранить пустое сообщение без вложений', 'Сообщение');
+      return;
+    }
+    try {
+      await updateMessage(message.id, (item) => ({
+        ...item,
+        text: inlineEditText.trim(),
+        editedAt: new Date().toISOString(),
+        editedBy: user.username,
+        audit: [...(item.audit || []), { action: 'edit', by: user.username, at: new Date().toISOString(), previousText: item.text, nextText: inlineEditText.trim() }]
+      }));
+      setInlineEditMessageId('');
+      setInlineEditText('');
+    } catch (error) {
+      notify(error.message || 'Не удалось изменить сообщение', 'Сообщение');
+    }
+  };
+
+  const createRequestFromMessage = (message) => {
+    setRequestText(`${message.text || (isEnglishInterface ? 'Message with attachment' : 'Сообщение с вложением')}\n\n${isEnglishInterface ? 'Source' : 'Источник'}: ${message.sender}, ${new Date(message.createdAt).toLocaleString(interfaceLocale)}`);
+    setReplyTo(message);
+    setSelectedMessageId('');
+    setActiveTab('request');
+  };
+
+
+  const getMessageMenuPlacement = (event) => {
+    const rowElement = event?.currentTarget?.closest?.('.message-row') || event?.target?.closest?.('.message-row');
+    const wrapElement = messagesWrapRef.current;
+    if (!rowElement || !wrapElement) return 'above';
+    const rowRect = rowElement.getBoundingClientRect();
+    const wrapRect = wrapElement.getBoundingClientRect();
+    const spaceBelow = wrapRect.bottom - rowRect.bottom;
+    const estimatedMenuHeight = 320;
+    return spaceBelow >= estimatedMenuHeight ? 'below' : 'above';
+  };
+
+  const getMessageMenuStyle = (event, placement) => {
+    const rowElement = event?.currentTarget?.closest?.('.message-row') || event?.target?.closest?.('.message-row');
+    const bubbleElement = rowElement?.querySelector?.('.message-bubble') || rowElement;
+    const wrapElement = messagesWrapRef.current;
+    if (!bubbleElement || !wrapElement) return {};
+    const bubbleRect = bubbleElement.getBoundingClientRect();
+    const wrapRect = wrapElement.getBoundingClientRect();
+    const menuWidth = 300;
+    const menuHeight = 340;
+    const edgeGap = 10;
+    const rawTop = placement === 'below' ? bubbleRect.bottom + 8 : bubbleRect.top - menuHeight - 8;
+    const minTop = wrapRect.top + edgeGap;
+    const maxTop = Math.max(minTop, wrapRect.bottom - menuHeight - edgeGap);
+    const top = Math.min(Math.max(rawTop, minTop), maxTop);
+    const rawLeft = rowElement?.classList?.contains('mine') ? bubbleRect.right - menuWidth : bubbleRect.left;
+    const minLeft = wrapRect.left + edgeGap;
+    const maxLeft = Math.max(minLeft, wrapRect.right - menuWidth - edgeGap);
+    const left = Math.min(Math.max(rawLeft, minLeft), maxLeft);
+    return { top: `${Math.round(top)}px`, left: `${Math.round(left)}px` };
+  };
+
+  const openSelectedMessageMenu = (messageId, event) => {
+    const placement = getMessageMenuPlacement(event);
+    setSelectedMessageMenuPlacement(placement);
+    setSelectedMessageMenuStyle(getMessageMenuStyle(event, placement));
+    setSelectedMessageId(messageId);
+    setMessageReactionExpanded(false);
+  };
+
+  const toggleSelectedMessage = (messageId) => {
+    setSelectedMessageIds((prev) => (prev.includes(messageId) ? prev.filter((id) => id !== messageId) : [...prev, messageId]));
+  };
+
+  const getSelectedMessages = () => currentMessages.filter((message) => selectedMessageIds.includes(message.id));
+
+  const clearSelectedMessages = () => {
+    setSelectedMessageIds([]);
+    setMultiSelectMode(false);
+  };
+
+  const copySelectedMessages = async () => {
+    const text = getSelectedMessages().map((message) => `${message.sender}: ${message.text || '[вложение]'}`).join('\n');
+    if (!text) return;
+    try {
+      await navigator.clipboard?.writeText(text);
+      notify('Выбранные сообщения скопированы', 'Копирование');
+    } catch {
+      notify('Не удалось скопировать выбранные сообщения', 'Копирование');
+    }
+  };
+
+  const deleteSelectedMessages = async () => {
+    const confirmed = await confirmAction(`Удалить выбранные сообщения: ${selectedMessageIds.length}?`, 'Удаление сообщений');
+    if (!confirmed || !currentConversationId || !selectedMessageIds.length) return;
+    const messageIds = [...selectedMessageIds];
+    const previousMessages = threads[currentConversationId] || [];
+    const deletedAt = new Date().toISOString();
+    setThreads((prev) => ({
+      ...prev,
+      [currentConversationId]: (prev[currentConversationId] || []).map((message) => (
+        messageIds.includes(message.id)
+          ? { ...message, text: '', attachment: null, attachments: [], deletedAt, deletedBy: user.username }
+          : message
+      ))
+    }));
+    clearSelectedMessages();
+    try {
+      await fetchJsonWithRetry(
+        `${API_BASE_URL}/chat/threads/${encodeURIComponent(currentConversationId)}/messages/bulk-delete`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
+          body: JSON.stringify({ messageIds })
+        },
+        { fallbackMessage: 'Не удалось удалить выбранные сообщения' }
+      );
+    } catch (error) {
+      setThreads((prev) => ({ ...prev, [currentConversationId]: previousMessages }));
+      notify(error.message || 'Не удалось удалить выбранные сообщения', 'Удаление сообщений');
+    }
+  };
+
+  const updateMessage = async (messageId, updater, targetConversationId = currentConversationId) => {
+    if (!targetConversationId) return;
+    const previousMessages = threads[targetConversationId] || [];
+    const nextMessages = previousMessages.map((item) => (item.id === messageId ? updater(item) : item));
+    setThreads((prev) => ({ ...prev, [targetConversationId]: nextMessages }));
+
+    try {
+      await persistMessagePatch(targetConversationId, messageId, nextMessages.find((item) => item.id === messageId));
+    } catch (error) {
+      const isNetworkError = isNetworkFailure(error);
+      if (isNetworkError) {
+        // Как и при отправке вложений, не возвращаем старое состояние, если запись могла сохраниться на сервере.
+        return;
+      }
+      setThreads((prev) => ({ ...prev, [targetConversationId]: previousMessages }));
+      throw new Error(error.message || 'Не удалось сохранить изменение');
+    }
+  };
+
+  const toggleReaction = async (messageId, emoji, targetConversationId = currentConversationId) => {
+    try {
+      await updateMessage(messageId, (item) => {
+        const reactions = { ...(item.reactions || {}) };
+        const users = new Set(reactions[emoji] || []);
+        if (users.has(user.username)) users.delete(user.username);
+        else users.add(user.username);
+        reactions[emoji] = [...users];
+        return { ...item, reactions };
+      }, targetConversationId);
+    } catch (error) {
+      notify(error.message || 'Не удалось поставить реакцию', 'Реакция');
+    }
+  };
+
+  const togglePinned = async (messageId, targetConversationId = currentConversationId) => {
+    try {
+      await updateMessage(messageId, (item) => ({ ...item, pinned: !item.pinned }), targetConversationId);
+    } catch (error) {
+      notify(error.message || 'Не удалось закрепить сообщение', 'Закрепление');
+    }
+  };
+
+  const deleteMessage = async (messageId, targetConversationId = currentConversationId) => {
+    if (!targetConversationId) return;
+    const confirmed = await confirmAction('Удалить сообщение? Вместо полного удаления оно будет скрыто и останется в аудите.', 'Удаление сообщения');
+    if (!confirmed) return;
+    try {
+      await updateMessage(messageId, (item) => ({
+        ...item,
+        text: '',
+        attachment: null,
+        attachments: [],
+        deletedAt: new Date().toISOString(),
+        deletedBy: user.username,
+        audit: [...(item.audit || []), { action: 'delete', by: user.username, at: new Date().toISOString(), previousText: item.text }]
+      }), targetConversationId);
+    } catch (error) {
+      notify(error.message || 'Не удалось удалить сообщение', 'Сообщение');
+    }
+  };
+
+  const editMessage = async (messageId, targetConversationId = currentConversationId) => {
+    const sourceMessage = (threads[targetConversationId] || []).find((item) => item.id === messageId);
+    const nextText = await promptAction('Изменить текст сообщения:', sourceMessage?.text || '');
+    if (!nextText || !targetConversationId) return;
+
+    try {
+      await updateMessage(messageId, (item) => ({
+        ...item,
+        text: String(nextText).trim(),
+        editedAt: new Date().toISOString(),
+        editedBy: user.username,
+        audit: [...(item.audit || []), { action: 'edit', by: user.username, at: new Date().toISOString(), previousText: item.text }]
+      }), targetConversationId);
+    } catch (error) {
+      notify(error.message || 'Не удалось изменить сообщение', 'Сообщение');
+    }
+  };
+
+  const copyMessageText = async (message) => {
+    const text = String(message?.text || '').trim();
+    if (!text) {
+      notify('В сообщении нет текста для копирования', 'Копирование');
+      return;
+    }
+
+    const copyFallback = () => {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.top = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const copied = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      if (!copied) throw new Error('copy command failed');
+    };
+
+    try {
+      if (navigator.clipboard?.writeText && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        copyFallback();
+      }
+      notify('Текст сообщения скопирован', 'Копирование');
+    } catch {
+      try {
+        copyFallback();
+        notify('Текст сообщения скопирован', 'Копирование');
+      } catch {
+        notify('Не удалось скопировать текст', 'Копирование');
+      }
+    }
+  };
+
+  const openForwardMessagePicker = (message) => {
+    if (!message || message.deletedAt) return;
+    setForwardSourceMessage(message);
+    setSelectedMessageId('');
+    setMessageReactionExpanded(false);
+  };
+
+  const openChatMediaViewer = (message, file, fileIndex) => {
+    if (!getOriginalAttachmentUrl(file)) return;
+    setMediaViewer({ message, file, fileIndex, scope: 'message' });
+    setSelectedMessageId('');
+    setMessageReactionExpanded(false);
+  };
+
+  const replyToViewedMedia = () => {
+    if (!mediaViewer?.message) return;
+    setReplyTo(mediaViewer.message);
+    setMediaViewer(null);
+  };
+
+  const shareViewedMedia = () => {
+    if (!mediaViewer?.message) return;
+    openForwardMessagePicker(mediaViewer.message);
+    setMediaViewer(null);
+  };
+
+  const shareViewedFeedMedia = () => {
+    if (mediaViewer?.source !== 'feed' || !mediaViewer?.file) return;
+    const sourcePost = mediaViewer.post || {};
+    openForwardMessagePicker({
+      id: sourcePost.id || createMessageId(),
+      sender: sourcePost.authorName || sourcePost.author || 'Лента',
+      text: sourcePost.text || 'Вложение из ленты',
+      attachment: mediaViewer.file,
+      attachments: [mediaViewer.file],
+      createdAt: sourcePost.createdAt || new Date().toISOString(),
+      reactions: {},
+      pinned: false
+    });
+    setMediaViewer(null);
+  };
+
+
+
+  const getViewerFiles = () => {
+    if (!mediaViewer) return [];
+    if (mediaViewer.source === 'feed') return getFeedAttachments(mediaViewer.post).filter(isMediaAttachment);
+    if (mediaViewer.message && mediaViewer.scope === 'dialog') return getConversationMediaItems('dialog').map((item) => item.file);
+    if (mediaViewer.message) return getMessageMediaAttachments(mediaViewer.message);
+    return [mediaViewer.file].filter(Boolean);
+  };
+
+  const moveMediaViewer = useCallback((direction) => {
+    setMediaViewer((current) => {
+      if (!current) return current;
+      const items = current.message && current.scope === 'dialog' ? getConversationMediaItems('dialog') : [];
+      const files = current.source === 'feed'
+        ? getFeedAttachments(current.post).filter(isMediaAttachment)
+        : current.message ? (current.scope === 'dialog' ? items.map((item) => item.file) : getMessageMediaAttachments(current.message)) : [current.file].filter(Boolean);
+      if (files.length < 2) return current;
+      const currentIndex = Math.max(0, Math.min(files.length - 1, current.fileIndex || 0));
+      const nextIndex = (currentIndex + direction + files.length) % files.length;
+      return { ...current, file: files[nextIndex], fileIndex: nextIndex };
+    });
+  }, [getConversationMediaItems]);
+
+  useEffect(() => {
+    if (!mediaViewer) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setMediaViewer(null);
+      if (event.key === 'ArrowLeft') moveMediaViewer(-1);
+      if (event.key === 'ArrowRight') moveMediaViewer(1);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [mediaViewer, moveMediaViewer]);
+
+  const deleteChatAttachment = async (messageId, fileIndex = 0, targetConversationId = currentConversationId) => {
+    if (!messageId || !targetConversationId) return;
+    const confirmed = await confirmAction(t('deleteAttachmentConfirm'), t('deleteAttachmentTitle'));
+    if (!confirmed) return;
+
+    await updateMessage(messageId, (item) => {
+      const currentAttachments = item.attachments?.length ? item.attachments : item.attachment ? [item.attachment] : [];
+      const nextAttachments = currentAttachments.filter((_, index) => index !== fileIndex);
+      const hasText = String(item.text || '').trim() && item.text !== '📎 Вложения';
+      const auditEntry = {
+        action: 'delete_attachment',
+        by: user.username,
+        at: new Date().toISOString(),
+        fileName: currentAttachments[fileIndex]?.name || ''
+      };
+
+      if (!nextAttachments.length && !hasText) {
+        return {
+          ...item,
+          text: '',
+          attachment: null,
+          attachments: [],
+          deletedAt: new Date().toISOString(),
+          deletedBy: user.username,
+          audit: [...(item.audit || []), auditEntry]
+        };
+      }
+
+      return {
+        ...item,
+        text: hasText ? item.text : '📎 Вложения',
+        attachment: nextAttachments[0] || null,
+        attachments: nextAttachments,
+        audit: [...(item.audit || []), auditEntry]
+      };
+    }, targetConversationId);
+  };
+
+  const deleteViewedMedia = async () => {
+    if (mediaViewer?.source === 'feed') {
+      const { post, file } = mediaViewer;
+      if (!post?.id || !file) return;
+      const currentPost = feedPostsRef.current.find((item) => item.id === post.id) || post;
+      const currentAttachments = getFeedAttachments(currentPost);
+      const targetIndex = currentAttachments.findIndex((item) => (
+        (file.id && item.id === file.id)
+        || (file.url && item.url === file.url)
+        || (item.name === file.name && item.type === file.type && item.size === file.size)
+      ));
+      if (targetIndex < 0) {
+        setMediaViewer(null);
+        return;
+      }
+      const targetFile = currentAttachments[targetIndex];
+      const nextAttachments = currentAttachments.filter((_, index) => index !== targetIndex);
+      const fileLabel = targetFile.name || (isVideoAttachment(targetFile) ? 'видео' : 'фото');
+      const postHasText = Boolean(String(currentPost.text || '').trim());
+      let confirmed = await confirmAction(t('deleteMediaFromPost').replace('{type}', isVideoAttachment(targetFile) ? t('deleteVideoType') : t('deletePhotoType')).replace('{name}', fileLabel), t('deleteAttachmentTitle'));
+      if (!confirmed) return;
+      if (!nextAttachments.length && !postHasText) {
+        confirmed = await confirmAction(t('deleteLastPostAttachment'), t('deletePostTitle'));
+        if (!confirmed) return;
+        setMediaViewer(null);
+        await deleteFeedPost(post.id, { skipConfirm: true });
+        return;
+      }
+      const actionKey = `media-delete:${post.id}:${targetFile.id || targetFile.url || targetIndex}`;
+      if (!beginFeedAction(actionKey, post.id)) return;
+      setMediaViewer(null);
+      setFeedPosts((current) => current.map((item) => (
+        item.id === post.id
+          ? { ...item, attachment: nextAttachments[0] || null, attachments: nextAttachments, updatedAt: new Date().toISOString() }
+          : item
+      )));
+      try {
+        await patchFeedPost(post.id, { attachment: nextAttachments[0] || null, attachments: nextAttachments, editedAt: new Date().toISOString() });
+        notify(`${isVideoAttachment(targetFile) ? 'Видео' : 'Фото'} удалено`, 'Лента');
+      } catch (error) {
+        setFeedPosts((current) => current.map((item) => (item.id === currentPost.id ? currentPost : item)));
+        notify(
+          isNetworkFailure(error) ? getFriendlyNetworkMessage('Не удалось удалить вложение') : (error.message || 'Не удалось удалить вложение'),
+          'Лента'
+        );
+      } finally {
+        endFeedAction(actionKey, post.id);
+      }
+      return;
+    }
+    if (!mediaViewer?.message?.id) return;
+    const { message, fileIndex = 0 } = mediaViewer;
+    setMediaViewer(null);
+    try {
+      await deleteChatAttachment(message.id, fileIndex);
+    } catch (error) {
+      notify(error.message || 'Не удалось удалить вложение', 'Вложение');
+    }
+  };
+
+  const forwardMessageToContact = async (targetEmail) => {
+    if (!forwardSourceMessage || !targetEmail || forwardingTargetEmail) return;
+
+    const sourceMessage = forwardSourceMessage;
+    const targetConversationId = getConversationId(user.username, targetEmail);
+    const previousMessages = threads[targetConversationId] || [];
+    const attachments = sourceMessage.attachments?.length
+      ? sourceMessage.attachments
+      : sourceMessage.attachment ? [sourceMessage.attachment] : [];
+    const forwardedText = getForwardedMessageText(sourceMessage.text);
+    const newMessage = {
+      id: createMessageId(),
+      sender: user.username,
+      text: forwardedText,
+      forwardedFrom: sourceMessage.forwardedFrom || sourceMessage.sender,
+      createdAt: new Date().toISOString(),
+      editedAt: null,
+      reactions: {},
+      pinned: false,
+      deliveryStatus: 'sending',
+      readAt: null,
+      replyTo: null,
+      attachment: attachments[0] || null,
+      attachments
+    };
+    const nextMessages = [...previousMessages, newMessage];
+
+    setForwardingTargetEmail(targetEmail);
+    setForwardSourceMessage(null);
+    setThreads((prev) => ({ ...prev, [targetConversationId]: nextMessages }));
+    notify('Сообщение переслано', 'Переслать');
+
+    try {
+      await persistNewMessage(targetConversationId, newMessage);
+    } catch (error) {
+      const isNetworkError = isNetworkFailure(error);
+      if (!isNetworkError) {
+        setThreads((prev) => ({ ...prev, [targetConversationId]: previousMessages }));
+        notify(error.message || 'Не удалось переслать сообщение', 'Переслать');
+      }
+    } finally {
+      setForwardingTargetEmail('');
+    }
+  };
+
+
+  const clearConversation = async () => {
+    if (!currentConversationId) return;
+    const messageCount = currentMessages.length;
+    const attachmentCount = currentMessages.reduce((sum, message) => sum + (message.attachments?.length || (message.attachment ? 1 : 0)), 0);
+    const confirmed = await confirmAction(
+      `Очистить диалог с ${selectedEmail}? Будет скрыто сообщений: ${messageCount}, вложений: ${attachmentCount}. Действие останется в аудите.`,
+      'Очистка диалога'
+    );
+    if (!confirmed) return;
+
+    const typed = await promptAction('Для подтверждения введите УДАЛИТЬ:', '', 'Финальное подтверждение');
+    if (!['УДАЛИТЬ', 'DELETE'].includes(String(typed || '').trim().toUpperCase())) return;
+
+    try {
+      const now = new Date().toISOString();
+      const nextMessages = currentMessages.map((message) => ({
+        ...message,
+        text: '',
+        attachment: null,
+        attachments: [],
+        deletedAt: message.deletedAt || now,
+        deletedBy: message.deletedBy || user.username,
+        audit: [...(message.audit || []), { action: 'conversation_clear', by: user.username, at: now, previousText: message.text }]
+      }));
+      await persistThreadMessages(currentConversationId, nextMessages);
+    } catch (error) {
+      notify(error.message || 'Не удалось очистить переписку', 'Переписка');
+    }
+  };
+
+  const saveEmployee = async (e) => {
+    e.preventDefault();
+    if (!employeeForm.login.trim() || (!employeeForm.id && !employeeForm.password.trim())) {
+      notify('Укажите логин и пароль (для нового сотрудника).', 'Сотрудники');
+      return;
+    }
+
+    const payload = {
+      login: employeeForm.login,
+      password: employeeForm.password,
+      role: employeeForm.role,
+      full_name: employeeForm.full_name,
+      department: employeeForm.department,
+      phone: employeeForm.phone,
+      room: employeeForm.room
+    };
+
+    const isEdit = Boolean(employeeForm.id);
+    const url = isEdit ? `${API_BASE_URL}/auth/employees/${employeeForm.id}` : `${API_BASE_URL}/auth/register`;
+    const method = isEdit ? 'PUT' : 'POST';
+
+    const response = await authFetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      notify(data.message || 'Не удалось сохранить сотрудника', 'Сотрудники');
+      return;
+    }
+
+    await fetchEmployees();
+    setEmployeeForm({ id: null, login: '', password: '', role: 'employee', full_name: '', department: '', phone: '', room: '' });
+    setShowEmployeePassword(false);
+  };
+
+  const deleteEmployee = async (employeeId) => {
+    const confirmed = await confirmAction('Удалить сотрудника? Его учётная запись будет удалена.', 'Удаление сотрудника');
+    if (!confirmed) return;
+    const response = await authFetch(`${API_BASE_URL}/auth/employees/${employeeId}`, { method: 'DELETE' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      notify(data.message || 'Не удалось удалить сотрудника', 'Сотрудники');
+      return;
+    }
+    await fetchEmployees();
+  };
+
+  const activeApplications = useMemo(() => myApplications.filter((item) => item.status !== 'done' && !item.fl), [myApplications]);
+  const completedApplications = useMemo(() => myApplications.filter((item) => item.status === 'done' || item.fl), [myApplications]);
+  const threadActivityById = useMemo(() => {
+    const ids = new Set([...Object.keys(threadSummaries), ...Object.keys(threads)]);
+    return Object.fromEntries([...ids].map((threadId) => {
+      const summary = threadSummaries[threadId];
+      const loadedMessages = threads[threadId];
+      if (Array.isArray(loadedMessages) && loadedMessages.length) {
+        return [threadId, getThreadActivityMeta(loadedMessages)];
+      }
+      return [threadId, {
+        visible: Boolean(summary?.lastMessage),
+        messageCount: Number(summary?.messageCount) || 0,
+        deletedCount: Number(summary?.deletedCount) || 0,
+        attachmentsCount: Number(summary?.attachmentsCount) || 0,
+        lastAt: summary?.lastAt || '',
+        lastTimestamp: Number(summary?.lastTimestamp) || 0
+      }];
+    }));
+  }, [threadSummaries, threads]);
+
+  const allConversationIds = useMemo(() => Object.keys(threadActivityById).filter((threadId) => {
+    const messages = threads[threadId] || [];
+    const meta = threadActivityById[threadId] || getThreadActivityMeta(messages);
+    if (!auditFilters.showEmpty && !meta.visible) return false;
+    if (auditFilters.attachmentsOnly && meta.attachmentsCount === 0) return false;
+    if (auditFilters.deletedOnly && meta.deletedCount === 0) return false;
+    if (!isThreadInPeriod(meta.lastTimestamp, auditFilters.period)) return false;
+
+    const query = auditSearch.trim().toLowerCase();
+    if (!query) return true;
+    const participantsText = getParticipantsFromThreadId(threadId).join(' ').toLowerCase();
+    const messagesText = messages.map((message) => [message.sender, message.text, message.deletedBy].filter(Boolean).join(' ')).join(' ').toLowerCase();
+    return `${participantsText} ${messagesText}`.includes(query);
+  }).sort((a, b) => (threadActivityById[b]?.lastTimestamp || 0) - (threadActivityById[a]?.lastTimestamp || 0)), [auditFilters, auditSearch, threadActivityById, threads]);
+
+  const activeContact = chatCandidates.find((item) => item.email === selectedEmail);
+  const remoteTypingLogin = currentConversationId ? remoteTypingByConversation[currentConversationId] : '';
+  const typingHint = remoteTypingLogin
+    ? `${activeContact?.profile?.full_name || formatVisibleLogin(remoteTypingLogin)} ${t('typing')}…`
+    : '';
+  const tabs = isManager
+    ? MANAGER_TABS.filter((tab) => tab.id !== 'employees' || isAdmin)
+    : EMPLOYEE_TABS;
+  const unreadTotal = Object.values(unreadByEmail).reduce((sum, count) => sum + count, 0);
+  const feedReadTimestamp = feedReadAt ? new Date(feedReadAt).getTime() : 0;
+  const feedBadge = feedPosts.reduce((count, post) => {
+    const postUnread = post.author !== user?.username && getFeedItemTimestamp(post) > feedReadTimestamp ? 1 : 0;
+    const commentsUnread = (post.comments || []).filter((comment) => (
+      comment.author !== user?.username && getFeedItemTimestamp(comment) > feedReadTimestamp
+    )).length;
+    return count + postUnread + commentsUnread;
+  }, 0);
+  const requestBadge = activeApplications.length || (requestStatus.state === 'sent' ? 1 : 0);
+  const normalizedDialogSearch = normalizeText(dialogSearch);
+  const visibleMessages = useMemo(() => {
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const notDeletedMessages = currentMessages.filter((message) => !message.deletedAt);
+    return notDeletedMessages.filter((message) => {
+      const attachments = getMessageAttachments(message);
+      if (normalizedDialogSearch && ![
+        message.text,
+        message.sender,
+        message.attachment?.name,
+        ...attachments.map((item) => item.name)
+      ].some((value) => normalizeText(value).includes(normalizedDialogSearch))) return false;
+      const timestamp = new Date(message.createdAt || 0).getTime();
+      if (dialogFilter === 'mine') return message.sender === user.username;
+      if (dialogFilter === 'peer') return message.sender !== user.username;
+      if (dialogFilter === 'files') return attachments.length > 0;
+      if (dialogFilter === 'photo') return attachments.some(isImageAttachment);
+      if (dialogFilter === 'today') return now - timestamp <= day;
+      if (dialogFilter === 'week') return now - timestamp <= 7 * day;
+      if (dialogFilter === 'month') return now - timestamp <= 31 * day;
+      return true;
+    });
+  }, [currentMessages, dialogFilter, normalizedDialogSearch, user.username]);
+  const dialogSearchResults = normalizedDialogSearch.length >= 2
+    ? serverDialogSearchResults
+    : [];
+  const activeDialogSearchResult = dialogSearchResults[dialogSearchIndex] || null;
+  useEffect(() => {
+    if (!activeDialogSearchResult?.id) return;
+    window.requestAnimationFrame(() => {
+      document.querySelector(`[data-message-id="${activeDialogSearchResult.id}"]`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, [activeDialogSearchResult?.id]);
+
+  const highlightText = (text = '') => {
+    if (!normalizedDialogSearch) return text;
+    const source = String(text || '');
+    const lower = source.toLowerCase();
+    const needle = normalizedDialogSearch.toLowerCase();
+    const index = lower.indexOf(needle);
+    if (index < 0) return source;
+    return <>{source.slice(0, index)}<mark>{source.slice(index, index + needle.length)}</mark>{source.slice(index + needle.length)}</>;
+  };
+  const dialogMediaItems = useMemo(() => currentMessages.flatMap((message) => [
+    ...getMessageAttachments(message).map((file, index) => ({ message, file, fileIndex: index, type: isMediaAttachment(file) ? 'media' : 'file' })),
+    ...extractLinks(message.text).map((link, index) => ({ message, file: { id: `${message.id}-link-${index}`, name: link, dataUrl: link, type: 'text/link' }, fileIndex: index, type: 'link' }))
+  ]), [currentMessages]);
+  const filteredDialogMediaItems = useMemo(() => dialogMediaItems.filter(({ message, file, type }) => {
+    const query = normalizeText(mediaPanelSearch);
+    if (query && !normalizeText(`${file.name || ''} ${message.text || ''}`).includes(query)) return false;
+    if (mediaPanelTab === 'media') return type === 'media';
+    if (mediaPanelTab === 'files') return type === 'file';
+    if (mediaPanelTab === 'links') return type === 'link';
+    return true;
+  }), [dialogMediaItems, mediaPanelSearch, mediaPanelTab]);
+
+  const paginatedVisibleMessages = useMemo(() => {
+    const startIndex = Math.max(0, visibleMessages.length - visibleDialogMessageCount);
+    return visibleMessages.slice(startIndex);
+  }, [visibleMessages, visibleDialogMessageCount]);
+  const hiddenDialogMessagesCount = Math.max(0, visibleMessages.length - paginatedVisibleMessages.length);
+
+  const messagesWithDateSeparators = useMemo(() => {
+    let lastDateKey = '';
+    return paginatedVisibleMessages.flatMap((message) => {
+      const currentDateKey = getDateKey(message.createdAt);
+      const items = [];
+      if (currentDateKey !== lastDateKey) {
+        items.push({ type: 'date', id: `date-${currentDateKey}`, label: formatDateLabel(message.createdAt, isEnglishInterface) });
+        lastDateKey = currentDateKey;
+      }
+      items.push({ type: 'message', id: message.id, message });
+      return items;
+    });
+  }, [isEnglishInterface, paginatedVisibleMessages]);
+
+
+  const visibleFeedPosts = useMemo(() => {
+    const query = feedSearch.trim().toLowerCase();
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    return sortFeedPosts(getVisibleFeedPosts(feedPosts)
+      .filter((post) => !hiddenFeedPostIds.includes(post.id))
+      .filter((post) => {
+        const attachments = getFeedAttachments(post);
+        const text = [post.text, post.authorName, post.author, post.category, ...attachments.map((file) => file.name)].filter(Boolean).join(' ').toLowerCase();
+        if (query && !text.includes(query)) return false;
+        const timestamp = getFeedItemTimestamp(post);
+        if (feedFilter === 'mine') return isPostAuthor(post, user);
+        if (feedFilter === 'photo') return attachments.some(isImageAttachment);
+        if (feedFilter === 'video') return attachments.some(isVideoAttachment);
+        if (feedFilter === 'pinned') return Boolean(post.pinned);
+        if (feedFilter === 'unread') return post.author !== user?.username && timestamp > feedReadTimestamp;
+        if (feedFilter === 'today') return now - timestamp <= day;
+        if (feedFilter === 'week') return now - timestamp <= 7 * day;
+        if (feedFilter === 'month') return now - timestamp <= 31 * day;
+        return true;
+      }));
+  }, [feedFilter, feedPosts, feedReadTimestamp, feedSearch, hiddenFeedPostIds, user]);
+
+  const pinnedFeedPosts = useMemo(() => visibleFeedPosts.filter((post) => post.pinned), [visibleFeedPosts]);
+  const regularFeedPosts = useMemo(() => visibleFeedPosts.filter((post) => !post.pinned), [visibleFeedPosts]);
+  const paginatedRegularFeedPosts = useMemo(() => regularFeedPosts.slice(0, visibleFeedPostCount), [regularFeedPosts, visibleFeedPostCount]);
+  const hiddenFeedPostsCount = Math.max(0, regularFeedPosts.length - paginatedRegularFeedPosts.length);
+
+  const sortComments = (comments = []) => {
+    const visible = comments.filter((comment) => !comment.deletedAt);
+    if (commentSort === 'new') return [...visible].sort((a, b) => getFeedItemTimestamp(b) - getFeedItemTimestamp(a));
+    if (commentSort === 'popular') return [...visible].sort((a, b) => Object.values(b.reactions || {}).flat().length - Object.values(a.reactions || {}).flat().length);
+    return visible;
+  };
+
+  const getEmployeeAvatar = useCallback((login = '', ...candidates) => {
+    const normalizedLogin = formatFeedLogin(login);
+    const directAvatar = candidates.find((value) => typeof value === 'string' && value.trim());
+    if (directAvatar) return resolveAttachmentUrl(directAvatar);
+
+    if (sameLogin(normalizedLogin, user?.username || '')) return resolveAttachmentUrl(avatarUrl || '');
+
+    const cachedProfile = normalizedLogin ? readProfileDraft(normalizedLogin) : {};
+    if (cachedProfile.avatar) return resolveAttachmentUrl(cachedProfile.avatar);
+
+    const directoryProfile = directoryEmployees.find((employee) => sameLogin(employee.login, normalizedLogin)) || {};
+    return resolveAttachmentUrl(directoryProfile.avatar || directoryProfile.photo || directoryProfile.photo_url || '');
+  }, [avatarUrl, directoryEmployees, user?.username]);
+
+  useEffect(() => {
+    if (activeTab !== 'feed' || !user?.username) return;
+    const latestTimestamp = getFeedLatestTimestamp(feedPosts);
+    if (!latestTimestamp) return;
+
+    const latestReadTimestamp = feedReadAt ? new Date(feedReadAt).getTime() : 0;
+    if (latestReadTimestamp >= latestTimestamp) return;
+
+    const nextReadAt = new Date(latestTimestamp).toISOString();
+    setFeedReadAt(nextReadAt);
+    saveFeedReadAt(user.username, nextReadAt);
+  }, [activeTab, feedPosts, feedReadAt, user?.username]);
+
+  const addFeedPost = async (event) => {
+    event.preventDefault();
+    if (isPublishingFeed || (!feedDraft.trim() && feedAttachments.length === 0)) return;
+    setIsPublishingFeed(true);
+    if (feedAttachments.length > 1) {
+      const confirmed = await confirmAction(`Опубликовать ${feedAttachments.length} файлов одной записью?`, 'Подтверждение публикации');
+      if (!confirmed) {
+        setIsPublishingFeed(false);
+        return;
+      }
+    }
+
+    const previousDraft = feedDraft;
+    const previousAttachments = feedAttachments;
+    const optimisticPost = {
+      id: createMessageId(),
+      author: user?.username || 'employee',
+      authorName: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
+      text: previousDraft.trim(),
+      attachment: previousAttachments[0] || null,
+      attachments: previousAttachments,
+      category: feedCategory,
+      reactions: {},
+      comments: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deliveryStatus: 'sending'
+    };
+    const actionKey = `post-create:${optimisticPost.id}`;
+    beginFeedAction(actionKey, optimisticPost.id);
+
+    setFeedPosts((current) => [optimisticPost, ...current.filter((post) => post.id !== optimisticPost.id)]);
+    setFeedDraft('');
+    setFeedAttachments([]);
+    clearSavedFeedDraft(user?.username || 'guest');
+
+    try {
+      const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: optimisticPost.text,
+          attachment: optimisticPost.attachment,
+          attachments: optimisticPost.attachments,
+          category: optimisticPost.category
+        })
+      }, { attempts: 2, fallbackMessage: 'Не удалось опубликовать запись' });
+
+      const serverPost = data?.post ? { ...data.post, deliveryStatus: 'sent' } : null;
+      setFeedPosts((current) => {
+        const nextPosts = serverPost
+          ? sortFeedPosts([
+            serverPost,
+            ...current.filter((post) => post.id !== optimisticPost.id && post.id !== serverPost.id)
+          ])
+          : current.map((post) => (
+            post.id === optimisticPost.id ? { ...post, deliveryStatus: 'sent' } : post
+          ));
+        return getFeedPostsSignature(current) === getFeedPostsSignature(nextPosts) ? current : nextPosts;
+      });
+      window.requestAnimationFrame(() => {
+        feedListRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    } catch (error) {
+      setFeedPosts((current) => current.filter((post) => post.id !== optimisticPost.id));
+      setFeedDraft(previousDraft);
+      setFeedAttachments(previousAttachments);
+      notify(
+        isNetworkFailure(error) ? getFriendlyNetworkMessage('Не удалось опубликовать запись') : (error.message || 'Не удалось опубликовать запись'),
+        'Лента'
+      );
+    } finally {
+      endFeedAction(actionKey, optimisticPost.id);
+      setIsPublishingFeed(false);
+    }
+  };
+
+  const onFeedFileChange = async (event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (!files.length) return;
+    const tooLarge = files.find((file) => file.size > MAX_ATTACHMENT_SIZE);
+    if (tooLarge) {
+      notify(`Файл ${tooLarge.name} слишком большой. Максимум ${MAX_ATTACHMENT_SIZE_MB} МБ.`, 'Вложения');
+      return;
+    }
+    try {
+      const preparedFiles = await Promise.all(files.map((file) => uploadAttachmentFile(file, 'feed')));
+      setFeedAttachments((prev) => [...prev, ...preparedFiles]);
+    } catch {
+      notify('Не удалось прикрепить файл.', 'Вложения');
+    }
+  };
+
+  const removeFeedAttachment = (attachmentId) => {
+    setFeedAttachments((prev) => prev.filter((file, index) => (file.id || `${file.name}-${index}`) !== attachmentId));
+  };
+
+  const openFeedMediaViewer = (post, file) => {
+    if (!getOriginalAttachmentUrl(file)) return;
+    const mediaFiles = getFeedAttachments(post).filter(isMediaAttachment);
+    const fileIndex = Math.max(0, mediaFiles.findIndex((item) => item === file || (item.id && item.id === file.id)));
+    setMediaViewer({ source: 'feed', post, file, fileIndex });
+    setSelectedFeedPostId('');
+    setFeedReactionExpanded(false);
+  };
+
+  const patchFeedPost = async (postId, patch) => {
+    const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch)
+    }, { attempts: 2, fallbackMessage: 'Не удалось обновить публикацию' });
+    updateFeedPostFromServer(postId, {
+      ...patch,
+      updatedAt: data?.post?.updatedAt || new Date().toISOString()
+    });
+    return data.post;
+  };
+
+  const loadFeedComments = async (postId) => {
+    const hasPendingCommentChange = [...pendingFeedActionsRef.current].some((key) => (
+      key === `comment-add:${postId}` || key.startsWith(`comment-delete:${postId}:`)
+    ));
+    const actionKey = `comments-load:${postId}`;
+    if (hasPendingCommentChange || !beginFeedAction(actionKey, postId)) return;
+    try {
+      const response = await authFetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments?limit=50`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Не удалось загрузить комментарии');
+      const comments = Array.isArray(data?.comments) ? data.comments : [];
+      setFeedPosts((current) => current.map((post) => (
+        post.id === postId ? { ...post, comments, commentCount: Math.max(Number(post.commentCount) || 0, comments.length) } : post
+      )));
+      setExpandedCommentPosts((prev) => ({ ...prev, [postId]: true }));
+    } catch (error) {
+      notify(
+        isNetworkFailure(error) ? getFriendlyNetworkMessage('Не удалось загрузить комментарии') : (error.message || 'Не удалось загрузить комментарии'),
+        'Лента'
+      );
+    } finally {
+      endFeedAction(actionKey, postId);
+    }
+  };
+
+  const addCommentToPost = async (postId) => {
+    const text = (commentDrafts[postId] || '').trim();
+    if (!text) return;
+    const actionKey = `comment-add:${postId}`;
+    if (!beginFeedAction(actionKey, postId)) return;
+
+    const optimisticComment = {
+      id: createMessageId(),
+      author: user?.username || 'employee',
+      authorName: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
+      text,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    const previousPost = feedPostsRef.current.find((post) => post.id === postId);
+    const previousCommentCount = Math.max(
+      Number(previousPost?.commentCount) || 0,
+      (previousPost?.comments || []).filter((comment) => !comment.deletedAt).length
+    );
+
+    setCommentDrafts((prev) => ({ ...prev, [postId]: '' }));
+    setFeedPosts((current) => current.map((post) => (
+      post.id === postId
+        ? {
+          ...post,
+          comments: [...(post.comments || []), optimisticComment],
+          commentCount: previousCommentCount + 1,
+          updatedAt: optimisticComment.updatedAt
+        }
+        : post
+    )));
+
+    try {
+      const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      }, { attempts: 4, fallbackMessage: 'Не удалось добавить комментарий' });
+      const savedComment = data.comment || optimisticComment;
+      setFeedPosts((current) => current.map((post) => (
+        post.id !== postId ? post : (() => {
+          const comments = [
+            ...(post.comments || []).filter((comment) => (
+              comment.id !== optimisticComment.id && comment.id !== savedComment.id
+            )),
+            savedComment
+          ].filter(Boolean);
+          return {
+            ...post,
+            comments,
+            commentCount: Number(data?.post?.commentCount) || Math.max(previousCommentCount + 1, comments.filter((comment) => !comment.deletedAt).length),
+            updatedAt: data?.post?.updatedAt || savedComment.updatedAt || new Date().toISOString()
+          };
+        })()
+      )));
+    } catch (error) {
+      setFeedPosts((current) => current.map((post) => (
+        post.id === postId
+          ? {
+            ...post,
+            comments: (post.comments || []).filter((comment) => comment.id !== optimisticComment.id),
+            commentCount: previousCommentCount,
+            updatedAt: previousPost?.updatedAt || post.updatedAt
+          }
+          : post
+      )));
+      setCommentDrafts((prev) => ({ ...prev, [postId]: text }));
+      notify(
+        isNetworkFailure(error) ? getFriendlyNetworkMessage('Не удалось добавить комментарий') : (error.message || 'Не удалось добавить комментарий'),
+        'Лента'
+      );
+    } finally {
+      endFeedAction(actionKey, postId);
+    }
+  };
+
+  const startEditFeedPost = (post) => {
+    setEditingFeedPostId(post.id);
+    setEditingFeedText(post.text || '');
+    setOpenFeedMenuId('');
+  };
+
+  const saveFeedPostEdit = async (postId) => {
+    const text = editingFeedText.trim();
+    const previousPost = feedPostsRef.current.find((post) => post.id === postId);
+    if (!previousPost) return;
+    const actionKey = `post-edit:${postId}`;
+    if (!beginFeedAction(actionKey, postId)) return;
+    const editedAt = new Date().toISOString();
+    setFeedPosts((current) => current.map((post) => (post.id === postId ? { ...post, text, editedAt, updatedAt: editedAt } : post)));
+    setEditingFeedPostId('');
+    try {
+      await patchFeedPost(postId, { text, editedAt });
+      notify('Публикация изменена', 'Лента');
+    } catch (error) {
+      setFeedPosts((current) => current.map((post) => (
+        post.id === postId
+          ? { ...post, text: previousPost.text, editedAt: previousPost.editedAt, updatedAt: previousPost.updatedAt }
+          : post
+      )));
+      notify(error.message || 'Не удалось изменить публикацию', 'Лента');
+    } finally {
+      endFeedAction(actionKey, postId);
+    }
+  };
+
+  const hideFeedPost = (postId) => {
+    setHiddenFeedPostIds((prev) => {
+      const next = [...new Set([...prev, postId])];
+      saveHiddenFeedPosts(user?.username || 'guest', next);
+      return next;
+    });
+    setOpenFeedMenuId('');
+  };
+
+  const copyFeedPostLink = async (postId) => {
+    const url = getPostShareUrl(postId);
+    try {
+      await navigator.clipboard?.writeText(url);
+      notify('Ссылка скопирована', 'Лента');
+    } catch {
+      window.prompt(isEnglishInterface ? 'Copy the post link' : 'Скопируйте ссылку на публикацию', url);
+    }
+    setOpenFeedMenuId('');
+  };
+
+  const shareFeedPostToChat = (post) => {
+    const attachments = getFeedAttachments(post);
+    openForwardMessagePicker({
+      id: post.id || createMessageId(),
+      sender: post.authorName || post.author || 'Лента',
+      text: post.text || 'Публикация из ленты',
+      attachment: attachments[0] || null,
+      attachments,
+      createdAt: post.createdAt || new Date().toISOString(),
+      reactions: {},
+      pinned: false
+    });
+    setOpenFeedMenuId('');
+  };
+
+  const quoteFeedPost = (post) => {
+    setFeedDraft((prev) => `${prev ? `${prev}
+
+` : ''}> ${post.text || 'Публикация из ленты'}
+`);
+    setOpenFeedMenuId('');
+  };
+
+
+  const deleteFeedPost = async (postId, options = {}) => {
+    const currentPosts = feedPostsRef.current;
+    const postIndex = currentPosts.findIndex((item) => item.id === postId);
+    const post = currentPosts[postIndex];
+    if (!post) return;
+
+    const canDeletePost = canManageFeedPost(post, user, isManager, isAdmin);
+    if (!canDeletePost) return;
+    if (!options.skipConfirm) {
+      const confirmed = await confirmAction('Удалить публикацию из ленты?', 'Лента');
+      if (!confirmed) return;
+    }
+
+    const actionKey = `post-delete:${postId}`;
+    if (!beginFeedAction(actionKey, postId)) return;
+    setFeedPosts((current) => current.filter((item) => item.id !== postId));
+
+    try {
+      await fetchJsonWithRetry(
+        `${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}`,
+        { method: 'DELETE' },
+        { attempts: 2, fallbackMessage: 'Не удалось удалить публикацию' }
+      );
+    } catch (error) {
+      setFeedPosts((current) => {
+        if (current.some((item) => item.id === postId)) return current;
+        const next = [...current];
+        next.splice(Math.max(0, Math.min(postIndex, next.length)), 0, post);
+        return next;
+      });
+      notify(
+        isNetworkFailure(error) ? getFriendlyNetworkMessage('Не удалось удалить публикацию') : (error.message || 'Не удалось удалить публикацию'),
+        'Лента'
+      );
+    } finally {
+      endFeedAction(actionKey, postId);
+    }
+  };
+
+  const deleteFeedComment = async (postId, commentId) => {
+    const post = feedPostsRef.current.find((item) => item.id === postId);
+    const comment = post?.comments?.find((item) => item.id === commentId);
+    if (!post || !comment) return;
+
+    const canDeleteComment = isManager || isAdmin || comment.author === user?.username;
+    if (!canDeleteComment) return;
+
+    const actionKey = `comment-delete:${postId}:${commentId}`;
+    if (!beginFeedAction(actionKey, postId)) return;
+    const optimisticDeletedAt = new Date().toISOString();
+    setFeedPosts((current) => current.map((item) => (
+      item.id === postId
+        ? {
+          ...item,
+          comments: (item.comments || []).map((row) => (
+            row.id === commentId
+              ? { ...row, deletedAt: optimisticDeletedAt, deletedBy: user?.username, updatedAt: optimisticDeletedAt }
+              : row
+          )),
+          commentCount: Math.max(0, Number(item.commentCount || 0) - 1)
+        }
+        : item
+    )));
+
+    try {
+      const data = await fetchJsonWithRetry(
+        `${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}`,
+        { method: 'DELETE' },
+        { attempts: 4, fallbackMessage: 'Не удалось удалить комментарий' }
+      );
+      setFeedPosts((current) => current.map((item) => (
+        item.id === postId
+          ? {
+            ...item,
+            comments: (item.comments || []).map((row) => (
+              row.id === commentId
+                ? { ...row, deletedAt: data.deletedAt || optimisticDeletedAt, deletedBy: data.deletedBy || user?.username }
+                : row
+            ))
+          }
+          : item
+      )));
+    } catch (error) {
+      setFeedPosts((current) => current.map((item) => (
+        item.id === postId
+          ? {
+            ...item,
+            comments: (item.comments || []).map((row) => (row.id === commentId ? comment : row)),
+            commentCount: Number(post.commentCount) || (post.comments || []).filter((row) => !row.deletedAt).length
+          }
+          : item
+      )));
+      notify(
+        isNetworkFailure(error) ? getFriendlyNetworkMessage('Не удалось удалить комментарий') : (error.message || 'Не удалось удалить комментарий'),
+        'Лента'
+      );
+    } finally {
+      endFeedAction(actionKey, postId);
+    }
+  };
+
+  const toggleFeedReaction = async (postId, emoji) => {
+    const login = user?.username || 'employee';
+    const post = feedPostsRef.current.find((item) => item.id === postId);
+    if (!post) return;
+    const actionKey = `reaction:${postId}:${emoji}`;
+    if (!beginFeedAction(actionKey, postId)) return;
+    const wasActive = (post.reactions?.[emoji] || []).includes(login);
+    const active = !wasActive;
+    setFeedPosts((current) => current.map((item) => (
+      item.id === postId ? setFeedReactionForUser(item, emoji, login, active) : item
+    )));
+
+    try {
+      const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/reactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emoji, active })
+      }, { attempts: 4, fallbackMessage: 'Не удалось обновить реакцию' });
+      setFeedPosts((current) => current.map((item) => (
+        item.id === postId
+          ? { ...item, reactions: data?.reactions || data?.post?.reactions || item.reactions }
+          : item
+      )));
+    } catch (error) {
+      setFeedPosts((current) => current.map((item) => (
+        item.id === postId ? setFeedReactionForUser(item, emoji, login, wasActive) : item
+      )));
+      notify(
+        isNetworkFailure(error) ? getFriendlyNetworkMessage('Не удалось обновить реакцию') : (error.message || 'Не удалось обновить реакцию'),
+        'Лента'
+      );
+    } finally {
+      endFeedAction(actionKey, postId);
+    }
+  };
+
+  const toggleFeedPinned = async (postId, pinned) => {
+    const post = feedPostsRef.current.find((item) => item.id === postId);
+    if (!post) return;
+    const actionKey = `pin:${postId}`;
+    if (!beginFeedAction(actionKey, postId)) return;
+    setFeedPosts((current) => current.map((item) => (item.id === postId ? { ...item, pinned } : item)));
+    try {
+      const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/pin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned })
+      }, { attempts: 2, fallbackMessage: 'Не удалось закрепить публикацию' });
+      updateFeedPostFromServer(postId, data?.post ? { pinned: data.post.pinned, updatedAt: data.post.updatedAt } : { pinned });
+    } catch (error) {
+      setFeedPosts((current) => current.map((item) => (item.id === postId ? { ...item, pinned: post.pinned } : item)));
+      notify(
+        isNetworkFailure(error) ? getFriendlyNetworkMessage('Не удалось закрепить публикацию') : (error.message || 'Не удалось закрепить публикацию'),
+        'Лента'
+      );
+    } finally {
+      endFeedAction(actionKey, postId);
+    }
+  };
+
+  const handleOpenContactProfile = useCallback((email) => {
+    openProfileCard(email);
+    setActiveTab('profile');
+  }, [openProfileCard]);
+
+  const handleTogglePinnedContact = useCallback((conversationId) => {
+    toggleLocalListValue('pinned', conversationId);
+  }, [toggleLocalListValue]);
+
+  const handleToggleFavoriteContact = useCallback((email) => {
+    toggleLocalListValue('favorites', email);
+  }, [toggleLocalListValue]);
+
+  return (
+    <div
+      className={`employee-chat-layout theme-${chatLocalSettings.uiTheme || 'light'} density-${chatLocalSettings.uiDensity || 'regular'} text-${chatLocalSettings.uiTextSize || 'medium'} ${isDraggingFiles ? 'dragging-files' : ''}`}
+      onDrop={handleAttachmentDrop}
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragOver}
+      onDragLeave={handleDragLeave}
+    >
+      {isDraggingFiles && <div className="drop-zone-overlay"><strong>📎 {t('dropFiles')}</strong><span>{t('dropFilesHint')}</span></div>}
+      {welcomeNotice && (
+        <div className="chat-welcome-notice" role="status">
+          <span>
+            <small>{isEnglishInterface ? 'Welcome back' : 'С возвращением'}</small>
+            <strong>{welcomeNotice}</strong>
+          </span>
+        </div>
+      )}
+      <input ref={avatarInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={handleAvatarUpload} hidden />
+      
+      <aside className="employee-chat-sidebar">
+        <div className="employee-chat-brand">
+          <button type="button" className="employee-avatar-upload" onClick={() => setAvatarViewerOpen(true)}>
+            {avatarUrl ? <img src={avatarUrl} alt="avatar" className="employee-avatar-image" /> : <span>{String(baseDisplayName || '?').slice(0, 1).toUpperCase()}</span>}
+          </button>
+          <div className="employee-brand-meta">
+            <strong>{profileForm.full_name || baseDisplayName}</strong>
+            <span>{profileForm.position || user?.position || profileForm.department || t('workingChat')}</span>
+          </div>
+          <div className="brand-actions"><button type="button" className="icon-btn" onClick={() => { setActiveTab('profile'); setProfileViewLogin(''); }}>{t('profile')}</button></div>
+        </div>
+
+        <nav className="employee-chat-tabs" aria-label={t('chatSections')}>
+          {tabs.map((tab) => {
+            const badge = tab.id === 'chat' ? unreadTotal : tab.id === 'feed' ? feedBadge : tab.id === 'request' ? requestBadge : 0;
+            return (
+              <button key={tab.id} type="button" className={activeTab === tab.id ? 'active' : ''} onClick={() => setActiveTab(tab.id)}>
+                <span>{getTabLabel(tab)}</span>
+                {badge > 0 && <em>{badge}</em>}
+              </button>
+            );
+          })}
+        </nav>
+
+
+        <ContactsWorkspace
+          employees={chatCandidates}
+          selectedEmail={selectedEmail}
+          currentLogin={user.username}
+          managerLogin={managerLogin}
+          isManager={isManager}
+          unreadByEmail={unreadByEmail}
+          favorites={chatLocalSettings.favorites}
+          pinnedDialogs={chatLocalSettings.pinned}
+          threadSummaries={threadSummaries}
+          threads={threads}
+          applications={myApplications}
+          department={profileForm.department}
+          filters={CONTACT_FILTERS}
+          getFilterLabel={getContactFilterLabel}
+          getConversationId={getConversationId}
+          formatVisibleLogin={formatVisibleLogin}
+          t={t}
+          onSelect={setSelectedEmail}
+          onOpenProfile={handleOpenContactProfile}
+          onTogglePinned={handleTogglePinnedContact}
+          onToggleFavorite={handleToggleFavoriteContact}
+        />
+
+      </aside>
+
+      <section className="employee-chat-main">
+        {activeTab === 'chat' && (
+          <div
+            className="chat-workspace"
+            onClick={() => {
+              setConversationMenuOpen(false);
+              if (selectedMessageId && messageReactionExpanded) setMessageReactionExpanded(false);
+              else if (selectedMessageId) setSelectedMessageId('');
+            }}
+          >
+            {!selectedEmail ? (
+              <div className="empty-chat">
+                <strong>{t('chooseDialog')}</strong>
+                <span>{t('chooseDialogHint')}</span>
+              </div>
+            ) : (
+              <>
+                <ChatDialogHeader
+                  t={t}
+                  contactName={activeContact?.profile?.full_name || selectedEmail}
+                  visibleLogin={formatVisibleLogin(selectedEmail)}
+                  search={dialogSearch}
+                  hasSearch={Boolean(normalizedDialogSearch)}
+                  searchIndex={dialogSearchIndex}
+                  searchCount={dialogSearchResults.length}
+                  showMediaPanel={chatLocalSettings.showDialogMediaPanel === true}
+                  showConversationMenu={chatLocalSettings.showConversationMenu === true}
+                  conversationMenuOpen={conversationMenuOpen}
+                  onSearch={(value) => {
+                    setDialogSearch(value);
+                    setDialogSearchIndex(0);
+                  }}
+                  onPreviousResult={() => setDialogSearchIndex((prev) => Math.max(0, prev - 1))}
+                  onNextResult={() => setDialogSearchIndex((prev) => Math.min(dialogSearchResults.length - 1, prev + 1))}
+                  onToggleMediaPanel={() => setMediaPanelOpen((prev) => !prev)}
+                  onToggleMenu={() => setConversationMenuOpen((prev) => !prev)}
+                  onArchive={() => {
+                    toggleLocalListValue('archived', currentConversationId);
+                    setConversationMenuOpen(false);
+                  }}
+                  onHide={() => {
+                    toggleLocalListValue('hidden', currentConversationId);
+                    setConversationMenuOpen(false);
+                  }}
+                  onPin={() => {
+                    toggleLocalListValue('pinned', currentConversationId);
+                    setConversationMenuOpen(false);
+                  }}
+                  onMarkUnread={() => {
+                    setReadState((prev) => ({ ...prev, [currentConversationId]: '' }));
+                    setConversationMenuOpen(false);
+                  }}
+                  onMute={() => {
+                    toggleLocalListValue('muted', currentConversationId);
+                    setConversationMenuOpen(false);
+                  }}
+                  onClearDraft={() => {
+                    clearCurrentDraft();
+                    setConversationMenuOpen(false);
+                  }}
+                  onDeleteConversation={() => {
+                    clearConversation();
+                    setConversationMenuOpen(false);
+                  }}
+                />
+
+                {isCurrentConversationLoading && <ChatLoadingOverlay label={t('loading')} />}
+
+	                {chatLocalSettings.showDialogFilters === true && <div className="dialog-filter-row">{CHAT_FILTERS.map((filter) => <button key={filter.id} type="button" className={dialogFilter === filter.id ? 'active' : ''} onClick={() => setDialogFilter(filter.id)}>{getOptionLabel(filter)}</button>)}</div>}
+	                {chatLocalSettings.showDialogDateJump === true && <div className="date-jump-row"><label>{t('jumpToDate')} <input type="date" onChange={(event) => jumpToMessageDate(event.target.value)} /></label></div>}
+                {chatLocalSettings.showDialogMediaPanel === true && mediaPanelOpen && <div className="dialog-media-panel"><div className="dialog-media-tabs">{CHAT_MEDIA_TABS.map((tab) => <button key={tab.id} type="button" className={mediaPanelTab === tab.id ? 'active' : ''} onClick={() => setMediaPanelTab(tab.id)}>{getOptionLabel(tab)}</button>)}</div><input type="search" placeholder={t('mediaSearch')} value={mediaPanelSearch} onChange={(e) => setMediaPanelSearch(e.target.value)} /><div className="dialog-media-grid">{filteredDialogMediaItems.length === 0 && <small>{t('noResults')}</small>}{filteredDialogMediaItems.map(({ message, file, fileIndex, type }, index) => <button key={`${message.id}-${file.name}-${index}`} type="button" onClick={() => type === 'link' ? window.open(file.dataUrl, '_blank', 'noopener,noreferrer') : isMediaAttachment(file) ? setMediaViewer({ message, file, fileIndex, scope: 'dialog' }) : openAttachmentInNewTab(file)}>{type === 'link' ? <span>🔗 {file.name}</span> : isMediaAttachment(file) ? (isVideoAttachment(file) ? <video src={getOriginalAttachmentUrl(file)} poster={getVideoPosterUrl(file) || getAttachmentUrl(file)} muted playsInline preload="metadata" onLoadedMetadata={nudgeVideoToFirstFrame} /> : <img src={getAttachmentUrl(file)} alt={file.name || t('media')} loading="lazy" decoding="async" />) : <span>{getFileIcon(file.type)} {file.name}</span>}<em>{new Date(message.createdAt).toLocaleDateString(interfaceLocale)}</em></button>)}</div></div>}
+
+                {pinnedMessages.length > 0 && (
+                  <div className="pinned-box">
+                    <strong>📌 {t('pinnedMessages')} {pinnedMessageIndex + 1} {t('of')} {pinnedMessages.length}</strong><div className="pinned-controls"><button type="button" onClick={() => setPinnedMessageIndex((prev) => Math.max(0, prev - 1))}>‹</button><button type="button" onClick={() => setPinnedMessageIndex((prev) => Math.min(pinnedMessages.length - 1, prev + 1))}>›</button></div>{pinnedMessages[pinnedMessageIndex] && <button type="button" onClick={() => document.querySelector(`[data-message-id="${pinnedMessages[pinnedMessageIndex].id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>• {pinnedMessages[pinnedMessageIndex].text || (getMessageAttachments(pinnedMessages[pinnedMessageIndex]).some(isImageAttachment) ? `📷 ${t('photo')}` : `📎 ${t('document')}`)}</button>}
+                  </div>
+                )}
+
+                {multiSelectMode && <div className="multi-select-toolbar"><strong>{t('selectedCount')}: {selectedMessageIds.length}</strong><button type="button" onClick={copySelectedMessages}>{t('copy')}</button><button type="button" onClick={() => { const selected = getSelectedMessages(); if (selected[0]) openForwardMessagePicker({ ...selected[0], text: selected.map((msg) => `${msg.sender}: ${msg.text || `[${t('attachmentPlaceholder')}]`}`).join('\n') }); }}>{t('forward')}</button><button type="button" onClick={() => { const selected = getSelectedMessages(); setRequestText(selected.map((msg) => `${msg.sender}: ${msg.text || `[${t('attachmentPlaceholder')}]`}`).join('\n')); setActiveTab('request'); }}>{t('createRequest')}</button><button type="button" className="danger-action" onClick={deleteSelectedMessages}>{t('delete')}</button><button type="button" onClick={clearSelectedMessages}>{t('cancel')}</button></div>}
+                <div
+                  className="messages-wrap"
+                  ref={messagesWrapRef}
+                  onClick={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    if (selectedMessageId && messageReactionExpanded) setMessageReactionExpanded(false);
+                    else if (selectedMessageId) setSelectedMessageId('');
+                  }}
+                  onScroll={(event) => {
+                    const wrap = event.currentTarget;
+                    const distanceFromBottom = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight;
+                    if (distanceFromBottom <= 80 && unreadByEmail[selectedEmail] > 0) {
+                      setReadViewportVersion((current) => current + 1);
+                    }
+                    if (event.currentTarget.scrollTop > 32 || hiddenDialogMessagesCount > 0 || !threadHasMore[currentConversationId]) return;
+                    loadOlderDialogMessages();
+                  }}
+                >
+                  {normalizedDialogSearch.length >= 2 && dialogSearchLoading && (
+                    <div className="chat-search-status">{t('searchingMessages')}</div>
+                  )}
+                  {normalizedDialogSearch.length >= 2 && dialogSearchHasMore && (
+                    <button
+                      type="button"
+                      className="chat-pagination-button"
+                      disabled={dialogSearchLoading}
+                      onClick={() => fetchDialogSearchPage({ append: true, before: dialogSearchBefore })}
+                    >
+                      {t('loadMoreSearchResults')}
+                    </button>
+                  )}
+                  {(hiddenDialogMessagesCount > 0 || threadHasMore[currentConversationId]) && <button type="button" className="chat-pagination-button" disabled={isLoadingOlderDialog} onClick={() => hiddenDialogMessagesCount > 0 ? setVisibleDialogMessageCount((prev) => prev + CHAT_MESSAGES_PAGE_SIZE) : loadOlderDialogMessages()}>{t('loadPreviousMessages')} · {t('showingLatestMessages').replace('{shown}', String(paginatedVisibleMessages.length)).replace('{total}', String(threadHasMore[currentConversationId] ? `${visibleMessages.length}+` : visibleMessages.length))}</button>}
+                  {!isCurrentConversationLoading && messagesWithDateSeparators.length === 0 && <div className="empty-chat">{dialogSearch ? t('noMessageSearchResults') : t('noMessages')}</div>}
+                  {messagesWithDateSeparators.map((item) => {
+                    if (item.type === 'date') return <div key={item.id} className="date-separator"><span>{item.label}</span></div>;
+
+                    const message = item.message;
+                    const canEdit = isManager || message.sender === user.username;
+                    const isMine = message.sender === user.username;
+                    const isDeleted = Boolean(message.deletedAt);
+                    const attachments = !isDeleted && message.attachments?.length ? message.attachments : !isDeleted && message.attachment ? [message.attachment] : [];
+                    const hasTextContent = !isDeleted && String(message.text || '').trim() && message.text !== '📎 Вложения';
+                    const photoMetaLabel = new Date(message.createdAt).toLocaleTimeString(interfaceLocale, { hour: '2-digit', minute: '2-digit' });
+                    const statusLabel = isMine ? '✓✓' : '';
+                    const photoStatusLabel = isMine ? '✓' : '';
+                    const messageTimeLabel = new Date(message.createdAt).toLocaleTimeString(interfaceLocale, { hour: '2-digit', minute: '2-digit' });
+                    const deliveryLabel = message.deliveryStatus === 'sending' ? t('deliverySending') : message.deliveryStatus === 'waiting' ? t('deliveryWaiting') : message.deliveryStatus === 'error' ? t('deliveryError') : statusLabel;
+                    const isPhotoCollage = attachments.length > 1 && attachments.every((file) => String(file?.type || '').startsWith('image/'));
+                    const isMediaOnly = attachments.length > 0
+                      && !hasTextContent
+                      && !message.replyTo
+                      && !message.forwardedFrom
                       && attachments.every((file) => String(file?.type || '').startsWith('image/') || isVideoAttachment(file));
 
                     const isSelected = selectedMessageId === message.id;
@@ -1859,7 +5908,7 @@ const createVideoThumbnailDataUrl = (file, maxSize = 640) => new Promise((resolv
                   disabled={Boolean(forwardingTargetEmail)}
                   onClick={() => forwardMessageToContact(employee.email)}
                 >
-                  <span className="contact-avatar small">{getEmployeeAvatar(employee.login || employee.email, employee.avatar, employee.profile?.avatar) ? <img src={getEmployeeAvatar(employee.login || employee.email, employee.avatar, employee.profile?.avatar)} alt="" /> : (employee.profile?.full_name || employee.email).slice(0, 1).toUpperCase()}</span>
+                  <span className="contact-avatar small">{(employee.profile?.full_name || employee.email).slice(0, 1).toUpperCase()}</span>
                   <span>
                     <strong>{employee.profile?.full_name || employee.email}</strong>
                     <small>{formatVisibleLogin(employee.email)}</small>
