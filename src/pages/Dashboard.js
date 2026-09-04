@@ -954,6 +954,14 @@ const Dashboard = () => {
   const selectedAppTimes = selectedApplication ? getApplicationTimes(selectedApplication, dashboardNow) : null;
   const selectedWorkCycles = Array.isArray(selectedApplication?.work_cycles) ? selectedApplication.work_cycles : [];
   const selectedCumulativeWorkSeconds = selectedApplication ? getCumulativeWorkSeconds(selectedApplication, dashboardNow) : null;
+  const selectedCycleWorkSeconds = selectedWorkCycles.length > 0
+    ? selectedWorkCycles.reduce((total, cycle) => total + Math.max(0, Number(cycle.duration_seconds) || 0), 0)
+    : null;
+  // После повторного открытия итог — это именно сумма отдельных периодов
+  // работы, а не календарный промежуток от первой подачи до последнего закрытия.
+  const selectedClosureSeconds = selectedCycleWorkSeconds != null
+    ? selectedCycleWorkSeconds
+    : (selectedCumulativeWorkSeconds ?? selectedAppTimes?.totalSeconds ?? null);
 
   return (
     <div className="dashboard-container">
@@ -1319,7 +1327,7 @@ const Dashboard = () => {
               <span>
                 {!isAdministratorCreatedApplication(selectedApplication) && selectedCumulativeWorkSeconds != null && <em>Всего в работе: {formatApplicationDuration(selectedCumulativeWorkSeconds)}</em>}
                 {isAdministratorCreatedApplication(selectedApplication) && !selectedApplication.fl && selectedAppTimes.workSeconds != null && <em>В работе: {formatApplicationDuration(selectedAppTimes.workSeconds)}</em>}
-                {selectedAppTimes.closedAt && selectedAppTimes.totalSeconds != null && <em>Подали → закрыли: {formatApplicationDuration(selectedAppTimes.totalSeconds)}</em>}
+                {selectedAppTimes.closedAt && selectedClosureSeconds != null && <em>Подали → закрыли: {formatApplicationDuration(selectedClosureSeconds)}</em>}
               </span>
             )}
           </div>
@@ -1339,12 +1347,16 @@ const Dashboard = () => {
             <div><strong>Исполнитель</strong><span>{isAdministratorCreatedApplication(selectedApplication) ? (selectedApplication.executor || '—') : (selectedApplication.executor || selectedApplication.accepted_by || 'Не назначен')}</span></div>
             <div><strong>Подана</strong><span>{formatCreatedAt(selectedApplication.created_at || selectedApplication.data)}</span></div>
             {!isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.takenAt ? <div><strong>Взята в работу</strong><span>{formatCreatedAt(selectedAppTimes.takenAt)}</span></div> : null}
-            {!isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.closedAt ? <div><strong>Закрыта</strong><span>{formatCreatedAt(selectedAppTimes.closedAt)}</span></div> : null}
-            {selectedAppTimes?.closedAt && selectedAppTimes.totalSeconds != null && <div><strong>Подача → закрытие</strong><span>{formatApplicationDuration(selectedAppTimes.totalSeconds)}</span></div>}
+            {selectedWorkCycles.length === 0 && !isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.closedAt ? <div><strong>Закрыта</strong><span>{formatCreatedAt(selectedAppTimes.closedAt)}</span></div> : null}
+            {selectedWorkCycles.length === 0 && selectedAppTimes?.closedAt && selectedClosureSeconds != null && <div><strong>Подача → закрытие</strong><span>{formatApplicationDuration(selectedClosureSeconds)}</span></div>}
             {!isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.waitSeconds != null && <div><strong>Подача → взятие</strong><span>{formatApplicationDuration(selectedAppTimes.waitSeconds)}</span></div>}
             {!isAdministratorCreatedApplication(selectedApplication) && selectedCumulativeWorkSeconds != null && <div><strong>Общее время работы</strong><span>{formatApplicationDuration(selectedCumulativeWorkSeconds)}</span></div>}
-            {selectedWorkCycles.map((cycle, index) => <div key={`${cycle.started_at}-${cycle.closed_at}-${index}`}><strong>{index === 0 ? 'Закрыта' : 'Повторно закрыта'}</strong><span>{formatCreatedAt(cycle.closed_at)}{!isAdministratorCreatedApplication(selectedApplication) && ` · ${formatApplicationDuration(cycle.duration_seconds)}`}</span></div>)}
-            {!selectedApplication.fl && selectedWorkCycles.length > 0 && selectedApplication.work_started_at && <div><strong>Повторно открыта</strong><span>{formatCreatedAt(selectedApplication.work_started_at)}</span></div>}
+            {selectedWorkCycles.map((cycle, index) => <React.Fragment key={`${cycle.started_at}-${cycle.closed_at}-${index}`}>
+              {index > 0 && <div><strong>Повторно подана</strong><span>{formatCreatedAt(cycle.started_at)}</span></div>}
+              <div><strong>{index === 0 ? 'Закрыта' : 'Повторно закрыта'}</strong><span>{formatCreatedAt(cycle.closed_at)}</span></div>
+              <div><strong>Подача → закрытие</strong><span>{formatApplicationDuration(cycle.duration_seconds)}</span></div>
+            </React.Fragment>)}
+            {!selectedApplication.fl && selectedWorkCycles.length > 0 && selectedApplication.work_started_at && <div><strong>Повторно подана</strong><span>{formatCreatedAt(selectedApplication.work_started_at)}</span></div>}
           </div></div>
           {selectedApplication.admin_comment && (
             <div className="side-panel-section">
