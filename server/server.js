@@ -120,7 +120,7 @@ const APPLICATION_WORKFLOW_COLUMN_NAMES = [
   'category', 'priority', 'accepted_by', 'accepted_at', 'work_started_at',
   'resolved_at', 'employee_confirmed_at', 'admin_comment', 'eta_minutes',
   'waiting_seconds', 'arrival_seconds', 'work_seconds', 'source',
-  'chat_thread_id', 'source_message_id', 'employee_comment',
+  'chat_thread_id', 'source_message_id', 'employee_comment', 'work_cycles_json',
   'sla_paused_at', 'sla_paused_seconds', 'idempotency_key', 'deleted_at',
   'deleted_by', 'source_attachments_json'
 ];
@@ -180,8 +180,25 @@ const normalizeApplication = (app = {}) => {
   waiting_seconds: app.waiting_seconds == null ? null : Number(app.waiting_seconds),
   arrival_seconds: app.arrival_seconds == null ? null : Number(app.arrival_seconds),
   work_seconds: app.work_seconds == null ? null : Number(app.work_seconds),
+  work_cycles: parseWorkCycles(app.work_cycles_json),
   sla_paused_seconds: app.sla_paused_seconds == null ? null : Number(app.sla_paused_seconds)
 };
+};
+
+const parseWorkCycles = (value) => {
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value || '[]') : value;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((cycle) => cycle && cycle.started_at && cycle.closed_at)
+      .map((cycle) => ({
+        started_at: cycle.started_at,
+        closed_at: cycle.closed_at,
+        duration_seconds: Math.max(0, Number(cycle.duration_seconds) || 0)
+      }));
+  } catch {
+    return [];
+  }
 };
 
 const APPLICATION_WORKFLOW_ALTERS = [
@@ -210,7 +227,8 @@ const APPLICATION_WORKFLOW_ALTERS = [
   ['idempotency_key', 'ALTER TABLE application ADD COLUMN `idempotency_key` VARCHAR(128) NULL'],
   ['deleted_at', 'ALTER TABLE application ADD COLUMN `deleted_at` DATETIME NULL'],
   ['deleted_by', 'ALTER TABLE application ADD COLUMN `deleted_by` VARCHAR(255) NULL'],
-  ['source_attachments_json', 'ALTER TABLE application ADD COLUMN `source_attachments_json` LONGTEXT NULL']
+  ['source_attachments_json', 'ALTER TABLE application ADD COLUMN `source_attachments_json` LONGTEXT NULL'],
+  ['work_cycles_json', 'ALTER TABLE application ADD COLUMN `work_cycles_json` LONGTEXT NULL']
 ];
 
 let applicationSchemaReadyPromise = null;
@@ -970,24 +988,35 @@ app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), a
     const reopeningRequested = has('fl') && !Boolean(fl) && existingApp.status === 'done';
     const requestedStatus = completionRequested
       ? 'done'
-      : (reopeningRequested ? 'reopened' : (has('status') ? (status || 'new') : existingApp.status));
+      : (reopeningRequested ? 'in_progress' : (has('status') ? (status || 'new') : existingApp.status));
     const nextStatus = normalizeApplicationStatus(requestedStatus, existingApp.status);
     const isManualClosure = completionRequested && existingApp.status !== 'done';
     if (!isManualClosure) {
       assertApplicationTransition(existingApp.status, nextStatus);
     }
+    const now = formatNowForMySQL();
     const closedAt = nextStatus === 'done'
-      ? (existingApp.employee_confirmed_at || formatNowForMySQL())
-      : existingApp.employee_confirmed_at;
+      ? (isManualClosure ? now : existingApp.employee_confirmed_at)
+      : null;
     // Для ручного закрытия (галочка «Выполнена») досчитываем фактическое время
     // работы, чтобы у сотрудника и в отчётах были верные длительности.
     let computedWorkSeconds = existingApp.work_seconds;
+    const workCycles = parseWorkCycles(existingApp.work_cycles_json || existingApp.work_cycles);
+    let nextWorkCycles = workCycles;
     if (isManualClosure) {
       const base = Number(existingApp.work_seconds || 0);
       const gapFrom = existingApp.resolved_at
         ? existingApp.resolved_at
         : (existingApp.work_started_at || existingApp.accepted_at || null);
-      computedWorkSeconds = gapFrom ? base + (secondsBetween(gapFrom, closedAt) || 0) : null;
+      const cycleSeconds = gapFrom ? (secondsBetween(gapFrom, closedAt) || 0) : 0;
+      computedWorkSeconds = gapFrom ? base + cycleSeconds : base || null;
+      if (gapFrom) {
+        nextWorkCycles = [...workCycles, {
+          started_at: gapFrom,
+          closed_at: closedAt,
+          duration_seconds: cycleSeconds
+        }];
+      }
     }
     const isEmployeeApplication = existingApp.source === 'chat' || Boolean(existingApp.employee_login);
     let manualClosureExecutor = '';
@@ -1003,21 +1032,24 @@ app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), a
       application: pick('application', ''), process: pick('process', ''),
       executor: manualClosureExecutor || pick('executor', ''),
       data: pickDate('data'),
-      start_data: isManualClosure && !existingApp.work_started_at && !existingApp.accepted_at
+      start_data: reopeningRequested ? now : (isManualClosure && !existingApp.work_started_at && !existingApp.accepted_at
         ? null
-        : pickDate('start_data'),
-      end_data: pickDate('end_data'),
+        : pickDate('start_data')),
+      end_data: reopeningRequested ? null : (isManualClosure ? closedAt : pickDate('end_data')),
       fl: nextStatus === 'done' || (has('fl') ? Boolean(fl) : existingApp.fl) ? 1 : 0, status: nextStatus,
       employee_login: pick('employee_login', ''), category: pick('category', ''), priority: pick('priority', ''),
-      accepted_by: existingApp.accepted_by, accepted_at: existingApp.accepted_at, work_started_at: existingApp.work_started_at,
-      resolved_at: nextStatus === 'done' ? (existingApp.resolved_at || closedAt) : existingApp.resolved_at,
-      employee_confirmed_at: closedAt,
+      accepted_by: existingApp.accepted_by,
+      accepted_at: reopeningRequested ? (existingApp.accepted_at || now) : existingApp.accepted_at,
+      work_started_at: reopeningRequested ? now : existingApp.work_started_at,
+      resolved_at: reopeningRequested ? null : (nextStatus === 'done' ? (existingApp.resolved_at || closedAt) : existingApp.resolved_at),
+      employee_confirmed_at: reopeningRequested ? null : closedAt,
       admin_comment: pick('admin_comment', ''), eta_minutes: has('eta_minutes') ? (eta_minutes || null) : existingApp.eta_minutes,
       waiting_seconds: existingApp.waiting_seconds,
       arrival_seconds: existingApp.arrival_seconds,
       work_seconds: computedWorkSeconds,
       source: existingApp.source, chat_thread_id: existingApp.chat_thread_id,
-      source_message_id: existingApp.source_message_id, employee_comment: pick('employee_comment', '')
+      source_message_id: existingApp.source_message_id, employee_comment: pick('employee_comment', ''),
+      work_cycles_json: JSON.stringify(nextWorkCycles)
     };
 
     const updatedApplication = await withApplicationTransaction(async (connection) => {
@@ -1027,7 +1059,7 @@ app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), a
         '`start_data` = ?, `end_data` = ?, `fl` = ?, `status` = ?, `employee_login` = ?, `category` = ?, `priority` = ?, ' +
         '`accepted_by` = ?, `accepted_at` = ?, `work_started_at` = ?, `resolved_at` = ?, `employee_confirmed_at` = ?, ' +
         '`admin_comment` = ?, `eta_minutes` = ?, `waiting_seconds` = ?, `arrival_seconds` = ?, `work_seconds` = ?, ' +
-        '`source` = ?, `chat_thread_id` = ?, `source_message_id` = ?, `employee_comment` = ? WHERE `id` = ?',
+        '`source` = ?, `chat_thread_id` = ?, `source_message_id` = ?, `employee_comment` = ?, `work_cycles_json` = ? WHERE `id` = ?',
       [
         processedData.name, processedData.cabinet, processedData.N_tel, processedData.application,
         processedData.process, processedData.executor, processedData.data, processedData.start_data,
@@ -1036,13 +1068,14 @@ app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), a
         processedData.work_started_at, processedData.resolved_at, processedData.employee_confirmed_at,
         processedData.admin_comment, processedData.eta_minutes, processedData.waiting_seconds,
         processedData.arrival_seconds, processedData.work_seconds, processedData.source,
-        processedData.chat_thread_id, processedData.source_message_id, processedData.employee_comment, id
+        processedData.chat_thread_id, processedData.source_message_id, processedData.employee_comment,
+        processedData.work_cycles_json, id
       ]
     );
     const eventType = isManualClosure ? 'manual_closed' : (reopeningRequested ? 'manual_reopened' : 'manual_update');
     const eventComment = isManualClosure
-      ? 'Заявка вручную отмечена выполненной'
-      : (reopeningRequested ? 'Заявка вручную переоткрыта' : 'Заявка обновлена вручную');
+      ? (workCycles.length > 0 ? 'Заявка повторно закрыта' : 'Заявка закрыта')
+      : (reopeningRequested ? 'Заявка повторно открыта и возвращена в работу' : 'Заявка обновлена вручную');
     await addApplicationEvent(connection, id, req.auth.login, req.auth.role, eventType, eventComment);
     return getApplicationByIdForUpdate(connection, id);
     });
