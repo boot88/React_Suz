@@ -660,18 +660,15 @@ const Dashboard = () => {
   };
 
   const isDateOnlyValue = (dateString) => typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateString.trim());
-  const isMidnightValue = (date) => date.getHours() === 0 && date.getMinutes() === 0 && date.getSeconds() === 0 && date.getMilliseconds() === 0;
-
   const formatCreatedAt = (dateString) => {
     if (!dateString) return 'Ручная подача · дата —';
-    const date = new Date(dateString);
-    if (Number.isNaN(date.getTime())) return 'Ручная подача · дата —';
+    if (formatApplicationDateTime(dateString) === '—') return 'Ручная подача · дата —';
     const dateFormat = {
       day: '2-digit',
       month: '2-digit',
       year: '2-digit'
     };
-    if (isDateOnlyValue(dateString) || isMidnightValue(date)) return date.toLocaleDateString('ru-RU', { ...dateFormat, timeZone: APPLICATION_TIME_ZONE });
+    if (isDateOnlyValue(dateString)) return new Date(`${dateString}T00:00:00Z`).toLocaleDateString('ru-RU', { ...dateFormat, timeZone: APPLICATION_TIME_ZONE });
     return formatApplicationDateTime(dateString);
   };
 
@@ -1321,6 +1318,7 @@ const Dashboard = () => {
             {selectedAppTimes && (
               <span>
                 {!isAdministratorCreatedApplication(selectedApplication) && selectedCumulativeWorkSeconds != null && <em>Всего в работе: {formatApplicationDuration(selectedCumulativeWorkSeconds)}</em>}
+                {isAdministratorCreatedApplication(selectedApplication) && !selectedApplication.fl && selectedAppTimes.workSeconds != null && <em>В работе: {formatApplicationDuration(selectedAppTimes.workSeconds)}</em>}
                 {selectedAppTimes.closedAt && selectedAppTimes.totalSeconds != null && <em>Подали → закрыли: {formatApplicationDuration(selectedAppTimes.totalSeconds)}</em>}
               </span>
             )}
