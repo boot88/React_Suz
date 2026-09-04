@@ -13,7 +13,7 @@ const ALLOWED_APPLICATION_TRANSITIONS = {
   accepted: new Set(['in_progress']),
   in_progress: new Set(['waiting_employee_confirmation', 'done', 'reopened']),
   waiting_employee_confirmation: new Set(['done', 'reopened']),
-  done: new Set(['reopened'])
+  done: new Set(['reopened', 'in_progress'])
 };
 
 const normalizeApplicationStatus = (value, fallback = 'new') => (
