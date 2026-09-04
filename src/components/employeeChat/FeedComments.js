@@ -1,4 +1,5 @@
 import React, { memo } from 'react';
+import AuthenticatedAvatar from './AuthenticatedAvatar';
 
 const FeedComments = memo(function FeedComments({
   postId,
@@ -45,9 +46,13 @@ const FeedComments = memo(function FeedComments({
               className="feed-avatar comment-avatar profile-link-avatar"
               onClick={(event) => onOpenProfile(comment.author, event)}
             >
-              {commentAvatar
-                ? <img src={commentAvatar} alt={comment.authorName || comment.author || t('comments')} loading="lazy" decoding="async" />
-                : <span>{commentInitial}</span>}
+              <AuthenticatedAvatar
+                src={commentAvatar}
+                alt={comment.authorName || comment.author || t('comments')}
+                loading="lazy"
+                decoding="async"
+                fallback={<span>{commentInitial}</span>}
+              />
             </button>
             <div className="employee-feed-comment-body">
               <button
@@ -88,9 +93,13 @@ const FeedComments = memo(function FeedComments({
       )}
       <div className="employee-feed-comment-form">
         <div className="feed-avatar comment-avatar feed-avatar-current">
-          {currentAvatar
-            ? <img src={currentAvatar} alt={t('myAvatar')} loading="lazy" decoding="async" />
-            : <span>{String(currentName || '?').slice(0, 1).toUpperCase()}</span>}
+          <AuthenticatedAvatar
+            src={currentAvatar}
+            alt={t('myAvatar')}
+            loading="lazy"
+            decoding="async"
+            fallback={<span>{String(currentName || '?').slice(0, 1).toUpperCase()}</span>}
+          />
         </div>
         <input
           placeholder={t('writeComment')}

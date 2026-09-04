@@ -1,4 +1,5 @@
 import React, { memo } from 'react';
+import AuthenticatedAvatar from './AuthenticatedAvatar';
 
 const FeedComposer = memo(function FeedComposer({
   t,
@@ -41,9 +42,13 @@ const FeedComposer = memo(function FeedComposer({
       <form className="employee-feed-composer compact-feed-composer vk-feed-composer" onSubmit={onSubmit}>
         <div className="feed-composer-body">
           <div className="feed-avatar feed-avatar-current">
-            {avatarUrl
-              ? <img src={avatarUrl} alt={t('myAvatar')} loading="lazy" decoding="async" />
-              : <span>{String(currentName || '?').slice(0, 1).toUpperCase()}</span>}
+            <AuthenticatedAvatar
+              src={avatarUrl}
+              alt={t('myAvatar')}
+              loading="lazy"
+              decoding="async"
+              fallback={<span>{String(currentName || '?').slice(0, 1).toUpperCase()}</span>}
+            />
           </div>
           <div className={`feed-composer-line ${showCategory ? 'has-category' : 'without-category'}`}>
             {showCategory && (

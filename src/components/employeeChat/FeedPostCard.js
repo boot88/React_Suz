@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
 import FeedComments from './FeedComments';
+import AuthenticatedAvatar from './AuthenticatedAvatar';
 
 const FeedPostCard = memo(function FeedPostCard({
   post,
@@ -70,7 +71,7 @@ const FeedPostCard = memo(function FeedPostCard({
           className="feed-avatar profile-link-avatar"
           onClick={(event) => onOpenProfile(authorLogin, event)}
         >
-          {authorAvatar ? <img src={authorAvatar} alt={authorName} /> : <span>{authorInitial}</span>}
+          <AuthenticatedAvatar src={authorAvatar} alt={authorName} fallback={<span>{authorInitial}</span>} />
         </button>
         <button
           type="button"

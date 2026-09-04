@@ -21,6 +21,7 @@ import ContactsWorkspace from '../components/employeeChat/ContactsWorkspace';
 import FeedComposer from '../components/employeeChat/FeedComposer';
 import FeedPostCard from '../components/employeeChat/FeedPostCard';
 import RequestTimerMetrics from '../components/employeeChat/RequestTimerMetrics';
+import AuthenticatedAvatar from '../components/employeeChat/AuthenticatedAvatar';
 import './EmployeeChat.css';
 
 const CHAT_READ_STATE_KEY = 'chatReadState';
@@ -5120,7 +5121,12 @@ const EmployeeChat = () => {
       <aside className="employee-chat-sidebar">
         <div className="employee-chat-brand">
           <button type="button" className="employee-avatar-upload" onClick={() => setAvatarViewerOpen(true)}>
-            {avatarUrl ? <img src={avatarUrl} alt="avatar" className="employee-avatar-image" /> : <span>{String(baseDisplayName || '?').slice(0, 1).toUpperCase()}</span>}
+            <AuthenticatedAvatar
+              src={avatarUrl}
+              alt="avatar"
+              className="employee-avatar-image"
+              fallback={<span>{String(baseDisplayName || '?').slice(0, 1).toUpperCase()}</span>}
+            />
           </button>
           <div className="employee-brand-meta">
             <strong>{profileForm.full_name || baseDisplayName}</strong>
@@ -5347,7 +5353,7 @@ const EmployeeChat = () => {
                         >
                           {!isDeleted && messageSenderLogin && (
                             <button type="button" className="message-author-link" onClick={(event) => openEmployeeProfile(messageSenderLogin, event)}>
-                              <span className="feed-avatar comment-avatar">{messageSenderAvatar ? <img src={messageSenderAvatar} alt={messageSenderName} /> : <span>{String(messageSenderName || messageSenderLogin || '?').slice(0, 1).toUpperCase()}</span>}</span>
+                              <span className="feed-avatar comment-avatar"><AuthenticatedAvatar src={messageSenderAvatar} alt={messageSenderName} fallback={<span>{String(messageSenderName || messageSenderLogin || '?').slice(0, 1).toUpperCase()}</span>} /></span>
                               <span>{messageSenderName}</span>
                             </button>
                           )}
@@ -5762,7 +5768,7 @@ const EmployeeChat = () => {
               <div className="profile-preview-card">
                 <button type="button" className="back-to-chat-btn profile-preview-back" onClick={() => setProfileViewLogin('')}>← {t('myProfile')}</button>
                 <div className="profile-preview-hero">
-                  <div className="profile-preview-avatar">{profilePreview.avatar ? <img src={profilePreview.avatar} alt="profile-avatar" /> : <span>{String(profilePreview.full_name || profilePreview.login || '?').slice(0, 1).toUpperCase()}</span>}</div>
+                  <div className="profile-preview-avatar"><AuthenticatedAvatar src={profilePreview.avatar} alt="profile-avatar" fallback={<span>{String(profilePreview.full_name || profilePreview.login || '?').slice(0, 1).toUpperCase()}</span>} /></div>
                   <div className="profile-preview-identity">
                     <span className="profile-preview-kicker">{t('internalProfile')}</span>
                     <h3>{profilePreview.full_name || profilePreview.login}</h3>
@@ -5965,7 +5971,7 @@ const EmployeeChat = () => {
         <div className="app-modal-backdrop" onMouseDown={() => setAvatarViewerOpen(false)}>
           <div className="avatar-viewer" onMouseDown={(event) => event.stopPropagation()}>
             <header><strong>{t('profilePhoto')}</strong><button type="button" onClick={() => setAvatarViewerOpen(false)}>×</button></header>
-            {avatarUrl ? <img src={avatarUrl} alt={t('profilePhoto')} decoding="async" /> : <div className="avatar-full-placeholder">{String(baseDisplayName || user?.username || '?').slice(0, 1).toUpperCase()}</div>}
+            <AuthenticatedAvatar src={avatarUrl} alt={t('profilePhoto')} decoding="async" fallback={<div className="avatar-full-placeholder">{String(baseDisplayName || user?.username || '?').slice(0, 1).toUpperCase()}</div>} />
             <div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>{t('edit')}</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>{t('delete')}</button></div>
           </div>
         </div>
