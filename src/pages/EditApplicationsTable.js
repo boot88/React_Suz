@@ -18,6 +18,8 @@ function EditApplicationsTable() {
   const [totalItems, setTotalItems] = useState(0);
   const [fieldErrors, setFieldErrors] = useState({});
   const [statusFilter, setStatusFilter] = useState('all');
+  const [employeeHints, setEmployeeHints] = useState([]);
+  const [selectedDirectoryName, setSelectedDirectoryName] = useState('');
 
   const adjustForNovosibirskTime = (date) => {
     const localDate = new Date(date);
@@ -58,6 +60,27 @@ function EditApplicationsTable() {
   useEffect(() => {
     if (!authLoading) fetchApplications();
   }, [authLoading, fetchApplications]);
+
+  useEffect(() => {
+    const query = String(editingApp.name || '').trim();
+    if (!editing || query.length < 2 || query === selectedDirectoryName) {
+      setEmployeeHints([]);
+      return undefined;
+    }
+
+    const timeout = window.setTimeout(async () => {
+      try {
+        const response = await authFetch(`${API_BASE_URL}/employees/search?field=full_name&query=${encodeURIComponent(query)}`);
+        if (!response.ok) throw new Error('Directory request failed');
+        const employees = await response.json();
+        setEmployeeHints(Array.isArray(employees) ? employees.slice(0, 8) : []);
+      } catch {
+        setEmployeeHints([]);
+      }
+    }, 220);
+
+    return () => window.clearTimeout(timeout);
+  }, [editing, editingApp.name, selectedDirectoryName]);
 
   const validateField = (name, value) => {
     let error = '';
@@ -122,12 +145,30 @@ function EditApplicationsTable() {
     setEditing(true);
     setEditingApp({...app});
     setFieldErrors({});
+    setEmployeeHints([]);
+    setSelectedDirectoryName('');
+  };
+
+  const applyEmployeeHint = (employee) => {
+    const name = employee.full_name || '';
+    const cabinet = employee.room || employee.department || '';
+    const phone = employee.internal_phone || '';
+    setEditingApp((prev) => ({ ...prev, name, cabinet, N_tel: phone }));
+    setFieldErrors((prev) => ({
+      ...prev,
+      name: validateField('name', name),
+      cabinet: validateField('cabinet', cabinet),
+      N_tel: validateField('N_tel', phone)
+    }));
+    setSelectedDirectoryName(name);
+    setEmployeeHints([]);
   };
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     
     let processedValue = type === 'checkbox' ? checked : value;
+    if (name === 'name') setSelectedDirectoryName('');
     
     if (name === 'data') {
       if (value) {
@@ -250,6 +291,8 @@ function EditApplicationsTable() {
     setEditing(false);
     setEditingApp({});
     setFieldErrors({});
+    setEmployeeHints([]);
+    setSelectedDirectoryName('');
   };
 
   const deleteApplication = async (id) => {
@@ -495,6 +538,20 @@ function EditApplicationsTable() {
                 <div className="character-count">
                   {editingApp.name?.length || 0}/40
                 </div>
+                {employeeHints.length > 0 && (
+                  <div className="employee-name-hints" role="listbox" aria-label="Сотрудники из справочника">
+                    {employeeHints.map((employee) => (
+                      <button
+                        key={employee.id || `${employee.full_name}-${employee.room}-${employee.internal_phone}`}
+                        type="button"
+                        onClick={() => applyEmployeeHint(employee)}
+                      >
+                        <strong>{employee.full_name}</strong>
+                        <span>{employee.department || 'Отдел не указан'} · каб. {employee.room || '—'} · вн. {employee.internal_phone || '—'}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="form-group">
