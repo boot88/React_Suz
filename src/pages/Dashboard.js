@@ -84,6 +84,16 @@ const getApplicationTimes = (app = {}, now = Date.now()) => {
   };
 };
 
+const getCumulativeWorkSeconds = (app = {}, now = Date.now()) => {
+  const timing = getApplicationTiming(app, now);
+  const completed = Math.max(0, Number(app.work_seconds) || 0);
+  const status = getApplicationStatus(app);
+  if (!app.fl && ['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(status)) {
+    return completed + Math.max(0, Number(timing.workSeconds) || 0);
+  }
+  return completed || timing.workSeconds;
+};
+
 
 const secondsSince = (dateValue) => {
   if (!dateValue) return 0;
@@ -103,6 +113,7 @@ const secondsBetweenValues = (startValue, endValue) => {
 const isEmployeeCreatedApplication = (app = {}) => (
   app.source === 'chat' || Boolean(String(app.employee_login || '').trim())
 );
+const isAdministratorCreatedApplication = (app = {}) => !isEmployeeCreatedApplication(app);
 
 const getApplicationStatus = (app = {}) => app.status || (app.fl ? 'done' : 'new');
 const isQueueApplication = (app = {}) => ['new', 'reopened'].includes(getApplicationStatus(app));
@@ -667,7 +678,7 @@ const Dashboard = () => {
   const getApplicationSourceLabel = (app = {}) => {
     if (app.source === 'chat' || app.employee_login) return 'Из чата';
     if (app.source === 'employee') return 'От сотрудника';
-    return 'Ручная подача';
+    return 'Администратор';
   };
 
   const getPriorityLabel = (priority) => {
@@ -695,7 +706,7 @@ const Dashboard = () => {
 
   const getPrimaryTableAction = (app = {}) => {
     const status = app.status || (app.fl ? 'done' : 'new');
-    if (['new', 'reopened'].includes(status)) return { label: 'Взять в работу', action: () => openAcceptModal(app) };
+    if (isEmployeeCreatedApplication(app) && ['new', 'reopened'].includes(status)) return { label: 'Взять в работу', action: () => openAcceptModal(app) };
     return { label: 'Открыть', action: () => openApplicationPanel(app) };
   };
 
@@ -944,6 +955,8 @@ const Dashboard = () => {
   }, [applications, sortMode]);
 
   const selectedAppTimes = selectedApplication ? getApplicationTimes(selectedApplication, dashboardNow) : null;
+  const selectedWorkCycles = Array.isArray(selectedApplication?.work_cycles) ? selectedApplication.work_cycles : [];
+  const selectedCumulativeWorkSeconds = selectedApplication ? getCumulativeWorkSeconds(selectedApplication, dashboardNow) : null;
 
   return (
     <div className="dashboard-container">
@@ -1193,8 +1206,8 @@ const Dashboard = () => {
                           <div className="application-summary">
                             <strong>#{app.id || '—'} · {app.application || 'Без описания'}</strong>
                             <div className="application-badges">
-                              <span className="meta-badge category-badge">{getCategoryLabel(app.category)}</span>
-                              <span className={`meta-badge priority-badge priority-${getPriorityClass(app.priority)}`}>{getPriorityLabel(app.priority)}</span>
+                              {!isAdministratorCreatedApplication(app) && <span className="meta-badge category-badge">{getCategoryLabel(app.category)}</span>}
+                              {!isAdministratorCreatedApplication(app) && <span className={`meta-badge priority-badge priority-${getPriorityClass(app.priority)}`}>{getPriorityLabel(app.priority)}</span>}
                               <span className="meta-badge source-badge">{getApplicationSourceLabel(app)}</span>
 	                            </div>
 	                          </div>
@@ -1264,7 +1277,7 @@ const Dashboard = () => {
                                 <div className="row-action-menu" onClick={(event) => event.stopPropagation()}>
                                   <button type="button" onClick={(event) => runTableAction(event, app, openApplicationPanel)}>Открыть карточку</button>
                                   {app.employee_login && <a href={getOpenChatHref(app)}>Открыть чат</a>}
-                                  {['new', 'reopened'].includes(status) && <button type="button" onClick={(event) => runTableAction(event, app, openAcceptModal)}>Взять в работу</button>}
+                                  {isEmployeeCreatedApplication(app) && ['new', 'reopened'].includes(status) && <button type="button" onClick={(event) => runTableAction(event, app, openAcceptModal)}>Взять в работу</button>}
                                 </div>
                               )}
                             </div>
@@ -1307,7 +1320,7 @@ const Dashboard = () => {
             <strong>{getStatusLabel(selectedApplication)}</strong>
             {selectedAppTimes && (
               <span>
-                {selectedAppTimes.workSeconds != null && <em>В работе: {formatApplicationDuration(selectedAppTimes.workSeconds)}</em>}
+                {selectedCumulativeWorkSeconds != null && <em>Всего в работе: {formatApplicationDuration(selectedCumulativeWorkSeconds)}</em>}
                 {selectedAppTimes.closedAt && selectedAppTimes.totalSeconds != null && <em>Подали → закрыли: {formatApplicationDuration(selectedAppTimes.totalSeconds)}</em>}
               </span>
             )}
@@ -1322,8 +1335,8 @@ const Dashboard = () => {
             <p>{selectedApplication.application}</p>
           </div>
           <div className="side-panel-section"><h3>Хронология</h3><div className="side-panel-grid">
-            <div><strong>Категория</strong><span>{selectedApplication.category || '—'}</span></div>
-            <div><strong>Приоритет</strong><span>{selectedApplication.priority || 'Обычный'}</span></div>
+            {!isAdministratorCreatedApplication(selectedApplication) && <div><strong>Категория</strong><span>{selectedApplication.category || '—'}</span></div>}
+            {!isAdministratorCreatedApplication(selectedApplication) && <div><strong>Приоритет</strong><span>{selectedApplication.priority || 'Обычный'}</span></div>}
             <div><strong>Источник</strong><span>{getApplicationSourceLabel(selectedApplication)}</span></div>
             <div><strong>Исполнитель</strong><span>{selectedApplication.executor || selectedApplication.accepted_by || 'Не назначен'}</span></div>
             <div><strong>Подана</strong><span>{formatCreatedAt(selectedApplication.created_at || selectedApplication.data)}</span></div>
@@ -1331,7 +1344,9 @@ const Dashboard = () => {
             {selectedAppTimes?.closedAt ? <div><strong>Закрыта</strong><span>{formatCreatedAt(selectedAppTimes.closedAt)}</span></div> : null}
             {selectedAppTimes?.closedAt && selectedAppTimes.totalSeconds != null && <div><strong>Подача → закрытие</strong><span>{formatApplicationDuration(selectedAppTimes.totalSeconds)}</span></div>}
             {selectedAppTimes?.waitSeconds != null && <div><strong>Подача → взятие</strong><span>{formatApplicationDuration(selectedAppTimes.waitSeconds)}</span></div>}
-            {selectedAppTimes?.workSeconds != null && <div><strong>Взятие → закрытие</strong><span>{formatApplicationDuration(selectedAppTimes.workSeconds)}</span></div>}
+            {selectedCumulativeWorkSeconds != null && <div><strong>Общее время работы</strong><span>{formatApplicationDuration(selectedCumulativeWorkSeconds)}</span></div>}
+            {selectedWorkCycles.map((cycle, index) => <div key={`${cycle.started_at}-${cycle.closed_at}-${index}`}><strong>{index === 0 ? 'Закрыта' : 'Повторно закрыта'}</strong><span>{formatCreatedAt(cycle.closed_at)} · {formatApplicationDuration(cycle.duration_seconds)}</span></div>)}
+            {!selectedApplication.fl && selectedWorkCycles.length > 0 && selectedApplication.work_started_at && <div><strong>Повторно открыта</strong><span>{formatCreatedAt(selectedApplication.work_started_at)}</span></div>}
           </div></div>
           {selectedApplication.admin_comment && (
             <div className="side-panel-section">
@@ -1350,7 +1365,7 @@ const Dashboard = () => {
             </div>
           )}
           <div className="side-panel-actions">
-            {['new', 'reopened'].includes(selectedApplication.status || 'new') && <button type="button" onClick={() => openAcceptModal(selectedApplication)}>Взять в работу</button>}
+            {isEmployeeCreatedApplication(selectedApplication) && ['new', 'reopened'].includes(selectedApplication.status || 'new') && <button type="button" onClick={() => openAcceptModal(selectedApplication)}>Взять в работу</button>}
             {selectedApplication.employee_login && <a href={getOpenChatHref(selectedApplication)}>Открыть чат</a>}
             <a href={`/edit/${selectedApplication.id}`}>Редактировать заявку</a>
           </div>
@@ -1403,6 +1418,9 @@ const Dashboard = () => {
 
 const getStatusDescription = (app = {}) => {
   const status = app.status || (app.fl ? 'done' : 'new');
+  if (isAdministratorCreatedApplication(app) && status !== 'done') {
+    return 'Заявка создана администратором. Закрыть её может только администратор.';
+  }
   return ({
     new: 'Сотрудник подал заявку, ожидает взятия в работу.',
     reopened: 'Заявка переоткрыта сотрудником, ожидает взятия в работу.',
