@@ -1164,9 +1164,9 @@ const Dashboard = () => {
             )}
             {viewMode === 'timeline' ? <div className="request-timeline">{Object.entries(displayedApplications.reduce((groups, app) => { const key = new Date(app.created_at || app.data).toLocaleDateString('ru-RU', { timeZone: APPLICATION_TIME_ZONE }); (groups[key] ||= []).push(app); return groups; }, {})).map(([date, apps]) => <section className="timeline-day" key={date}><h4>{date}</h4><div className="timeline-row">{apps.sort((a, b) => new Date(a.created_at || a.data) - new Date(b.created_at || b.data)).map(app => (
   <button type="button" className="timeline-request" key={app.id} onClick={() => openApplicationPanel(app)}>
+    <strong className="timeline-title">{app.application || 'Без названия заявки'}</strong>
+    <span className="timeline-contact">{app.name || 'ФИО не указано'} · каб. {app.cabinet || '—'} · тел. {app.N_tel || '—'}</span>
     <small>#{app.id} · {formatTime(app.created_at || app.data)} · {getStatusLabel(app)}</small>
-    <strong>{app.name || 'Без ФИО'} · каб. {app.cabinet || '—'}</strong>
-    <span className="timeline-text">{app.application || 'Без описания'}</span>
   </button>
 ))}</div></section>)}</div> : <div className="table-responsive">
               <table className={`applications-table ${compactMode ? 'applications-table-compact' : ''}`}>
