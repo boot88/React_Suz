@@ -400,7 +400,10 @@ const Dashboard = () => {
       }
       return false;
     } finally {
-      if (!silent && requestId === applicationsRequestIdRef.current) {
+      // Подтверждение удаления может вызвать фоновую загрузку и отменить
+      // предыдущий обычный запрос. В любом случае последний запрос должен
+      // снять общий индикатор, иначе экран остаётся на «Загрузка данных…».
+      if (requestId === applicationsRequestIdRef.current) {
         setLoading(false);
       }
     }
