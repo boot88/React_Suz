@@ -821,6 +821,10 @@ button:disabled,
   margin: 18px 0;
 }
 
+.side-panel-actions .side-panel-delete {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+}
+
 .event-list {
   display: grid;
   gap: 8px;
