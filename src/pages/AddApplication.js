@@ -205,12 +205,6 @@ const AddApplication = () => {
         <p>Институт органической химии - Система учёта заявки</p>
       </div>
 
-      {message.text && (
-        <div className={`message ${message.type}`}>
-          {message.text}
-        </div>
-      )}
-
       <form onSubmit={handleSubmit} className="application-form">
         <div className="form-section">
           <h3>Основная информация</h3>
@@ -336,6 +330,11 @@ const AddApplication = () => {
             Назад
           </button>
         </div>
+        {message.text && (
+          <div className={`message ${message.type}`} role="status">
+            {message.text}
+          </div>
+        )}
       </form>
     </div>
   );
