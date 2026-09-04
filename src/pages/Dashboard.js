@@ -1338,7 +1338,7 @@ const Dashboard = () => {
             {!isAdministratorCreatedApplication(selectedApplication) && <div><strong>Категория</strong><span>{selectedApplication.category || '—'}</span></div>}
             {!isAdministratorCreatedApplication(selectedApplication) && <div><strong>Приоритет</strong><span>{selectedApplication.priority || 'Обычный'}</span></div>}
             <div><strong>Источник</strong><span>{getApplicationSourceLabel(selectedApplication)}</span></div>
-            <div><strong>Исполнитель</strong><span>{selectedApplication.executor || selectedApplication.accepted_by || (isAdministratorCreatedApplication(selectedApplication) ? '—' : 'Не назначен')}</span></div>
+            <div><strong>Исполнитель</strong><span>{isAdministratorCreatedApplication(selectedApplication) ? (selectedApplication.executor || '—') : (selectedApplication.executor || selectedApplication.accepted_by || 'Не назначен')}</span></div>
             <div><strong>Подана</strong><span>{formatCreatedAt(selectedApplication.created_at || selectedApplication.data)}</span></div>
             {!isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.takenAt ? <div><strong>Взята в работу</strong><span>{formatCreatedAt(selectedAppTimes.takenAt)}</span></div> : null}
             {selectedAppTimes?.closedAt ? <div><strong>Закрыта</strong><span>{formatCreatedAt(selectedAppTimes.closedAt)}</span></div> : null}
