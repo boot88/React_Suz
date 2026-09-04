@@ -1,9 +1,20 @@
 export const APPLICATION_TIME_ZONE = 'Asia/Novosibirsk';
 
+const toApplicationDate = (value) => {
+  if (!value) return null;
+  const raw = String(value).trim();
+  // MySQL DATETIME values have no timezone. The server writes their UTC
+  // components, so make that explicit before a browser converts them to
+  // Novosibirsk time.
+  const normalized = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(raw)
+    ? `${raw.replace(' ', 'T')}Z`
+    : raw;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
 export const toApplicationTimestamp = (value) => {
-  if (!value) return 0;
-  const timestamp = new Date(value).getTime();
-  return Number.isFinite(timestamp) ? timestamp : 0;
+  return toApplicationDate(value)?.getTime() || 0;
 };
 
 export const secondsBetweenApplicationDates = (startValue, endValue) => {
@@ -26,9 +37,8 @@ export const formatApplicationDuration = (totalSeconds = 0) => {
 };
 
 export const formatApplicationDateTime = (value, locale = 'ru-RU', options = {}) => {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
+  const date = toApplicationDate(value);
+  if (!date) return '—';
   return date.toLocaleString(locale, {
     timeZone: APPLICATION_TIME_ZONE,
     day: '2-digit',
