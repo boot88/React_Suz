@@ -1431,6 +1431,21 @@ const appendAttachmentLogin = (url = '') => {
     !accessToken
     || (!url.includes('/api/chat/files/') && !url.includes('/api/auth/profile/'))
   ) return url;
+
+  // Avatar URLs are cached after they have already been resolved once. Reusing
+  // them must replace the query token instead of appending a second one: two
+  // access_token values are parsed as an invalid token by the API.
+  if (url.includes('/api/auth/profile/')) {
+    try {
+      const isAbsolute = /^https?:\/\//i.test(url);
+      const parsed = new URL(url, window.location.origin);
+      parsed.searchParams.delete('access_token');
+      parsed.searchParams.set('access_token', accessToken);
+      return isAbsolute ? parsed.toString() : `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    } catch {
+      // Fall back to the shared URL helper for an unexpected URL format.
+    }
+  }
   return withAccessToken(url);
 };
 
@@ -2213,6 +2228,10 @@ const EmployeeChat = () => {
     const profile = data?.profile || {};
     const cachedProfile = readProfileDraft(login);
     const directoryProfile = directoryEmployeesRef.current.find((employee) => employee.login === login) || {};
+    const serverAvatar = resolveAttachmentUrl(profile?.avatar || '');
+    const cachedAvatar = resolveAttachmentUrl(
+      cachedProfile?.avatar || localStorage.getItem(getAvatarKey(login)) || ''
+    );
     const mergedProfile = {
       full_name: getProfileValue(profile, cachedProfile, 'full_name', 'fullName', 'name'),
       department: getProfileValue(profile, cachedProfile, 'department'),
@@ -2223,7 +2242,9 @@ const EmployeeChat = () => {
       websiteLanguage: getProfileValue(profile, cachedProfile, 'websiteLanguage', 'website_language') || DEFAULT_PROFILE_WEBSITE_LANGUAGE,
       website: getProfileValue(profile, cachedProfile, 'website') || getWebsiteByLanguage(getProfileValue(profile, cachedProfile, 'websiteLanguage', 'website_language') || DEFAULT_PROFILE_WEBSITE_LANGUAGE),
       statusText: getProfileValue(profile, cachedProfile, 'statusText', 'status_text'),
-      avatar: resolveAttachmentUrl(getProfileValue(profile, cachedProfile, 'avatar'))
+      // A profile request may have started before a new avatar was uploaded.
+      // Do not let that stale empty response erase the freshly saved photo.
+      avatar: serverAvatar || cachedAvatar
     };
 
     if (!mergedProfile.full_name) mergedProfile.full_name = directoryProfile.full_name || '';
@@ -2528,7 +2549,12 @@ const EmployeeChat = () => {
       saveDirectoryCache(employees);
       const ownEmployee = employees.find((employee) => sameLogin(employee.login, user?.username || ''));
       if (ownEmployee) {
-        const currentAvatar = resolveAttachmentUrl(ownEmployee.avatar || ownEmployee.profile?.avatar || '');
+        const currentAvatar = resolveAttachmentUrl(
+          ownEmployee.avatar
+          || ownEmployee.profile?.avatar
+          || localStorage.getItem(getAvatarKey(user.username))
+          || ''
+        );
         setAvatarUrl(currentAvatar);
         if (currentAvatar) localStorage.setItem(getAvatarKey(user.username), currentAvatar);
         else localStorage.removeItem(getAvatarKey(user.username));
@@ -3291,7 +3317,19 @@ const EmployeeChat = () => {
       setAvatarUrl(savedAvatar);
       localStorage.setItem(getAvatarKey(user.username), savedAvatar);
       saveProfileDraft(user.username, { ...profileForm, avatar: savedAvatar });
-      await fetchEmployees();
+      setDirectoryEmployees((current) => {
+        const next = current.map((employee) => (
+          sameLogin(employee.login, user.username)
+            ? {
+                ...employee,
+                avatar: savedAvatar,
+                profile: { ...(employee.profile || {}), avatar: savedAvatar }
+              }
+            : employee
+        ));
+        saveDirectoryCache(next);
+        return next;
+      });
     } catch (error) {
       notify(error.message || 'Не удалось обработать изображение. Попробуйте другое фото.', 'Фото профиля');
     } finally {
