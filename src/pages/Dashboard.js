@@ -1341,7 +1341,7 @@ const Dashboard = () => {
             <div><strong>Исполнитель</strong><span>{isAdministratorCreatedApplication(selectedApplication) ? (selectedApplication.executor || '—') : (selectedApplication.executor || selectedApplication.accepted_by || 'Не назначен')}</span></div>
             <div><strong>Подана</strong><span>{formatCreatedAt(selectedApplication.created_at || selectedApplication.data)}</span></div>
             {!isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.takenAt ? <div><strong>Взята в работу</strong><span>{formatCreatedAt(selectedAppTimes.takenAt)}</span></div> : null}
-            {selectedAppTimes?.closedAt ? <div><strong>Закрыта</strong><span>{formatCreatedAt(selectedAppTimes.closedAt)}</span></div> : null}
+            {!isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.closedAt ? <div><strong>Закрыта</strong><span>{formatCreatedAt(selectedAppTimes.closedAt)}</span></div> : null}
             {selectedAppTimes?.closedAt && selectedAppTimes.totalSeconds != null && <div><strong>Подача → закрытие</strong><span>{formatApplicationDuration(selectedAppTimes.totalSeconds)}</span></div>}
             {!isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.waitSeconds != null && <div><strong>Подача → взятие</strong><span>{formatApplicationDuration(selectedAppTimes.waitSeconds)}</span></div>}
             {!isAdministratorCreatedApplication(selectedApplication) && selectedCumulativeWorkSeconds != null && <div><strong>Общее время работы</strong><span>{formatApplicationDuration(selectedCumulativeWorkSeconds)}</span></div>}
