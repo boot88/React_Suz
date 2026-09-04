@@ -14,17 +14,29 @@ export const getStoredAccessToken = () => {
 export const withAccessToken = (url = '') => {
   const token = getStoredAccessToken();
   if (!url || !token || url.startsWith('data:') || url.startsWith('blob:')) return url;
-  const separator = url.includes('?') ? '&' : '?';
 
   // Для файлов чата предпочитаем короткоживущий media-токен, чтобы полный
   // access_token не попадал в URL (история браузера, рефереры, логи).
   const fileId = getFileIdFromUrl(url);
   const mediaToken = fileId ? getCachedMediaToken(fileId) : '';
-  if (mediaToken) {
-    return `${url}${separator}mt=${encodeURIComponent(mediaToken)}`;
-  }
 
-  return `${url}${separator}access_token=${encodeURIComponent(token)}`;
+  // Один и тот же файл проходит через предпросмотр, публикацию и повторную
+  // загрузку ленты. Заменяем прежние access_token/mt, а не дописываем ещё
+  // один: два параметра делают адрес недействительным для сервера.
+  try {
+    const isAbsolute = /^https?:\/\//i.test(url);
+    const parsed = new URL(url, window.location.origin);
+    parsed.searchParams.delete('access_token');
+    parsed.searchParams.delete('mt');
+    if (mediaToken) parsed.searchParams.set('mt', mediaToken);
+    else parsed.searchParams.set('access_token', token);
+    return isAbsolute ? parsed.toString() : `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    const separator = url.includes('?') ? '&' : '?';
+    return mediaToken
+      ? `${url}${separator}mt=${encodeURIComponent(mediaToken)}`
+      : `${url}${separator}access_token=${encodeURIComponent(token)}`;
+  }
 };
 
 export const authFetch = (input, init = {}) => {
