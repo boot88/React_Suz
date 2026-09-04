@@ -1320,7 +1320,7 @@ const Dashboard = () => {
             <strong>{getStatusLabel(selectedApplication)}</strong>
             {selectedAppTimes && (
               <span>
-                {selectedCumulativeWorkSeconds != null && <em>Всего в работе: {formatApplicationDuration(selectedCumulativeWorkSeconds)}</em>}
+                {!isAdministratorCreatedApplication(selectedApplication) && selectedCumulativeWorkSeconds != null && <em>Всего в работе: {formatApplicationDuration(selectedCumulativeWorkSeconds)}</em>}
                 {selectedAppTimes.closedAt && selectedAppTimes.totalSeconds != null && <em>Подали → закрыли: {formatApplicationDuration(selectedAppTimes.totalSeconds)}</em>}
               </span>
             )}
@@ -1344,8 +1344,8 @@ const Dashboard = () => {
             {selectedAppTimes?.closedAt ? <div><strong>Закрыта</strong><span>{formatCreatedAt(selectedAppTimes.closedAt)}</span></div> : null}
             {selectedAppTimes?.closedAt && selectedAppTimes.totalSeconds != null && <div><strong>Подача → закрытие</strong><span>{formatApplicationDuration(selectedAppTimes.totalSeconds)}</span></div>}
             {!isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.waitSeconds != null && <div><strong>Подача → взятие</strong><span>{formatApplicationDuration(selectedAppTimes.waitSeconds)}</span></div>}
-            {selectedCumulativeWorkSeconds != null && <div><strong>Общее время работы</strong><span>{formatApplicationDuration(selectedCumulativeWorkSeconds)}</span></div>}
-            {selectedWorkCycles.map((cycle, index) => <div key={`${cycle.started_at}-${cycle.closed_at}-${index}`}><strong>{index === 0 ? 'Закрыта' : 'Повторно закрыта'}</strong><span>{formatCreatedAt(cycle.closed_at)} · {formatApplicationDuration(cycle.duration_seconds)}</span></div>)}
+            {!isAdministratorCreatedApplication(selectedApplication) && selectedCumulativeWorkSeconds != null && <div><strong>Общее время работы</strong><span>{formatApplicationDuration(selectedCumulativeWorkSeconds)}</span></div>}
+            {selectedWorkCycles.map((cycle, index) => <div key={`${cycle.started_at}-${cycle.closed_at}-${index}`}><strong>{index === 0 ? 'Закрыта' : 'Повторно закрыта'}</strong><span>{formatCreatedAt(cycle.closed_at)}{!isAdministratorCreatedApplication(selectedApplication) && ` · ${formatApplicationDuration(cycle.duration_seconds)}`}</span></div>)}
             {!selectedApplication.fl && selectedWorkCycles.length > 0 && selectedApplication.work_started_at && <div><strong>Повторно открыта</strong><span>{formatCreatedAt(selectedApplication.work_started_at)}</span></div>}
           </div></div>
           {selectedApplication.admin_comment && (
