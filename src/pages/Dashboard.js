@@ -713,6 +713,28 @@ const Dashboard = () => {
     action(app);
   };
 
+  const deleteSelectedApplication = async () => {
+    const app = selectedApplication;
+    if (!app || !window.confirm(`Удалить заявку #${app.id}? Она исчезнет из рабочего списка.`)) return;
+
+    setActionBusyId(app.id);
+    try {
+      const response = await authFetch(`${API_BASE_URL}/applications/${app.id}`, { method: 'DELETE' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || data.message || 'Не удалось удалить заявку');
+
+      setApplications((prev) => prev.filter((item) => item.id !== app.id));
+      closeApplicationPanel();
+      showToast(data.message || 'Заявка удалена', 'success');
+      fetchGeneralStats();
+      fetchApplications({ silent: true });
+    } catch (error) {
+      showToast(error.message || 'Не удалось удалить заявку', 'error');
+    } finally {
+      setActionBusyId(null);
+    }
+  };
+
   const runWorkflowAction = async (app, action, extraPayload = {}) => {
     const payload = { ...extraPayload };
 
@@ -1378,6 +1400,7 @@ const Dashboard = () => {
             {isEmployeeCreatedApplication(selectedApplication) && ['new', 'reopened'].includes(selectedApplication.status || 'new') && <button type="button" onClick={() => openAcceptModal(selectedApplication)}>Взять в работу</button>}
             {selectedApplication.employee_login && <a href={getOpenChatHref(selectedApplication)}>Открыть чат</a>}
             <a href={`/edit/${selectedApplication.id}`}>Редактировать заявку</a>
+            <button type="button" className="side-panel-delete" onClick={deleteSelectedApplication} disabled={actionBusyId === selectedApplication.id}>{actionBusyId === selectedApplication.id ? 'Удаляем…' : 'Удалить заявку'}</button>
           </div>
           <div className="side-panel-section">
             <h3>История действий</h3>
