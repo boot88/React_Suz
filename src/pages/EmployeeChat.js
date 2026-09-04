@@ -3190,9 +3190,6 @@ const EmployeeChat = () => {
       saveReadState(user.username, next);
       return next;
     });
-    window.dispatchEvent(new CustomEvent('chat:read', {
-      detail: { decrement: unreadInConversation }
-    }));
     authFetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(currentConversationId)}/read`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
@@ -3205,6 +3202,11 @@ const EmployeeChat = () => {
         saveReadState(user.username, next);
         return next;
       });
+      // Сначала дожидаемся сохранения на сервере. Иначе App успевает получить
+      // прежний счётчик и индикатор в меню остаётся до повторного входа в чат.
+      window.dispatchEvent(new CustomEvent('chat:read', {
+        detail: { decrement: unreadInConversation }
+      }));
     }).catch(() => {
       // Local read state remains available while the connection recovers.
     });
