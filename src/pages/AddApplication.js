@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import './AddApplication.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
@@ -16,6 +16,7 @@ const AddApplication = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
   const [errors, setErrors] = useState({});
+  const [employeeHints, setEmployeeHints] = useState([]);
 
   // Валидационные функции
   const validateName = (value) => {
@@ -67,6 +68,41 @@ const AddApplication = () => {
       default:
         return '';
     }
+  };
+
+  useEffect(() => {
+    const query = formData.name.trim();
+    if (query.length < 2) {
+      setEmployeeHints([]);
+      return undefined;
+    }
+
+    const timeout = window.setTimeout(async () => {
+      try {
+        const response = await authFetch(`${API_BASE_URL}/employees/search?field=full_name&query=${encodeURIComponent(query)}`);
+        if (!response.ok) throw new Error('Directory request failed');
+        const employees = await response.json();
+        setEmployeeHints(Array.isArray(employees) ? employees.slice(0, 8) : []);
+      } catch {
+        setEmployeeHints([]);
+      }
+    }, 220);
+
+    return () => window.clearTimeout(timeout);
+  }, [formData.name]);
+
+  const applyEmployeeHint = (employee) => {
+    const name = employee.full_name || '';
+    const cabinet = employee.room || employee.department || '';
+    const phone = employee.internal_phone || '';
+    setFormData((prev) => ({ ...prev, name, cabinet, N_tel: phone }));
+    setErrors((prev) => ({
+      ...prev,
+      name: validateName(name),
+      cabinet: validateCabinet(cabinet),
+      N_tel: validatePhone(phone)
+    }));
+    setEmployeeHints([]);
   };
 
   const handleChange = (e) => {
@@ -224,6 +260,20 @@ const AddApplication = () => {
               />
               {errors.name && <span className="error-text">{errors.name}</span>}
               <div className="character-count">{formData.name.length}/40</div>
+              {employeeHints.length > 0 && (
+                <div className="employee-name-hints" role="listbox" aria-label="Сотрудники из справочника">
+                  {employeeHints.map((employee) => (
+                    <button
+                      key={employee.id || `${employee.full_name}-${employee.room}-${employee.internal_phone}`}
+                      type="button"
+                      onClick={() => applyEmployeeHint(employee)}
+                    >
+                      <strong>{employee.full_name}</strong>
+                      <span>{employee.department || 'Отдел не указан'} · каб. {employee.room || '—'} · вн. {employee.internal_phone || '—'}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="form-group with-icon" id="cabinet-field">
