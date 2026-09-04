@@ -1338,12 +1338,12 @@ const Dashboard = () => {
             {!isAdministratorCreatedApplication(selectedApplication) && <div><strong>Категория</strong><span>{selectedApplication.category || '—'}</span></div>}
             {!isAdministratorCreatedApplication(selectedApplication) && <div><strong>Приоритет</strong><span>{selectedApplication.priority || 'Обычный'}</span></div>}
             <div><strong>Источник</strong><span>{getApplicationSourceLabel(selectedApplication)}</span></div>
-            <div><strong>Исполнитель</strong><span>{selectedApplication.executor || selectedApplication.accepted_by || 'Не назначен'}</span></div>
+            <div><strong>Исполнитель</strong><span>{selectedApplication.executor || selectedApplication.accepted_by || (isAdministratorCreatedApplication(selectedApplication) ? '—' : 'Не назначен')}</span></div>
             <div><strong>Подана</strong><span>{formatCreatedAt(selectedApplication.created_at || selectedApplication.data)}</span></div>
-            {selectedAppTimes?.takenAt ? <div><strong>Взята в работу</strong><span>{formatCreatedAt(selectedAppTimes.takenAt)}</span></div> : null}
+            {!isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.takenAt ? <div><strong>Взята в работу</strong><span>{formatCreatedAt(selectedAppTimes.takenAt)}</span></div> : null}
             {selectedAppTimes?.closedAt ? <div><strong>Закрыта</strong><span>{formatCreatedAt(selectedAppTimes.closedAt)}</span></div> : null}
             {selectedAppTimes?.closedAt && selectedAppTimes.totalSeconds != null && <div><strong>Подача → закрытие</strong><span>{formatApplicationDuration(selectedAppTimes.totalSeconds)}</span></div>}
-            {selectedAppTimes?.waitSeconds != null && <div><strong>Подача → взятие</strong><span>{formatApplicationDuration(selectedAppTimes.waitSeconds)}</span></div>}
+            {!isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.waitSeconds != null && <div><strong>Подача → взятие</strong><span>{formatApplicationDuration(selectedAppTimes.waitSeconds)}</span></div>}
             {selectedCumulativeWorkSeconds != null && <div><strong>Общее время работы</strong><span>{formatApplicationDuration(selectedCumulativeWorkSeconds)}</span></div>}
             {selectedWorkCycles.map((cycle, index) => <div key={`${cycle.started_at}-${cycle.closed_at}-${index}`}><strong>{index === 0 ? 'Закрыта' : 'Повторно закрыта'}</strong><span>{formatCreatedAt(cycle.closed_at)} · {formatApplicationDuration(cycle.duration_seconds)}</span></div>)}
             {!selectedApplication.fl && selectedWorkCycles.length > 0 && selectedApplication.work_started_at && <div><strong>Повторно открыта</strong><span>{formatCreatedAt(selectedApplication.work_started_at)}</span></div>}
@@ -1419,7 +1419,7 @@ const Dashboard = () => {
 const getStatusDescription = (app = {}) => {
   const status = app.status || (app.fl ? 'done' : 'new');
   if (isAdministratorCreatedApplication(app) && status !== 'done') {
-    return 'Заявка создана администратором. Закрыть её может только администратор.';
+    return 'Заявка создана администратором. Закрыть её может администратор.';
   }
   return ({
     new: 'Сотрудник подал заявку, ожидает взятия в работу.',
