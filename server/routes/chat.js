@@ -240,6 +240,15 @@ const readSqlMessageById = async (conversationId, messageId) => {
   return parseSqlMessage(rows?.[0]?.message_json);
 };
 
+const isSqlConversationArchived = async (conversationId) => {
+  if (!await ensureRecordsArchiveSchema(db)) return false;
+  const [rows] = await db.execute(
+    'SELECT state FROM chat_conversations WHERE conversation_id = ? LIMIT 1',
+    [conversationId]
+  );
+  return rows?.[0]?.state === 'archived';
+};
+
 const hydrateRetainedDeletedMessages = async (conversationId, messages = []) => {
   const deletedIds = messages
     .filter((message) => message?.deletedAt && message?.id)
@@ -393,7 +402,12 @@ const readSqlThreadSummaries = async (login) => {
          COUNT(*) OVER (PARTITION BY conversation_id) AS message_count,
          SUM(deleted_at IS NOT NULL) OVER (PARTITION BY conversation_id) AS deleted_count
        FROM chat_messages
-       WHERE participant_a = ? OR participant_b = ?
+       WHERE (participant_a = ? OR participant_b = ?)
+         AND NOT EXISTS (
+           SELECT 1 FROM chat_conversations AS conversations
+           WHERE conversations.conversation_id = chat_messages.conversation_id
+             AND conversations.state = 'archived'
+         )
      ) AS m
      LEFT JOIN (
        SELECT conversation_id, COUNT(*) AS attachment_count
@@ -1126,7 +1140,7 @@ const ensureFileDownloadAccess = async (req, fileId) => {
   }
 
   const isUploader = file.uploaded_by && String(file.uploaded_by).toLowerCase() === login;
-  const access = isUploader ? true : (file.scope === 'feed'
+  const access = hasRole(req, 'admin') || isUploader || (file.scope === 'feed'
     ? await findFeedFileReference(file)
     : await hasIndexedChatFileAccess(file.id, login));
   if (!access) {
@@ -2513,6 +2527,9 @@ router.get('/threads/:conversationId/search', async (req, res) => {
     const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
     if (!conversationId) return res.status(400).json({ message: 'conversationId обязателен' });
     if (!requireConversationAccess(req, res, conversationId)) return;
+    if (!hasRole(req, 'admin') && await isSqlConversationArchived(conversationId)) {
+      return res.status(403).json({ message: 'Переписка находится в архиве администратора' });
+    }
     const query = String(req.query?.q || '').trim();
     if (query.length < 2) {
       return res.status(400).json({ message: 'Для поиска введите минимум два символа' });
@@ -2549,6 +2566,9 @@ router.get('/threads/:conversationId/date', async (req, res) => {
     const date = String(req.query?.date || '').trim();
     if (!conversationId) return res.status(400).json({ message: 'conversationId обязателен' });
     if (!requireConversationAccess(req, res, conversationId)) return;
+    if (!hasRole(req, 'admin') && await isSqlConversationArchived(conversationId)) {
+      return res.status(403).json({ message: 'Переписка находится в архиве администратора' });
+    }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return res.status(400).json({ message: 'Дата должна быть в формате YYYY-MM-DD' });
     }
@@ -2583,6 +2603,10 @@ router.get('/threads/:conversationId/messages', async (req, res) => {
     const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
     if (!conversationId) return res.status(400).json({ message: 'conversationId обязателен' });
     if (!requireConversationAccess(req, res, conversationId)) return;
+    if (!hasRole(req, 'admin') && await isSqlConversationArchived(conversationId)) {
+      res.set('Cache-Control', 'no-store');
+      return res.json({ conversationId, messages: [], hasMore: false, archived: true, storage: 'mysql' });
+    }
     const limit = Math.min(200, Math.max(1, Number(req.query?.limit) || CHAT_SQL_PAGE_SIZE));
     const before = req.query?.before || '';
     const messages = await readSqlConversationMessages(conversationId, { limit, before });
@@ -2722,6 +2746,9 @@ router.post('/threads/:conversationId/messages', async (req, res) => {
       return res.status(400).json({ message: 'conversationId обязателен' });
     }
     if (!requireConversationAccess(req, res, conversationId)) return;
+    if (!hasRole(req, 'admin') && await isSqlConversationArchived(conversationId)) {
+      return res.status(409).json({ message: 'Переписка находится в архиве. Обратитесь к администратору.' });
+    }
 
     if (!message || typeof message !== 'object' || !message.id) {
       return res.status(400).json({ message: 'message обязателен' });
@@ -2766,6 +2793,9 @@ router.patch('/threads/:conversationId/messages/:messageId', async (req, res) =>
       return res.status(400).json({ message: 'conversationId и messageId обязательны' });
     }
     if (!requireConversationAccess(req, res, conversationId)) return;
+    if (!hasRole(req, 'admin') && await isSqlConversationArchived(conversationId)) {
+      return res.status(409).json({ message: 'Переписка находится в архиве администратора' });
+    }
 
     if (!patch || typeof patch !== 'object') {
       return res.status(400).json({ message: 'message или patch обязателен' });
@@ -2858,6 +2888,9 @@ router.post('/threads/:conversationId/messages/bulk-delete', async (req, res) =>
       return res.status(400).json({ message: 'conversationId и messageIds обязательны' });
     }
     if (!requireConversationAccess(req, res, conversationId)) return;
+    if (!hasRole(req, 'admin') && await isSqlConversationArchived(conversationId)) {
+      return res.status(409).json({ message: 'Переписка находится в архиве администратора' });
+    }
     if (!await ensureChatSqlSchema()) {
       return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
     }
@@ -2943,6 +2976,9 @@ router.put('/threads/:conversationId', requireRole('admin', 'manager'), async (r
       return res.status(400).json({ message: 'conversationId обязателен' });
     }
     if (!requireConversationAccess(req, res, conversationId)) return;
+    if (!hasRole(req, 'admin') && await isSqlConversationArchived(conversationId)) {
+      return res.status(409).json({ message: 'Переписка находится в архиве администратора' });
+    }
 
     if (!Array.isArray(messages)) {
       return res.status(400).json({ message: 'messages должен быть массивом' });
@@ -3010,6 +3046,161 @@ router.delete('/threads/:conversationId', requireRole('admin'), async (req, res)
   } catch (error) {
     console.error('Chat DELETE /threads error:', error);
     res.status(500).json({ message: 'Не удалось удалить переписку' });
+  }
+});
+
+router.get('/records/conversations', requireRole('admin'), async (req, res) => {
+  try {
+    if (!await ensureChatSqlSchema() || !await ensureRecordsArchiveSchema(db)) {
+      return res.status(503).json({ message: 'Архив переписки временно недоступен' });
+    }
+    const query = String(req.query?.q || '').trim().slice(0, 200).toLowerCase();
+    const state = ['active', 'archived'].includes(req.query?.state) ? req.query.state : 'all';
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query?.from || '') ? req.query.from : '';
+    const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query?.to || '') ? req.query.to : '';
+    const conditions = [];
+    const params = [];
+    if (state !== 'all') { conditions.push('conversations.state = ?'); params.push(state); }
+    if (from) { conditions.push("conversations.last_message_at >= CONCAT(?, ' 00:00:00')"); params.push(from); }
+    if (to) { conditions.push("conversations.last_message_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY)"); params.push(to); }
+    if (query) {
+      conditions.push(`(
+        LOWER(conversations.participant_a) LIKE ?
+        OR LOWER(conversations.participant_b) LIKE ?
+        OR EXISTS (
+          SELECT 1 FROM chat_messages AS messages
+          WHERE messages.conversation_id = conversations.conversation_id
+            AND LOWER(messages.message_json) LIKE ?
+        )
+        OR EXISTS (
+          SELECT 1 FROM chat_message_versions AS versions
+          WHERE versions.conversation_id = conversations.conversation_id
+            AND LOWER(versions.snapshot_json) LIKE ?
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM chat_message_files AS links
+          INNER JOIN chat_files AS files ON files.id = links.file_id
+          WHERE links.conversation_id = conversations.conversation_id
+            AND LOWER(files.original_name) LIKE ?
+        )
+      )`);
+      const pattern = `%${query}%`;
+      params.push(pattern, pattern, pattern, pattern, pattern);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const [rows] = await db.query(
+      `SELECT conversations.conversation_id, conversations.participant_a,
+              conversations.participant_b, conversations.state,
+              conversations.created_at, conversations.last_message_at,
+              conversations.message_count, conversations.archived_at,
+              conversations.archived_by,
+              (SELECT COUNT(*) FROM chat_messages AS deleted_messages
+               WHERE deleted_messages.conversation_id = conversations.conversation_id
+                 AND deleted_messages.deleted_at IS NOT NULL) AS deleted_count,
+              (SELECT COUNT(*) FROM chat_message_files AS files
+               WHERE files.conversation_id = conversations.conversation_id) AS file_count
+       FROM chat_conversations AS conversations
+       ${where}
+       ORDER BY conversations.last_message_at DESC
+       LIMIT 200`,
+      params
+    );
+    res.set('Cache-Control', 'no-store');
+    res.json({ conversations: rows || [] });
+  } catch (error) {
+    console.error('Chat GET /records/conversations error:', error);
+    res.status(500).json({ message: 'Не удалось выполнить поиск в архиве' });
+  }
+});
+
+router.get('/records/conversations/:conversationId/messages', requireRole('admin'), async (req, res) => {
+  try {
+    const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
+    const limit = Math.min(100, Math.max(1, Number(req.query?.limit) || CHAT_SQL_PAGE_SIZE));
+    const query = String(req.query?.q || '').trim().slice(0, 200).toLowerCase();
+    const before = req.query?.before || '';
+    let messages;
+    if (query && !conversationId.toLowerCase().includes(query)) {
+      const params = [conversationId];
+      let beforeSql = '';
+      if (before) {
+        const beforeDate = new Date(before);
+        if (Number.isNaN(beforeDate.getTime())) return res.status(400).json({ message: 'Некорректный курсор архива' });
+        beforeSql = 'AND messages.created_at < ?';
+        params.push(beforeDate);
+      }
+      const pattern = `%${query}%`;
+      params.push(pattern, pattern, pattern);
+      const [rows] = await db.query(
+        `SELECT messages.message_json
+         FROM chat_messages AS messages
+         WHERE messages.conversation_id = ?
+           ${beforeSql}
+           AND (
+             LOWER(messages.message_json) LIKE ?
+             OR EXISTS (
+               SELECT 1 FROM chat_message_versions AS versions
+               WHERE versions.message_id = messages.id
+                 AND LOWER(versions.snapshot_json) LIKE ?
+             )
+             OR EXISTS (
+               SELECT 1
+               FROM chat_message_files AS links
+               INNER JOIN chat_files AS files ON files.id = links.file_id
+               WHERE links.message_id = messages.id
+                 AND LOWER(files.original_name) LIKE ?
+             )
+           )
+         ORDER BY messages.created_at DESC, messages.id DESC
+         LIMIT ${limit}`,
+        params
+      );
+      messages = (rows || []).map((row) => parseSqlMessage(row.message_json)).filter(Boolean).reverse();
+    } else {
+      messages = await readSqlConversationMessages(conversationId, { limit, before });
+    }
+    if (!Array.isArray(messages)) return res.status(503).json({ message: 'Архив переписки временно недоступен' });
+    const retainedMessages = await hydrateRetainedDeletedMessages(conversationId, messages);
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      conversationId,
+      messages: retainedMessages.map((message) => sanitizeMessageForResponse(message, { includeRetainedContent: true })),
+      before: messages[0]?.createdAt || '',
+      hasMore: messages.length >= limit
+    });
+  } catch (error) {
+    console.error('Chat GET /records/conversations/messages error:', error);
+    res.status(500).json({ message: 'Не удалось открыть архивную переписку' });
+  }
+});
+
+router.post('/records/conversations/:conversationId/state', requireRole('admin'), async (req, res) => {
+  try {
+    const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
+    const state = req.body?.state;
+    if (!['active', 'archived'].includes(state)) return res.status(400).json({ message: 'Некорректное состояние архива' });
+    if (!await ensureRecordsArchiveSchema(db)) return res.status(503).json({ message: 'Архив переписки временно недоступен' });
+    const archivedAt = state === 'archived' ? new Date() : null;
+    const archivedBy = state === 'archived' ? req.auth.login : null;
+    const [result] = await db.execute(
+      `UPDATE chat_conversations
+       SET state = ?, archived_at = ?, archived_by = ?
+       WHERE conversation_id = ?`,
+      [state, archivedAt, archivedBy, conversationId]
+    );
+    if (!result.affectedRows) return res.status(404).json({ message: 'Переписка не найдена' });
+    await db.execute(
+      `INSERT INTO records_audit_log
+       (action, entity_type, entity_id, actor_login, actor_role, details_json)
+       VALUES (?, 'chat_conversation', ?, ?, ?, ?)`,
+      [state === 'archived' ? 'conversation_archived' : 'conversation_restored', conversationId, req.auth.login, req.auth.role, JSON.stringify({ state })]
+    );
+    broadcastThreadEvent('conversation-refresh', conversationId);
+    res.json({ conversationId, state, archivedAt: archivedAt?.toISOString() || null, archivedBy });
+  } catch (error) {
+    console.error('Chat POST /records/conversations/state error:', error);
+    res.status(500).json({ message: 'Не удалось изменить состояние переписки' });
   }
 });
 

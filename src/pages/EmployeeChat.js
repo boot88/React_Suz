@@ -54,7 +54,8 @@ const MANAGER_TABS = [
   { id: 'chat', label: 'Чат' },
   { id: 'feed', label: 'Лента' },
   { id: 'employees', label: 'Сотрудники' },
-  { id: 'audit', label: 'Аудит' }
+  { id: 'audit', label: 'Аудит' },
+  { id: 'archive', label: 'Архив' }
 ];
 const REQUEST_CATEGORIES = ['Техника', 'Сеть', 'ПО', 'Доступы', 'Другое'];
 const REQUEST_PRIORITIES = ['Обычный', 'Важный', 'Срочный'];
@@ -315,6 +316,17 @@ const RUSSIAN_LABELS = {
   savedOriginal: 'Сохранённый оригинал',
   history: 'История',
   change: 'изменение',
+  archiveCenter: 'Архив переписки',
+  archiveSearch: 'Сотрудник, текст сообщения или имя файла',
+  archiveAll: 'Все',
+  archiveActive: 'Активные',
+  archiveStored: 'Архивные',
+  archiveConversation: 'Архивировать',
+  restoreConversation: 'Разархивировать',
+  archiveEmpty: 'Переписки по заданным условиям не найдены.',
+  archiveChoose: 'Выберите переписку для отдельного просмотра.',
+  archiveFrom: 'С даты',
+  archiveTo: 'По дату',
   profileNamePlaceholder: 'Иванов Иван Иванович',
   positionPlaceholder: 'Например: инженер',
   departmentPlaceholder: 'Название отдела',
@@ -576,6 +588,17 @@ const ENGLISH_LABELS = {
   savedOriginal: 'Retained original',
   history: 'History',
   change: 'change',
+  archiveCenter: 'Conversation archive',
+  archiveSearch: 'Employee, message text, or file name',
+  archiveAll: 'All',
+  archiveActive: 'Active',
+  archiveStored: 'Archived',
+  archiveConversation: 'Archive',
+  restoreConversation: 'Restore',
+  archiveEmpty: 'No conversations match these filters.',
+  archiveChoose: 'Choose a conversation to open it separately.',
+  archiveFrom: 'From date',
+  archiveTo: 'To date',
   profileNamePlaceholder: 'Ivan Ivanov',
   positionPlaceholder: 'Example: engineer',
   departmentPlaceholder: 'Department name',
@@ -591,7 +614,7 @@ const ENGLISH_LABELS = {
   textMedium: 'Regular',
   textLarge: 'Larger'
 };
-const ENGLISH_TAB_LABELS = { feed: 'Feed', chat: 'Chat', request: 'Request', employees: 'Employees', audit: 'Audit' };
+const ENGLISH_TAB_LABELS = { feed: 'Feed', chat: 'Chat', request: 'Request', employees: 'Employees', audit: 'Audit', archive: 'Archive' };
 const ENGLISH_CONTACT_FILTER_LABELS = { all: 'All', online: 'Online', unread: 'Unread', managers: 'Managers', department: 'My department', favorites: 'Favorites', recent: 'Recent', attachments: 'With attachments', tickets: 'With requests' };
 const RUNTIME_TEXT_EN = {
   'Готово': 'Done',
@@ -1862,6 +1885,13 @@ const EmployeeChat = () => {
   const [hiddenFeedPostIds, setHiddenFeedPostIds] = useState(() => readHiddenFeedPosts(user?.username || 'guest'));
   const commentSort = 'old';
   const [expandedCommentPosts, setExpandedCommentPosts] = useState({});
+  const [archiveConversations, setArchiveConversations] = useState([]);
+  const [archiveFilters, setArchiveFilters] = useState({ q: '', state: 'all', from: '', to: '' });
+  const [archiveSelectedId, setArchiveSelectedId] = useState('');
+  const [archiveMessages, setArchiveMessages] = useState([]);
+  const [archiveHasMore, setArchiveHasMore] = useState(false);
+  const [archiveBefore, setArchiveBefore] = useState('');
+  const [archiveLoading, setArchiveLoading] = useState(false);
   const [feedLoading, setFeedLoading] = useState(false);
   const [feedRefreshing, setFeedRefreshing] = useState(false);
   const [feedLoadingMore, setFeedLoadingMore] = useState(false);
@@ -2383,6 +2413,94 @@ const EmployeeChat = () => {
     }
   }, [chatAuthHeaders, user.username]);
 
+  const fetchArchiveConversations = useCallback(async (signal) => {
+    if (!isAdmin) return;
+    setArchiveLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (archiveFilters.q.trim()) params.set('q', archiveFilters.q.trim());
+      if (archiveFilters.state !== 'all') params.set('state', archiveFilters.state);
+      if (archiveFilters.from) params.set('from', archiveFilters.from);
+      if (archiveFilters.to) params.set('to', archiveFilters.to);
+      const response = await authFetch(`${API_BASE_URL}/chat/records/conversations?${params.toString()}`, {
+        headers: chatAuthHeaders,
+        signal
+      });
+      const data = await readApiJson(response, 'Не удалось выполнить поиск в архиве');
+      setArchiveConversations(Array.isArray(data?.conversations) ? data.conversations : []);
+    } catch (error) {
+      if (error?.name !== 'AbortError') notifyRef.current(error.message || 'Не удалось открыть архив', 'Архив');
+    } finally {
+      if (!signal?.aborted) setArchiveLoading(false);
+    }
+  }, [archiveFilters, chatAuthHeaders, isAdmin]);
+
+  const fetchArchiveMessages = useCallback(async (conversationId, { append = false } = {}) => {
+    if (!conversationId || !isAdmin) return;
+    setArchiveLoading(true);
+    try {
+      const before = append ? archiveBefore : '';
+      const beforeQuery = before ? `&before=${encodeURIComponent(before)}` : '';
+      const searchQuery = archiveFilters.q.trim() ? `&q=${encodeURIComponent(archiveFilters.q.trim())}` : '';
+      const response = await authFetch(
+        `${API_BASE_URL}/chat/records/conversations/${encodeURIComponent(conversationId)}/messages?limit=${CHAT_MESSAGES_PAGE_SIZE}${beforeQuery}${searchQuery}`,
+        { headers: chatAuthHeaders }
+      );
+      const data = await readApiJson(response, 'Не удалось открыть архивную переписку');
+      const messages = Array.isArray(data?.messages) ? data.messages : [];
+      setArchiveMessages((current) => append
+        ? [...new Map([...messages, ...current].map((message) => [message.id, message])).values()]
+        : messages);
+      setArchiveBefore(data?.before || '');
+      setArchiveHasMore(Boolean(data?.hasMore));
+      prefetchMediaTokens(collectThreadFileIds({ [conversationId]: messages }), 'chat');
+    } catch (error) {
+      notifyRef.current(error.message || 'Не удалось открыть архивную переписку', 'Архив');
+    } finally {
+      setArchiveLoading(false);
+    }
+  }, [archiveBefore, archiveFilters.q, chatAuthHeaders, isAdmin]);
+
+  const setConversationArchiveState = useCallback(async (conversationId, state) => {
+    const confirmed = await confirmAction(
+      state === 'archived'
+        ? 'Архивировать переписку? Она исчезнет из активных чатов сотрудников, но все сообщения и файлы сохранятся.'
+        : 'Разархивировать переписку и вернуть её в активные чаты?',
+      state === 'archived' ? 'Архивирование переписки' : 'Восстановление переписки'
+    );
+    if (!confirmed) return;
+    try {
+      const response = await authFetch(
+        `${API_BASE_URL}/chat/records/conversations/${encodeURIComponent(conversationId)}/state`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
+          body: JSON.stringify({ state })
+        }
+      );
+      await readApiJson(response, 'Не удалось изменить состояние переписки');
+      await Promise.all([fetchArchiveConversations(), fetchThreads()]);
+    } catch (error) {
+      notifyRef.current(error.message || 'Не удалось изменить состояние переписки', 'Архив');
+    }
+  }, [chatAuthHeaders, confirmAction, fetchArchiveConversations, fetchThreads]);
+
+  useEffect(() => {
+    if (activeTab !== 'archive' || !isAdmin) return undefined;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => fetchArchiveConversations(controller.signal), 250);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [activeTab, fetchArchiveConversations, isAdmin]);
+
+  useEffect(() => {
+    if (activeTab !== 'archive' || !archiveSelectedId || !isAdmin) return;
+    setArchiveMessages([]);
+    setArchiveBefore('');
+    fetchArchiveMessages(archiveSelectedId);
+  // archiveBefore deliberately excluded: it changes while paging the selected archive.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, archiveFilters.q, archiveSelectedId, isAdmin]);
+
   const fetchDialogSearchPage = useCallback(async ({ append = false, before = '', signal } = {}) => {
     const query = dialogSearch.trim();
     if (!currentConversationId || query.length < 2) return;
@@ -2764,8 +2882,11 @@ const EmployeeChat = () => {
         const payload = readStreamEvent(event);
         if (!payload) return;
         const conversationId = payload.conversationId;
-        if (!conversationId || !Object.prototype.hasOwnProperty.call(threadsRef.current, conversationId)) return;
-        fetchConversationMessages(conversationId, { silent: true });
+        if (!conversationId) return;
+        fetchThreadsRef.current?.();
+        if (Object.prototype.hasOwnProperty.call(threadsRef.current, conversationId)) {
+          fetchConversationMessages(conversationId, { silent: true });
+        }
       } catch {
         // noop
       }
@@ -4509,7 +4630,7 @@ const EmployeeChat = () => {
     ? `${activeContact?.profile?.full_name || formatVisibleLogin(remoteTypingLogin)} ${t('typing')}…`
     : '';
   const tabs = isManager
-    ? MANAGER_TABS.filter((tab) => tab.id !== 'employees' || isAdmin)
+    ? MANAGER_TABS.filter((tab) => !['employees', 'archive'].includes(tab.id) || isAdmin)
     : EMPLOYEE_TABS;
   const unreadTotal = Object.values(unreadByEmail).reduce((sum, count) => sum + count, 0);
   const feedReadTimestamp = feedReadAt ? new Date(feedReadAt).getTime() : 0;
@@ -5878,6 +5999,66 @@ const EmployeeChat = () => {
                   </div>
                 </div>
               ))}
+            </div>
+          </section>
+        )}
+
+        {activeTab === 'archive' && isAdmin && (
+          <section className="manager-panel archive-center-panel">
+            <h2>{t('archiveCenter')}</h2>
+            <div className="archive-toolbar">
+              <input
+                type="search"
+                placeholder={t('archiveSearch')}
+                value={archiveFilters.q}
+                onChange={(event) => setArchiveFilters((current) => ({ ...current, q: event.target.value }))}
+              />
+              <select value={archiveFilters.state} onChange={(event) => setArchiveFilters((current) => ({ ...current, state: event.target.value }))}>
+                <option value="all">{t('archiveAll')}</option>
+                <option value="active">{t('archiveActive')}</option>
+                <option value="archived">{t('archiveStored')}</option>
+              </select>
+              <label>{t('archiveFrom')}<input type="date" value={archiveFilters.from} onChange={(event) => setArchiveFilters((current) => ({ ...current, from: event.target.value }))} /></label>
+              <label>{t('archiveTo')}<input type="date" value={archiveFilters.to} onChange={(event) => setArchiveFilters((current) => ({ ...current, to: event.target.value }))} /></label>
+            </div>
+            <div className="threads-grid archive-grid">
+              <div className="threads-list">
+                {archiveLoading && archiveConversations.length === 0 && <div className="empty-chat">{t('loading')}…</div>}
+                {!archiveLoading && archiveConversations.length === 0 && <div className="empty-chat">{t('archiveEmpty')}</div>}
+                {archiveConversations.map((conversation) => (
+                  <div key={conversation.conversation_id} className={`archive-thread-row ${archiveSelectedId === conversation.conversation_id ? 'active' : ''}`}>
+                    <button type="button" className="thread-item" onClick={() => setArchiveSelectedId(conversation.conversation_id)}>
+                      <span className="thread-title">{conversation.participant_a} ↔ {conversation.participant_b}</span>
+                      <span className="thread-stats">{conversation.message_count} {t('messagesShort')} · 📎 {conversation.file_count || 0} · {t('deletedShort')} {conversation.deleted_count || 0}</span>
+                      <span className="thread-last">{conversation.last_message_at ? new Date(conversation.last_message_at).toLocaleString(interfaceLocale) : '—'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={conversation.state === 'archived' ? 'archive-restore-button' : 'archive-store-button'}
+                      onClick={() => setConversationArchiveState(conversation.conversation_id, conversation.state === 'archived' ? 'active' : 'archived')}
+                    >
+                      {conversation.state === 'archived' ? t('restoreConversation') : t('archiveConversation')}
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="threads-messages archive-message-viewer">
+                {!archiveSelectedId && <div className="empty-chat">{t('archiveChoose')}</div>}
+                {archiveSelectedId && archiveHasMore && (
+                  <button type="button" className="chat-pagination-button" disabled={archiveLoading} onClick={() => fetchArchiveMessages(archiveSelectedId, { append: true })}>{t('loadPreviousMessages')}</button>
+                )}
+                {archiveSelectedId && archiveMessages.map((message) => {
+                  const attachments = getMessageAttachments(message);
+                  return (
+                    <article key={message.id} className={`audit-message ${message.deletedAt ? 'deleted' : ''}`}>
+                      <div className="message-meta"><span>{message.sender}</span><span>{new Date(message.createdAt).toLocaleString(interfaceLocale)}</span></div>
+                      {message.deletedAt && <em>{t('deletedMessage')} · {message.deletedBy || '—'}</em>}
+                      {message.text && <div className="archive-original-text">{message.deletedAt && <strong>{t('savedOriginal')}: </strong>}{message.text}</div>}
+                      {attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <AttachmentCard key={`${message.id}-archive-${index}`} cardKey={`${message.id}-archive-${index}`} file={file} isEnglish={isEnglishInterface} />)}</div>}
+                    </article>
+                  );
+                })}
+              </div>
             </div>
           </section>
         )}
