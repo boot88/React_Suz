@@ -1,3 +1,5 @@
+const crypto = require('crypto');
+
 const RETRY_DELAY_MS = 30_000;
 
 let schemaReady = false;
@@ -209,6 +211,102 @@ const ensureRecordsArchiveSchema = async (database) => {
   return schemaPromise;
 };
 
+const getMessageVersionAction = (message = {}) => {
+  if (message.deletedAt) return 'delete';
+  if (message.editedAt || message.updatedAt) return 'update';
+  return 'create';
+};
+
+const indexMessageForRecordsArchive = async (database, conversationId, message = {}) => {
+  if (!conversationId || !message?.id || !await ensureRecordsArchiveSchema(database)) return false;
+
+  // Recalculate the summary from the authoritative message table. This keeps
+  // message_count correct for creates, retries and updates without relying on
+  // a fragile in-memory counter.
+  await database.execute(
+    `INSERT INTO chat_conversations (
+        conversation_id, participant_a, participant_b, state,
+        created_at, last_message_at, message_count
+      )
+      SELECT
+        conversation_id,
+        LOWER(SUBSTRING_INDEX(conversation_id, '::', 1)),
+        LOWER(SUBSTRING_INDEX(conversation_id, '::', -1)),
+        'active',
+        MIN(created_at),
+        MAX(created_at),
+        COUNT(*)
+      FROM chat_messages
+      WHERE conversation_id = ?
+      GROUP BY conversation_id
+      ON DUPLICATE KEY UPDATE
+        participant_a = VALUES(participant_a),
+        participant_b = VALUES(participant_b),
+        created_at = LEAST(chat_conversations.created_at, VALUES(created_at)),
+        last_message_at = VALUES(last_message_at),
+        message_count = VALUES(message_count)`,
+    [conversationId]
+  );
+
+  const snapshotJson = JSON.stringify(message);
+  const snapshotSha256 = crypto.createHash('sha256').update(snapshotJson).digest('hex');
+  const [latestRows] = await database.execute(
+    `SELECT version_no, snapshot_sha256
+     FROM chat_message_versions
+     WHERE message_id = ?
+     ORDER BY version_no DESC
+     LIMIT 1`,
+    [message.id]
+  );
+  const latest = latestRows?.[0];
+  if (latest?.snapshot_sha256 === snapshotSha256) return true;
+
+  const auditEntries = Array.isArray(message.audit) ? message.audit : [];
+  const latestAudit = auditEntries[auditEntries.length - 1] || {};
+  const actorLogin = message.deletedBy || message.editedBy || latestAudit.by || message.sender || 'system';
+  const actorRole = latestAudit.role || null;
+  const createdAt = new Date(
+    message.deletedAt || message.editedAt || message.updatedAt || message.createdAt || Date.now()
+  );
+  const safeCreatedAt = Number.isNaN(createdAt.getTime()) ? new Date() : createdAt;
+  const nextVersion = (Number(latest?.version_no) || 0) + 1;
+
+  try {
+    await database.execute(
+      `INSERT INTO chat_message_versions (
+         message_id, conversation_id, version_no, action, snapshot_json,
+         snapshot_sha256, actor_login, actor_role, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        message.id,
+        conversationId,
+        nextVersion,
+        getMessageVersionAction(message),
+        snapshotJson,
+        snapshotSha256,
+        actorLogin,
+        actorRole,
+        safeCreatedAt
+      ]
+    );
+  } catch (error) {
+    // Concurrent updates can select the same next version number. Re-read the
+    // latest version once; the caller may safely retry the message operation.
+    if (error.code !== 'ER_DUP_ENTRY') throw error;
+    const [concurrentRows] = await database.execute(
+      `SELECT snapshot_sha256
+       FROM chat_message_versions
+       WHERE message_id = ?
+       ORDER BY version_no DESC
+       LIMIT 1`,
+      [message.id]
+    );
+    if (concurrentRows?.[0]?.snapshot_sha256 !== snapshotSha256) throw error;
+  }
+
+  return true;
+};
+
 const resetRecordsArchiveSchemaState = () => {
   schemaReady = false;
   schemaPromise = null;
@@ -217,6 +315,7 @@ const resetRecordsArchiveSchemaState = () => {
 
 module.exports = {
   ensureRecordsArchiveSchema,
+  indexMessageForRecordsArchive,
   resetRecordsArchiveSchemaState,
   schemaStatements,
   backfillStatements

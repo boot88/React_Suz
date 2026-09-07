@@ -25,7 +25,10 @@ const {
   getMessageAttachmentFileIds,
   buildConversationMessagesPageQuery
 } = require('../utils/chatState');
-const { ensureRecordsArchiveSchema } = require('../utils/recordsArchiveSchema');
+const {
+  ensureRecordsArchiveSchema,
+  indexMessageForRecordsArchive
+} = require('../utils/recordsArchiveSchema');
 const {
   requireAuth,
   requireAuthAllowQuery,
@@ -214,6 +217,7 @@ const writeSqlMessage = async (conversationId, message = {}) => {
       );
     }
   }
+  await indexMessageForRecordsArchive(db, conversationId, message);
   return true;
 };
 
