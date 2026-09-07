@@ -25,6 +25,7 @@ const {
   getMessageAttachmentFileIds,
   buildConversationMessagesPageQuery
 } = require('../utils/chatState');
+const { ensureRecordsArchiveSchema } = require('../utils/recordsArchiveSchema');
 const {
   requireAuth,
   requireAuthAllowQuery,
@@ -88,7 +89,10 @@ const normalizeMessageDate = (message = {}) => {
 };
 
 const ensureChatSqlSchema = async () => {
-  if (chatSqlReady) return true;
+  if (chatSqlReady) {
+    await ensureRecordsArchiveSchema(db);
+    return true;
+  }
   if (chatSqlCheckPromise) return chatSqlCheckPromise;
   if (Date.now() < chatSqlRetryAt) return false;
 
@@ -142,6 +146,11 @@ const ensureChatSqlSchema = async () => {
       PRIMARY KEY (conversation_id, user_login),
       INDEX idx_chat_read_state_user_updated (user_login, updated_at)
     )`);
+
+    // The archive foundation is additive. If it cannot be created yet (for
+    // example because the database user lacks DDL rights), the live chat must
+    // remain available and the helper will retry on a later request.
+    await ensureRecordsArchiveSchema(db);
 
     chatSqlReady = true;
     chatSqlRetryAt = 0;
