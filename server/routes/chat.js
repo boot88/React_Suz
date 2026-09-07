@@ -291,7 +291,11 @@ const writeSqlReadState = async (conversationId, login, messageId) => {
   if (!await ensureChatSqlSchema()) return null;
   const message = await readSqlMessageById(conversationId, messageId);
   if (!message) return null;
-  const readAt = normalizeMessageDate(message);
+  // Отметка о прочтении должна фиксировать момент, когда пользователь
+  // действительно увидел диалог, а не время создания последнего сообщения.
+  // Иначе старое сообщение с пограничной датой могло снова попасть в
+  // периодический подсчёт непрочитанных.
+  const readAt = new Date();
   await db.execute(
     `INSERT INTO chat_read_state
        (conversation_id, user_login, last_read_message_id, last_read_at)
