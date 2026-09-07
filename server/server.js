@@ -1181,7 +1181,9 @@ app.post('/api/applications/:id/accept', requireAuth, requireRole('admin', 'mana
       });
       return {
         sql: 'UPDATE application SET `status` = ?, `accepted_by` = ?, `executor` = ?, `eta_minutes` = ?, `admin_comment` = ?, `accepted_at` = ?, `work_started_at` = ?, `start_data` = ?, `waiting_seconds` = ?, `arrival_seconds` = ?, `work_cycles_json` = ?, `fl` = 0 WHERE `id` = ?',
-        params: ['in_progress', actorLogin, executor || actorLogin, eta_minutes || null, admin_comment || '', now, now, now, secondsBetween(app.created_at || app.data, now), 0, JSON.stringify(workCycles), id]
+        // «Подача → взятие» — это первый ответ администратора. При повторном
+        // открытии не перезаписываем его новым временем ожидания.
+        params: ['in_progress', actorLogin, executor || actorLogin, eta_minutes || null, admin_comment || '', now, now, now, app.waiting_seconds == null ? secondsBetween(app.created_at || app.data, now) : app.waiting_seconds, 0, JSON.stringify(workCycles), id]
       };
     }, { actorLogin, actorRole: req.auth.role, eventType: 'accepted', nextStatus: 'in_progress', comment: admin_comment || 'Заявка взята в работу' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });

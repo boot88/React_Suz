@@ -43,6 +43,26 @@ test('counts waiting time for an open chat request until it is accepted', () => 
   }, new Date('2026-09-03T05:46:03.000Z').getTime()).waitingSeconds).toBe(3);
 });
 
+test('keeps the first acceptance time after a request is reopened', () => {
+  expect(getApplicationTiming({
+    status: 'done',
+    fl: true,
+    created_at: '2026-09-07T05:39:02.000Z',
+    work_started_at: '2026-09-07T05:44:25.000Z',
+    employee_confirmed_at: '2026-09-07T05:45:48.000Z',
+    work_cycles: [
+      { taken_at: '2026-09-07T05:40:35.000Z', closed_at: '2026-09-07T05:41:31.000Z' },
+      { taken_at: '2026-09-07T05:42:16.000Z', closed_at: '2026-09-07T05:43:13.000Z' },
+      { taken_at: '2026-09-07T05:44:25.000Z', closed_at: '2026-09-07T05:45:48.000Z' }
+    ]
+  })).toMatchObject({
+    takenAt: '2026-09-07T05:40:35.000Z',
+    waitingSeconds: 93,
+    workSeconds: 83,
+    totalSeconds: 406
+  });
+});
+
 test('does not invent taken or work time when an administrator closes a new request directly', () => {
   expect(getApplicationTiming({
     status: 'done',

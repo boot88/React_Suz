@@ -1369,10 +1369,10 @@ const Dashboard = () => {
             <div><strong>Исполнитель</strong><span>{isAdministratorCreatedApplication(selectedApplication) ? (selectedApplication.executor || '—') : (selectedApplication.executor || selectedApplication.accepted_by || 'Не назначен')}</span></div>
             <div><strong>Подана</strong><span>{formatCreatedAt(selectedApplication.created_at || selectedApplication.data)}</span></div>
             {selectedWorkCycles.length === 0 && !isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.takenAt ? <div><strong>Взята в работу</strong><span>{formatCreatedAt(selectedAppTimes.takenAt)}</span></div> : null}
-            {!isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.waitSeconds != null && <div><strong>Подача → взятие</strong><span>{formatApplicationDuration(selectedAppTimes.waitSeconds)}</span></div>}
-            {!isAdministratorCreatedApplication(selectedApplication) && selectedCumulativeWorkSeconds != null && <div><strong>Общее время работы</strong><span>{formatApplicationDuration(selectedCumulativeWorkSeconds)}</span></div>}
+            {selectedWorkCycles.length === 0 && !isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.waitSeconds != null && <div><strong>Подача → взятие</strong><span>{formatApplicationDuration(selectedAppTimes.waitSeconds)}</span></div>}
             {selectedWorkCycles.map((cycle, index) => <React.Fragment key={`${cycle.started_at}-${cycle.closed_at || 'active'}-${index}`}>
               <div><strong>{index === 0 ? 'Взята в работу' : 'Взята повторно в работу'}</strong><span>{formatCreatedAt(cycle.taken_at || cycle.started_at)}</span></div>
+              {index === 0 && !isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.waitSeconds != null && <div><strong>Подача → взятие</strong><span>{formatApplicationDuration(selectedAppTimes.waitSeconds)}</span></div>}
               {cycle.closed_at && !(selectedApplication.fl && index === selectedWorkCycles.length - 1) && <div><strong>Переоткрыта</strong><span>{formatCreatedAt(cycle.closed_at)}</span></div>}
             </React.Fragment>)}
             {selectedAppTimes?.closedAt && <div><strong>Закрыта</strong><span>{formatCreatedAt(selectedAppTimes.closedAt)}</span></div>}

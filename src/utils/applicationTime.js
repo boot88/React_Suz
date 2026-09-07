@@ -55,15 +55,22 @@ export const getApplicationTiming = (application = {}, now = Date.now()) => {
   // `data` is a legacy DATE column and therefore contains no clock time.
   // Exact lifecycle calculations must use the UTC `created_at` timestamp.
   const createdAt = application.created_at || application.data || '';
+  const workCycles = Array.isArray(application.work_cycles) ? application.work_cycles : [];
+  const firstWorkCycle = workCycles.find((cycle) => cycle?.taken_at || cycle?.started_at);
+  const firstTakenAt = firstWorkCycle?.taken_at || firstWorkCycle?.started_at || '';
   const hasTakenMarker = Boolean(
     application.work_started_at
     || application.accepted_at
     || application.accepted_by
   );
-  const takenAt = application.work_started_at
+  // For «Подача → взятие» we need the first response by an administrator.
+  // `work_started_at` is overwritten on every reopening and is only suitable
+  // for calculating the active work segment.
+  const currentTakenAt = application.work_started_at
     || application.accepted_at
     || (hasTakenMarker ? application.start_data : '')
     || '';
+  const takenAt = firstTakenAt || currentTakenAt;
   const isClosed = Boolean(application.fl) || application.status === 'done';
   const closedAt = isClosed
     ? (application.employee_confirmed_at || application.end_data || application.resolved_at || '')
@@ -78,8 +85,8 @@ export const getApplicationTiming = (application = {}, now = Date.now()) => {
     waitingSeconds: createdAt && (takenAt || !isClosed)
       ? secondsBetweenApplicationDates(createdAt, takenAt || liveEnd)
       : null,
-    workSeconds: takenAt
-      ? secondsBetweenApplicationDates(takenAt, liveEnd)
+    workSeconds: currentTakenAt
+      ? secondsBetweenApplicationDates(currentTakenAt, liveEnd)
       : null
   };
 };
