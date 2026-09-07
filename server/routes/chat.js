@@ -1709,6 +1709,12 @@ router.get('/files/:fileId/download', async (req, res) => {
     const variant = req.query?.variant === 'thumbnail' ? 'thumbnail' : '';
     const download = resolveStoredDownload(file, variant);
     if (!download) return res.status(404).json({ message: 'Файл не найден' });
+    // In development the React client is served from :3000 while protected
+    // chat media is served from :5000. Helmet's default CORP header is
+    // `same-origin`, so browsers create the image/video element but block its
+    // response. Authentication above still protects the file; this header only
+    // permits the authorized response to be embedded by the client origin.
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.setHeader('Content-Type', download.mime || 'application/octet-stream');
     res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(download.fileName)}"`);
     res.setHeader(
