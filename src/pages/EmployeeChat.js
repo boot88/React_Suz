@@ -42,7 +42,8 @@ const EMPLOYEE_CUSTOM_TEMPLATES_KEY = 'employeeChatCustomTemplates';
 const MAX_ATTACHMENT_SIZE_MB = 100;
 const MAX_ATTACHMENT_SIZE = MAX_ATTACHMENT_SIZE_MB * 1024 * 1024;
 const CHAT_MESSAGES_PAGE_SIZE = 50;
-const FEED_POSTS_PAGE_SIZE = 50;
+const FEED_POSTS_PAGE_SIZE = 25;
+const FEED_COMMENTS_PAGE_SIZE = 20;
 const VIDEO_EXTENSION_PATTERN = /\.(mp4|webm|ogg|ogv|mov|m4v|avi|mkv)$/i;
 const EMPLOYEE_TABS = [
   { id: 'feed', label: 'Лента' },
@@ -229,6 +230,7 @@ const RUSSIAN_LABELS = {
   delete: 'Удалить',
   sendComment: 'Отправить',
   showAllComments: 'Показать все комментарии',
+  loadMoreComments: 'Показать ещё комментарии',
   hideComments: 'Скрыть комментарии',
   comments: 'Комментарии',
   noComments: 'Комментариев пока нет.',
@@ -489,6 +491,7 @@ const ENGLISH_LABELS = {
   delete: 'Delete',
   sendComment: 'Send',
   showAllComments: 'Show all comments',
+  loadMoreComments: 'Show more comments',
   hideComments: 'Hide comments',
   comments: 'Comments',
   noComments: 'No comments yet.',
@@ -3574,15 +3577,42 @@ const EmployeeChat = () => {
     event.currentTarget.form?.requestSubmit();
   };
 
-  const jumpToMessageDate = (dateValue) => {
-    if (!dateValue) return;
-    const target = currentMessages.find((message) => {
+  const jumpToMessageDate = async (dateValue) => {
+    if (!dateValue || !currentConversationId) return;
+    let dateMessages = currentMessages.filter((message) => {
       const messageDate = new Date(message.createdAt);
       if (Number.isNaN(messageDate.getTime())) return false;
       return messageDate.toISOString().slice(0, 10) === dateValue;
     });
-    if (target) document.querySelector(`[data-message-id="${target.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    else notify('В этот день сообщений нет', 'Календарь');
+    try {
+      if (!dateMessages.length) {
+        const response = await authFetch(
+          `${API_BASE_URL}/chat/threads/${encodeURIComponent(currentConversationId)}/date?date=${encodeURIComponent(dateValue)}&limit=${CHAT_MESSAGES_PAGE_SIZE}`,
+          { headers: chatAuthHeaders }
+        );
+        const data = await readApiJson(response, 'Не удалось перейти к выбранной дате');
+        dateMessages = Array.isArray(data?.messages) ? data.messages : [];
+        if (dateMessages.length) {
+          setThreads((current) => {
+            const loaded = current[currentConversationId] || [];
+            const merged = [...new Map([...loaded, ...dateMessages].map((message) => [message.id, message])).values()]
+              .sort((left, right) => new Date(left.createdAt || 0) - new Date(right.createdAt || 0));
+            return { ...current, [currentConversationId]: merged };
+          });
+          setVisibleDialogMessageCount((count) => Math.max(count, currentMessages.length + dateMessages.length));
+        }
+      }
+      const target = dateMessages[0];
+      if (!target) {
+        notify('В этот день сообщений нет', 'Календарь');
+        return;
+      }
+      window.setTimeout(() => {
+        document.querySelector(`[data-message-id="${target.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 50);
+    } catch (error) {
+      notify(error.message || 'Не удалось перейти к выбранной дате', 'Календарь');
+    }
   };
 
   const handleDragOver = (event) => {
@@ -4755,19 +4785,30 @@ const EmployeeChat = () => {
     return data.post;
   };
 
-  const loadFeedComments = async (postId) => {
+  const loadFeedComments = async (postId, { append = false } = {}) => {
     const hasPendingCommentChange = [...pendingFeedActionsRef.current].some((key) => (
       key === `comment-add:${postId}` || key.startsWith(`comment-delete:${postId}:`)
     ));
     const actionKey = `comments-load:${postId}`;
     if (hasPendingCommentChange || !beginFeedAction(actionKey, postId)) return;
     try {
-      const response = await authFetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments?limit=50`);
+      const currentPost = feedPostsRef.current.find((post) => post.id === postId);
+      const before = append ? currentPost?.comments?.[0]?.createdAt || '' : '';
+      const beforeQuery = before ? `&before=${encodeURIComponent(before)}` : '';
+      const response = await authFetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments?limit=${FEED_COMMENTS_PAGE_SIZE}${beforeQuery}`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось загрузить комментарии');
       const comments = Array.isArray(data?.comments) ? data.comments : [];
       setFeedPosts((current) => current.map((post) => (
-        post.id === postId ? { ...post, comments, commentCount: Math.max(Number(post.commentCount) || 0, comments.length) } : post
+        post.id === postId
+          ? {
+            ...post,
+            comments: append
+              ? [...new Map([...comments, ...(post.comments || [])].map((comment) => [comment.id, comment])).values()]
+              : comments,
+            commentCount: Math.max(Number(post.commentCount) || 0, comments.length)
+          }
+          : post
       )));
       setExpandedCommentPosts((prev) => ({ ...prev, [postId]: true }));
     } catch (error) {
@@ -5750,7 +5791,8 @@ const EmployeeChat = () => {
                     onDeleteComment={deleteFeedComment}
                     onToggleComments={(postId, expanded) => {
                       if (expanded) {
-                        setExpandedCommentPosts((current) => ({ ...current, [postId]: false }));
+                        if (hiddenCommentsCount > 0) loadFeedComments(postId, { append: true });
+                        else setExpandedCommentPosts((current) => ({ ...current, [postId]: false }));
                         return;
                       }
                       loadFeedComments(postId);

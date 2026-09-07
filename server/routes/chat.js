@@ -2053,7 +2053,7 @@ orphanCleanupTimer.unref?.();
 
 router.get('/feed', async (req, res) => {
   try {
-    const limit = Math.min(100, Math.max(1, Number(req.query?.limit) || 50));
+    const limit = Math.min(100, Math.max(1, Number(req.query?.limit) || 25));
     const commentsLimit = Math.min(5, Math.max(2, Number(req.query?.commentsLimit) || 3));
     const cursor = String(req.query?.cursor || '').trim();
     const before = req.query?.before || '';
@@ -2249,7 +2249,7 @@ router.patch('/feed/posts/:postId', async (req, res) => {
 router.get('/feed/posts/:postId/comments', async (req, res) => {
   try {
     const { postId } = req.params;
-    const limit = Math.min(100, Math.max(1, Number(req.query?.limit) || 50));
+    const limit = Math.min(100, Math.max(1, Number(req.query?.limit) || 20));
     const before = req.query?.before || '';
     const post = await readSqlFeedPost(postId);
     if (!post) return res.status(404).json({ message: 'Публикация не найдена' });
@@ -2540,6 +2540,41 @@ router.get('/threads/:conversationId/search', async (req, res) => {
     res.status(error.status || 500).json({
       message: error.status === 400 ? error.message : 'Не удалось выполнить поиск по переписке'
     });
+  }
+});
+
+router.get('/threads/:conversationId/date', async (req, res) => {
+  try {
+    const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
+    const date = String(req.query?.date || '').trim();
+    if (!conversationId) return res.status(400).json({ message: 'conversationId обязателен' });
+    if (!requireConversationAccess(req, res, conversationId)) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ message: 'Дата должна быть в формате YYYY-MM-DD' });
+    }
+    const limit = Math.min(200, Math.max(1, Number(req.query?.limit) || CHAT_SQL_PAGE_SIZE));
+    if (!await ensureChatSqlSchema()) {
+      return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
+    }
+    const [rows] = await db.query(
+      `SELECT message_json
+       FROM chat_messages
+       WHERE conversation_id = ?
+         AND created_at >= CONCAT(?, ' 00:00:00')
+         AND created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY)
+       ORDER BY created_at ASC, id ASC
+       LIMIT ${limit}`,
+      [conversationId, date, date]
+    );
+    const messages = (rows || [])
+      .map((row) => parseSqlMessage(row.message_json))
+      .filter(Boolean)
+      .map((message) => sanitizeMessageForResponse(message));
+    res.set('Cache-Control', 'no-store');
+    res.json({ conversationId, date, messages, hasMore: messages.length >= limit });
+  } catch (error) {
+    console.error('Chat GET /threads/date error:', error);
+    res.status(500).json({ message: 'Не удалось перейти к выбранной дате' });
   }
 });
 

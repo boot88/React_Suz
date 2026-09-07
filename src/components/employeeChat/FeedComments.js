@@ -88,7 +88,9 @@ const FeedComments = memo(function FeedComments({
           disabled={pending}
           onClick={() => onToggleExpanded(postId, expanded)}
         >
-          {expanded ? t('hideComments') : t('showAllComments')} ({totalComments})
+          {expanded
+            ? (hiddenCommentsCount > 0 ? t('loadMoreComments') : t('hideComments'))
+            : t('showAllComments')} ({totalComments})
         </button>
       )}
       <div className="employee-feed-comment-form">
