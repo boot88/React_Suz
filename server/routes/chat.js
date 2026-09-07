@@ -240,6 +240,54 @@ const readSqlMessageById = async (conversationId, messageId) => {
   return parseSqlMessage(rows?.[0]?.message_json);
 };
 
+const hydrateRetainedDeletedMessages = async (conversationId, messages = []) => {
+  const deletedIds = messages
+    .filter((message) => message?.deletedAt && message?.id)
+    .map((message) => message.id);
+  if (!deletedIds.length || !await ensureRecordsArchiveSchema(db)) return messages;
+
+  try {
+    const [rows] = await db.query(
+      `SELECT versions.message_id, versions.snapshot_json
+       FROM chat_message_versions AS versions
+       INNER JOIN (
+         SELECT message_id, MAX(version_no) AS version_no
+         FROM chat_message_versions
+         WHERE conversation_id = ?
+           AND action <> 'delete'
+           AND message_id IN (?)
+         GROUP BY message_id
+       ) AS retained
+         ON retained.message_id = versions.message_id
+        AND retained.version_no = versions.version_no`,
+      [conversationId, deletedIds]
+    );
+    const retainedById = new Map((rows || []).map((row) => [
+      String(row.message_id),
+      parseSqlMessage(row.snapshot_json)
+    ]));
+
+    return messages.map((message) => {
+      if (!message?.deletedAt) return message;
+      const retained = retainedById.get(String(message.id));
+      if (!retained) return message;
+      return {
+        ...message,
+        text: retained.text,
+        attachment: retained.attachment || null,
+        attachments: Array.isArray(retained.attachments)
+          ? retained.attachments
+          : (retained.attachment ? [retained.attachment] : []),
+        replyTo: retained.replyTo || null,
+        forwardedFrom: retained.forwardedFrom || null
+      };
+    });
+  } catch (error) {
+    console.warn('Chat retained message version lookup failed:', error.message);
+    return messages;
+  }
+};
+
 const searchSqlConversationMessages = async (
   conversationId,
   { query = '', limit = CHAT_SEARCH_PAGE_SIZE, before = '' } = {}
@@ -789,6 +837,33 @@ const stripInlinePayloads = (value) => {
   return Object.fromEntries(Object.entries(value)
     .map(([key, item]) => [key, stripInlinePayloads(item)])
     .filter(([, item]) => item !== undefined));
+};
+
+const sanitizeMessageForResponse = (message = {}, { includeRetainedContent = false } = {}) => {
+  const safeMessage = stripInlinePayloads(message) || {};
+
+  if (includeRetainedContent) return safeMessage;
+
+  // Audit entries can contain text from an earlier client version. They are
+  // never needed in the participant chat and are available only to admins.
+  delete safeMessage.audit;
+  if (!safeMessage.deletedAt) return safeMessage;
+
+  // Keep just enough metadata to render a tombstone. The authoritative row,
+  // its version history and file links remain untouched in MySQL.
+  return {
+    id: safeMessage.id,
+    sender: safeMessage.sender,
+    createdAt: safeMessage.createdAt,
+    updatedAt: safeMessage.updatedAt,
+    deletedAt: safeMessage.deletedAt,
+    deletedBy: safeMessage.deletedBy,
+    deliveryStatus: safeMessage.deliveryStatus,
+    readAt: safeMessage.readAt,
+    text: '',
+    attachment: null,
+    attachments: []
+  };
 };
 
 const materializeLegacyAttachment = async (attachment = {}, scope = 'chat') => {
@@ -2421,7 +2496,7 @@ router.get('/threads', async (req, res) => {
     const summaries = Object.fromEntries(
       Object.entries(sqlSummaries).map(([conversationId, summary]) => [
         conversationId,
-        { ...summary, lastMessage: stripInlinePayloads(summary.lastMessage) }
+        { ...summary, lastMessage: sanitizeMessageForResponse(summary.lastMessage) }
       ])
     );
 
@@ -2479,10 +2554,23 @@ router.get('/threads/:conversationId/messages', async (req, res) => {
     if (!Array.isArray(messages)) {
       return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
     }
-    const publicMessages = stripInlinePayloads(messages);
+    const includeRetainedContent = req.query?.includeDeletedContent === '1' && hasRole(req, 'admin');
+    const responseMessages = includeRetainedContent
+      ? await hydrateRetainedDeletedMessages(conversationId, messages)
+      : messages;
+    const publicMessages = responseMessages.map((message) => sanitizeMessageForResponse(message, {
+      includeRetainedContent
+    }));
     const earliest = messages[0]?.createdAt || '';
     res.set('Cache-Control', 'no-store');
-    res.json({ conversationId, messages: publicMessages, hasMore: messages.length >= limit, before: earliest, storage: 'mysql' });
+    res.json({
+      conversationId,
+      messages: publicMessages,
+      hasMore: messages.length >= limit,
+      before: earliest,
+      storage: 'mysql',
+      includesRetainedDeletedContent: includeRetainedContent
+    });
   } catch (error) {
     console.error('Chat GET /threads/messages error:', {
       code: error.code || 'CHAT_MESSAGES_QUERY_FAILED',
@@ -2614,6 +2702,9 @@ router.post('/threads/:conversationId/messages', async (req, res) => {
     if (existingMessage && !isSameLogin(existingMessage.sender, req.auth.login)) {
       return res.status(403).json({ message: 'Нельзя перезаписать чужое сообщение' });
     }
+    if (existingMessage?.deletedAt) {
+      return res.status(409).json({ message: 'Удалённое сообщение нельзя перезаписать' });
+    }
     const savedItem = existingMessage
       ? { ...existingMessage, ...preparedMessage, sender: existingMessage.sender, audit: existingMessage.audit || [] }
       : preparedMessage;
@@ -2621,8 +2712,9 @@ router.post('/threads/:conversationId/messages', async (req, res) => {
     if (!stored) return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
     backupMessageToArchive(conversationId, savedItem);
 
-    broadcastThreadEvent(exists ? 'message-updated' : 'message-created', conversationId, { item: savedItem });
-    res.status(exists ? 200 : 201).json({ message: exists ? 'Сообщение обновлено' : 'Сообщение добавлено', conversationId, item: savedItem });
+    const publicItem = sanitizeMessageForResponse(savedItem);
+    broadcastThreadEvent(exists ? 'message-updated' : 'message-created', conversationId, { item: publicItem });
+    res.status(exists ? 200 : 201).json({ message: exists ? 'Сообщение обновлено' : 'Сообщение добавлено', conversationId, item: publicItem });
   } catch (error) {
     console.error('Chat POST /threads/messages error:', error);
     res.status(500).json({ message: 'Не удалось сохранить сообщение' });
@@ -2645,9 +2737,20 @@ router.patch('/threads/:conversationId/messages/:messageId', async (req, res) =>
     }
     const existingMessage = await readSqlMessageById(conversationId, messageId);
     if (!existingMessage) return res.status(404).json({ message: 'Сообщение не найдено' });
+    if (existingMessage.deletedAt) {
+      if (patch.deletedAt) {
+        return res.json({
+          message: 'Сообщение уже скрыто',
+          conversationId,
+          item: sanitizeMessageForResponse(existingMessage)
+        });
+      }
+      return res.status(409).json({ message: 'Скрытое сообщение нельзя изменить или восстановить из чата' });
+    }
     const canEditContent = isSameLogin(existingMessage.sender, req.auth.login) || hasRole(req, 'admin', 'manager');
-    const contentFields = ['text', 'attachment', 'attachments', 'deletedAt'];
-    const attemptsContentChange = contentFields.some((field) => (
+    const contentFields = ['text', 'attachment', 'attachments'];
+    const isDeleteRequest = Boolean(patch.deletedAt);
+    const attemptsContentChange = isDeleteRequest || contentFields.some((field) => (
       Object.prototype.hasOwnProperty.call(patch, field)
       && JSON.stringify(patch[field] ?? null) !== JSON.stringify(existingMessage[field] ?? null)
     ));
@@ -2667,18 +2770,25 @@ router.patch('/threads/:conversationId/messages/:messageId', async (req, res) =>
       sender: existingMessage.sender
     };
     if (canEditContent) {
-      contentFields.forEach((field) => {
-        if (Object.prototype.hasOwnProperty.call(patch, field)) nextMessage[field] = patch[field];
-      });
-      if (Object.prototype.hasOwnProperty.call(patch, 'editedAt')) nextMessage.editedAt = patch.editedAt;
-      if (Object.prototype.hasOwnProperty.call(patch, 'deliveryStatus')) nextMessage.deliveryStatus = patch.deliveryStatus;
+      if (isDeleteRequest) {
+        // A delete is a visibility change only. Do not copy the client's
+        // cleared text/attachments over the retained authoritative message.
+        nextMessage.deletedAt = now;
+        nextMessage.deletedBy = req.auth.login;
+        nextMessage.updatedAt = now;
+      } else {
+        contentFields.forEach((field) => {
+          if (Object.prototype.hasOwnProperty.call(patch, field)) nextMessage[field] = patch[field];
+        });
+        if (Object.prototype.hasOwnProperty.call(patch, 'editedAt')) nextMessage.editedAt = patch.editedAt;
+        if (Object.prototype.hasOwnProperty.call(patch, 'deliveryStatus')) nextMessage.deliveryStatus = patch.deliveryStatus;
+      }
       if (attemptsContentChange) {
         nextMessage.editedBy = req.auth.login;
-        if (patch.deletedAt) nextMessage.deletedBy = req.auth.login;
         nextMessage.audit = [
           ...(Array.isArray(existingMessage.audit) ? existingMessage.audit : []),
           {
-            action: patch.deletedAt ? 'delete' : 'edit',
+            action: isDeleteRequest ? 'delete' : 'edit',
             by: req.auth.login,
             role: req.auth.role,
             at: now
@@ -2691,8 +2801,9 @@ router.patch('/threads/:conversationId/messages/:messageId', async (req, res) =>
     if (!stored) return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
     backupMessageToArchive(conversationId, updatedItem);
 
-    broadcastThreadEvent('message-updated', conversationId, { item: updatedItem });
-    res.json({ message: 'Сообщение обновлено', conversationId, item: updatedItem });
+    const publicItem = sanitizeMessageForResponse(updatedItem);
+    broadcastThreadEvent('message-updated', conversationId, { item: publicItem });
+    res.json({ message: 'Сообщение обновлено', conversationId, item: publicItem });
   } catch (error) {
     console.error('Chat PATCH /threads/messages error:', error);
     res.status(500).json({ message: 'Не удалось обновить сообщение' });
@@ -2717,7 +2828,7 @@ router.post('/threads/:conversationId/messages/bulk-delete', async (req, res) =>
     }
     connection = await db.getConnection();
     const [rows] = await connection.query(
-      'SELECT id, sender_login FROM chat_messages WHERE conversation_id = ? AND id IN (?)',
+      'SELECT id, sender_login, message_json FROM chat_messages WHERE conversation_id = ? AND id IN (?)',
       [conversationId, messageIds]
     );
     if (rows.length !== messageIds.length) {
@@ -2731,22 +2842,48 @@ router.post('/threads/:conversationId/messages/bulk-delete', async (req, res) =>
     }
 
     const deletedAt = new Date().toISOString();
+    const deletedItems = rows.map((row) => {
+      const existingMessage = parseSqlMessage(row.message_json);
+      if (!existingMessage) {
+        const error = new Error(`Не удалось прочитать сообщение ${row.id}`);
+        error.status = 500;
+        throw error;
+      }
+      if (existingMessage.deletedAt) return existingMessage;
+      return {
+        ...existingMessage,
+        deletedAt,
+        deletedBy: req.auth.login,
+        updatedAt: deletedAt,
+        audit: [
+          ...(Array.isArray(existingMessage.audit) ? existingMessage.audit : []),
+          {
+            action: 'delete',
+            by: req.auth.login,
+            role: req.auth.role,
+            at: deletedAt
+          }
+        ]
+      };
+    });
     await connection.beginTransaction();
-    await connection.query(
-      `UPDATE chat_messages
-       SET message_json = JSON_SET(
-             JSON_REMOVE(CAST(message_json AS JSON), '$.attachment', '$.attachments'),
-             '$.text', '',
-             '$.deletedAt', ?,
-             '$.deletedBy', ?,
-             '$.updatedAt', ?
-           ),
-           deleted_at = ?,
-           updated_at = ?
-       WHERE conversation_id = ? AND id IN (?)`,
-      [deletedAt, req.auth.login, deletedAt, new Date(deletedAt), new Date(deletedAt), conversationId, messageIds]
-    );
+    for (const item of deletedItems) {
+      await connection.execute(
+        `UPDATE chat_messages
+         SET message_json = ?, deleted_at = ?, updated_at = ?
+         WHERE conversation_id = ? AND id = ?`,
+        [
+          JSON.stringify(item),
+          new Date(item.deletedAt),
+          new Date(item.updatedAt || item.deletedAt),
+          conversationId,
+          item.id
+        ]
+      );
+    }
     await connection.commit();
+    await Promise.all(deletedItems.map((item) => indexMessageForRecordsArchive(db, conversationId, item)));
+    deletedItems.forEach((item) => backupMessageToArchive(conversationId, item));
     broadcastThreadEvent('messages-bulk-deleted', conversationId, {
       messageIds,
       deletedAt,
@@ -2775,9 +2912,31 @@ router.put('/threads/:conversationId', requireRole('admin', 'manager'), async (r
     if (!Array.isArray(messages)) {
       return res.status(400).json({ message: 'messages должен быть массивом' });
     }
-    const preparedMessages = await Promise.all(messages.map(async (message) => (
-      (await prepareMessageForResponse(message)).message
-    )));
+    const preparedMessages = await Promise.all(messages.map(async (message) => {
+      const prepared = (await prepareMessageForResponse(message)).message;
+      if (!prepared?.id) return prepared;
+      const existingMessage = await readSqlMessageById(conversationId, prepared.id);
+      if (!existingMessage) return prepared;
+      if (existingMessage.deletedAt) return existingMessage;
+      if (!prepared.deletedAt) return prepared;
+
+      const now = new Date().toISOString();
+      return {
+        ...existingMessage,
+        deletedAt: now,
+        deletedBy: req.auth.login,
+        updatedAt: now,
+        audit: [
+          ...(Array.isArray(existingMessage.audit) ? existingMessage.audit : []),
+          {
+            action: 'conversation_clear',
+            by: req.auth.login,
+            role: req.auth.role,
+            at: now
+          }
+        ]
+      };
+    }));
 
     const writeResults = await Promise.all(
       preparedMessages
@@ -2787,7 +2946,9 @@ router.put('/threads/:conversationId', requireRole('admin', 'manager'), async (r
     if (writeResults.some((stored) => !stored)) {
       return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
     }
-    replaceArchiveConversation(conversationId, preparedMessages);
+    preparedMessages.filter((message) => message?.id).forEach((message) => (
+      backupMessageToArchive(conversationId, message)
+    ));
 
     broadcastThreadEvent('conversation-refresh', conversationId);
     res.json({ message: 'Сохранено', conversationId });
@@ -2797,7 +2958,7 @@ router.put('/threads/:conversationId', requireRole('admin', 'manager'), async (r
   }
 });
 
-router.delete('/threads/:conversationId', requireRole('admin', 'manager'), async (req, res) => {
+router.delete('/threads/:conversationId', requireRole('admin'), async (req, res) => {
   try {
     const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
     if (!conversationId) {

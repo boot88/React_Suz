@@ -310,6 +310,7 @@ const RUSSIAN_LABELS = {
   lastMessage: 'последнее',
   noMessagesShort: 'без сообщений',
   deletedBy: 'Удалил',
+  savedOriginal: 'Сохранённый оригинал',
   history: 'История',
   change: 'изменение',
   profileNamePlaceholder: 'Иванов Иван Иванович',
@@ -569,6 +570,7 @@ const ENGLISH_LABELS = {
   lastMessage: 'last',
   noMessagesShort: 'no messages',
   deletedBy: 'Deleted by',
+  savedOriginal: 'Retained original',
   history: 'History',
   change: 'change',
   profileNamePlaceholder: 'Ivan Ivanov',
@@ -2341,12 +2343,16 @@ const EmployeeChat = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, user?.username]);
 
-  const fetchConversationMessages = useCallback(async (conversationId, { silent = false, signal } = {}) => {
+  const fetchConversationMessages = useCallback(async (
+    conversationId,
+    { silent = false, signal, includeDeletedContent = false } = {}
+  ) => {
     if (!conversationId) return;
     if (!silent) setLoadingConversationIds((prev) => ({ ...prev, [conversationId]: true }));
     try {
+      const retainedContentQuery = includeDeletedContent ? '&includeDeletedContent=1' : '';
       const response = await authFetch(
-        `${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages?limit=${CHAT_MESSAGES_PAGE_SIZE}`,
+        `${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages?limit=${CHAT_MESSAGES_PAGE_SIZE}${retainedContentQuery}`,
         { headers: chatAuthHeaders, signal }
       );
       const data = await readApiJson(response, 'Не удалось загрузить сообщения');
@@ -2667,11 +2673,14 @@ const EmployeeChat = () => {
   }, [currentConversationId, fetchConversationMessages, user.username]);
 
   useEffect(() => {
-    if (!selectedThreadId || selectedThreadId === currentConversationId) return undefined;
+    if (activeTab !== 'audit' || !selectedThreadId) return undefined;
     const controller = new AbortController();
-    fetchConversationMessages(selectedThreadId, { signal: controller.signal });
+    fetchConversationMessages(selectedThreadId, {
+      signal: controller.signal,
+      includeDeletedContent: isAdmin
+    });
     return () => controller.abort();
-  }, [currentConversationId, fetchConversationMessages, selectedThreadId]);
+  }, [activeTab, fetchConversationMessages, isAdmin, selectedThreadId]);
 
   useEffect(() => {
     if (!user?.username || typeof EventSource === 'undefined') return undefined;
@@ -2887,9 +2896,6 @@ const EmployeeChat = () => {
           deletedIds.has(message.id)
             ? {
               ...message,
-              text: '',
-              attachment: null,
-              attachments: [],
               deletedAt: payload.deletedAt,
               deletedBy: payload.deletedBy
             }
@@ -3841,7 +3847,9 @@ const EmployeeChat = () => {
 
   const getConversationMediaItems = useCallback((scope = 'message', sourceMessage = null) => {
     const sourceMessages = scope === 'dialog' ? currentMessages : sourceMessage ? [sourceMessage] : [];
-    return sourceMessages.flatMap((message) => getMessageMediaAttachments(message).map((file, index) => ({ file, message, fileIndex: index })));
+    return sourceMessages
+      .filter((message) => !message.deletedAt)
+      .flatMap((message) => getMessageMediaAttachments(message).map((file, index) => ({ file, message, fileIndex: index })));
   }, [currentMessages]);
 
   const retryMessageSend = async (message) => {
@@ -3997,7 +4005,7 @@ const EmployeeChat = () => {
       ...prev,
       [currentConversationId]: (prev[currentConversationId] || []).map((message) => (
         messageIds.includes(message.id)
-          ? { ...message, text: '', attachment: null, attachments: [], deletedAt, deletedBy: user.username }
+          ? { ...message, deletedAt, deletedBy: user.username }
           : message
       ))
     }));
@@ -4067,12 +4075,8 @@ const EmployeeChat = () => {
     try {
       await updateMessage(messageId, (item) => ({
         ...item,
-        text: '',
-        attachment: null,
-        attachments: [],
         deletedAt: new Date().toISOString(),
-        deletedBy: user.username,
-        audit: [...(item.audit || []), { action: 'delete', by: user.username, at: new Date().toISOString(), previousText: item.text }]
+        deletedBy: user.username
       }), targetConversationId);
     } catch (error) {
       notify(error.message || 'Не удалось удалить сообщение', 'Сообщение');
@@ -4374,12 +4378,8 @@ const EmployeeChat = () => {
       const now = new Date().toISOString();
       const nextMessages = currentMessages.map((message) => ({
         ...message,
-        text: '',
-        attachment: null,
-        attachments: [],
         deletedAt: message.deletedAt || now,
-        deletedBy: message.deletedBy || user.username,
-        audit: [...(message.audit || []), { action: 'conversation_clear', by: user.username, at: now, previousText: message.text }]
+        deletedBy: message.deletedBy || user.username
       }));
       await persistThreadMessages(currentConversationId, nextMessages);
     } catch (error) {
@@ -4495,9 +4495,10 @@ const EmployeeChat = () => {
   const visibleMessages = useMemo(() => {
     const now = Date.now();
     const day = 24 * 60 * 60 * 1000;
-    const notDeletedMessages = currentMessages.filter((message) => !message.deletedAt);
-    return notDeletedMessages.filter((message) => {
-      const attachments = getMessageAttachments(message);
+    return currentMessages.filter((message) => {
+      const isDeleted = Boolean(message.deletedAt);
+      const attachments = isDeleted ? [] : getMessageAttachments(message);
+      if (normalizedDialogSearch && isDeleted) return false;
       if (normalizedDialogSearch && ![
         message.text,
         message.sender,
@@ -4536,10 +4537,12 @@ const EmployeeChat = () => {
     if (index < 0) return source;
     return <>{source.slice(0, index)}<mark>{source.slice(index, index + needle.length)}</mark>{source.slice(index + needle.length)}</>;
   };
-  const dialogMediaItems = useMemo(() => currentMessages.flatMap((message) => [
-    ...getMessageAttachments(message).map((file, index) => ({ message, file, fileIndex: index, type: isMediaAttachment(file) ? 'media' : 'file' })),
-    ...extractLinks(message.text).map((link, index) => ({ message, file: { id: `${message.id}-link-${index}`, name: link, dataUrl: link, type: 'text/link' }, fileIndex: index, type: 'link' }))
-  ]), [currentMessages]);
+  const dialogMediaItems = useMemo(() => currentMessages
+    .filter((message) => !message.deletedAt)
+    .flatMap((message) => [
+      ...getMessageAttachments(message).map((file, index) => ({ message, file, fileIndex: index, type: isMediaAttachment(file) ? 'media' : 'file' })),
+      ...extractLinks(message.text).map((link, index) => ({ message, file: { id: `${message.id}-link-${index}`, name: link, dataUrl: link, type: 'text/link' }, fileIndex: index, type: 'link' }))
+    ]), [currentMessages]);
   const filteredDialogMediaItems = useMemo(() => dialogMediaItems.filter(({ message, file, type }) => {
     const query = normalizeText(mediaPanelSearch);
     if (query && !normalizeText(`${file.name || ''} ${message.text || ''}`).includes(query)) return false;
@@ -5328,20 +5331,21 @@ const EmployeeChat = () => {
                           className={`message-bubble ${isMediaOnly ? 'media-only' : ''}`}
                           onClick={(event) => {
                             event.stopPropagation();
+                            if (isDeleted) return;
                             if (multiSelectMode) { toggleSelectedMessage(message.id); return; }
                             if (isSelected && messageReactionExpanded) setMessageReactionExpanded(false);
                             else {
                               openSelectedMessageMenu(message.id, event);
                             }
                           }}
-                          onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); toggleReaction(message.id, '👍'); }}
-	                          onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); openSelectedMessageMenu(message.id, event); }}
+	                          onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); if (!isDeleted) toggleReaction(message.id, '👍'); }}
+	                          onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); if (!isDeleted) openSelectedMessageMenu(message.id, event); }}
 	                          onTouchStart={(event) => { event.currentTarget.dataset.touchX = String(event.touches[0]?.clientX || 0); }}
 	                          onTouchEnd={(event) => {
 	                            const startX = Number(event.currentTarget.dataset.touchX || 0);
 	                            const endX = event.changedTouches[0]?.clientX || startX;
 	                            const deltaX = endX - startX;
-	                            if (Math.abs(deltaX) < 70) return;
+	                            if (isDeleted || Math.abs(deltaX) < 70) return;
 	                            event.stopPropagation();
 	                            if (deltaX > 0) setReplyTo(message);
 	                            else openForwardMessagePicker(message);
@@ -5350,7 +5354,7 @@ const EmployeeChat = () => {
                             if (event.key !== 'Enter' && event.key !== ' ') return;
                             event.preventDefault();
                             event.stopPropagation();
-                            openSelectedMessageMenu(message.id, event);
+                            if (!isDeleted) openSelectedMessageMenu(message.id, event);
                           }}
                         >
                           {!isDeleted && messageSenderLogin && (
@@ -5359,8 +5363,8 @@ const EmployeeChat = () => {
                               <span>{messageSenderName}</span>
                             </button>
                           )}
-	                          {message.forwardedFrom && <div className="forwarded-preview">{t('forwardedFrom')} {message.forwardedFrom}</div>}
-	                          {message.replyTo && <button type="button" className="reply-preview reply-jump" onClick={(event) => { event.stopPropagation(); document.querySelector(`[data-message-id="${message.replyTo.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>↪ {message.replyTo.sender}: {message.replyTo.text || t('originalMessageDeleted')}</button>}
+	                          {!isDeleted && message.forwardedFrom && <div className="forwarded-preview">{t('forwardedFrom')} {message.forwardedFrom}</div>}
+	                          {!isDeleted && message.replyTo && <button type="button" className="reply-preview reply-jump" onClick={(event) => { event.stopPropagation(); document.querySelector(`[data-message-id="${message.replyTo.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>↪ {message.replyTo.sender}: {message.replyTo.text || t('originalMessageDeleted')}</button>}
 	                          {isDeleted ? (
 	                            <div className="message-deleted">{t('deletedMessage')} {message.deletedBy ? `· ${message.deletedBy}` : ''}</div>
 	                          ) : hasTextContent ? (
@@ -5399,7 +5403,7 @@ const EmployeeChat = () => {
                             </div>
                           )}
 
-                          {messageReactionBadges.length > 0 && (
+                          {!isDeleted && messageReactionBadges.length > 0 && (
 	                            <div className="message-reactions-inline" aria-label={t('emoji')}>
                               {messageReactionBadges.map((emoji) => {
                                 const active = (message.reactions?.[emoji] || []).includes(user.username);
@@ -5870,15 +5874,22 @@ const EmployeeChat = () => {
                 {selectedThreadId && loadingConversationIds[selectedThreadId] && <div className="empty-chat">{t('loading')}…</div>}
                 {selectedThreadId && !loadingConversationIds[selectedThreadId] && selectedThreadMessages.map((message) => {
                   const isDeleted = Boolean(message.deletedAt);
-                  const attachments = !isDeleted && message.attachments?.length ? message.attachments : !isDeleted && message.attachment ? [message.attachment] : [];
+                  const attachments = isDeleted && !isAdmin ? [] : getMessageAttachments(message);
+                  const retainedText = isDeleted && isAdmin ? String(message.text || '').trim() : '';
                   return (
                     <div key={message.id} className={`audit-message ${isDeleted ? 'deleted' : ''}`}>
                       <div className="message-meta"><span>{message.sender}</span><span>{new Date(message.createdAt).toLocaleString(interfaceLocale)}</span></div>
                       <div>{isDeleted ? <em>{t('deletedMessage')}</em> : message.text}</div>
                       {isDeleted && <div className="audit-history">{t('deletedBy')}: {message.deletedBy || '—'} · {message.deletedAt ? new Date(message.deletedAt).toLocaleString(interfaceLocale) : '—'}</div>}
+                      {isDeleted && isAdmin && (retainedText || attachments.length > 0) && (
+                        <div className="audit-retained-original">
+                          <strong>{t('savedOriginal')}:</strong>
+                          {retainedText && <div>{retainedText}</div>}
+                        </div>
+                      )}
                       {attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <AttachmentCard key={`${message.id}-audit-${index}`} cardKey={`${message.id}-audit-${index}`} file={file} isEnglish={isEnglishInterface} />)}</div>}
                       {Array.isArray(message.audit) && message.audit.length > 0 && <div className="audit-history"><strong>{t('history')}:</strong>{message.audit.slice(-4).map((entry, index) => <span key={`${message.id}-audit-entry-${index}`}>{entry.action || t('change')} · {entry.by || '—'} · {entry.at ? new Date(entry.at).toLocaleString(interfaceLocale) : '—'}</span>)}</div>}
-                      <div className="message-controls"><button type="button" onClick={() => editMessage(message.id, selectedThreadId)}>{t('edit')}</button><button type="button" onClick={() => deleteMessage(message.id, selectedThreadId)}>{t('delete')}</button></div>
+                      {!isDeleted && <div className="message-controls"><button type="button" onClick={() => editMessage(message.id, selectedThreadId)}>{t('edit')}</button><button type="button" onClick={() => deleteMessage(message.id, selectedThreadId)}>{t('delete')}</button></div>}
                     </div>
                   );
                 })}
