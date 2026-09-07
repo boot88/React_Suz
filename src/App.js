@@ -112,6 +112,10 @@ function Sidebar({ language, theme, onLanguageChange, onThemeChange }) {
     }
   });
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
+  // Ответы на подсчёт непрочитанных могут приходить не в том же порядке,
+  // в котором были отправлены запросы. Храним версию, чтобы старый ответ
+  // не вернул индикатор после того, как диалог уже был прочитан.
+  const chatUnreadRequestVersionRef = useRef(0);
 
   useEffect(() => {
     const handleResize = () => {
@@ -140,10 +144,11 @@ function Sidebar({ language, theme, onLanguageChange, onThemeChange }) {
     };
 
     const fetchChatUnread = async () => {
+      const requestVersion = ++chatUnreadRequestVersionRef.current;
       try {
         const response = await authFetch(`${API_BASE_URL}/chat/threads/unread-count`);
         const data = await response.json().catch(() => ({}));
-        if (!response.ok || isCancelled) return;
+        if (!response.ok || isCancelled || requestVersion !== chatUnreadRequestVersionRef.current) return;
         setChatUnreadCount(Number(data?.count || 0));
       } catch (error) {
         // Канал уведомлений чата может быть недоступен — не критично.
@@ -163,6 +168,9 @@ function Sidebar({ language, theme, onLanguageChange, onThemeChange }) {
       if (document.visibilityState === 'visible') refreshAll();
     };
     const handleChatRead = (event) => {
+      // Не даём уже начатому до прочтения запросу перезаписать актуальное
+      // значение, пока запрашиваем подтверждённый счётчик заново.
+      chatUnreadRequestVersionRef.current += 1;
       const decrement = Math.max(0, Number(event?.detail?.decrement) || 0);
       if (decrement > 0) {
         setChatUnreadCount((current) => Math.max(0, current - decrement));
