@@ -1370,11 +1370,18 @@ const Dashboard = () => {
             <div><strong>Подана</strong><span>{formatCreatedAt(selectedApplication.created_at || selectedApplication.data)}</span></div>
             {selectedWorkCycles.length === 0 && !isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.takenAt ? <div><strong>Взята в работу</strong><span>{formatCreatedAt(selectedAppTimes.takenAt)}</span></div> : null}
             {selectedWorkCycles.length === 0 && !isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.waitSeconds != null && <div><strong>Подача → взятие</strong><span>{formatApplicationDuration(selectedAppTimes.waitSeconds)}</span></div>}
-            {selectedWorkCycles.map((cycle, index) => <React.Fragment key={`${cycle.started_at}-${cycle.closed_at || 'active'}-${index}`}>
-              <div><strong>{index === 0 ? 'Взята в работу' : 'Взята повторно в работу'}</strong><span>{formatCreatedAt(cycle.taken_at || cycle.started_at)}</span></div>
-              {index === 0 && !isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.waitSeconds != null && <div><strong>Подача → взятие</strong><span>{formatApplicationDuration(selectedAppTimes.waitSeconds)}</span></div>}
-              {cycle.closed_at && !(selectedApplication.fl && index === selectedWorkCycles.length - 1) && <div><strong>Переоткрыта</strong><span>{formatCreatedAt(cycle.closed_at)}</span></div>}
-            </React.Fragment>)}
+            {selectedWorkCycles.map((cycle, index) => {
+              const takenAt = cycle.taken_at || cycle.started_at;
+              const previousCycle = selectedWorkCycles[index - 1];
+              const waitingSeconds = index === 0
+                ? selectedAppTimes?.waitSeconds
+                : secondsBetweenValues(previousCycle?.closed_at, takenAt);
+              return <React.Fragment key={`${cycle.started_at}-${cycle.closed_at || 'active'}-${index}`}>
+                <div><strong>{index === 0 ? 'Взята в работу' : 'Взята повторно в работу'}</strong><span>{formatCreatedAt(takenAt)}</span></div>
+                {!isAdministratorCreatedApplication(selectedApplication) && waitingSeconds != null && <div><strong>Подача → взятие</strong><span>{formatApplicationDuration(waitingSeconds)}</span></div>}
+                {cycle.closed_at && !(selectedApplication.fl && index === selectedWorkCycles.length - 1) && <div><strong>Переоткрыта</strong><span>{formatCreatedAt(cycle.closed_at)}</span></div>}
+              </React.Fragment>;
+            })}
             {selectedAppTimes?.closedAt && <div><strong>Закрыта</strong><span>{formatCreatedAt(selectedAppTimes.closedAt)}</span></div>}
             {selectedAppTimes?.closedAt && selectedClosureSeconds != null && <div><strong>Подали → полностью закрыли</strong><span>{formatApplicationDuration(selectedClosureSeconds)}</span></div>}
           </div></div>
