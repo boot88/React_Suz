@@ -201,8 +201,9 @@ const writeSqlMessage = async (conversationId, message = {}) => {
     .toLowerCase()
     .split('::')
     .map((item) => item.trim());
-  const fileIds = message.deletedAt ? [] : getMessageAttachmentFileIds(message);
-  await db.execute('DELETE FROM chat_message_files WHERE message_id = ?', [message.id]);
+  // File links are append-only. Removing an attachment from the visible
+  // message must not sever the historical message -> file relationship.
+  const fileIds = getMessageAttachmentFileIds(message);
   if (fileIds.length && participantA && participantB) {
     await db.query(
       `INSERT IGNORE INTO chat_message_files
@@ -210,12 +211,7 @@ const writeSqlMessage = async (conversationId, message = {}) => {
        VALUES ?`,
       [fileIds.map((fileId) => [message.id, fileId, conversationId, participantA, participantB])]
     );
-    if (await ensureChatFilesSqlSchema()) {
-      await db.query(
-        'UPDATE chat_files SET claimed_at = COALESCE(claimed_at, NOW()) WHERE id IN (?)',
-        [fileIds]
-      );
-    }
+    await markFilesRetained(fileIds);
   }
   await indexMessageForRecordsArchive(db, conversationId, message);
   return true;
@@ -418,6 +414,7 @@ const ensureChatFilesSqlSchema = async () => {
       scope VARCHAR(32) NOT NULL,
       original_name VARCHAR(255) NOT NULL,
       stored_name VARCHAR(255) NOT NULL,
+      relative_path VARCHAR(1024) NULL,
       url VARCHAR(512) NOT NULL,
       thumbnail_url VARCHAR(512) NULL,
       mime_type VARCHAR(255) NOT NULL,
@@ -427,17 +424,35 @@ const ensureChatFilesSqlSchema = async () => {
       metadata_json LONGTEXT NULL,
       uploaded_by VARCHAR(255) NULL,
       claimed_at DATETIME NULL,
+      retention_state VARCHAR(32) NOT NULL DEFAULT 'temporary',
+      retained_at DATETIME NULL,
       is_verified TINYINT(1) NOT NULL DEFAULT 1,
       deleted_at DATETIME NULL,
       INDEX idx_chat_files_scope (scope),
       INDEX idx_chat_files_uploaded_at (uploaded_at),
-      INDEX idx_chat_files_claimed_at (claimed_at)
+      INDEX idx_chat_files_claimed_at (claimed_at),
+      INDEX idx_chat_files_retention (retention_state, uploaded_at)
     )`);
     await db.execute('ALTER TABLE chat_files ADD COLUMN uploaded_by VARCHAR(255) NULL').catch(() => {});
     await db.execute('ALTER TABLE chat_files ADD COLUMN claimed_at DATETIME NULL').catch(() => {});
     await db.execute('CREATE INDEX idx_chat_files_claimed_at ON chat_files (claimed_at)').catch(() => {});
+    await db.execute('ALTER TABLE chat_files ADD COLUMN relative_path VARCHAR(1024) NULL').catch(() => {});
+    await db.execute("ALTER TABLE chat_files ADD COLUMN retention_state VARCHAR(32) NOT NULL DEFAULT 'temporary'").catch(() => {});
+    await db.execute('ALTER TABLE chat_files ADD COLUMN retained_at DATETIME NULL').catch(() => {});
+    await db.execute('CREATE INDEX idx_chat_files_retention ON chat_files (retention_state, uploaded_at)').catch(() => {});
     await db.execute('ALTER TABLE chat_files ADD COLUMN is_verified TINYINT(1) NOT NULL DEFAULT 1').catch(() => {});
     await db.execute('ALTER TABLE chat_files ADD COLUMN deleted_at DATETIME NULL').catch(() => {});
+    await db.execute(
+      `UPDATE chat_files
+       SET relative_path = CONCAT(scope, '/', stored_name)
+       WHERE relative_path IS NULL OR relative_path = ''`
+    );
+    await db.execute(
+      `UPDATE chat_files
+       SET retention_state = 'retained',
+           retained_at = COALESCE(retained_at, claimed_at)
+       WHERE claimed_at IS NOT NULL`
+    );
 
     chatFilesSqlReady = true;
     chatFilesSqlRetryAt = 0;
@@ -456,6 +471,20 @@ const ensureChatFilesSqlSchema = async () => {
   return chatFilesSqlCheckPromise;
 };
 
+const markFilesRetained = async (fileIds = []) => {
+  const uniqueFileIds = [...new Set((Array.isArray(fileIds) ? fileIds : []).filter(Boolean))];
+  if (!uniqueFileIds.length || !await ensureChatFilesSqlSchema()) return 0;
+  const [result] = await db.query(
+    `UPDATE chat_files
+     SET claimed_at = COALESCE(claimed_at, NOW()),
+         retention_state = 'retained',
+         retained_at = COALESCE(retained_at, NOW())
+     WHERE id IN (?) AND deleted_at IS NULL`,
+    [uniqueFileIds]
+  );
+  return Number(result?.affectedRows) || 0;
+};
+
 const writeSqlFileMetadata = async (file = {}) => {
   if (!await ensureChatFilesSqlSchema()) return false;
   const metadata = JSON.stringify({
@@ -467,11 +496,14 @@ const writeSqlFileMetadata = async (file = {}) => {
     aspectRatio: Number(file.aspectRatio) || 0,
     duration: Number(file.duration) || 0
   });
+  const relativePath = String(file.relativePath || `${file.scope}/${file.storedName}`).replace(/\\/g, '/');
+  const retentionState = file.retentionState === 'retained' || file.claimedAt ? 'retained' : 'temporary';
   const params = [
     file.id,
     file.scope,
     file.originalName || file.name,
     file.storedName,
+    relativePath,
     file.url,
     file.thumbnailUrl || null,
     file.type,
@@ -481,22 +513,24 @@ const writeSqlFileMetadata = async (file = {}) => {
     metadata,
     file.uploadedBy || null,
     file.claimedAt ? new Date(file.claimedAt) : null,
-    file.isVerified !== false,
+    retentionState,
+    file.retainedAt ? new Date(file.retainedAt) : (file.claimedAt ? new Date(file.claimedAt) : null),
+    file.isVerified === false ? 0 : 1,
     file.deletedAt ? new Date(file.deletedAt) : null
   ];
 
-  const mysqlParams = [...params];
-  mysqlParams[13] = file.isVerified === false ? 0 : 1;
   await db.execute(
     `INSERT INTO chat_files (
-      id, scope, original_name, stored_name, url, thumbnail_url, mime_type, size_bytes,
-      sha256, uploaded_at, metadata_json, uploaded_by, claimed_at, is_verified, deleted_at
+      id, scope, original_name, stored_name, relative_path, url, thumbnail_url, mime_type, size_bytes,
+      sha256, uploaded_at, metadata_json, uploaded_by, claimed_at, retention_state, retained_at,
+      is_verified, deleted_at
     )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        scope = VALUES(scope),
        original_name = VALUES(original_name),
        stored_name = VALUES(stored_name),
+       relative_path = VALUES(relative_path),
        url = VALUES(url),
        thumbnail_url = VALUES(thumbnail_url),
        mime_type = VALUES(mime_type),
@@ -506,9 +540,11 @@ const writeSqlFileMetadata = async (file = {}) => {
        metadata_json = VALUES(metadata_json),
        uploaded_by = VALUES(uploaded_by),
        claimed_at = COALESCE(VALUES(claimed_at), claimed_at),
+       retention_state = IF(retention_state = 'retained', retention_state, VALUES(retention_state)),
+       retained_at = COALESCE(retained_at, VALUES(retained_at)),
        is_verified = VALUES(is_verified),
        deleted_at = VALUES(deleted_at)`,
-    mysqlParams
+    params
   );
   return true;
 };
@@ -716,7 +752,7 @@ const saveMultipartUpload = async (req) => {
         thumbnailUrl = `/api/chat/files/${encodeURIComponent(fileId)}/download?variant=thumbnail`;
       }
     }
-    const file = { id: fileId, scope: safeScope, name: safeOriginalName, type: mime, size: filePart.size, url, thumbnailUrl, originalName: fields.name || filePart.filename, uploadedBy: req.auth.login, storedName, thumbnailStoredName, sha256: filePart.hash.digest('hex'), width: Math.max(0, Number(fields.width) || 0), height: Math.max(0, Number(fields.height) || 0), aspectRatio: Math.max(0, Number(fields.aspectRatio) || 0), duration: Math.max(0, Number(fields.duration) || 0), isVerified: true, uploadedAt: new Date().toISOString() };
+    const file = { id: fileId, scope: safeScope, name: safeOriginalName, type: mime, size: filePart.size, url, thumbnailUrl, originalName: fields.name || filePart.filename, uploadedBy: req.auth.login, storedName, relativePath: `${safeScope}/${storedName}`, thumbnailStoredName, sha256: filePart.hash.digest('hex'), retentionState: 'temporary', width: Math.max(0, Number(fields.width) || 0), height: Math.max(0, Number(fields.height) || 0), aspectRatio: Math.max(0, Number(fields.aspectRatio) || 0), duration: Math.max(0, Number(fields.duration) || 0), isVerified: true, uploadedAt: new Date().toISOString() };
     if (!await writeSqlFileMetadata(file)) { const error = new Error('Постоянное хранилище файлов временно недоступно'); error.status = 503; throw error; }
     uploadSaved = true;
     return file;
@@ -807,6 +843,7 @@ const materializeLegacyAttachment = async (attachment = {}, scope = 'chat') => {
     name: safeName,
     originalName: attachment.originalName || attachment.name || safeName,
     storedName,
+    relativePath: `${scope}/${storedName}`,
     thumbnailStoredName,
     type: mime,
     size: fileData.length,
@@ -815,6 +852,7 @@ const materializeLegacyAttachment = async (attachment = {}, scope = 'chat') => {
     thumbnailUrl,
     uploadedBy: attachment.uploadedBy || '',
     uploadedAt: attachment.uploadedAt || new Date().toISOString(),
+    retentionState: 'temporary',
     isVerified: true,
     fileData,
     thumbnailData
@@ -886,9 +924,9 @@ const parseFileMetadataJson = (value) => {
 };
 
 const CHAT_FILE_METADATA_COLUMNS = [
-  'id', 'scope', 'original_name', 'stored_name', 'url', 'thumbnail_url',
+  'id', 'scope', 'original_name', 'stored_name', 'relative_path', 'url', 'thumbnail_url',
   'mime_type', 'size_bytes', 'sha256', 'uploaded_at', 'metadata_json',
-  'uploaded_by', 'claimed_at', 'is_verified', 'deleted_at'
+  'uploaded_by', 'claimed_at', 'retention_state', 'retained_at', 'is_verified', 'deleted_at'
 ].join(', ');
 
 const readSqlFileMetadata = async (fileId) => {
@@ -943,15 +981,17 @@ const getFeedAttachmentsFromPost = (post = {}) => [
 const resolveStoredDownload = (file = {}, variant = '') => {
   const metadata = parseFileMetadataJson(file.metadata_json);
   const scope = ALLOWED_UPLOAD_SCOPES.has(file.scope) ? file.scope : 'chat';
-  const storedName = variant === 'thumbnail'
-    ? (metadata.thumbnailStoredName || path.basename(decodeURIComponent(String(file.thumbnail_url || '').split('?')[0] || '')))
-    : file.stored_name;
+  const storedName = metadata.thumbnailStoredName
+    || path.basename(decodeURIComponent(String(file.thumbnail_url || '').split('?')[0] || ''));
+  const relativePath = variant === 'thumbnail'
+    ? path.join(scope, path.basename(storedName))
+    : String(file.relative_path || path.join(scope, path.basename(file.stored_name || '')));
   const fileName = variant === 'thumbnail' ? `thumb-${file.original_name || file.id}.jpg` : (file.original_name || file.id);
   const mime = variant === 'thumbnail' ? 'image/jpeg' : file.mime_type;
-  if (!storedName) return null;
-  const safeBase = path.basename(storedName);
-  const filePath = path.join(uploadsDir, scope, safeBase);
-  if (!filePath.startsWith(path.join(uploadsDir, scope))) return null;
+  if (!relativePath) return null;
+  const storageRoot = path.resolve(uploadsDir);
+  const filePath = path.resolve(storageRoot, relativePath);
+  if (filePath !== storageRoot && !filePath.startsWith(`${storageRoot}${path.sep}`)) return null;
   return { filePath, fileName, mime };
 };
 
@@ -977,11 +1017,12 @@ const cleanupOrphanChatUploads = async () => {
      FROM chat_files AS files
      LEFT JOIN chat_message_files AS links ON links.file_id = files.id
      LEFT JOIN feed_post_files AS feed_links ON feed_links.file_id = files.id
-     LEFT JOIN feed_posts AS feed_posts ON feed_posts.id = feed_links.post_id AND feed_posts.deleted_at IS NULL
      WHERE files.deleted_at IS NULL
+       AND files.claimed_at IS NULL
+       AND files.retention_state = 'temporary'
        AND files.uploaded_at < ?
        AND links.file_id IS NULL
-       AND feed_posts.id IS NULL
+       AND feed_links.file_id IS NULL
      LIMIT 100`,
     [cutoff]
   );
@@ -1281,13 +1322,12 @@ const writeSqlFeedPost = async (post = {}) => {
     [values[0], values[1], values[2], values[3] ? 1 : 0, values[4], values[5], values[6]]
   );
   const fileIds = [...new Set(getFeedAttachmentsFromPost(post).map(getAttachmentFileId).filter(Boolean))];
-  await db.execute('DELETE FROM feed_post_files WHERE post_id = ?', [post.id]);
-  if (!post.deletedAt && fileIds.length) {
+  // Preserve historical links when a post or attachment is hidden. The live
+  // post JSON controls visibility; this table controls retention and restore.
+  if (fileIds.length) {
     await db.query('INSERT IGNORE INTO feed_post_files (post_id, file_id) VALUES ?', [fileIds.map((fileId) => [post.id, fileId])]);
   }
-  if (fileIds.length && await ensureChatFilesSqlSchema()) {
-    await db.query('UPDATE chat_files SET claimed_at = COALESCE(claimed_at, NOW()) WHERE id IN (?)', [fileIds]);
-  }
+  await markFilesRetained(fileIds);
   return true;
 };
 
@@ -1587,6 +1627,118 @@ const runWithConcurrency = async (items, worker, concurrency = 2) => {
   await Promise.all(workers);
 };
 
+const insertRowsInChunks = async (sql, rows = [], chunkSize = 500) => {
+  let inserted = 0;
+  for (let offset = 0; offset < rows.length; offset += chunkSize) {
+    const chunk = rows.slice(offset, offset + chunkSize);
+    if (!chunk.length) continue;
+    const [result] = await db.query(sql, [chunk]);
+    inserted += Number(result?.affectedRows) || 0;
+  }
+  return inserted;
+};
+
+const repairStoredRecordFileLinks = async () => {
+  if (
+    !await ensureChatSqlSchema()
+    || !await ensureChatFilesSqlSchema()
+    || !await ensureFeedSqlSchema()
+  ) {
+    throw new Error('Хранилище чата, ленты или файлов недоступно');
+  }
+
+  const [fileRows] = await db.execute('SELECT id FROM chat_files WHERE deleted_at IS NULL');
+  const storedFileIds = new Set((fileRows || []).map((row) => String(row.id || '')).filter(Boolean));
+  const missingFileIds = new Set();
+  const chatLinks = new Map();
+  const feedLinks = new Map();
+
+  const collectChatMessage = (conversationId, message) => {
+    if (!conversationId || !message?.id) return;
+    const [participantA = '', participantB = ''] = getParticipantsFromConversationId(conversationId);
+    if (!participantA || !participantB) return;
+    getMessageAttachmentFileIds(message).forEach((fileId) => {
+      if (!storedFileIds.has(fileId)) {
+        missingFileIds.add(fileId);
+        return;
+      }
+      const key = `${message.id}\u0000${fileId}`;
+      chatLinks.set(key, [message.id, fileId, conversationId, participantA, participantB]);
+    });
+  };
+
+  const collectFeedPost = (postId, post) => {
+    if (!postId || !post) return;
+    getFeedAttachmentsFromPost(post).map(getAttachmentFileId).filter(Boolean).forEach((fileId) => {
+      if (!storedFileIds.has(fileId)) {
+        missingFileIds.add(fileId);
+        return;
+      }
+      feedLinks.set(`${postId}\u0000${fileId}`, [postId, fileId]);
+    });
+  };
+
+  const [[messageRows], [versionRows], [postRows], threads, archivedFeed] = await Promise.all([
+    db.execute('SELECT id, conversation_id, message_json FROM chat_messages'),
+    db.execute('SELECT message_id, conversation_id, snapshot_json FROM chat_message_versions'),
+    db.execute('SELECT id, post_json FROM feed_posts'),
+    readThreads(),
+    readFeed()
+  ]);
+
+  (messageRows || []).forEach((row) => {
+    const message = parseSqlMessage(row.message_json);
+    if (message && !message.id) message.id = row.id;
+    collectChatMessage(row.conversation_id, message);
+  });
+  (versionRows || []).forEach((row) => {
+    const message = parseSqlMessage(row.snapshot_json);
+    if (message && !message.id) message.id = row.message_id;
+    collectChatMessage(row.conversation_id, message);
+  });
+  Object.entries(threads || {}).forEach(([conversationId, messages]) => {
+    (Array.isArray(messages) ? messages : []).forEach((message) => collectChatMessage(conversationId, message));
+  });
+  (postRows || []).forEach((row) => collectFeedPost(row.id, parseSqlJson(row.post_json)));
+  (Array.isArray(archivedFeed) ? archivedFeed : []).forEach((post) => collectFeedPost(post?.id, post));
+
+  const insertedChatLinks = await insertRowsInChunks(
+    `INSERT IGNORE INTO chat_message_files
+     (message_id, file_id, conversation_id, participant_a, participant_b)
+     VALUES ?`,
+    [...chatLinks.values()]
+  );
+  const insertedFeedLinks = await insertRowsInChunks(
+    'INSERT IGNORE INTO feed_post_files (post_id, file_id) VALUES ?',
+    [...feedLinks.values()]
+  );
+
+  const [retainedResult] = await db.execute(
+    `UPDATE chat_files AS files
+     SET files.claimed_at = COALESCE(files.claimed_at, NOW()),
+         files.retention_state = 'retained',
+         files.retained_at = COALESCE(files.retained_at, NOW()),
+         files.relative_path = COALESCE(NULLIF(files.relative_path, ''), CONCAT(files.scope, '/', files.stored_name))
+     WHERE files.deleted_at IS NULL
+       AND (
+         EXISTS (SELECT 1 FROM chat_message_files AS chat_links WHERE chat_links.file_id = files.id)
+         OR EXISTS (SELECT 1 FROM feed_post_files AS feed_links WHERE feed_links.file_id = files.id)
+       )`
+  );
+
+  return {
+    scannedMessages: (messageRows || []).length,
+    scannedVersions: (versionRows || []).length,
+    scannedFeedPosts: (postRows || []).length,
+    discoveredChatLinks: chatLinks.size,
+    discoveredFeedLinks: feedLinks.size,
+    insertedChatLinks,
+    insertedFeedLinks,
+    retainedFiles: Number(retainedResult?.affectedRows) || 0,
+    missingFileIds: [...missingFileIds]
+  };
+};
+
 const migrateArchiveToMysql = async () => {
   if (archiveMigrationPromise) return archiveMigrationPromise;
 
@@ -1668,8 +1820,9 @@ const migrateArchiveToMysql = async () => {
       await runWithConcurrency(reactions, ({ emoji, login }) => setSqlFeedReaction(post.id, emoji, login, true), 2);
     });
 
-    if (migratedFiles || messages.length || feedPosts.length) {
-      console.log(`MySQL archive migration completed: ${messages.length} archived messages, ${(sqlMessageRows || []).length} indexed messages, ${feedPosts.length} feed posts, ${migratedFiles} stored files.`);
+    const linkRepair = await repairStoredRecordFileLinks();
+    if (migratedFiles || messages.length || feedPosts.length || linkRepair.insertedChatLinks || linkRepair.insertedFeedLinks) {
+      console.log(`MySQL archive migration completed: ${messages.length} archived messages, ${(sqlMessageRows || []).length} indexed messages, ${feedPosts.length} feed posts, ${migratedFiles} stored files, ${linkRepair.insertedChatLinks} repaired chat links, ${linkRepair.insertedFeedLinks} repaired feed links.`);
     }
   })().catch((error) => {
     archiveMigrationPromise = null;
@@ -2593,10 +2746,6 @@ router.post('/threads/:conversationId/messages/bulk-delete', async (req, res) =>
        WHERE conversation_id = ? AND id IN (?)`,
       [deletedAt, req.auth.login, deletedAt, new Date(deletedAt), new Date(deletedAt), conversationId, messageIds]
     );
-    await connection.query(
-      'DELETE FROM chat_message_files WHERE conversation_id = ? AND message_id IN (?)',
-      [conversationId, messageIds]
-    );
     await connection.commit();
     broadcastThreadEvent('messages-bulk-deleted', conversationId, {
       messageIds,
@@ -2669,5 +2818,6 @@ router.delete('/threads/:conversationId', requireRole('admin', 'manager'), async
 });
 
 router.runChatStorageMigration = migrateArchiveToMysql;
+router.repairStoredRecordFileLinks = repairStoredRecordFileLinks;
 
 module.exports = router;
