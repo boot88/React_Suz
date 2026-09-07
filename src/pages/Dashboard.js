@@ -979,14 +979,11 @@ const Dashboard = () => {
   const selectedAppTimes = selectedApplication ? getApplicationTimes(selectedApplication, dashboardNow) : null;
   const selectedWorkCycles = Array.isArray(selectedApplication?.work_cycles) ? selectedApplication.work_cycles : [];
   const selectedCumulativeWorkSeconds = selectedApplication ? getCumulativeWorkSeconds(selectedApplication, dashboardNow) : null;
-  const selectedCycleWorkSeconds = selectedWorkCycles.length > 0
-    ? selectedWorkCycles.reduce((total, cycle) => total + Math.max(0, Number(cycle.duration_seconds) || 0), 0)
+  // Полный срок заявки всегда идёт от первой подачи до окончательного
+  // закрытия — даже если сотрудник возвращал её в работу несколько раз.
+  const selectedClosureSeconds = selectedAppTimes?.closedAt
+    ? selectedAppTimes.totalSeconds
     : null;
-  // После повторного открытия итог — это именно сумма отдельных периодов
-  // работы, а не календарный промежуток от первой подачи до последнего закрытия.
-  const selectedClosureSeconds = selectedCycleWorkSeconds != null
-    ? selectedCycleWorkSeconds
-    : (selectedCumulativeWorkSeconds ?? selectedAppTimes?.totalSeconds ?? null);
 
   return (
     <div className="dashboard-container">
@@ -1352,7 +1349,7 @@ const Dashboard = () => {
               <span>
                 {!isAdministratorCreatedApplication(selectedApplication) && selectedCumulativeWorkSeconds != null && <em>Всего в работе: {formatApplicationDuration(selectedCumulativeWorkSeconds)}</em>}
                 {isAdministratorCreatedApplication(selectedApplication) && !selectedApplication.fl && selectedAppTimes.workSeconds != null && <em>В работе: {formatApplicationDuration(selectedAppTimes.workSeconds)}</em>}
-                {selectedAppTimes.closedAt && selectedClosureSeconds != null && <em>Подали → закрыли: {formatApplicationDuration(selectedClosureSeconds)}</em>}
+                {selectedAppTimes.closedAt && selectedClosureSeconds != null && <em>Подали → полностью закрыли: {formatApplicationDuration(selectedClosureSeconds)}</em>}
               </span>
             )}
           </div>
@@ -1371,17 +1368,15 @@ const Dashboard = () => {
             <div><strong>Источник</strong><span>{getApplicationSourceLabel(selectedApplication)}</span></div>
             <div><strong>Исполнитель</strong><span>{isAdministratorCreatedApplication(selectedApplication) ? (selectedApplication.executor || '—') : (selectedApplication.executor || selectedApplication.accepted_by || 'Не назначен')}</span></div>
             <div><strong>Подана</strong><span>{formatCreatedAt(selectedApplication.created_at || selectedApplication.data)}</span></div>
-            {!isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.takenAt ? <div><strong>Взята в работу</strong><span>{formatCreatedAt(selectedAppTimes.takenAt)}</span></div> : null}
-            {selectedWorkCycles.length === 0 && !isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.closedAt ? <div><strong>Закрыта</strong><span>{formatCreatedAt(selectedAppTimes.closedAt)}</span></div> : null}
-            {selectedWorkCycles.length === 0 && selectedAppTimes?.closedAt && selectedClosureSeconds != null && <div><strong>Подача → закрытие</strong><span>{formatApplicationDuration(selectedClosureSeconds)}</span></div>}
+            {selectedWorkCycles.length === 0 && !isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.takenAt ? <div><strong>Взята в работу</strong><span>{formatCreatedAt(selectedAppTimes.takenAt)}</span></div> : null}
             {!isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.waitSeconds != null && <div><strong>Подача → взятие</strong><span>{formatApplicationDuration(selectedAppTimes.waitSeconds)}</span></div>}
             {!isAdministratorCreatedApplication(selectedApplication) && selectedCumulativeWorkSeconds != null && <div><strong>Общее время работы</strong><span>{formatApplicationDuration(selectedCumulativeWorkSeconds)}</span></div>}
-            {selectedWorkCycles.map((cycle, index) => <React.Fragment key={`${cycle.started_at}-${cycle.closed_at}-${index}`}>
-              {index > 0 && <div><strong>Повторно подана</strong><span>{formatCreatedAt(cycle.started_at)}</span></div>}
-              <div><strong>{index === 0 ? 'Закрыта' : 'Повторно закрыта'}</strong><span>{formatCreatedAt(cycle.closed_at)}</span></div>
-              <div><strong>Подача → закрытие</strong><span>{formatApplicationDuration(cycle.duration_seconds)}</span></div>
+            {selectedWorkCycles.map((cycle, index) => <React.Fragment key={`${cycle.started_at}-${cycle.closed_at || 'active'}-${index}`}>
+              <div><strong>{index === 0 ? 'Взята в работу' : 'Взята повторно в работу'}</strong><span>{formatCreatedAt(cycle.taken_at || cycle.started_at)}</span></div>
+              {cycle.closed_at && !(selectedApplication.fl && index === selectedWorkCycles.length - 1) && <div><strong>Переоткрыта</strong><span>{formatCreatedAt(cycle.closed_at)}</span></div>}
             </React.Fragment>)}
-            {!selectedApplication.fl && selectedWorkCycles.length > 0 && selectedApplication.work_started_at && <div><strong>Повторно подана</strong><span>{formatCreatedAt(selectedApplication.work_started_at)}</span></div>}
+            {selectedAppTimes?.closedAt && <div><strong>Закрыта</strong><span>{formatCreatedAt(selectedAppTimes.closedAt)}</span></div>}
+            {selectedAppTimes?.closedAt && selectedClosureSeconds != null && <div><strong>Подали → полностью закрыли</strong><span>{formatApplicationDuration(selectedClosureSeconds)}</span></div>}
           </div></div>
           {selectedApplication.admin_comment && (
             <div className="side-panel-section">

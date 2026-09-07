@@ -160,10 +160,16 @@ const normalizeApplication = (app = {}) => {
   const status = normalizeApplicationStatus(app.status, app.fl ? 'done' : 'new');
   let sourceAttachments = [];
   try { sourceAttachments = JSON.parse(app.source_attachments_json || '[]'); } catch { sourceAttachments = []; }
+  const workCycles = parseWorkCycles(app.work_cycles_json);
   const timeline = [
     ['created', 'Создана', app.created_at || app.data],
-    ['accepted', 'Принята', app.accepted_at],
-    ['in_progress', 'В работе', app.work_started_at],
+    ...(workCycles.length
+      ? workCycles.map((cycle, index) => [
+        `accepted_${index + 1}`,
+        index === 0 ? 'Взята в работу' : 'Взята повторно в работу',
+        cycle.started_at
+      ])
+      : [['accepted', 'Взята в работу', app.work_started_at || app.accepted_at]]),
     ['done', 'Закрыта', app.employee_confirmed_at || (status === 'done' ? app.end_data : null)]
   ]
     .filter(([, , at]) => Boolean(at))
@@ -180,7 +186,7 @@ const normalizeApplication = (app = {}) => {
   waiting_seconds: app.waiting_seconds == null ? null : Number(app.waiting_seconds),
   arrival_seconds: app.arrival_seconds == null ? null : Number(app.arrival_seconds),
   work_seconds: app.work_seconds == null ? null : Number(app.work_seconds),
-  work_cycles: parseWorkCycles(app.work_cycles_json),
+  work_cycles: workCycles,
   sla_paused_seconds: app.sla_paused_seconds == null ? null : Number(app.sla_paused_seconds)
 };
 };
@@ -190,16 +196,52 @@ const parseWorkCycles = (value) => {
     const parsed = typeof value === 'string' ? JSON.parse(value || '[]') : value;
     if (!Array.isArray(parsed)) return [];
     return parsed
-      .filter((cycle) => cycle && cycle.started_at && cycle.closed_at)
-      .map((cycle) => ({
-        started_at: cycle.started_at,
-        closed_at: cycle.closed_at,
-        duration_seconds: Math.max(0, Number(cycle.duration_seconds) || 0)
-      }));
+      .map((cycle) => {
+        const takenAt = cycle?.taken_at || cycle?.started_at || '';
+        if (!cycle || !takenAt) return null;
+        return {
+          // `started_at` remains for compatibility with records already saved.
+          started_at: takenAt,
+          taken_at: takenAt,
+          closed_at: cycle.closed_at || null,
+          duration_seconds: Math.max(0, Number(cycle.duration_seconds) || 0),
+          executor: cycle.executor || '',
+          accepted_by: cycle.accepted_by || ''
+        };
+      })
+      .filter(Boolean);
   } catch {
     return [];
   }
 };
+
+const closeOpenWorkCycle = (cycles = [], closedAt) => {
+  const openIndex = [...cycles].map((cycle, index) => ({ cycle, index }))
+    .reverse()
+    .find(({ cycle }) => cycle?.started_at && !cycle.closed_at)?.index;
+  if (openIndex == null) return cycles;
+  return cycles.map((cycle, index) => (
+    index === openIndex
+      ? {
+        ...cycle,
+        closed_at: closedAt,
+        duration_seconds: secondsBetween(cycle.started_at, closedAt) || 0
+      }
+      : cycle
+  ));
+};
+
+const addWorkCycle = (cycles = [], { takenAt, executor = '', acceptedBy = '' } = {}) => ([
+  ...closeOpenWorkCycle(cycles, takenAt),
+  {
+    started_at: takenAt,
+    taken_at: takenAt,
+    closed_at: null,
+    duration_seconds: 0,
+    executor,
+    accepted_by: acceptedBy
+  }
+]);
 
 const APPLICATION_WORKFLOW_ALTERS = [
   ['status', "ALTER TABLE application ADD COLUMN `status` VARCHAR(40) NULL DEFAULT 'new'"],
@@ -1011,12 +1053,24 @@ app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), a
       const cycleSeconds = gapFrom ? (secondsBetween(gapFrom, closedAt) || 0) : 0;
       computedWorkSeconds = gapFrom ? base + cycleSeconds : base || null;
       if (gapFrom) {
-        nextWorkCycles = [...workCycles, {
-          started_at: gapFrom,
-          closed_at: closedAt,
-          duration_seconds: cycleSeconds
-        }];
+        const hasOpenCycle = workCycles.some((cycle) => !cycle.closed_at);
+        nextWorkCycles = hasOpenCycle
+          ? closeOpenWorkCycle(workCycles, closedAt)
+          : [...workCycles, {
+            started_at: gapFrom,
+            taken_at: gapFrom,
+            closed_at: closedAt,
+            duration_seconds: cycleSeconds,
+            executor: existingApp.executor || '',
+            accepted_by: existingApp.accepted_by || ''
+          }];
       }
+    } else if (reopeningRequested) {
+      nextWorkCycles = addWorkCycle(workCycles, {
+        takenAt: now,
+        executor: existingApp.executor || req.auth.login,
+        acceptedBy: req.auth.login
+      });
     }
     const isEmployeeApplication = existingApp.source === 'chat' || Boolean(existingApp.employee_login);
     let manualClosureExecutor = '';
@@ -1120,9 +1174,14 @@ app.post('/api/applications/:id/accept', requireAuth, requireRole('admin', 'mana
     await ensureApplicationWorkflowSchema();
     const updated = await updateApplicationWorkflow(id, (app) => {
       const now = formatNowForMySQL();
+      const workCycles = addWorkCycle(parseWorkCycles(app.work_cycles_json), {
+        takenAt: now,
+        executor: executor || actorLogin,
+        acceptedBy: actorLogin
+      });
       return {
-        sql: 'UPDATE application SET `status` = ?, `accepted_by` = ?, `executor` = ?, `eta_minutes` = ?, `admin_comment` = ?, `accepted_at` = ?, `work_started_at` = ?, `start_data` = ?, `waiting_seconds` = ?, `arrival_seconds` = ?, `fl` = 0 WHERE `id` = ?',
-        params: ['in_progress', actorLogin, executor || actorLogin, eta_minutes || null, admin_comment || '', now, now, now, secondsBetween(app.created_at || app.data, now), 0, id]
+        sql: 'UPDATE application SET `status` = ?, `accepted_by` = ?, `executor` = ?, `eta_minutes` = ?, `admin_comment` = ?, `accepted_at` = ?, `work_started_at` = ?, `start_data` = ?, `waiting_seconds` = ?, `arrival_seconds` = ?, `work_cycles_json` = ?, `fl` = 0 WHERE `id` = ?',
+        params: ['in_progress', actorLogin, executor || actorLogin, eta_minutes || null, admin_comment || '', now, now, now, secondsBetween(app.created_at || app.data, now), 0, JSON.stringify(workCycles), id]
       };
     }, { actorLogin, actorRole: req.auth.role, eventType: 'accepted', nextStatus: 'in_progress', comment: admin_comment || 'Заявка взята в работу' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
@@ -1184,9 +1243,10 @@ app.post('/api/applications/:id/confirm', requireAuth, requireApplicationOwnerOr
       const previousWorkSeconds = Number(app.work_seconds || 0);
       const activeWorkSeconds = secondsBetween(app.resolved_at || app.work_started_at || app.accepted_at || app.created_at || app.data, now) || 0;
       const workSeconds = previousWorkSeconds + activeWorkSeconds;
+      const workCycles = closeOpenWorkCycle(parseWorkCycles(app.work_cycles_json), now);
       return {
-        sql: 'UPDATE application SET `status` = ?, `resolved_at` = ?, `work_seconds` = ?, `employee_confirmed_at` = ?, `employee_comment` = ?, `end_data` = ?, `fl` = 1 WHERE `id` = ?',
-        params: ['done', app.resolved_at || now, workSeconds, now, employee_comment || app.employee_comment || '', now, id]
+        sql: 'UPDATE application SET `status` = ?, `resolved_at` = ?, `work_seconds` = ?, `employee_confirmed_at` = ?, `employee_comment` = ?, `end_data` = ?, `work_cycles_json` = ?, `fl` = 1 WHERE `id` = ?',
+        params: ['done', app.resolved_at || now, workSeconds, now, employee_comment || app.employee_comment || '', now, JSON.stringify(workCycles), id]
       };
     }, {
       actorLogin: req.auth.login,
@@ -1208,10 +1268,18 @@ app.post('/api/applications/:id/reopen', requireAuth, requireApplicationOwnerOrM
   const { employee_comment } = req.body;
   try {
     await ensureApplicationWorkflowSchema();
-    const updated = await updateApplicationWorkflow(id, () => ({
-      sql: 'UPDATE application SET `status` = ?, `employee_comment` = ?, `work_started_at` = NULL, `resolved_at` = NULL, `fl` = 0 WHERE `id` = ?',
-      params: ['reopened', employee_comment || '', id]
-    }), {
+    const updated = await updateApplicationWorkflow(id, (app) => {
+      const now = formatNowForMySQL();
+      const workCycles = closeOpenWorkCycle(parseWorkCycles(app.work_cycles_json), now);
+      const currentSegmentSeconds = secondsBetween(
+        app.resolved_at || app.work_started_at || app.accepted_at || app.created_at || app.data,
+        now
+      ) || 0;
+      return {
+        sql: 'UPDATE application SET `status` = ?, `employee_comment` = ?, `work_started_at` = NULL, `resolved_at` = NULL, `work_seconds` = ?, `work_cycles_json` = ?, `fl` = 0 WHERE `id` = ?',
+        params: ['reopened', employee_comment || '', Number(app.work_seconds || 0) + currentSegmentSeconds, JSON.stringify(workCycles), id]
+      };
+    }, {
       actorLogin: req.auth.login,
       actorRole: req.auth.role,
       eventType: hasRole(req, 'admin', 'manager') ? 'reopened_by_staff' : 'reopened',
