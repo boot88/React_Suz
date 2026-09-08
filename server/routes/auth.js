@@ -733,11 +733,11 @@ router.post('/provision-from-phone-book', requireAuth, requireRole('admin'), asy
 
 router.get('/login-suggestions', async (req, res) => {
   try {
-    await ensureUsersSchema();
-    const [userCounts] = await db.execute('SELECT COUNT(*) AS total FROM users');
-    if (Number(userCounts?.[0]?.total || 0) > 0) {
-      await ensureManagerAccount();
-    }
+    // The login page loads this endpoint before anyone can submit the login
+    // form.  On a newly restored/empty MySQL database this must therefore use
+    // the same initialization path as POST /login; otherwise the UI receives
+    // an empty directory until somebody somehow signs in first.
+    await ensureUsersProvisionedFromPhoneBook();
     const query = normalizeLogin(req.query?.query || '');
     const role = req.query?.role === 'admin' ? 'admin' : 'employee';
     const like = `${query}%`;
@@ -762,7 +762,9 @@ router.get('/login-suggestions', async (req, res) => {
     });
   } catch (error) {
     console.error('Login suggestions error:', error);
-    res.status(500).json({ message: 'Не удалось получить список сотрудников' });
+    res.status(error.status || 500).json({
+      message: error.message || 'Не удалось получить список сотрудников'
+    });
   }
 });
 
