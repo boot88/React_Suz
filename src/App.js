@@ -112,10 +112,17 @@ function Sidebar({ language, theme, onLanguageChange, onThemeChange }) {
     }
   });
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
+  const [accessManagementVisible, setAccessManagementVisible] = useState(() => localStorage.getItem('admin.showAccessManagement') === 'true');
   // Ответы на подсчёт непрочитанных могут приходить не в том же порядке,
   // в котором были отправлены запросы. Храним версию, чтобы старый ответ
   // не вернул индикатор после того, как диалог уже был прочитан.
   const chatUnreadRequestVersionRef = useRef(0);
+
+  useEffect(() => {
+    const syncAccessManagementVisibility = () => setAccessManagementVisible(localStorage.getItem('admin.showAccessManagement') === 'true');
+    window.addEventListener('admin:access-management-visibility', syncAccessManagementVisibility);
+    return () => window.removeEventListener('admin:access-management-visibility', syncAccessManagementVisibility);
+  }, []);
 
   useEffect(() => {
     const handleResize = () => {
@@ -249,7 +256,7 @@ function Sidebar({ language, theme, onLanguageChange, onThemeChange }) {
             <li className="nav-group-title">{copy.system}</li>
             <li className={isActive('/settings') ? 'nav-item active' : 'nav-item'}><Link to="/settings" className="nav-link"><span className="nav-icon nav-icon--settings" aria-hidden="true" /><span className="nav-text">{copy.settings}</span></Link></li>
             <li className={isActive('/employee-search') ? 'nav-item active' : 'nav-item'}><Link to="/employee-search" className="nav-link"><span className="nav-icon nav-icon--people" aria-hidden="true" /><span className="nav-text">{copy.directory}</span></Link></li>
-            <li className={isActive('/register') ? 'nav-item active' : 'nav-item'}><Link to="/register" className="nav-link"><span className="nav-icon nav-icon--account" aria-hidden="true" /><span className="nav-text">{copy.access}</span></Link></li>
+            {accessManagementVisible && <li className={isActive('/register') ? 'nav-item active' : 'nav-item'}><Link to="/register" className="nav-link"><span className="nav-icon nav-icon--account" aria-hidden="true" /><span className="nav-text">{copy.access}</span></Link></li>}
             <li className={isActive('/knowledge-base') ? 'nav-item active' : 'nav-item'}><Link to="/knowledge-base" className="nav-link"><span className="nav-icon nav-icon--book" aria-hidden="true" /><span className="nav-text">{copy.knowledge}</span></Link></li>
             <li className={isActive('/network-map') ? 'nav-item active' : 'nav-item'}><Link to="/network-map" className="nav-link"><span className="nav-icon nav-icon--network" aria-hidden="true" /><span className="nav-text">{copy.network}</span></Link></li>
           </ul>
