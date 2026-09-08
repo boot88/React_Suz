@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import './Login.css';
+import './LoginService.css';
+import ServiceLoginIntro, { SERVICE_LOGIN_LABELS, ServiceIcon } from '../components/ServiceLoginIntro';
 import loginSpectrumLines from '../assets/login-spectrum-lines.png';
 import { API_BASE_URL } from '../utils/apiConfig';
 
@@ -61,6 +63,8 @@ const Login = ({ mode = 'employee' }) => {
   const isAdminMode = mode === 'admin';
   const [language, setLanguage] = useState(() => localStorage.getItem(LOGIN_LANGUAGE_KEY) || 'en');
   const [design, setDesign] = useState(() => localStorage.getItem(LOGIN_DESIGN_KEY) || 'current');
+  const isServiceDesign = design === 'service';
+  const serviceLabels = SERVICE_LOGIN_LABELS[language] || SERVICE_LOGIN_LABELS.en;
   const t = useCallback(
     (key) => LOGIN_LABELS[language]?.[key] || LOGIN_LABELS.en[key] || key,
     [language]
@@ -278,13 +282,19 @@ const Login = ({ mode = 'employee' }) => {
   }
 
   return (
-    <div className={`jp-wrapper ${isAdminMode ? 'jp-wrapper--admin' : 'jp-wrapper--employee'} jp-wrapper--design-${design}`}>
+    <div lang={language} className={`jp-wrapper ${isAdminMode ? 'jp-wrapper--admin' : 'jp-wrapper--employee'} jp-wrapper--design-${design}`}>
+      {isServiceDesign && (
+        <header className="service-header">
+          <span className="service-brand"><span><ServiceIcon name="mark" /></span>{serviceLabels.brand}</span>
+          <span className="service-network"><ServiceIcon name="lock" />{serviceLabels.network}</span>
+        </header>
+      )}
       <Link className="jp-corner-link" to={isAdminMode ? '/login' : '/admin'}>
-        {isAdminMode ? t('back') : t('adminEntry')}
+        {isServiceDesign ? serviceLabels[isAdminMode ? 'employeeEntry' : 'adminEntry'] : (isAdminMode ? t('back') : t('adminEntry'))}
       </Link>
 
       <div className="jp-login-shell">
-        <aside className="jp-context-panel">
+        {isServiceDesign ? <ServiceLoginIntro isAdminMode={isAdminMode} labels={serviceLabels} /> : <aside className="jp-context-panel">
           <div className="jp-context-header">
             <span className="jp-context-kicker">{t(isAdminMode ? 'adminKicker' : 'employeeKicker')}</span>
             <svg className="jp-context-symbol" viewBox="0 0 64 64" aria-hidden="true">
@@ -316,14 +326,15 @@ const Login = ({ mode = 'employee' }) => {
               );
             })}
           </div>
-        </aside>
+        </aside>}
 
         <main className="jp-content">
           <section className="jp-login-box" aria-labelledby="login-title">
             <div className="jp-card-topline" />
-            {isAdminMode && <span className="jp-chip">{t('adminChip')}</span>}
-            <h1 id="login-title">{t('title')}</h1>
-            <p className="jp-subtitle">{t('subtitle')}</p>
+            {isAdminMode && !isServiceDesign && <span className="jp-chip">{t('adminChip')}</span>}
+            {isServiceDesign && <><span className="service-form-icon"><ServiceIcon name={isAdminMode ? 'network' : 'mark'} /></span><span className="service-form-kicker">{serviceLabels[isAdminMode ? 'adminFormKicker' : 'formKicker']}</span></>}
+            <h1 id="login-title">{isServiceDesign ? serviceLabels[isAdminMode ? 'adminLogin' : 'employeeLogin'] : t('title')}</h1>
+            <p className="jp-subtitle">{isServiceDesign ? serviceLabels[isAdminMode ? 'adminHint' : 'employeeHint'] : t('subtitle')}</p>
 
             <form className="jp-form" onSubmit={handleSubmit} noValidate>
               {error && <div className="error-message" role="alert">{error}</div>}
@@ -359,7 +370,7 @@ const Login = ({ mode = 'employee' }) => {
                   aria-haspopup="listbox"
                   aria-expanded={suggestionsOpen}
                 >
-                  {design === 'new' ? (
+                  {(design === 'new' || isServiceDesign) ? (
                     <svg viewBox="0 0 20 20" aria-hidden="true">
                       <path d="m5 7.5 5 5 5-5" />
                     </svg>
@@ -375,7 +386,7 @@ const Login = ({ mode = 'employee' }) => {
                     ))}
                   </div>
                 )}
-                {suggestionsOpen && design === 'new' && (
+                {suggestionsOpen && (design === 'new' || isServiceDesign) && (
                   <div className="login-directory" role="listbox" aria-label={t(isAdminMode ? 'adminDirectory' : 'employeeDirectory')}>
                     <div className="login-directory-header">
                       <span>
@@ -406,7 +417,8 @@ const Login = ({ mode = 'employee' }) => {
                             role="option"
                             aria-selected={isSelected}
                             className={isSelected ? 'is-selected' : ''}
-                            onMouseDown={(event) => { event.preventDefault(); applyLoginSuggestion(suggestion); }}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => applyLoginSuggestion(suggestion)}
                           >
                             <span className="login-directory-avatar">{initials || '—'}</span>
                             <span className="login-directory-identity">
@@ -467,11 +479,12 @@ const Login = ({ mode = 'employee' }) => {
               </div>
 
               <button type="submit" className="jp-button" disabled={isSubmitting || isRecovering}>
-                {isSubmitting ? t('checking') : t('signIn')}
+                {isSubmitting ? t('checking') : (isServiceDesign ? serviceLabels[isAdminMode ? 'adminAction' : 'employeeAction'] : t('signIn'))}
+                {isServiceDesign && !isSubmitting && <ServiceIcon name="arrow" />}
               </button>
             </form>
 
-            {!isAdminMode && (
+            {!isAdminMode && !isServiceDesign && (
               <div className="jp-login-pattern-wrap" aria-hidden="true">
                 <img className="jp-login-pattern" src={loginSpectrumLines} alt="" />
               </div>
@@ -484,23 +497,28 @@ const Login = ({ mode = 'employee' }) => {
                 </button>
               </div>
             )}
+            {isServiceDesign && <p className="service-access-note"><ServiceIcon name="lock" />{serviceLabels[isAdminMode ? 'adminNote' : 'note']}</p>}
           </section>
         </main>
       </div>
 
-      <div className="jp-language-switch" aria-label="Language switch">
-        <button type="button" className={language === 'en' ? 'active' : ''} onClick={() => changeLanguage('en')}>🇬🇧 ENG</button>
-        <button type="button" className={language === 'ru' ? 'active' : ''} onClick={() => changeLanguage('ru')}>🇷🇺 RUS</button>
+      {isServiceDesign && <p className="service-page-footer">{serviceLabels.footer}</p>}
+      <div className="jp-language-switch" role="group" aria-label={language === 'ru' ? 'Язык интерфейса' : 'Interface language'}>
+        <button type="button" aria-pressed={language === 'en'} className={language === 'en' ? 'active' : ''} onClick={() => changeLanguage('en')}>🇬🇧 ENG</button>
+        <button type="button" aria-pressed={language === 'ru'} className={language === 'ru' ? 'active' : ''} onClick={() => changeLanguage('ru')}>🇷🇺 RUS</button>
       </div>
 
       <div className="jp-design-switch" role="group" aria-label={t('designLabel')}>
         <span>{t('designLabel')}</span>
         <div>
-          <button type="button" className={design === 'current' ? 'active' : ''} onClick={() => changeDesign('current')}>
+          <button type="button" aria-pressed={design === 'current'} className={design === 'current' ? 'active' : ''} onClick={() => changeDesign('current')}>
             {t('designCurrent')}
           </button>
-          <button type="button" className={design === 'new' ? 'active' : ''} onClick={() => changeDesign('new')}>
+          <button type="button" aria-pressed={design === 'new'} className={design === 'new' ? 'active' : ''} onClick={() => changeDesign('new')}>
             {t('designNew')}
+          </button>
+          <button type="button" aria-pressed={isServiceDesign} className={isServiceDesign ? 'active' : ''} onClick={() => changeDesign('service')}>
+            {serviceLabels.designService}
           </button>
         </div>
       </div>
