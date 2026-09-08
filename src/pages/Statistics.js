@@ -21,13 +21,35 @@ const INSTITUTE_COLORS = {
 
 const EXECUTOR_COLORS = {
   'Повисок Е.В.': INSTITUTE_COLORS.primary,
-  'Польников Д.В.': INSTITUTE_COLORS.secondary,
-  'Андреев Р.В.': '#FFBB28',
-  'Польников Д.В. Повисок Е.В.': '#FF8042',
+  'Андреев Р.В.': INSTITUTE_COLORS.secondary,
+  'Польников Д.В.': '#FFBB28',
+  'Повисок Е.В. Польников Д.В.': '#FF8042',
   'Повисок Е.В. Андреев Р.В.': '#8884D8',
   'Андреев Р.В. Польников Д.В.': '#82CA9D',
-  'Повисок Е.В. Польников Д.В. Андреев Р.В.': '#FF6B6B',
-  'Другие': '#ADB5BD'
+  'Повисок Е.В. Польников Д.В. Андреев Р.В.': '#FF6B6B'
+};
+
+const EXECUTOR_CATEGORIES = [
+  'Повисок Е.В.',
+  'Андреев Р.В.',
+  'Польников Д.В.',
+  'Повисок Е.В. Польников Д.В.',
+  'Повисок Е.В. Андреев Р.В.',
+  'Андреев Р.В. Польников Д.В.',
+  'Повисок Е.В. Польников Д.В. Андреев Р.В.'
+];
+
+const getExecutorCategory = (executor = '') => {
+  const normalized = String(executor).toLowerCase();
+  const selected = [
+    normalized.includes('повисок') && 'Повисок Е.В.',
+    normalized.includes('андреев') && 'Андреев Р.В.',
+    normalized.includes('польников') && 'Польников Д.В.'
+  ].filter(Boolean);
+
+  if (selected.length === 0) return null;
+  return EXECUTOR_CATEGORIES.find((category) => category.split(' ').filter((_, index) => index % 2 === 0).length === selected.length
+    && selected.every((name) => category.includes(name))) || null;
 };
 
 const TIME_LINE_COLORS = [
@@ -57,16 +79,9 @@ const Statistics = () => {
   const [zoomMode, setZoomMode] = useState(false);
   
   // Добавляем состояние для управления видимостью линий
-  const [visibleLines, setVisibleLines] = useState({
-    'Повисок Е.В.': true,
-    'Польников Д.В.': true,
-    'Андреев Р.В.': true,
-    'Польников Д.В. Повисок Е.В.': false,
-    'Повисок Е.В. Андреев Р.В.': false,
-    'Андреев Р.В. Польников Д.В.': false,
-    'Повисок Е.В. Польников Д.В. Андреев Р.В.': false,
-    'Другие': false
-  });
+  const [visibleLines, setVisibleLines] = useState(() => (
+    Object.fromEntries(EXECUTOR_CATEGORIES.map((category, index) => [category, index < 3]))
+  ));
 
   
   // Загрузка данных
@@ -132,51 +147,14 @@ const Statistics = () => {
 
   // Функция для расчета комбинаций исполнителей с отчествами
   const calculateExecutorCombinations = useCallback(() => {
-    const combinations = {
-      'Повисок Е.В.': 0,
-      'Польников Д.В.': 0,
-      'Андреев Р.В.': 0,
-      'Польников Д.В. Повисок Е.В.': 0,
-      'Повисок Е.В. Андреев Р.В.': 0,
-      'Андреев Р.В. Польников Д.В.': 0,
-      'Повисок Е.В. Польников Д.В. Андреев Р.В.': 0,
-      'Другие': 0
-    };
+    const combinations = Object.fromEntries(EXECUTOR_CATEGORIES.map((category) => [category, 0]));
+    let assignedToTrackedExecutors = 0;
 
-    applications.forEach(app => {
-      if (app.executor) {
-        const executorStr = app.executor.toLowerCase();
-        
-        // Проверяем наличие фамилий с отчествами
-        const hasPovisok = executorStr.includes('повисок');
-        const hasPolnikov = executorStr.includes('польников');
-        const hasAndreev = executorStr.includes('андреев');
-        
-        // Считаем количество фамилий
-        const count = (hasPovisok ? 1 : 0) + (hasPolnikov ? 1 : 0) + (hasAndreev ? 1 : 0);
-        
-        // Определяем комбинацию
-        if (count === 1) {
-          if (hasPovisok) combinations['Повисок Е.В.']++;
-          else if (hasPolnikov) combinations['Польников Д.В.']++;
-          else if (hasAndreev) combinations['Андреев Р.В.']++;
-          else combinations['Другие']++;
-        } 
-        else if (count === 2) {
-          if (hasPovisok && hasPolnikov) combinations['Польников Д.В. Повисок Е.В.']++;
-          else if (hasPovisok && hasAndreev) combinations['Повисок Е.В. Андреев Р.В.']++;
-          else if (hasAndreev && hasPolnikov) combinations['Андреев Р.В. Польников Д.В.']++;
-          else combinations['Другие']++;
-        }
-        else if (count === 3) {
-          combinations['Повисок Е.В. Польников Д.В. Андреев Р.В.']++;
-        }
-        else {
-          combinations['Другие']++;
-        }
-      } else {
-        combinations['Другие']++;
-      }
+    applications.forEach((app) => {
+      const category = getExecutorCategory(app.executor);
+      if (!category) return;
+      combinations[category]++;
+      assignedToTrackedExecutors++;
     });
 
     // Преобразуем в массив для диаграммы
@@ -185,10 +163,9 @@ const Statistics = () => {
       .map(([name, value]) => ({
         name,
         value,
-        percentage: applications.length > 0 ? ((value / applications.length) * 100).toFixed(1) : '0',
+        percentage: assignedToTrackedExecutors > 0 ? ((value / assignedToTrackedExecutors) * 100).toFixed(1) : '0',
         color: EXECUTOR_COLORS[name] || INSTITUTE_COLORS.gray
-      }))
-      .sort((a, b) => b.value - a.value);
+      }));
   }, [applications]);
 
   // Функция для подготовки данных временного графика
@@ -205,43 +182,15 @@ const Statistics = () => {
           const dateKey = startDate.toISOString().split('T')[0]; // YYYY-MM-DD
           const hour = startDate.getHours() + startDate.getMinutes() / 60; // Часы с дробной частью
           
-          // Определяем комбинацию исполнителей
-          let executorCategory = 'Другие';
-          if (app.executor) {
-            const executorStr = app.executor.toLowerCase();
-            const hasPovisok = executorStr.includes('повисок');
-            const hasPolnikov = executorStr.includes('польников');
-            const hasAndreev = executorStr.includes('андреев');
-            
-            const count = (hasPovisok ? 1 : 0) + (hasPolnikov ? 1 : 0) + (hasAndreev ? 1 : 0);
-            
-            if (count === 1) {
-              if (hasPovisok) executorCategory = 'Повисок Е.В.';
-              else if (hasPolnikov) executorCategory = 'Польников Д.В.';
-              else if (hasAndreev) executorCategory = 'Андреев Р.В.';
-            } 
-            else if (count === 2) {
-              if (hasPovisok && hasPolnikov) executorCategory = 'Польников Д.В. Повисок Е.В.';
-              else if (hasPovisok && hasAndreev) executorCategory = 'Повисок Е.В. Андреев Р.В.';
-              else if (hasAndreev && hasPolnikov) executorCategory = 'Андреев Р.В. Польников Д.В.';
-            }
-            else if (count === 3) {
-              executorCategory = 'Повисок Е.В. Польников Д.В. Андреев Р.В.';
-            }
-          }
+          // В статистику исполнителей включаются только три утверждённые фамилии.
+          const executorCategory = getExecutorCategory(app.executor);
+          if (!executorCategory) return;
 
           if (!daysMap.has(dateKey)) {
             const dayData = {
               date: dateKey,
               dateObj: new Date(dateKey),
-              'Повисок Е.В.': [],
-              'Польников Д.В.': [],
-              'Андреев Р.В.': [],
-              'Польников Д.В. Повисок Е.В.': [],
-              'Повисок Е.В. Андреев Р.В.': [],
-              'Андреев Р.В. Польников Д.В.': [],
-              'Повисок Е.В. Польников Д.В. Андреев Р.В.': [],
-              'Другие': []
+              ...Object.fromEntries(EXECUTOR_CATEGORIES.map((category) => [category, []]))
             };
             daysMap.set(dateKey, dayData);
           }
@@ -276,16 +225,7 @@ const Statistics = () => {
       };
 
       // Вычисляем среднее время для каждой категории (только если есть данные)
-      const categories = [
-        'Повисок Е.В.',
-        'Польников Д.В.',
-        'Андреев Р.В.',
-        'Польников Д.В. Повисок Е.В.',
-        'Повисок Е.В. Андреев Р.В.',
-        'Андреев Р.В. Польников Д.В.',
-        'Повисок Е.В. Польников Д.В. Андреев Р.В.',
-        'Другие'
-      ];
+      const categories = EXECUTOR_CATEGORIES;
 
       categories.forEach(category => {
         if (day[category] && day[category].length > 0) {
@@ -479,30 +419,12 @@ const Statistics = () => {
 
   // Функция для выбора всех линий
   const handleSelectAllLines = useCallback(() => {
-    setVisibleLines({
-      'Повисок Е.В.': true,
-      'Польников Д.В.': true,
-      'Андреев Р.В.': true,
-      'Польников Д.В. Повисок Е.В.': true,
-      'Повисок Е.В. Андреев Р.В.': true,
-      'Андреев Р.В. Польников Д.В.': true,
-      'Повисок Е.В. Польников Д.В. Андреев Р.В.': true,
-      'Другие': true
-    });
+    setVisibleLines(Object.fromEntries(EXECUTOR_CATEGORIES.map((category) => [category, true])));
   }, []);
 
   // Функция для сброса выбора линий
   const handleResetLines = useCallback(() => {
-    setVisibleLines({
-      'Повисок Е.В.': true,
-      'Польников Д.В.': true,
-      'Андреев Р.В.': true,
-      'Польников Д.В. Повисок Е.В.': false,
-      'Повисок Е.В. Андреев Р.В.': false,
-      'Андреев Р.В. Польников Д.В.': false,
-      'Повисок Е.В. Польников Д.В. Андреев Р.В.': false,
-      'Другие': false
-    });
+    setVisibleLines(Object.fromEntries(EXECUTOR_CATEGORIES.map((category, index) => [category, index < 3])));
   }, []);
 
   // Эффекты
@@ -533,16 +455,7 @@ const Statistics = () => {
   const TimeChartTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
-      const executorCategories = [
-        'Повисок Е.В.',
-        'Польников Д.В.',
-        'Андреев Р.В.',
-        'Польников Д.В. Повисок Е.В.',
-        'Повисок Е.В. Андреев Р.В.',
-        'Андреев Р.В. Польников Д.В.',
-        'Повисок Е.В. Польников Д.В. Андреев Р.В.',
-        'Другие'
-      ];
+      const executorCategories = EXECUTOR_CATEGORIES;
 
       return (
         <div className="custom-tooltip" style={{
@@ -1352,10 +1265,9 @@ const Statistics = () => {
                 paddingLeft: '20px',
                 lineHeight: '1.6'
               }}>
-                <li><strong>Одиночные категории</strong> (синий, бирюзовый, желтый) - заявки с одним исполнителем</li>
-                <li><strong>Двойные категории</strong> (оранжевый, фиолетовый, зеленый) - заявки с двумя исполнителями</li>
-                <li><strong>Тройная категория</strong> (красный) - заявки с тремя исполнителями</li>
-                <li><strong>Другие</strong> (серый) - заявки без указанных исполнителей</li>
+                <li><strong>Одиночные категории</strong> — заявки с одним исполнителем</li>
+                <li><strong>Двойные категории</strong> — заявки с двумя исполнителями</li>
+                <li><strong>Тройная категория</strong> — заявки с тремя исполнителями</li>
               </ul>
             </div>
           </div>
@@ -1555,16 +1467,9 @@ const Statistics = () => {
                 />
                 
                 {/* Линии для каждой категории исполнителей */}
-                {[
-                  { key: 'Повисок Е.В._hour', name: 'Повисок Е.В.', color: TIME_LINE_COLORS[0], category: 'Повисок Е.В.' },
-                  { key: 'Польников Д.В._hour', name: 'Польников Д.В.', color: TIME_LINE_COLORS[1], category: 'Польников Д.В.' },
-                  { key: 'Андреев Р.В._hour', name: 'Андреев Р.В.', color: TIME_LINE_COLORS[2], category: 'Андреев Р.В.' },
-                  { key: 'Польников Д.В. Повисок Е.В._hour', name: 'Польников Д.В. Повисок Е.В.', color: TIME_LINE_COLORS[3], category: 'Польников Д.В. Повисок Е.В.' },
-                  { key: 'Повисок Е.В. Андреев Р.В._hour', name: 'Повисок Е.В. Андреев Р.В.', color: TIME_LINE_COLORS[4], category: 'Повисок Е.В. Андреев Р.В.' },
-                  { key: 'Андреев Р.В. Польников Д.В._hour', name: 'Андреев Р.В. Польников Д.В.', color: TIME_LINE_COLORS[5], category: 'Андреев Р.В. Польников Д.В.' },
-                  { key: 'Повисок Е.В. Польников Д.В. Андреев Р.В._hour', name: 'Повисок Е.В. Польников Д.В. Андреев Р.В.', color: TIME_LINE_COLORS[6], category: 'Повисок Е.В. Польников Д.В. Андреев Р.В.' },
-                  { key: 'Другие_hour', name: 'Другие', color: TIME_LINE_COLORS[7], category: 'Другие' }
-                ]
+                {EXECUTOR_CATEGORIES.map((category, index) => ({
+                  key: `${category}_hour`, name: category, color: TIME_LINE_COLORS[index], category
+                }))
                 .filter(line => visibleLines[line.category])
                 .map((line, index) => (
                   <Line
