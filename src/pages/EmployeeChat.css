@@ -1786,6 +1786,127 @@ button:disabled {
   color: var(--chat-muted);
 }
 
+.legal-hold-center {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid rgba(170, 80, 35, .35);
+  border-radius: 14px;
+  background: rgba(255, 247, 237, .55);
+}
+
+.legal-hold-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.legal-hold-heading h3,
+.legal-hold-card p {
+  margin: 0;
+}
+
+.legal-hold-heading > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.legal-hold-heading small,
+.legal-hold-card small,
+.legal-hold-form small {
+  color: var(--chat-muted);
+  overflow-wrap: anywhere;
+}
+
+.legal-hold-filters {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 150px;
+  gap: 8px;
+  min-width: min(100%, 480px);
+}
+
+.legal-hold-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.legal-hold-card {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 11px;
+  border: 1px solid var(--chat-border);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, .72);
+}
+
+.legal-hold-card.active {
+  border-color: rgba(185, 75, 30, .55);
+  box-shadow: inset 3px 0 0 #b94b1e;
+}
+
+.legal-hold-card.inactive {
+  opacity: .7;
+}
+
+.legal-hold-card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.legal-hold-card-title span,
+.legal-hold-badge {
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: #fff0e8;
+  color: #8f3715;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.legal-hold-card button,
+.legal-hold-form button {
+  justify-self: start;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 11px;
+  background: #913d23;
+  color: #fff;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.legal-hold-badge {
+  justify-self: start;
+}
+
+.legal-hold-form {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid rgba(185, 75, 30, .42);
+  border-radius: 12px;
+  background: rgba(255, 247, 237, .7);
+}
+
+.legal-hold-form input,
+.legal-hold-form textarea {
+  width: 100%;
+}
+
+.legal-hold-form label {
+  display: grid;
+  gap: 4px;
+  color: var(--chat-muted);
+  font-size: 12px;
+}
+
 .archive-toolbar > input,
 .archive-toolbar select,
 .archive-toolbar label {
@@ -1867,10 +1988,23 @@ button:disabled {
   .archive-package-actions {
     width: 100%;
   }
+
+  .legal-hold-heading {
+    display: grid;
+  }
+
+  .legal-hold-filters {
+    min-width: 0;
+    width: 100%;
+  }
 }
 
 @media (max-width: 560px) {
   .archive-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .legal-hold-filters {
     grid-template-columns: 1fr;
   }
 }

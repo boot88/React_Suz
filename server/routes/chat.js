@@ -446,6 +446,25 @@ const deleteSqlConversation = async (conversationId) => {
   return true;
 };
 
+const getActiveLegalHoldsForConversation = async (conversationId) => {
+  if (!conversationId || !await ensureRecordsArchiveSchema(db)) return [];
+  const [rows] = await db.execute(
+    `SELECT DISTINCT holds.id, holds.name, holds.reason, holds.ends_at
+     FROM records_legal_holds AS holds
+     INNER JOIN records_legal_hold_items AS items ON items.hold_id = holds.id
+     WHERE holds.status = 'active'
+       AND holds.starts_at <= NOW()
+       AND (holds.ends_at IS NULL OR holds.ends_at > NOW())
+       AND (
+         (items.entity_type = 'chat_conversation' AND items.entity_id = ?)
+         OR items.parent_id = ?
+       )
+     ORDER BY holds.created_at DESC`,
+    [conversationId, conversationId]
+  );
+  return rows || [];
+};
+
 
 const sanitizeFileName = (name = 'file') => {
   const ext = path.extname(String(name)).toLowerCase();
@@ -3066,6 +3085,14 @@ router.delete('/threads/:conversationId', requireRole('admin'), async (req, res)
     }
     if (!requireConversationAccess(req, res, conversationId)) return;
 
+    const legalHolds = await getActiveLegalHoldsForConversation(conversationId);
+    if (legalHolds.length) {
+      return res.status(423).json({
+        message: 'Физическое удаление запрещено: на переписку установлен legal hold',
+        legalHolds
+      });
+    }
+
     const deleted = await deleteSqlConversation(conversationId);
     if (!deleted) return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
     removeArchiveConversation(conversationId);
@@ -3128,7 +3155,15 @@ router.get('/records/conversations', requireRole('admin'), async (req, res) => {
                WHERE deleted_messages.conversation_id = conversations.conversation_id
                  AND deleted_messages.deleted_at IS NOT NULL) AS deleted_count,
               (SELECT COUNT(*) FROM chat_message_files AS files
-               WHERE files.conversation_id = conversations.conversation_id) AS file_count
+               WHERE files.conversation_id = conversations.conversation_id) AS file_count,
+              (SELECT COUNT(DISTINCT holds.id)
+               FROM records_legal_holds AS holds
+               INNER JOIN records_legal_hold_items AS hold_items ON hold_items.hold_id = holds.id
+               WHERE holds.status = 'active'
+                 AND holds.starts_at <= NOW()
+                 AND (holds.ends_at IS NULL OR holds.ends_at > NOW())
+                 AND hold_items.entity_type = 'chat_conversation'
+                 AND hold_items.entity_id = conversations.conversation_id) AS legal_hold_count
        FROM chat_conversations AS conversations
        ${where}
        ORDER BY conversations.last_message_at DESC
@@ -3230,6 +3265,184 @@ router.post('/records/conversations/:conversationId/state', requireRole('admin')
   } catch (error) {
     console.error('Chat POST /records/conversations/state error:', error);
     res.status(500).json({ message: 'Не удалось изменить состояние переписки' });
+  }
+});
+
+router.get('/records/legal-holds', requireRole('admin'), async (req, res) => {
+  try {
+    if (!await ensureRecordsArchiveSchema(db)) return res.status(503).json({ message: 'Legal hold временно недоступен' });
+    const query = String(req.query?.q || '').trim().toLowerCase().slice(0, 200);
+    const status = ['active', 'expired', 'released'].includes(req.query?.status) ? req.query.status : 'all';
+    const conditions = [];
+    const params = [];
+    if (status === 'active') conditions.push("holds.status = 'active' AND (holds.ends_at IS NULL OR holds.ends_at > NOW())");
+    if (status === 'expired') conditions.push("holds.status = 'active' AND holds.ends_at IS NOT NULL AND holds.ends_at <= NOW()");
+    if (status === 'released') conditions.push("holds.status = 'released'");
+    if (query) {
+      conditions.push(`(
+        LOWER(holds.name) LIKE ?
+        OR LOWER(holds.reason) LIKE ?
+        OR LOWER(holds.created_by) LIKE ?
+        OR EXISTS (
+          SELECT 1 FROM records_legal_hold_items AS search_items
+          WHERE search_items.hold_id = holds.id
+            AND LOWER(search_items.entity_id) LIKE ?
+        )
+      )`);
+      const pattern = `%${query}%`;
+      params.push(pattern, pattern, pattern, pattern);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const [rows] = await db.query(
+      `SELECT holds.id, holds.name, holds.reason, holds.status, holds.scope_json,
+              holds.starts_at, holds.ends_at, holds.created_by, holds.created_at,
+              holds.released_by, holds.released_at,
+              conversation_items.entity_id AS conversation_id,
+              (SELECT COUNT(*) FROM records_legal_hold_items AS all_items
+               WHERE all_items.hold_id = holds.id) AS item_count
+       FROM records_legal_holds AS holds
+       LEFT JOIN records_legal_hold_items AS conversation_items
+         ON conversation_items.hold_id = holds.id
+        AND conversation_items.entity_type = 'chat_conversation'
+       ${where}
+       ORDER BY
+         (holds.status = 'active' AND (holds.ends_at IS NULL OR holds.ends_at > NOW())) DESC,
+         holds.created_at DESC
+       LIMIT 300`,
+      params
+    );
+    res.set('Cache-Control', 'no-store');
+    res.json({ holds: (rows || []).map((row) => ({ ...row, scope: parseSqlJson(row.scope_json) || {} })) });
+  } catch (error) {
+    console.error('Chat GET /records/legal-holds error:', error);
+    res.status(500).json({ message: 'Не удалось получить список legal hold' });
+  }
+});
+
+router.post('/records/legal-holds', requireRole('admin'), async (req, res) => {
+  let connection;
+  try {
+    const conversationId = String(req.body?.conversationId || '').trim();
+    const name = String(req.body?.name || '').trim().slice(0, 255);
+    const reason = String(req.body?.reason || '').trim().slice(0, 4000);
+    const rawEndsAt = String(req.body?.endsAt || '').trim();
+    if (!conversationId || !name || !reason) {
+      return res.status(400).json({ message: 'Выберите переписку и заполните название и причину запрета' });
+    }
+    if (!await ensureChatSqlSchema() || !await ensureRecordsArchiveSchema(db)) {
+      return res.status(503).json({ message: 'Legal hold временно недоступен' });
+    }
+    let endsAt = null;
+    if (rawEndsAt) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(rawEndsAt)) return res.status(400).json({ message: 'Некорректная дата окончания' });
+      endsAt = new Date(`${rawEndsAt}T23:59:59`);
+      if (Number.isNaN(endsAt.getTime()) || endsAt.getTime() <= Date.now()) {
+        return res.status(400).json({ message: 'Дата окончания должна быть позже текущего времени' });
+      }
+    }
+    const [conversationRows] = await db.execute(
+      'SELECT conversation_id, participant_a, participant_b FROM chat_conversations WHERE conversation_id = ? LIMIT 1',
+      [conversationId]
+    );
+    if (!conversationRows?.length) return res.status(404).json({ message: 'Переписка не найдена' });
+
+    const holdId = createId('hold');
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+    await connection.execute(
+      `INSERT INTO records_legal_holds
+       (id, name, reason, status, scope_json, starts_at, ends_at, created_by)
+       VALUES (?, ?, ?, 'active', ?, NOW(), ?, ?)`,
+      [holdId, name, reason, JSON.stringify({ type: 'conversation', conversationId }), endsAt, req.auth.login]
+    );
+    await connection.execute(
+      `INSERT INTO records_legal_hold_items (hold_id, entity_type, entity_id, parent_id)
+       VALUES (?, 'chat_conversation', ?, NULL)`,
+      [holdId, conversationId]
+    );
+    await connection.execute(
+      `INSERT IGNORE INTO records_legal_hold_items (hold_id, entity_type, entity_id, parent_id)
+       SELECT ?, 'chat_message', messages.id, messages.conversation_id
+       FROM chat_messages AS messages
+       WHERE messages.conversation_id = ?`,
+      [holdId, conversationId]
+    );
+    await connection.execute(
+      `INSERT IGNORE INTO records_legal_hold_items (hold_id, entity_type, entity_id, parent_id)
+       SELECT DISTINCT ?, 'chat_file', links.file_id, links.conversation_id
+       FROM chat_message_files AS links
+       WHERE links.conversation_id = ?`,
+      [holdId, conversationId]
+    );
+    const [countRows] = await connection.execute(
+      'SELECT COUNT(*) AS item_count FROM records_legal_hold_items WHERE hold_id = ?',
+      [holdId]
+    );
+    await connection.execute(
+      `INSERT INTO records_audit_log
+       (action, entity_type, entity_id, hold_id, actor_login, actor_role, details_json)
+       VALUES ('legal_hold_created', 'chat_conversation', ?, ?, ?, ?, ?)`,
+      [conversationId, holdId, req.auth.login, req.auth.role, JSON.stringify({ name, reason, endsAt: endsAt?.toISOString() || null })]
+    );
+    await connection.commit();
+    connection.release();
+    connection = null;
+    res.status(201).json({
+      hold: {
+        id: holdId,
+        name,
+        reason,
+        status: 'active',
+        conversation_id: conversationId,
+        scope: { type: 'conversation', conversationId },
+        starts_at: new Date().toISOString(),
+        ends_at: endsAt?.toISOString() || null,
+        created_by: req.auth.login,
+        item_count: Number(countRows?.[0]?.item_count) || 0
+      }
+    });
+  } catch (error) {
+    if (connection) await connection.rollback().catch(() => {});
+    console.error('Chat POST /records/legal-holds error:', error);
+    res.status(500).json({ message: 'Не удалось установить legal hold' });
+  } finally {
+    connection?.release();
+  }
+});
+
+router.post('/records/legal-holds/:holdId/release', requireRole('admin'), async (req, res) => {
+  try {
+    const holdId = decodeURIComponent(req.params.holdId || '').trim();
+    if (!holdId) return res.status(400).json({ message: 'Укажите legal hold' });
+    if (!await ensureRecordsArchiveSchema(db)) return res.status(503).json({ message: 'Legal hold временно недоступен' });
+    const [rows] = await db.execute(
+      `SELECT holds.id, holds.name, conversation_items.entity_id AS conversation_id
+       FROM records_legal_holds AS holds
+       LEFT JOIN records_legal_hold_items AS conversation_items
+         ON conversation_items.hold_id = holds.id
+        AND conversation_items.entity_type = 'chat_conversation'
+       WHERE holds.id = ? AND holds.status = 'active'
+       LIMIT 1`,
+      [holdId]
+    );
+    const hold = rows?.[0];
+    if (!hold) return res.status(404).json({ message: 'Активный legal hold не найден' });
+    await db.execute(
+      `UPDATE records_legal_holds
+       SET status = 'released', released_by = ?, released_at = NOW()
+       WHERE id = ? AND status = 'active'`,
+      [req.auth.login, holdId]
+    );
+    await db.execute(
+      `INSERT INTO records_audit_log
+       (action, entity_type, entity_id, hold_id, actor_login, actor_role, details_json)
+       VALUES ('legal_hold_released', 'chat_conversation', ?, ?, ?, ?, ?)`,
+      [hold.conversation_id, holdId, req.auth.login, req.auth.role, JSON.stringify({ name: hold.name })]
+    );
+    res.json({ holdId, status: 'released', releasedAt: new Date().toISOString(), releasedBy: req.auth.login });
+  } catch (error) {
+    console.error('Chat POST /records/legal-holds/release error:', error);
+    res.status(500).json({ message: 'Не удалось снять legal hold' });
   }
 });
 

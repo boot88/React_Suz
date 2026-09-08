@@ -358,6 +358,24 @@ const RUSSIAN_LABELS = {
   receivedArchiveChoose: 'Выберите архив слева, чтобы открыть переписку.',
   receivedArchiveGrantedBy: 'Выдал',
   receivedArchiveExpires: 'Доступ до',
+  legalHoldTitle: 'Запрет удаления · legal hold',
+  legalHoldHint: 'Защищает выбранную переписку, все её сообщения и файлы от физического удаления.',
+  legalHoldName: 'Название запрета',
+  legalHoldReason: 'Причина и основание',
+  legalHoldEnd: 'Действует до (необязательно)',
+  legalHoldCreate: 'Установить запрет',
+  legalHoldChoose: 'Сначала выберите переписку в списке ниже.',
+  legalHoldSearch: 'Название, причина, сотрудник или диалог',
+  legalHoldAll: 'Все запреты',
+  legalHoldActive: 'Действующие',
+  legalHoldExpired: 'Истёкшие',
+  legalHoldReleased: 'Снятые',
+  legalHoldEmpty: 'Запреты по заданным условиям не найдены.',
+  legalHoldPermanent: 'Бессрочно',
+  legalHoldProtected: 'Удаление запрещено',
+  legalHoldItems: 'защищённых объектов',
+  legalHoldRelease: 'Снять запрет',
+  legalHoldCreatedBy: 'Установил',
   profileNamePlaceholder: 'Иванов Иван Иванович',
   positionPlaceholder: 'Например: инженер',
   departmentPlaceholder: 'Название отдела',
@@ -660,6 +678,24 @@ const ENGLISH_LABELS = {
   receivedArchiveChoose: 'Choose an archive on the left to open the conversation.',
   receivedArchiveGrantedBy: 'Granted by',
   receivedArchiveExpires: 'Access until',
+  legalHoldTitle: 'Deletion hold · legal hold',
+  legalHoldHint: 'Protects the selected conversation, all messages, and files from physical deletion.',
+  legalHoldName: 'Hold name',
+  legalHoldReason: 'Reason and basis',
+  legalHoldEnd: 'Active until (optional)',
+  legalHoldCreate: 'Apply hold',
+  legalHoldChoose: 'Choose a conversation from the list below first.',
+  legalHoldSearch: 'Name, reason, employee, or conversation',
+  legalHoldAll: 'All holds',
+  legalHoldActive: 'Active',
+  legalHoldExpired: 'Expired',
+  legalHoldReleased: 'Released',
+  legalHoldEmpty: 'No holds match the selected filters.',
+  legalHoldPermanent: 'No expiration',
+  legalHoldProtected: 'Deletion prohibited',
+  legalHoldItems: 'protected items',
+  legalHoldRelease: 'Release hold',
+  legalHoldCreatedBy: 'Applied by',
   profileNamePlaceholder: 'Ivan Ivanov',
   positionPlaceholder: 'Example: engineer',
   departmentPlaceholder: 'Department name',
@@ -1957,6 +1993,10 @@ const EmployeeChat = () => {
   const [archivePackageName, setArchivePackageName] = useState('');
   const [archiveCreating, setArchiveCreating] = useState(false);
   const [archiveAccessDrafts, setArchiveAccessDrafts] = useState({});
+  const [legalHolds, setLegalHolds] = useState([]);
+  const [legalHoldFilters, setLegalHoldFilters] = useState({ q: '', status: 'all' });
+  const [legalHoldForm, setLegalHoldForm] = useState({ name: '', reason: '', endsAt: '' });
+  const [legalHoldLoading, setLegalHoldLoading] = useState(false);
   const [receivedArchives, setReceivedArchives] = useState([]);
   const [receivedArchiveAccessId, setReceivedArchiveAccessId] = useState('');
   const [receivedArchiveMessages, setReceivedArchiveMessages] = useState([]);
@@ -2567,6 +2607,82 @@ const EmployeeChat = () => {
     }
   }, [chatAuthHeaders, isAdmin]);
 
+  const fetchLegalHolds = useCallback(async (signal) => {
+    if (!isAdmin) return;
+    setLegalHoldLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (legalHoldFilters.q.trim()) params.set('q', legalHoldFilters.q.trim());
+      if (legalHoldFilters.status !== 'all') params.set('status', legalHoldFilters.status);
+      const response = await authFetch(`${API_BASE_URL}/chat/records/legal-holds?${params.toString()}`, {
+        headers: chatAuthHeaders,
+        signal
+      });
+      const data = await readApiJson(response, 'Не удалось получить список legal hold');
+      setLegalHolds(Array.isArray(data?.holds) ? data.holds : []);
+    } catch (error) {
+      if (error?.name !== 'AbortError') notifyRef.current(error.message || 'Не удалось получить список legal hold', 'Архив');
+    } finally {
+      if (!signal?.aborted) setLegalHoldLoading(false);
+    }
+  }, [chatAuthHeaders, isAdmin, legalHoldFilters]);
+
+  const createLegalHold = useCallback(async (event) => {
+    event.preventDefault();
+    if (!archiveSelectedId) {
+      notifyRef.current('Сначала выберите переписку, которую нужно защитить.', 'Legal hold');
+      return;
+    }
+    if (!legalHoldForm.name.trim() || !legalHoldForm.reason.trim()) {
+      notifyRef.current('Заполните название и причину запрета.', 'Legal hold');
+      return;
+    }
+    const confirmed = await confirmAction(
+      `Установить запрет физического удаления переписки ${archiveSelectedId}? Все сообщения и файлы будут защищены.`,
+      'Legal hold'
+    );
+    if (!confirmed) return;
+    setLegalHoldLoading(true);
+    try {
+      const response = await authFetch(`${API_BASE_URL}/chat/records/legal-holds`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
+        body: JSON.stringify({
+          conversationId: archiveSelectedId,
+          name: legalHoldForm.name.trim(),
+          reason: legalHoldForm.reason.trim(),
+          endsAt: legalHoldForm.endsAt || undefined
+        })
+      });
+      await readApiJson(response, 'Не удалось установить legal hold');
+      setLegalHoldForm({ name: '', reason: '', endsAt: '' });
+      await Promise.all([fetchLegalHolds(), fetchArchiveConversations()]);
+      notifyRef.current('Запрет установлен. Физическое удаление этой переписки заблокировано.', 'Legal hold');
+    } catch (error) {
+      notifyRef.current(error.message || 'Не удалось установить legal hold', 'Legal hold');
+    } finally {
+      setLegalHoldLoading(false);
+    }
+  }, [archiveSelectedId, chatAuthHeaders, confirmAction, fetchArchiveConversations, fetchLegalHolds, legalHoldForm]);
+
+  const releaseLegalHold = useCallback(async (hold) => {
+    const confirmed = await confirmAction(
+      `Снять запрет «${hold.name}» с переписки ${hold.conversation_id || ''}? После этого физическое удаление снова станет возможным, если нет других запретов.`,
+      'Снятие legal hold'
+    );
+    if (!confirmed) return;
+    try {
+      const response = await authFetch(
+        `${API_BASE_URL}/chat/records/legal-holds/${encodeURIComponent(hold.id)}/release`,
+        { method: 'POST', headers: chatAuthHeaders }
+      );
+      await readApiJson(response, 'Не удалось снять legal hold');
+      await Promise.all([fetchLegalHolds(), fetchArchiveConversations()]);
+    } catch (error) {
+      notifyRef.current(error.message || 'Не удалось снять legal hold', 'Legal hold');
+    }
+  }, [chatAuthHeaders, confirmAction, fetchArchiveConversations, fetchLegalHolds]);
+
   const createRecordsArchive = useCallback(async (scope) => {
     if (scope === 'conversation' && !archiveSelectedId) {
       notifyRef.current('Сначала выберите переписку', 'Архив');
@@ -2732,6 +2848,13 @@ const EmployeeChat = () => {
     const timer = window.setInterval(fetchRecordsArchives, 4000);
     return () => window.clearInterval(timer);
   }, [activeTab, fetchRecordsArchives, isAdmin]);
+
+  useEffect(() => {
+    if (activeTab !== 'archive' || !isAdmin) return undefined;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => fetchLegalHolds(controller.signal), 250);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [activeTab, fetchLegalHolds, isAdmin]);
 
   useEffect(() => {
     if (activeTab !== 'archive' || !archiveSelectedId || !isAdmin) return;
@@ -6346,6 +6469,51 @@ const EmployeeChat = () => {
                 );
               })}
             </div>
+            <div className="legal-hold-center">
+              <div className="legal-hold-heading">
+                <div>
+                  <h3>{t('legalHoldTitle')}</h3>
+                  <small>{t('legalHoldHint')}</small>
+                </div>
+                <div className="legal-hold-filters">
+                  <input
+                    type="search"
+                    placeholder={t('legalHoldSearch')}
+                    value={legalHoldFilters.q}
+                    onChange={(event) => setLegalHoldFilters((current) => ({ ...current, q: event.target.value }))}
+                  />
+                  <select value={legalHoldFilters.status} onChange={(event) => setLegalHoldFilters((current) => ({ ...current, status: event.target.value }))}>
+                    <option value="all">{t('legalHoldAll')}</option>
+                    <option value="active">{t('legalHoldActive')}</option>
+                    <option value="expired">{t('legalHoldExpired')}</option>
+                    <option value="released">{t('legalHoldReleased')}</option>
+                  </select>
+                </div>
+              </div>
+              {legalHoldLoading && legalHolds.length === 0 && <small>{t('loading')}…</small>}
+              {!legalHoldLoading && legalHolds.length === 0 && <small>{t('legalHoldEmpty')}</small>}
+              <div className="legal-hold-list">
+                {legalHolds.map((hold) => {
+                  const released = hold.status === 'released';
+                  const expired = !released && hold.ends_at && new Date(hold.ends_at).getTime() <= Date.now();
+                  const active = !released && !expired;
+                  return (
+                    <article key={hold.id} className={`legal-hold-card ${active ? 'active' : 'inactive'}`}>
+                      <div className="legal-hold-card-title">
+                        <strong>🔒 {hold.name}</strong>
+                        <span>{active ? t('legalHoldProtected') : expired ? t('legalHoldExpired') : t('legalHoldReleased')}</span>
+                      </div>
+                      <p>{hold.reason}</p>
+                      <small>{hold.conversation_id || hold.scope?.conversationId || '—'}</small>
+                      <small>{t('legalHoldCreatedBy')}: {hold.created_by} · {hold.created_at ? new Date(hold.created_at).toLocaleString(interfaceLocale) : '—'}</small>
+                      <small>{hold.ends_at ? `${t('archiveAccessUntil')} ${new Date(hold.ends_at).toLocaleString(interfaceLocale)}` : t('legalHoldPermanent')} · {hold.item_count || 0} {t('legalHoldItems')}</small>
+                      {hold.released_at && <small>{t('legalHoldReleased')}: {new Date(hold.released_at).toLocaleString(interfaceLocale)} · {hold.released_by || '—'}</small>}
+                      {active && <button type="button" onClick={() => releaseLegalHold(hold)}>{t('legalHoldRelease')}</button>}
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
             <div className="archive-toolbar">
               <input
                 type="search"
@@ -6370,6 +6538,7 @@ const EmployeeChat = () => {
                     <button type="button" className="thread-item" onClick={() => setArchiveSelectedId(conversation.conversation_id)}>
                       <span className="thread-title">{conversation.participant_a} ↔ {conversation.participant_b}</span>
                       <span className="thread-stats">{conversation.message_count} {t('messagesShort')} · 📎 {conversation.file_count || 0} · {t('deletedShort')} {conversation.deleted_count || 0}</span>
+                      {Number(conversation.legal_hold_count) > 0 && <span className="legal-hold-badge">🔒 Legal hold · {conversation.legal_hold_count}</span>}
                       <span className="thread-last">{conversation.last_message_at ? new Date(conversation.last_message_at).toLocaleString(interfaceLocale) : '—'}</span>
                     </button>
                     <button
@@ -6384,6 +6553,30 @@ const EmployeeChat = () => {
               </div>
               <div className="threads-messages archive-message-viewer">
                 {!archiveSelectedId && <div className="empty-chat">{t('archiveChoose')}</div>}
+                {archiveSelectedId && (
+                  <form className="legal-hold-form" onSubmit={createLegalHold}>
+                    <strong>{t('legalHoldTitle')}</strong>
+                    <small>{archiveSelectedId}</small>
+                    <input
+                      type="text"
+                      placeholder={t('legalHoldName')}
+                      value={legalHoldForm.name}
+                      onChange={(event) => setLegalHoldForm((current) => ({ ...current, name: event.target.value }))}
+                      maxLength={255}
+                      required
+                    />
+                    <textarea
+                      rows={3}
+                      placeholder={t('legalHoldReason')}
+                      value={legalHoldForm.reason}
+                      onChange={(event) => setLegalHoldForm((current) => ({ ...current, reason: event.target.value }))}
+                      maxLength={4000}
+                      required
+                    />
+                    <label>{t('legalHoldEnd')}<input type="date" value={legalHoldForm.endsAt} onChange={(event) => setLegalHoldForm((current) => ({ ...current, endsAt: event.target.value }))} /></label>
+                    <button type="submit" disabled={legalHoldLoading}>{t('legalHoldCreate')}</button>
+                  </form>
+                )}
                 {archiveSelectedId && archiveHasMore && (
                   <button type="button" className="chat-pagination-button" disabled={archiveLoading} onClick={() => fetchArchiveMessages(archiveSelectedId, { append: true })}>{t('loadPreviousMessages')}</button>
                 )}
