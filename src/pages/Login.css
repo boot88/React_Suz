@@ -1462,8 +1462,3 @@
     flex-direction: column;
   }
 }
-
-/* Keep all three design choices within narrow phone screens. */
-@media (max-width: 400px) {
-  .jp-design-switch > span { display: none; }
-}

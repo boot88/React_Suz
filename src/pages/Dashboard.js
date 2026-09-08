@@ -36,12 +36,6 @@ const QUEUE_FILTERS = [
   { id: 'unassigned', label: 'Без исполнителя', icon: '🧭' },
   { id: 'done', label: 'Выполненные', icon: '✅' },
 ];
-const SORT_OPTIONS = [
-  { id: 'date_desc', label: 'Дата: новые сверху' },
-  { id: 'status', label: 'Статус' },
-  { id: 'date_asc', label: 'Дата: старые сверху' },
-  { id: 'executor', label: 'Исполнитель' }
-];
 const TABLE_STATUS_ORDER = {
   new: 1,
   reopened: 2,
@@ -1129,20 +1123,29 @@ const Dashboard = () => {
               <p>Поиск работает по заявке, кабинету, сотруднику, телефону и исполнителю.</p>
             </div>
             <div className="table-tools">
-              <div className="view-switch" role="group" aria-label="Вид заявок"><button type="button" className={viewMode === 'table' ? 'active' : ''} onClick={() => { setViewMode('table'); localStorage.setItem('dashboard.viewMode', 'table'); }}>Таблица</button><button type="button" className={viewMode === 'timeline' ? 'active' : ''} onClick={() => { setViewMode('timeline'); localStorage.setItem('dashboard.viewMode', 'timeline'); }}>По времени</button></div>
-              <label className="page-size-control">
-                <span>Сортировка</span>
-                <select
-                  value={sortMode}
-                  onChange={(e) => {
-                    setSortMode(e.target.value);
-                    localStorage.setItem('dashboard.sortMode', e.target.value);
-                    setCurrentPage(1);
-                  }}
-                >
-                  {SORT_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-                </select>
-              </label>
+              <div className="view-switch view-switch--workspace" role="group" aria-label="Вид заявок">
+                <span className="view-switch-label">Вид</span>
+                <div className="view-switch-options">
+                  <button
+                    type="button"
+                    aria-pressed={viewMode === 'table'}
+                    className={viewMode === 'table' ? 'active' : ''}
+                    onClick={() => { setViewMode('table'); localStorage.setItem('dashboard.viewMode', 'table'); }}
+                  >
+                    <span className="view-switch-icon view-switch-icon--table" aria-hidden="true"><i /><i /><i /><i /></span>
+                    <span>Таблица</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={viewMode === 'timeline'}
+                    className={viewMode === 'timeline' ? 'active' : ''}
+                    onClick={() => { setViewMode('timeline'); localStorage.setItem('dashboard.viewMode', 'timeline'); }}
+                  >
+                    <span className="view-switch-icon view-switch-icon--time" aria-hidden="true"><i /><i /><i /></span>
+                    <span>По времени</span>
+                  </button>
+                </div>
+              </div>
               <label className="page-size-control">
                 <span>На странице</span>
                 <select
