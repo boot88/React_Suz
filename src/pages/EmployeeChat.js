@@ -1690,8 +1690,8 @@ const canManageFeedPost = (post = {}, currentUser = {}, isManager = false, isAdm
     || sameLogin(post.sender, username);
 };
 
-const AttachmentPreviewImage = React.memo(function AttachmentPreviewImage({ file, alt, useOriginal = false, eager = false, isEnglish = false }) {
-  const preferredSource = useOriginal ? getOriginalAttachmentUrl(file) : getAttachmentUrl(file);
+const AttachmentPreviewImage = React.memo(function AttachmentPreviewImage({ file, alt, isEnglish = false }) {
+  const preferredSource = getAttachmentUrl(file);
   const fallbackSource = getOriginalAttachmentUrl(file);
   const [source, setSource] = useState(preferredSource || fallbackSource);
   const [state, setState] = useState('loading');
@@ -1716,7 +1716,7 @@ const AttachmentPreviewImage = React.memo(function AttachmentPreviewImage({ file
         <img
           src={source}
           alt={alt}
-          loading={eager ? 'eager' : 'lazy'}
+          loading="lazy"
           decoding="async"
           onLoad={() => setState('ready')}
           onError={handleError}
@@ -1732,6 +1732,25 @@ const AttachmentPreviewImage = React.memo(function AttachmentPreviewImage({ file
   );
 });
 
+const VideoPosterFrame = React.memo(function VideoPosterFrame({ file, alt = '', isEnglish = false }) {
+  const posterUrl = getVideoPosterUrl(file);
+
+  return (
+    <span className={`video-poster-frame ${posterUrl ? 'has-poster' : 'without-poster'}`}>
+      {posterUrl ? (
+        <AttachmentPreviewImage
+          file={{ thumbnailUrl: posterUrl }}
+          alt={alt}
+          isEnglish={isEnglish}
+        />
+      ) : (
+        <span className="video-poster-placeholder" aria-hidden="true">🎬</span>
+      )}
+      <span className="video-poster-play" aria-hidden="true">▶</span>
+    </span>
+  );
+});
+
 const PlayableVideo = React.memo(function PlayableVideo({ file, className = '', onExpand, isEnglish = false, variant = 'message' }) {
   const storedRatio = getAttachmentAspectRatio(file, 16 / 9);
   const getOrientation = (ratio) => ratio < 0.82 ? 'portrait' : ratio > 1.2 ? 'landscape' : 'square';
@@ -1741,41 +1760,21 @@ const PlayableVideo = React.memo(function PlayableVideo({ file, className = '', 
     setOrientation(getOrientation(getAttachmentAspectRatio(file, 16 / 9)));
   }, [file]);
 
-  const handleMetadata = (event) => {
-    const video = event.currentTarget;
-    const ratio = Number(video.videoWidth || 0) / Math.max(1, Number(video.videoHeight || 0));
-    setOrientation(ratio < 0.82 ? 'portrait' : ratio > 1.2 ? 'landscape' : 'square');
-    nudgeVideoToFirstFrame(event);
-  };
-
   return (
     <div className={`playable-video-shell ${variant} is-${orientation} ${className}`} style={{ aspectRatio: storedRatio }}>
-      <video
-        className="attachment-video-player"
-        src={getOriginalAttachmentUrl(file)}
-        poster={getVideoPosterUrl(file) || undefined}
-        controls
-        preload="metadata"
-        playsInline
-        onLoadedMetadata={handleMetadata}
-        onClick={(event) => event.stopPropagation()}
+      <button
+        type="button"
+        className="video-preview-open"
+        aria-label={`${isEnglish ? 'Open video' : 'Открыть видео'} ${file?.name || ''}`.trim()}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (onExpand) onExpand(event);
+          else openAttachmentInNewTab(file);
+        }}
       >
-        {isEnglish ? 'Your browser does not support video playback.' : 'Ваш браузер не поддерживает просмотр этого видео.'}
-      </video>
-      {onExpand && (
-        <button
-          type="button"
-          className="media-expand-button"
-          aria-label={isEnglish ? 'Open video viewer' : 'Открыть видео на весь экран'}
-          title={isEnglish ? 'Open viewer' : 'Развернуть'}
-          onClick={(event) => {
-            event.stopPropagation();
-            onExpand(event);
-          }}
-        >
-          ⛶
-        </button>
-      )}
+        <VideoPosterFrame file={file} alt={file?.name || ''} isEnglish={isEnglish} />
+        <span className="video-preview-label">{isEnglish ? 'Open video' : 'Открыть видео'}</span>
+      </button>
     </div>
   );
 });
@@ -1809,7 +1808,7 @@ const AttachmentCard = React.memo(function AttachmentCard({ file, cardKey, varia
           }}
           aria-label={`${isEnglish ? 'Open photo' : 'Открыть фото'} ${fileName}`}
         >
-          <AttachmentPreviewImage file={file} alt={fileName} eager isEnglish={isEnglish} />
+          <AttachmentPreviewImage file={file} alt={fileName} isEnglish={isEnglish} />
           {(metaLabel || statusLabel) && <span className="message-photo-meta">{metaLabel} {statusLabel}</span>}
         </button>
         {onSelect && (
@@ -1839,7 +1838,7 @@ const AttachmentCard = React.memo(function AttachmentCard({ file, cardKey, varia
       {isVideo ? (
         <PlayableVideo file={file} onExpand={onOpen} isEnglish={isEnglish} variant={variant} />
       ) : isImage ? (
-        <AttachmentPreviewImage file={file} alt={fileName} useOriginal={variant === 'feed'} isEnglish={isEnglish} />
+        <AttachmentPreviewImage file={file} alt={fileName} isEnglish={isEnglish} />
       ) : (
         <span className="file-icon">{getFileIcon(fileType)}</span>
       )}
@@ -1897,7 +1896,7 @@ const FeedMediaCard = React.memo(function FeedMediaCard({ file, onOpen, onQuickR
             onQuickReaction?.(event);
           }}
         >
-          <AttachmentPreviewImage file={file} alt={fileName} useOriginal isEnglish={isEnglish} />
+          <AttachmentPreviewImage file={file} alt={fileName} isEnglish={isEnglish} />
         </button>
       )}
       <span className="feed-media-caption">{fileName} · {formatFileSize(file?.size)}</span>
@@ -5957,7 +5956,7 @@ const EmployeeChat = () => {
 
 	                {chatLocalSettings.showDialogFilters === true && <div className="dialog-filter-row">{CHAT_FILTERS.map((filter) => <button key={filter.id} type="button" className={dialogFilter === filter.id ? 'active' : ''} onClick={() => setDialogFilter(filter.id)}>{getOptionLabel(filter)}</button>)}</div>}
 	                {chatLocalSettings.showDialogDateJump === true && <div className="date-jump-row"><label>{t('jumpToDate')} <input type="date" onChange={(event) => jumpToMessageDate(event.target.value)} /></label></div>}
-                {chatLocalSettings.showDialogMediaPanel === true && mediaPanelOpen && <div className="dialog-media-panel"><div className="dialog-media-tabs">{CHAT_MEDIA_TABS.map((tab) => <button key={tab.id} type="button" className={mediaPanelTab === tab.id ? 'active' : ''} onClick={() => setMediaPanelTab(tab.id)}>{getOptionLabel(tab)}</button>)}</div><input type="search" placeholder={t('mediaSearch')} value={mediaPanelSearch} onChange={(e) => setMediaPanelSearch(e.target.value)} /><div className="dialog-media-grid">{filteredDialogMediaItems.length === 0 && <small>{t('noResults')}</small>}{filteredDialogMediaItems.map(({ message, file, fileIndex, type }, index) => <button key={`${message.id}-${file.name}-${index}`} type="button" onClick={() => type === 'link' ? window.open(file.dataUrl, '_blank', 'noopener,noreferrer') : isMediaAttachment(file) ? setMediaViewer({ message, file, fileIndex, scope: 'dialog' }) : openAttachmentInNewTab(file)}>{type === 'link' ? <span>🔗 {file.name}</span> : isMediaAttachment(file) ? (isVideoAttachment(file) ? <video src={getOriginalAttachmentUrl(file)} poster={getVideoPosterUrl(file) || getAttachmentUrl(file)} muted playsInline preload="metadata" onLoadedMetadata={nudgeVideoToFirstFrame} /> : <img src={getAttachmentUrl(file)} alt={file.name || t('media')} loading="lazy" decoding="async" />) : <span>{getFileIcon(file.type)} {file.name}</span>}<em>{new Date(message.createdAt).toLocaleDateString(interfaceLocale)}</em></button>)}</div></div>}
+                {chatLocalSettings.showDialogMediaPanel === true && mediaPanelOpen && <div className="dialog-media-panel"><div className="dialog-media-tabs">{CHAT_MEDIA_TABS.map((tab) => <button key={tab.id} type="button" className={mediaPanelTab === tab.id ? 'active' : ''} onClick={() => setMediaPanelTab(tab.id)}>{getOptionLabel(tab)}</button>)}</div><input type="search" placeholder={t('mediaSearch')} value={mediaPanelSearch} onChange={(e) => setMediaPanelSearch(e.target.value)} /><div className="dialog-media-grid">{filteredDialogMediaItems.length === 0 && <small>{t('noResults')}</small>}{filteredDialogMediaItems.map(({ message, file, fileIndex, type }, index) => <button key={`${message.id}-${file.name}-${index}`} type="button" onClick={() => type === 'link' ? window.open(file.dataUrl, '_blank', 'noopener,noreferrer') : isMediaAttachment(file) ? setMediaViewer({ message, file, fileIndex, scope: 'dialog' }) : openAttachmentInNewTab(file)}>{type === 'link' ? <span>🔗 {file.name}</span> : isMediaAttachment(file) ? (isVideoAttachment(file) ? <VideoPosterFrame file={file} alt={file.name || t('media')} isEnglish={isEnglishInterface} /> : <img src={getAttachmentUrl(file)} alt={file.name || t('media')} loading="lazy" decoding="async" />) : <span>{getFileIcon(file.type)} {file.name}</span>}<em>{new Date(message.createdAt).toLocaleDateString(interfaceLocale)}</em></button>)}</div></div>}
 
                 {pinnedMessages.length > 0 && (
                   <div className="pinned-box">
@@ -6230,7 +6229,7 @@ const EmployeeChat = () => {
                           <div key={file.id || `${file.name}-${index}`} className={`attachment-preview media-draft-tile ${mediaFile ? 'is-media' : ''}`}>
                             {mediaFile ? (
                               <button type="button" className="media-draft-thumb" onClick={() => setMediaViewer({ source: 'chat-draft', file, fileIndex: index })}>
-                                {isVideoAttachment(file) ? <video src={getOriginalAttachmentUrl(file)} poster={getVideoPosterUrl(file) || getAttachmentUrl(file)} muted playsInline preload="metadata" onLoadedMetadata={nudgeVideoToFirstFrame} /> : <img src={getAttachmentUrl(file)} alt={file.name} loading="lazy" decoding="async" />}
+                                {isVideoAttachment(file) ? <VideoPosterFrame file={file} alt={file.name} isEnglish={isEnglishInterface} /> : <img src={getAttachmentUrl(file)} alt={file.name} loading="lazy" decoding="async" />}
                               </button>
                             ) : <span className="media-draft-file-icon">{getFileIcon(file.type)}</span>}
                             <span>{file.name} · {formatFileSize(file.size)}</span>
@@ -7000,7 +6999,7 @@ const EmployeeChat = () => {
             )}
             {hasManyViewerFiles && <button type="button" className="photo-viewer-nav next" onClick={() => moveMediaViewer(1)}>›</button>}
           </div>
-          {hasManyViewerFiles && <div className="photo-viewer-thumbs" onMouseDown={(event) => event.stopPropagation()}>{viewerFiles.map((file, index) => <button key={file.id || `${file.name}-${index}`} type="button" className={index === viewerIndex ? 'active' : ''} onClick={() => setMediaViewer((current) => ({ ...current, file, fileIndex: index }))}>{isVideoAttachment(file) ? <video src={getOriginalAttachmentUrl(file)} poster={getVideoPosterUrl(file) || getAttachmentUrl(file)} muted playsInline preload="metadata" onLoadedMetadata={nudgeVideoToFirstFrame} /> : <img src={getAttachmentUrl(file)} alt={file.name || t('thumbnailAlt')} loading="lazy" decoding="async" />}</button>)}</div>}
+          {hasManyViewerFiles && <div className="photo-viewer-thumbs" onMouseDown={(event) => event.stopPropagation()}>{viewerFiles.map((file, index) => <button key={file.id || `${file.name}-${index}`} type="button" className={index === viewerIndex ? 'active' : ''} onClick={() => setMediaViewer((current) => ({ ...current, file, fileIndex: index }))}>{isVideoAttachment(file) ? <VideoPosterFrame file={file} alt={file.name || t('thumbnailAlt')} isEnglish={isEnglishInterface} /> : <img src={getAttachmentUrl(file)} alt={file.name || t('thumbnailAlt')} loading="lazy" decoding="async" />}</button>)}</div>}
         </div>
         );
       })()}

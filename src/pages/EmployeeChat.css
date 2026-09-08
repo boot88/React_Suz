@@ -6749,19 +6749,104 @@ button:disabled {
   width: min(420px, calc(100vw - 96px));
 }
 
-.playable-video-shell .attachment-video-player {
+.playable-video-shell .video-preview-open {
   display: block;
   width: 100%;
   height: 100%;
   max-width: none;
   max-height: 430px;
+  padding: 0;
+  border: 0;
   border-radius: 0;
   background: #02090d;
+  color: #fff;
+  cursor: pointer;
   object-fit: contain;
 }
 
-.playable-video-shell.message.is-portrait .attachment-video-player {
+.playable-video-shell.message.is-portrait .video-preview-open {
   max-height: 470px;
+}
+
+.video-poster-frame {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: inherit;
+  overflow: hidden;
+  background: #02090d;
+}
+
+.video-poster-frame .attachment-image-shell,
+.video-poster-frame .attachment-image-shell img {
+  width: 100%;
+  height: 100%;
+}
+
+.video-poster-frame .attachment-image-shell img {
+  object-fit: cover;
+}
+
+.video-poster-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, .62);
+  font-size: 42px;
+}
+
+.video-poster-play {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  padding-left: 4px;
+  border: 1px solid rgba(255, 255, 255, .6);
+  border-radius: 50%;
+  background: rgba(4, 14, 19, .72);
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .34);
+  font-size: 23px;
+  transform: translate(-50%, -50%);
+  backdrop-filter: blur(8px);
+}
+
+.video-preview-label {
+  position: absolute;
+  z-index: 2;
+  right: 12px;
+  bottom: 12px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(4, 14, 19, .72);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.dialog-media-grid .video-poster-frame {
+  height: 86px;
+  border-radius: 10px;
+}
+
+.media-draft-thumb .video-poster-frame,
+.photo-viewer-thumbs .video-poster-frame {
+  height: 100%;
+}
+
+.dialog-media-grid .video-poster-play,
+.media-draft-thumb .video-poster-play,
+.photo-viewer-thumbs .video-poster-play {
+  width: 34px;
+  height: 34px;
+  font-size: 14px;
 }
 
 .media-expand-button {
@@ -7002,7 +7087,7 @@ button:disabled {
   height: 100%;
 }
 
-.playable-video-shell.feed .attachment-video-player {
+.playable-video-shell.feed .video-preview-open {
   width: 100%;
   height: 100%;
   min-height: 220px;
