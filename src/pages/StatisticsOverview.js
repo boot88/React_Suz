@@ -19,6 +19,27 @@ const isOverdue = (app) => {
   return start && (Date.now() - new Date(start).getTime()) / 60000 > limit;
 };
 
+const EXECUTOR_CATEGORIES = [
+  'Повисок Е.В.',
+  'Андреев Р.В.',
+  'Польников Д.В.',
+  'Повисок Е.В. Польников Д.В.',
+  'Повисок Е.В. Андреев Р.В.',
+  'Андреев Р.В. Польников Д.В.',
+  'Повисок Е.В. Польников Д.В. Андреев Р.В.'
+];
+
+const executorCategoryOf = (value = '') => {
+  const executor = String(value).toLowerCase();
+  const people = [
+    /(повисок|\bп\.?\s*е\.?)/i.test(executor) && 'Повисок Е.В.',
+    /(андреев|\bа\.?\s*р\.?)/i.test(executor) && 'Андреев Р.В.',
+    /(польников|\bп\.?\s*д\.?)/i.test(executor) && 'Польников Д.В.'
+  ].filter(Boolean);
+  if (!people.length) return null;
+  return EXECUTOR_CATEGORIES.find((category) => people.every((person) => category.includes(person)) && category.split('.').length - 1 === people.length * 2) || null;
+};
+
 export default function StatisticsOverview() {
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -37,11 +58,11 @@ export default function StatisticsOverview() {
     return () => { active = false; };
   }, []);
 
-  const executors = useMemo(() => [...new Set(applications.map((app) => app.executor).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru')), [applications]);
+  const executors = EXECUTOR_CATEGORIES;
   const categories = useMemo(() => [...new Set(applications.map((app) => app.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru')), [applications]);
   const filtered = useMemo(() => {
     const threshold = period === 'all' ? null : Date.now() - Number(period) * 86400000;
-    return applications.filter((app) => (!threshold || dateOf(app).getTime() >= threshold) && (executor === 'all' || app.executor === executor) && (category === 'all' || app.category === category));
+    return applications.filter((app) => (!threshold || dateOf(app).getTime() >= threshold) && (executor === 'all' || executorCategoryOf(app.executor) === executor) && (category === 'all' || app.category === category));
   }, [applications, period, executor, category]);
 
   const metrics = useMemo(() => {
@@ -57,8 +78,9 @@ export default function StatisticsOverview() {
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, value]) => ({ date: new Date(date).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' }), value }));
   }, [filtered]);
   const workload = useMemo(() => {
-    const map = new Map(); filtered.forEach((app) => { const key = app.executor || 'Не назначен'; map.set(key, (map.get(key) || 0) + 1); });
-    return [...map.entries()].sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value }));
+    const map = new Map(EXECUTOR_CATEGORIES.map((name) => [name, 0]));
+    filtered.forEach((app) => { const key = executorCategoryOf(app.executor); if (key) map.set(key, (map.get(key) || 0) + 1); });
+    return EXECUTOR_CATEGORIES.filter((name) => map.get(name) > 0).map((name) => ({ name, value: map.get(name) }));
   }, [filtered]);
   const sla = useMemo(() => {
     const overdue = filtered.filter(isOverdue).length; const onTime = Math.max(0, filtered.length - overdue);
