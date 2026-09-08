@@ -48,12 +48,7 @@ function App() {
       <ApplicationsProvider>
         <div className={`app-container ${isAdminWorkspace ? `admin-workspace admin-theme-${adminTheme}` : ''}`} data-admin-language={adminLanguage}>
           {isAdminWorkspace && (
-            <Sidebar
-              language={adminLanguage}
-              theme={adminTheme}
-              onLanguageChange={setAdminLanguage}
-              onThemeChange={setAdminTheme}
-            />
+            <Sidebar language={adminLanguage} />
           )}
           <div className={`app-content ${isAdminWorkspace ? 'app-content--with-sidebar admin-shell-content' : ''}`}>
             {isAdminWorkspace && <AdminTextTranslator language={adminLanguage} />}
@@ -70,7 +65,7 @@ function App() {
               <Route path="/employee-search" element={<AdminRoute><EmployeeSearch /></AdminRoute>} />
               <Route path="/knowledge-base" element={<AdminRoute><KnowledgeBase /></AdminRoute>} />
               <Route path="/network-map" element={<AdminRoute><NetworkMap /></AdminRoute>} />
-              <Route path="/settings" element={<AdminRoute><AdminSettings /></AdminRoute>} />
+              <Route path="/settings" element={<AdminRoute><AdminSettings language={adminLanguage} theme={adminTheme} onLanguageChange={setAdminLanguage} onThemeChange={setAdminTheme} /></AdminRoute>} />
               <Route path="/statistics" element={<AdminRoute><Statistics /></AdminRoute>} />
 
               <Route path="/support" element={<Support />} />
@@ -98,7 +93,7 @@ const SIDEBAR_COPY = {
   }
 };
 
-function Sidebar({ language, theme, onLanguageChange, onThemeChange }) {
+function Sidebar({ language }) {
   const { logout, user } = useAuth();
   const location = useLocation();
   const copy = SIDEBAR_COPY[language] || SIDEBAR_COPY.ru;
@@ -263,22 +258,6 @@ function Sidebar({ language, theme, onLanguageChange, onThemeChange }) {
         </nav>
 
         <div className="sidebar-footer">
-          <div className="sidebar-preferences">
-            <div className="sidebar-preference-row">
-              <span>{copy.language}</span>
-              <div className="sidebar-segmented" role="group" aria-label={copy.language}>
-                <button type="button" className={language === 'ru' ? 'active' : ''} onClick={() => onLanguageChange('ru')}>RU</button>
-                <button type="button" className={language === 'en' ? 'active' : ''} onClick={() => onLanguageChange('en')}>EN</button>
-              </div>
-            </div>
-            <div className="sidebar-preference-row">
-              <span>{copy.appearance}</span>
-              <div className="sidebar-segmented sidebar-theme-switch" role="group" aria-label={copy.appearance}>
-                <button type="button" className={theme === 'light' ? 'active' : ''} onClick={() => onThemeChange('light')}>{copy.light}</button>
-                <button type="button" className={theme === 'dark' ? 'active' : ''} onClick={() => onThemeChange('dark')}>{copy.dark}</button>
-              </div>
-            </div>
-          </div>
           <div className="user-info">
             <div className="user-avatar"><span className="user-icon">{String(user?.name || 'A').trim().charAt(0).toUpperCase()}</span></div>
             <div className="user-details">
