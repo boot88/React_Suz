@@ -29,6 +29,7 @@ const {
   ensureRecordsArchiveSchema,
   indexMessageForRecordsArchive
 } = require('../utils/recordsArchiveSchema');
+const { buildRecordsArchivePackage } = require('../utils/recordsArchivePackage');
 const {
   requireAuth,
   requireAuthAllowQuery,
@@ -49,8 +50,11 @@ router.use((req, res, next) => {
   );
   // Для скачивания файлов разрешаем короткоживущий media-токен (?mt=),
   // чтобы полный access_token не попадал в URL.
-  const isFileDownload = req.method === 'GET' && /^\/files\/[^/]+\/download$/.test(req.path);
-  const middleware = isFileDownload ? requireAuthAllowQueryOrMedia : (queryTokenAllowed ? requireAuthAllowQuery : requireAuth);
+  const isProtectedDownload = req.method === 'GET' && (
+    /^\/files\/[^/]+\/download$/.test(req.path)
+    || /^\/records\/archives\/[^/]+\/download$/.test(req.path)
+  );
+  const middleware = isProtectedDownload ? requireAuthAllowQueryOrMedia : (queryTokenAllowed ? requireAuthAllowQuery : requireAuth);
   return middleware(req, res, next);
 });
 
@@ -59,6 +63,7 @@ const chatFilePath = path.join(dataDir, 'chatThreads.json');
 const feedFilePath = path.join(dataDir, 'employeeFeed.json');
 const backupDir = path.join(dataDir, 'backups');
 const uploadsDir = path.join(__dirname, '..', 'uploads');
+const recordsArchiveDir = path.join(dataDir, 'records-archives');
 const MAX_BACKUPS_PER_FILE = 30;
 const MAX_UPLOAD_SIZE = 50 * 1024 * 1024;
 const MAX_MULTIPART_OVERHEAD = 3 * 1024 * 1024;
@@ -3201,6 +3206,129 @@ router.post('/records/conversations/:conversationId/state', requireRole('admin')
   } catch (error) {
     console.error('Chat POST /records/conversations/state error:', error);
     res.status(500).json({ message: 'Не удалось изменить состояние переписки' });
+  }
+});
+
+router.get('/records/archives', requireRole('admin'), async (req, res) => {
+  try {
+    if (!await ensureRecordsArchiveSchema(db)) return res.status(503).json({ message: 'Архивы временно недоступны' });
+    const [rows] = await db.query(
+      `SELECT id, name, archive_type, status, selection_json, package_sha256,
+              record_count, file_count, total_bytes, created_by, created_at,
+              completed_at, downloaded_at, error_text
+       FROM records_archives
+       WHERE deleted_at IS NULL
+       ORDER BY created_at DESC
+       LIMIT 100`
+    );
+    res.set('Cache-Control', 'no-store');
+    res.json({ archives: (rows || []).map((row) => ({ ...row, selection: parseSqlJson(row.selection_json) || {} })) });
+  } catch (error) {
+    console.error('Chat GET /records/archives error:', error);
+    res.status(500).json({ message: 'Не удалось получить список сформированных архивов' });
+  }
+});
+
+router.post('/records/archives', requireRole('admin'), async (req, res) => {
+  try {
+    const scope = req.body?.scope === 'conversation' ? 'conversation' : 'all';
+    const conversationId = scope === 'conversation' ? String(req.body?.conversationId || '').trim() : '';
+    if (scope === 'conversation' && !conversationId) return res.status(400).json({ message: 'Выберите переписку' });
+    if (!await ensureChatSqlSchema() || !await ensureChatFilesSqlSchema() || !await ensureFeedSqlSchema() || !await ensureRecordsArchiveSchema(db)) {
+      return res.status(503).json({ message: 'Хранилище не готово к формированию архива' });
+    }
+    if (conversationId) {
+      const [conversationRows] = await db.execute('SELECT 1 FROM chat_conversations WHERE conversation_id = ? LIMIT 1', [conversationId]);
+      if (!conversationRows?.length) return res.status(404).json({ message: 'Переписка не найдена' });
+    }
+    const archiveId = createId('archive');
+    const selection = { scope, ...(conversationId ? { conversationId } : {}) };
+    const defaultName = scope === 'conversation'
+      ? `Переписка ${conversationId}`
+      : `Полный архив ${new Date().toISOString().slice(0, 10)}`;
+    const name = String(req.body?.name || defaultName).trim().slice(0, 255) || defaultName;
+    await db.execute(
+      `INSERT INTO records_archives
+       (id, name, archive_type, status, selection_json, created_by)
+       VALUES (?, ?, ?, 'pending', ?, ?)`,
+      [archiveId, name, scope === 'all' ? 'full' : 'conversation', JSON.stringify(selection), req.auth.login]
+    );
+    await db.execute(
+      `INSERT INTO records_audit_log (action, entity_type, entity_id, archive_id, actor_login, actor_role, details_json)
+       VALUES ('archive_created', 'records_archive', ?, ?, ?, ?, ?)`,
+      [archiveId, archiveId, req.auth.login, req.auth.role, JSON.stringify(selection)]
+    );
+    setImmediate(() => {
+      buildRecordsArchivePackage({
+        db,
+        archiveId,
+        selection,
+        archiveRoot: recordsArchiveDir,
+        uploadsDir,
+        actor: { login: req.auth.login, role: req.auth.role }
+      }).catch((error) => console.error(`Records archive ${archiveId} build failed:`, error));
+    });
+    res.status(202).json({ archive: { id: archiveId, name, archive_type: scope === 'all' ? 'full' : 'conversation', status: 'pending', selection } });
+  } catch (error) {
+    console.error('Chat POST /records/archives error:', error);
+    res.status(500).json({ message: 'Не удалось начать формирование архива' });
+  }
+});
+
+router.post('/records/archives/:archiveId/download-token', requireRole('admin'), async (req, res) => {
+  try {
+    const archiveId = decodeURIComponent(req.params.archiveId || '').trim();
+    const [rows] = await db.execute(
+      "SELECT id FROM records_archives WHERE id = ? AND status = 'completed' AND deleted_at IS NULL LIMIT 1",
+      [archiveId]
+    );
+    if (!rows?.length) return res.status(404).json({ message: 'Готовый архив не найден' });
+    const token = createMediaToken({ fileId: archiveId, scope: `records-archive:${req.auth.login}` });
+    res.json({ archiveId, token, expiresInMs: MEDIA_TOKEN_TTL_MS });
+  } catch (error) {
+    console.error('Chat POST /records/archives/download-token error:', error);
+    res.status(500).json({ message: 'Не удалось подготовить скачивание архива' });
+  }
+});
+
+router.get('/records/archives/:archiveId/download', async (req, res) => {
+  try {
+    const archiveId = decodeURIComponent(req.params.archiveId || '').trim();
+    const mediaScope = String(req.mediaAuth?.scope || '');
+    const tokenAuthorized = req.mediaAuth?.fileId === archiveId && mediaScope.startsWith('records-archive:');
+    if (!tokenAuthorized && !hasRole(req, 'admin')) return res.status(403).json({ message: 'Недостаточно прав для скачивания архива' });
+    const actorLogin = req.auth?.login || mediaScope.slice('records-archive:'.length) || 'archive-token';
+    const actorRole = req.auth?.role || 'admin';
+    const [rows] = await db.execute(
+      `SELECT id, name, status, storage_path FROM records_archives
+       WHERE id = ? AND deleted_at IS NULL LIMIT 1`,
+      [archiveId]
+    );
+    const archive = rows?.[0];
+    if (!archive) return res.status(404).json({ message: 'Архив не найден' });
+    if (archive.status !== 'completed' || !archive.storage_path) return res.status(409).json({ message: 'Архив ещё не готов' });
+    const storageRoot = path.resolve(recordsArchiveDir);
+    const filePath = path.resolve(String(archive.storage_path));
+    if (filePath !== storageRoot && !filePath.startsWith(`${storageRoot}${path.sep}`)) {
+      return res.status(403).json({ message: 'Некорректный путь архива' });
+    }
+    await fs.access(filePath);
+    const downloadName = `${sanitizeFileName(archive.name || archive.id).replace(/\.zip$/i, '')}.zip`;
+    return res.download(filePath, downloadName, async (error) => {
+      if (error) {
+        if (!res.headersSent) res.status(500).json({ message: 'Не удалось скачать архив' });
+        return;
+      }
+      await db.execute('UPDATE records_archives SET downloaded_at = NOW() WHERE id = ?', [archiveId]).catch(() => {});
+      await db.execute(
+        `INSERT INTO records_audit_log (action, entity_type, entity_id, archive_id, actor_login, actor_role)
+         VALUES ('archive_downloaded', 'records_archive', ?, ?, ?, ?)`,
+        [archiveId, archiveId, actorLogin, actorRole]
+      ).catch(() => {});
+    });
+  } catch (error) {
+    console.error('Chat GET /records/archives/download error:', error);
+    res.status(error.code === 'ENOENT' ? 404 : 500).json({ message: error.code === 'ENOENT' ? 'Файл архива не найден на диске' : 'Не удалось скачать архив' });
   }
 });
 

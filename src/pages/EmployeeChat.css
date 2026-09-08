@@ -1662,6 +1662,74 @@ button:disabled {
   margin-bottom: 14px;
 }
 
+.archive-package-builder {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid var(--chat-border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .52);
+}
+
+.archive-package-builder button,
+.archive-package-row button {
+  border: 0;
+  border-radius: 9px;
+  padding: 9px 12px;
+  background: var(--chat-primary);
+  color: #fff;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.archive-package-builder button:disabled {
+  opacity: .55;
+  cursor: wait;
+}
+
+.archive-packages {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.archive-packages h3 {
+  margin: 0;
+}
+
+.archive-package-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  border: 1px solid var(--chat-border);
+  border-radius: 12px;
+}
+
+.archive-package-row > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.archive-package-row small,
+.archive-package-row code,
+.archive-package-row em {
+  overflow-wrap: anywhere;
+  color: var(--chat-muted);
+}
+
+.archive-package-row.status-completed {
+  border-color: rgba(28, 139, 79, .35);
+}
+
+.archive-package-row.status-failed {
+  border-color: rgba(190, 48, 48, .4);
+}
+
 .archive-toolbar > input,
 .archive-toolbar select,
 .archive-toolbar label {
@@ -1728,6 +1796,10 @@ button:disabled {
 }
 
 @media (max-width: 900px) {
+  .archive-package-builder {
+    grid-template-columns: 1fr;
+  }
+
   .archive-toolbar {
     grid-template-columns: 1fr 1fr;
   }

@@ -30,6 +30,7 @@ yarn-error.log*
 # Runtime chat/feed uploads and JSON storage
 /server/uploads
 /server/data/backups
+/server/data/records-archives
 /server/data/*.tmp
 /server/data/chatThreads.json
 /server/data/employeeFeed.json

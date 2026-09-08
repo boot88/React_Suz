@@ -327,6 +327,17 @@ const RUSSIAN_LABELS = {
   archiveChoose: 'Выберите переписку для отдельного просмотра.',
   archiveFrom: 'С даты',
   archiveTo: 'По дату',
+  archivePackages: 'Сформированные ZIP-архивы',
+  archiveName: 'Название архива (необязательно)',
+  createFullArchive: 'Создать полный архив чатов и ленты',
+  createConversationArchive: 'Создать ZIP выбранной переписки',
+  archivePending: 'Формируется',
+  archiveCompleted: 'Готов',
+  archiveFailed: 'Ошибка',
+  archiveDownload: 'Скачать ZIP',
+  archiveNoPackages: 'Архивы ещё не формировались.',
+  archiveRecords: 'записей',
+  archiveFiles: 'файлов',
   profileNamePlaceholder: 'Иванов Иван Иванович',
   positionPlaceholder: 'Например: инженер',
   departmentPlaceholder: 'Название отдела',
@@ -599,6 +610,17 @@ const ENGLISH_LABELS = {
   archiveChoose: 'Choose a conversation to open it separately.',
   archiveFrom: 'From date',
   archiveTo: 'To date',
+  archivePackages: 'Generated ZIP archives',
+  archiveName: 'Archive name (optional)',
+  createFullArchive: 'Create full chat and feed archive',
+  createConversationArchive: 'Create ZIP for selected conversation',
+  archivePending: 'Building',
+  archiveCompleted: 'Ready',
+  archiveFailed: 'Failed',
+  archiveDownload: 'Download ZIP',
+  archiveNoPackages: 'No archives have been generated yet.',
+  archiveRecords: 'records',
+  archiveFiles: 'files',
   profileNamePlaceholder: 'Ivan Ivanov',
   positionPlaceholder: 'Example: engineer',
   departmentPlaceholder: 'Department name',
@@ -1892,6 +1914,9 @@ const EmployeeChat = () => {
   const [archiveHasMore, setArchiveHasMore] = useState(false);
   const [archiveBefore, setArchiveBefore] = useState('');
   const [archiveLoading, setArchiveLoading] = useState(false);
+  const [recordsArchives, setRecordsArchives] = useState([]);
+  const [archivePackageName, setArchivePackageName] = useState('');
+  const [archiveCreating, setArchiveCreating] = useState(false);
   const [feedLoading, setFeedLoading] = useState(false);
   const [feedRefreshing, setFeedRefreshing] = useState(false);
   const [feedLoadingMore, setFeedLoadingMore] = useState(false);
@@ -2485,12 +2510,83 @@ const EmployeeChat = () => {
     }
   }, [chatAuthHeaders, confirmAction, fetchArchiveConversations, fetchThreads]);
 
+  const fetchRecordsArchives = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const response = await authFetch(`${API_BASE_URL}/chat/records/archives`, { headers: chatAuthHeaders });
+      const data = await readApiJson(response, 'Не удалось получить список архивов');
+      setRecordsArchives(Array.isArray(data?.archives) ? data.archives : []);
+    } catch (error) {
+      notifyRef.current(error.message || 'Не удалось получить список архивов', 'Архив');
+    }
+  }, [chatAuthHeaders, isAdmin]);
+
+  const createRecordsArchive = useCallback(async (scope) => {
+    if (scope === 'conversation' && !archiveSelectedId) {
+      notifyRef.current('Сначала выберите переписку', 'Архив');
+      return;
+    }
+    const confirmed = await confirmAction(
+      scope === 'all'
+        ? 'Создать полный ZIP со всеми чатами, лентой и настоящими файлами? Формирование продолжится в фоне.'
+        : 'Создать ZIP выбранной переписки со всеми сообщениями и файлами?',
+      'Формирование архива'
+    );
+    if (!confirmed) return;
+    setArchiveCreating(true);
+    try {
+      const response = await authFetch(`${API_BASE_URL}/chat/records/archives`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
+        body: JSON.stringify({
+          scope,
+          conversationId: scope === 'conversation' ? archiveSelectedId : undefined,
+          name: archivePackageName.trim() || undefined
+        })
+      });
+      const data = await readApiJson(response, 'Не удалось начать формирование архива');
+      if (data?.archive) setRecordsArchives((current) => [data.archive, ...current.filter((item) => item.id !== data.archive.id)]);
+      setArchivePackageName('');
+      notifyRef.current('Архив формируется в фоне. Статус обновится автоматически.', 'Архив');
+    } catch (error) {
+      notifyRef.current(error.message || 'Не удалось начать формирование архива', 'Архив');
+    } finally {
+      setArchiveCreating(false);
+    }
+  }, [archivePackageName, archiveSelectedId, chatAuthHeaders, confirmAction]);
+
+  const downloadRecordsArchive = useCallback(async (archive) => {
+    try {
+      const response = await authFetch(
+        `${API_BASE_URL}/chat/records/archives/${encodeURIComponent(archive.id)}/download-token`,
+        { method: 'POST', headers: chatAuthHeaders }
+      );
+      const data = await readApiJson(response, 'Не удалось подготовить скачивание архива');
+      const anchor = document.createElement('a');
+      anchor.href = `${API_BASE_URL}/chat/records/archives/${encodeURIComponent(archive.id)}/download?mt=${encodeURIComponent(data.token)}`;
+      anchor.download = `${String(archive.name || archive.id).replace(/[\\/:*?"<>|]+/g, '-')}.zip`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(fetchRecordsArchives, 1500);
+    } catch (error) {
+      notifyRef.current(error.message || 'Не удалось скачать архив', 'Архив');
+    }
+  }, [chatAuthHeaders, fetchRecordsArchives]);
+
   useEffect(() => {
     if (activeTab !== 'archive' || !isAdmin) return undefined;
     const controller = new AbortController();
     const timer = window.setTimeout(() => fetchArchiveConversations(controller.signal), 250);
     return () => { window.clearTimeout(timer); controller.abort(); };
   }, [activeTab, fetchArchiveConversations, isAdmin]);
+
+  useEffect(() => {
+    if (activeTab !== 'archive' || !isAdmin) return undefined;
+    fetchRecordsArchives();
+    const timer = window.setInterval(fetchRecordsArchives, 4000);
+    return () => window.clearInterval(timer);
+  }, [activeTab, fetchRecordsArchives, isAdmin]);
 
   useEffect(() => {
     if (activeTab !== 'archive' || !archiveSelectedId || !isAdmin) return;
@@ -6006,6 +6102,32 @@ const EmployeeChat = () => {
         {activeTab === 'archive' && isAdmin && (
           <section className="manager-panel archive-center-panel">
             <h2>{t('archiveCenter')}</h2>
+            <div className="archive-package-builder">
+              <input type="text" placeholder={t('archiveName')} value={archivePackageName} onChange={(event) => setArchivePackageName(event.target.value)} />
+              <button type="button" disabled={archiveCreating} onClick={() => createRecordsArchive('all')}>{t('createFullArchive')}</button>
+              <button type="button" disabled={archiveCreating || !archiveSelectedId} onClick={() => createRecordsArchive('conversation')}>{t('createConversationArchive')}</button>
+            </div>
+            <div className="archive-packages">
+              <h3>{t('archivePackages')}</h3>
+              {recordsArchives.length === 0 && <small>{t('archiveNoPackages')}</small>}
+              {recordsArchives.map((archive) => {
+                const statusLabel = archive.status === 'completed'
+                  ? t('archiveCompleted')
+                  : archive.status === 'failed' ? t('archiveFailed') : t('archivePending');
+                return (
+                  <div key={archive.id} className={`archive-package-row status-${archive.status}`}>
+                    <div>
+                      <strong>{archive.name}</strong>
+                      <small>{statusLabel} · {archive.created_at ? new Date(archive.created_at).toLocaleString(interfaceLocale) : ''}</small>
+                      {archive.status === 'completed' && <small>{archive.record_count || 0} {t('archiveRecords')} · {archive.file_count || 0} {t('archiveFiles')} · {formatFileSize(archive.total_bytes)}</small>}
+                      {archive.package_sha256 && <code>SHA-256: {archive.package_sha256}</code>}
+                      {archive.error_text && <em>{archive.error_text}</em>}
+                    </div>
+                    {archive.status === 'completed' && <button type="button" onClick={() => downloadRecordsArchive(archive)}>{t('archiveDownload')}</button>}
+                  </div>
+                );
+              })}
+            </div>
             <div className="archive-toolbar">
               <input
                 type="search"
