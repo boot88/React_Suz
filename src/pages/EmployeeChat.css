@@ -1907,6 +1907,141 @@ button:disabled {
   font-size: 12px;
 }
 
+.purge-panel {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 13px;
+  border: 1px solid rgba(179, 38, 38, .48);
+  border-radius: 12px;
+  background: rgba(255, 241, 242, .72);
+}
+
+.purge-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.purge-panel-heading > div {
+  display: grid;
+  gap: 4px;
+}
+
+.purge-panel small,
+.purge-panel code {
+  color: var(--chat-muted);
+  overflow-wrap: anywhere;
+}
+
+.purge-panel-heading button {
+  border: 1px solid rgba(179, 38, 38, .3);
+  border-radius: 8px;
+  padding: 7px 10px;
+  background: #fff;
+  color: #8f1d1d;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.purge-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 7px;
+}
+
+.purge-metrics span {
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid rgba(179, 38, 38, .15);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .72);
+  color: var(--chat-muted);
+  font-size: 11px;
+}
+
+.purge-metrics b {
+  color: var(--chat-ink);
+  font-size: 17px;
+}
+
+.purge-backup-status,
+.purge-hold-block {
+  display: grid;
+  gap: 4px;
+  padding: 9px;
+  border-radius: 9px;
+}
+
+.purge-backup-status.ready {
+  border: 1px solid rgba(28, 139, 79, .35);
+  background: rgba(225, 247, 234, .75);
+  color: #17643a;
+}
+
+.purge-backup-status.blocked,
+.purge-hold-block {
+  border: 1px solid rgba(179, 38, 38, .3);
+  background: rgba(255, 228, 230, .72);
+  color: #8f1d1d;
+}
+
+.purge-panel textarea {
+  width: 100%;
+  min-height: 76px;
+}
+
+.purge-action-button {
+  justify-self: start;
+  border: 0;
+  border-radius: 9px;
+  padding: 9px 13px;
+  background: #a51f2b;
+  color: #fff;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.purge-action-button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.purge-history-panel {
+  margin: 14px 0;
+  padding: 11px 13px;
+  border: 1px solid var(--chat-border);
+  border-radius: 12px;
+}
+
+.purge-history-panel summary {
+  cursor: pointer;
+  font-weight: 850;
+}
+
+.purge-history-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.purge-history-list article {
+  display: grid;
+  gap: 4px;
+  padding: 9px;
+  border: 1px solid rgba(179, 38, 38, .16);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .6);
+}
+
+.purge-history-list small,
+.purge-history-list code {
+  color: var(--chat-muted);
+  overflow-wrap: anywhere;
+}
+
 .archive-toolbar > input,
 .archive-toolbar select,
 .archive-toolbar label {
@@ -1996,6 +2131,10 @@ button:disabled {
   .legal-hold-filters {
     min-width: 0;
     width: 100%;
+  }
+
+  .purge-panel-heading {
+    display: grid;
   }
 }
 

@@ -376,6 +376,25 @@ const RUSSIAN_LABELS = {
   legalHoldItems: 'защищённых объектов',
   legalHoldRelease: 'Снять запрет',
   legalHoldCreatedBy: 'Установил',
+  purgeTitle: 'Окончательное удаление',
+  purgeHint: 'Необратимо удаляет исходные записи и только те файлы, которые больше нигде не используются. Скачанный ZIP остаётся копией для восстановления.',
+  purgeRefresh: 'Пересчитать',
+  purgeMessages: 'Сообщения',
+  purgeVersions: 'Версии',
+  purgeFiles: 'Связанные файлы',
+  purgeExclusiveFiles: 'Будут удалены с диска',
+  purgeSharedFiles: 'Общие файлы сохранятся',
+  purgeBackupReady: 'ZIP проверен и скачан',
+  purgeBackupMissing: 'Нет подходящего ZIP-архива. Сформируйте архив выбранной переписки.',
+  purgeBackupNotDownloaded: 'ZIP сформирован, но ещё не скачан администратором.',
+  purgeBackupIncomplete: 'ZIP устарел или содержит не все сообщения и файлы. Сформируйте новый.',
+  purgeBackupCorrupt: 'ZIP отсутствует на диске или его SHA-256 не совпадает.',
+  purgeLegalHoldBlocked: 'Удаление заблокировано действующим legal hold.',
+  purgeReason: 'Обязательная причина окончательного удаления',
+  purgeAction: 'Удалить окончательно',
+  purgeHistory: 'История окончательных удалений',
+  purgeHistoryEmpty: 'Окончательных удалений ещё не было.',
+  purgeDeletedBy: 'Удалил',
   profileNamePlaceholder: 'Иванов Иван Иванович',
   positionPlaceholder: 'Например: инженер',
   departmentPlaceholder: 'Название отдела',
@@ -696,6 +715,25 @@ const ENGLISH_LABELS = {
   legalHoldItems: 'protected items',
   legalHoldRelease: 'Release hold',
   legalHoldCreatedBy: 'Applied by',
+  purgeTitle: 'Permanent deletion',
+  purgeHint: 'Irreversibly removes source records and only files that are not used elsewhere. The downloaded ZIP remains the recovery copy.',
+  purgeRefresh: 'Recalculate',
+  purgeMessages: 'Messages',
+  purgeVersions: 'Versions',
+  purgeFiles: 'Linked files',
+  purgeExclusiveFiles: 'Deleted from disk',
+  purgeSharedFiles: 'Shared files preserved',
+  purgeBackupReady: 'ZIP verified and downloaded',
+  purgeBackupMissing: 'No suitable ZIP archive. Create an archive for the selected conversation.',
+  purgeBackupNotDownloaded: 'The ZIP is ready but has not been downloaded by an administrator.',
+  purgeBackupIncomplete: 'The ZIP is outdated or does not contain every message and file. Create a new one.',
+  purgeBackupCorrupt: 'The ZIP is missing from disk or its SHA-256 does not match.',
+  purgeLegalHoldBlocked: 'Deletion is blocked by an active legal hold.',
+  purgeReason: 'Required reason for permanent deletion',
+  purgeAction: 'Delete permanently',
+  purgeHistory: 'Permanent deletion history',
+  purgeHistoryEmpty: 'No permanent deletions have been made.',
+  purgeDeletedBy: 'Deleted by',
   profileNamePlaceholder: 'Ivan Ivanov',
   positionPlaceholder: 'Example: engineer',
   departmentPlaceholder: 'Department name',
@@ -1997,6 +2035,10 @@ const EmployeeChat = () => {
   const [legalHoldFilters, setLegalHoldFilters] = useState({ q: '', status: 'all' });
   const [legalHoldForm, setLegalHoldForm] = useState({ name: '', reason: '', endsAt: '' });
   const [legalHoldLoading, setLegalHoldLoading] = useState(false);
+  const [purgePreview, setPurgePreview] = useState(null);
+  const [purgeReason, setPurgeReason] = useState('');
+  const [purgeLoading, setPurgeLoading] = useState(false);
+  const [purgeHistory, setPurgeHistory] = useState([]);
   const [receivedArchives, setReceivedArchives] = useState([]);
   const [receivedArchiveAccessId, setReceivedArchiveAccessId] = useState('');
   const [receivedArchiveMessages, setReceivedArchiveMessages] = useState([]);
@@ -2683,6 +2725,116 @@ const EmployeeChat = () => {
     }
   }, [chatAuthHeaders, confirmAction, fetchArchiveConversations, fetchLegalHolds]);
 
+  const fetchPurgeHistory = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const response = await authFetch(`${API_BASE_URL}/chat/records/purge-history`, { headers: chatAuthHeaders });
+      const data = await readApiJson(response, 'Не удалось получить историю окончательных удалений');
+      setPurgeHistory(Array.isArray(data?.purges) ? data.purges : []);
+    } catch (error) {
+      notifyRef.current(error.message || 'Не удалось получить историю окончательных удалений', 'Архив');
+    }
+  }, [chatAuthHeaders, isAdmin]);
+
+  const fetchConversationPurgePreview = useCallback(async (conversationId = archiveSelectedId) => {
+    if (!conversationId || !isAdmin) {
+      setPurgePreview(null);
+      return;
+    }
+    setPurgeLoading(true);
+    try {
+      const response = await authFetch(
+        `${API_BASE_URL}/chat/records/conversations/${encodeURIComponent(conversationId)}/purge-preview`,
+        { headers: chatAuthHeaders }
+      );
+      const data = await readApiJson(response, 'Не удалось рассчитать окончательное удаление');
+      setPurgePreview(data || null);
+    } catch (error) {
+      setPurgePreview(null);
+      notifyRef.current(error.message || 'Не удалось рассчитать окончательное удаление', 'Архив');
+    } finally {
+      setPurgeLoading(false);
+    }
+  }, [archiveSelectedId, chatAuthHeaders, isAdmin]);
+
+  const permanentlyDeleteConversation = useCallback(async () => {
+    if (!archiveSelectedId || !purgePreview?.canPurge || purgeLoading) return;
+    const reason = purgeReason.trim();
+    if (!reason) {
+      notifyRef.current('Укажите причину окончательного удаления.', 'Окончательное удаление');
+      return;
+    }
+    const counts = purgePreview.counts || {};
+    const firstConfirmed = await confirmAction(
+      `Подготовлено к удалению: ${counts.messages || 0} сообщений, ${counts.messageVersions || 0} версий и ${counts.exclusiveFiles || 0} файлов с диска. Продолжить?`,
+      'Окончательное удаление'
+    );
+    if (!firstConfirmed) return;
+    const phrase = await promptAction(
+      'Введите УДАЛИТЬ заглавными буквами. Операцию нельзя будет отменить без восстановления скачанного ZIP.',
+      '',
+      'Подтверждение удаления'
+    );
+    if (String(phrase || '').trim().toUpperCase() !== 'УДАЛИТЬ') {
+      notifyRef.current('Окончательное удаление отменено: контрольное слово не совпало.', 'Архив');
+      return;
+    }
+    const finalConfirmed = await confirmAction(
+      `Последнее подтверждение: окончательно удалить переписку ${archiveSelectedId}?`,
+      'Финальное подтверждение'
+    );
+    if (!finalConfirmed) return;
+
+    setPurgeLoading(true);
+    try {
+      const response = await authFetch(
+        `${API_BASE_URL}/chat/records/conversations/${encodeURIComponent(archiveSelectedId)}/purge`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
+          body: JSON.stringify({
+            archiveId: purgePreview.backup.id,
+            reason,
+            confirmationPhrase: 'УДАЛИТЬ',
+            confirmationConversationId: archiveSelectedId,
+            acknowledgedConsequences: true
+          })
+        }
+      );
+      const data = await readApiJson(response, 'Не удалось выполнить окончательное удаление');
+      setPurgeReason('');
+      setPurgePreview(null);
+      setArchiveSelectedId('');
+      setArchiveMessages([]);
+      await Promise.all([fetchArchiveConversations(), fetchLegalHolds(), fetchPurgeHistory(), fetchRecordsArchives(), fetchThreads()]);
+      notifyRef.current(
+        data?.cleanupWarning
+          ? `Переписка удалена. ${data.cleanupWarning}`
+          : 'Переписка окончательно удалена. Контрольная запись сохранена в аудите.',
+        'Архив'
+      );
+    } catch (error) {
+      notifyRef.current(error.message || 'Не удалось выполнить окончательное удаление', 'Архив');
+      await fetchConversationPurgePreview(archiveSelectedId);
+    } finally {
+      setPurgeLoading(false);
+    }
+  }, [
+    archiveSelectedId,
+    chatAuthHeaders,
+    confirmAction,
+    fetchArchiveConversations,
+    fetchConversationPurgePreview,
+    fetchLegalHolds,
+    fetchPurgeHistory,
+    fetchRecordsArchives,
+    fetchThreads,
+    promptAction,
+    purgeLoading,
+    purgePreview,
+    purgeReason
+  ]);
+
   const createRecordsArchive = useCallback(async (scope) => {
     if (scope === 'conversation' && !archiveSelectedId) {
       notifyRef.current('Сначала выберите переписку', 'Архив');
@@ -2850,6 +3002,11 @@ const EmployeeChat = () => {
   }, [activeTab, fetchRecordsArchives, isAdmin]);
 
   useEffect(() => {
+    if (activeTab !== 'archive' || !isAdmin) return;
+    fetchPurgeHistory();
+  }, [activeTab, fetchPurgeHistory, isAdmin]);
+
+  useEffect(() => {
     if (activeTab !== 'archive' || !isAdmin) return undefined;
     const controller = new AbortController();
     const timer = window.setTimeout(() => fetchLegalHolds(controller.signal), 250);
@@ -2864,6 +3021,15 @@ const EmployeeChat = () => {
   // archiveBefore deliberately excluded: it changes while paging the selected archive.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, archiveFilters.q, archiveSelectedId, isAdmin]);
+
+  useEffect(() => {
+    setPurgeReason('');
+    setPurgePreview(null);
+    if (activeTab !== 'archive' || !archiveSelectedId || !isAdmin) return;
+    fetchConversationPurgePreview(archiveSelectedId);
+  // The preview is recalculated when the selected conversation changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, archiveSelectedId, isAdmin]);
 
   useEffect(() => {
     if (activeTab !== 'receivedArchives' || isManager) return undefined;
@@ -6514,6 +6680,21 @@ const EmployeeChat = () => {
                 })}
               </div>
             </div>
+            <details className="purge-history-panel">
+              <summary>{t('purgeHistory')} · {purgeHistory.length}</summary>
+              {purgeHistory.length === 0 && <small>{t('purgeHistoryEmpty')}</small>}
+              <div className="purge-history-list">
+                {purgeHistory.map((entry) => (
+                  <article key={entry.id}>
+                    <strong>{entry.conversation_id}</strong>
+                    <span>{entry.details?.reason || '—'}</span>
+                    <small>{t('purgeDeletedBy')}: {entry.actor_login} · {entry.created_at ? new Date(entry.created_at).toLocaleString(interfaceLocale) : '—'}</small>
+                    <small>ZIP: {entry.details?.archive?.name || entry.archive_id || '—'}</small>
+                    {entry.details?.archive?.packageSha256 && <code>SHA-256: {entry.details.archive.packageSha256}</code>}
+                  </article>
+                ))}
+              </div>
+            </details>
             <div className="archive-toolbar">
               <input
                 type="search"
@@ -6576,6 +6757,65 @@ const EmployeeChat = () => {
                     <label>{t('legalHoldEnd')}<input type="date" value={legalHoldForm.endsAt} onChange={(event) => setLegalHoldForm((current) => ({ ...current, endsAt: event.target.value }))} /></label>
                     <button type="submit" disabled={legalHoldLoading}>{t('legalHoldCreate')}</button>
                   </form>
+                )}
+                {archiveSelectedId && (
+                  <section className="purge-panel">
+                    <div className="purge-panel-heading">
+                      <div>
+                        <strong>{t('purgeTitle')}</strong>
+                        <small>{t('purgeHint')}</small>
+                      </div>
+                      <button type="button" disabled={purgeLoading} onClick={() => fetchConversationPurgePreview(archiveSelectedId)}>{t('purgeRefresh')}</button>
+                    </div>
+                    {purgeLoading && !purgePreview && <small>{t('loading')}…</small>}
+                    {purgePreview && (
+                      <>
+                        <div className="purge-metrics">
+                          <span><b>{purgePreview.counts?.messages || 0}</b>{t('purgeMessages')}</span>
+                          <span><b>{purgePreview.counts?.messageVersions || 0}</b>{t('purgeVersions')}</span>
+                          <span><b>{purgePreview.counts?.files || 0}</b>{t('purgeFiles')} · {formatFileSize(purgePreview.counts?.fileBytes)}</span>
+                          <span><b>{purgePreview.counts?.exclusiveFiles || 0}</b>{t('purgeExclusiveFiles')} · {formatFileSize(purgePreview.counts?.exclusiveFileBytes)}</span>
+                          <span><b>{purgePreview.counts?.sharedFiles || 0}</b>{t('purgeSharedFiles')}</span>
+                        </div>
+                        <div className={`purge-backup-status ${purgePreview.backupReady ? 'ready' : 'blocked'}`}>
+                          <strong>
+                            {purgePreview.backupReady
+                              ? `✓ ${t('purgeBackupReady')}`
+                              : !purgePreview.backup
+                                ? t('purgeBackupMissing')
+                                : !purgePreview.backup.complete
+                                  ? t('purgeBackupIncomplete')
+                                  : !purgePreview.backup.downloadedAt
+                                    ? t('purgeBackupNotDownloaded')
+                                    : t('purgeBackupCorrupt')}
+                          </strong>
+                          {purgePreview.backup && <small>{purgePreview.backup.name} · {purgePreview.backup.id}</small>}
+                          {purgePreview.backup?.packageSha256 && <code>SHA-256: {purgePreview.backup.packageSha256}</code>}
+                        </div>
+                        {purgePreview.legalHolds?.length > 0 && (
+                          <div className="purge-hold-block">
+                            <strong>🔒 {t('purgeLegalHoldBlocked')}</strong>
+                            {purgePreview.legalHolds.map((hold) => <small key={hold.id}>{hold.name}: {hold.reason}</small>)}
+                          </div>
+                        )}
+                        <textarea
+                          rows={3}
+                          placeholder={t('purgeReason')}
+                          value={purgeReason}
+                          onChange={(event) => setPurgeReason(event.target.value)}
+                          maxLength={4000}
+                        />
+                        <button
+                          type="button"
+                          className="purge-action-button"
+                          disabled={!purgePreview.canPurge || !purgeReason.trim() || purgeLoading}
+                          onClick={permanentlyDeleteConversation}
+                        >
+                          {t('purgeAction')}
+                        </button>
+                      </>
+                    )}
+                  </section>
                 )}
                 {archiveSelectedId && archiveHasMore && (
                   <button type="button" className="chat-pagination-button" disabled={archiveLoading} onClick={() => fetchArchiveMessages(archiveSelectedId, { append: true })}>{t('loadPreviousMessages')}</button>

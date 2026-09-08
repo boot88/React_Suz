@@ -81,6 +81,7 @@ let storageReadyPromise = null;
 const streamClients = new Set();
 const streamEventBuffer = [];
 const typingTimers = new Map();
+const archiveIntegrityCache = new Map();
 let lastStreamEventId = Date.now() * 1000;
 
 const cloneThreads = (threads) => JSON.parse(JSON.stringify(threads || {}));
@@ -437,13 +438,6 @@ const readSqlThreadSummaries = async (login) => {
       attachmentsCount: Number(row.attachment_count) || 0
     }];
   }));
-};
-
-const deleteSqlConversation = async (conversationId) => {
-  if (!await ensureChatSqlSchema()) return false;
-  await db.execute('DELETE FROM chat_message_files WHERE conversation_id = ?', [conversationId]);
-  await db.execute('DELETE FROM chat_messages WHERE conversation_id = ?', [conversationId]);
-  return true;
 };
 
 const getActiveLegalHoldsForConversation = async (conversationId) => {
@@ -1433,6 +1427,232 @@ const parseSqlJson = (value) => {
   if (!value) return null;
   if (typeof value === 'object') return value;
   try { return JSON.parse(value); } catch { return null; }
+};
+
+const getConversationPurgeFiles = async (conversationId) => {
+  if (!await ensureChatFilesSqlSchema() || !await ensureChatSqlSchema() || !await ensureFeedSqlSchema()) return [];
+  const [rows] = await db.execute(
+    `SELECT ${CHAT_FILE_METADATA_COLUMNS},
+            NOT EXISTS (
+              SELECT 1 FROM chat_message_files AS other_chat_links
+              WHERE other_chat_links.file_id = files.id
+                AND other_chat_links.conversation_id <> ?
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM feed_post_files AS feed_links
+              WHERE feed_links.file_id = files.id
+            ) AS is_exclusive
+     FROM chat_files AS files
+     INNER JOIN (
+       SELECT DISTINCT file_id FROM chat_message_files WHERE conversation_id = ?
+     ) AS conversation_files ON conversation_files.file_id = files.id`,
+    [conversationId, conversationId]
+  );
+  return rows || [];
+};
+
+const inspectArchivePackage = async (storagePath, expectedSha256) => {
+  if (!storagePath) return { packageOnDisk: false, checksumMatches: false };
+  const storageRoot = path.resolve(recordsArchiveDir);
+  const archivePath = path.resolve(String(storagePath));
+  if (archivePath === storageRoot || !archivePath.startsWith(`${storageRoot}${path.sep}`)) {
+    return { packageOnDisk: false, checksumMatches: false };
+  }
+  try {
+    const stat = await fs.stat(archivePath);
+    const cached = archiveIntegrityCache.get(archivePath);
+    if (
+      cached
+      && cached.size === stat.size
+      && cached.mtimeMs === stat.mtimeMs
+      && cached.expectedSha256 === expectedSha256
+    ) return cached.result;
+    const actualSha256 = await new Promise((resolve, reject) => {
+      const hash = crypto.createHash('sha256');
+      const stream = fsSync.createReadStream(archivePath);
+      stream.on('data', (chunk) => hash.update(chunk));
+      stream.once('error', reject);
+      stream.once('end', () => resolve(hash.digest('hex')));
+    });
+    const result = {
+      packageOnDisk: true,
+      checksumMatches: Boolean(expectedSha256) && actualSha256 === expectedSha256,
+      actualSha256
+    };
+    archiveIntegrityCache.set(archivePath, {
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+      expectedSha256,
+      result
+    });
+    if (archiveIntegrityCache.size > 100) archiveIntegrityCache.delete(archiveIntegrityCache.keys().next().value);
+    return result;
+  } catch {
+    return { packageOnDisk: false, checksumMatches: false };
+  }
+};
+
+const findConversationPurgeBackup = async (conversationId, messageCount, fileCount) => {
+  const [rows] = await db.query(
+    `SELECT id, name, archive_type, status, selection_json, storage_path,
+            package_sha256, record_count, file_count, total_bytes,
+            created_at, completed_at, downloaded_at
+     FROM records_archives
+     WHERE status = 'completed' AND deleted_at IS NULL
+     ORDER BY (downloaded_at IS NOT NULL) DESC, completed_at DESC
+     LIMIT 100`
+  );
+  let fallback = null;
+  for (const archive of rows || []) {
+    const selection = parseSqlJson(archive.selection_json) || {};
+    const includesConversation = selection.scope === 'all'
+      || (selection.scope === 'conversation' && selection.conversationId === conversationId);
+    if (!includesConversation) continue;
+    const [[messageRows], [fileRows]] = await Promise.all([
+      db.execute(
+        `SELECT COUNT(DISTINCT entity_id) AS total
+         FROM records_archive_items
+         WHERE archive_id = ? AND entity_type = 'chat_message' AND parent_id = ?`,
+        [archive.id, conversationId]
+      ),
+      db.execute(
+        `SELECT COUNT(DISTINCT archive_files.file_id) AS total
+         FROM records_archive_files AS archive_files
+         INNER JOIN chat_message_files AS source_links ON source_links.file_id = archive_files.file_id
+         WHERE archive_files.archive_id = ? AND source_links.conversation_id = ?`,
+        [archive.id, conversationId]
+      )
+    ]);
+    const archivedMessageCount = Number(messageRows?.[0]?.total) || 0;
+    const archivedFileCount = Number(fileRows?.[0]?.total) || 0;
+    const complete = archivedMessageCount >= messageCount && archivedFileCount >= fileCount;
+    const packageInspection = complete && archive.downloaded_at
+      ? await inspectArchivePackage(archive.storage_path, archive.package_sha256)
+      : { packageOnDisk: false, checksumMatches: false };
+    const candidate = {
+      id: archive.id,
+      name: archive.name,
+      archiveType: archive.archive_type,
+      packageSha256: archive.package_sha256,
+      createdAt: archive.created_at,
+      completedAt: archive.completed_at,
+      downloadedAt: archive.downloaded_at,
+      packageOnDisk: packageInspection.packageOnDisk,
+      checksumMatches: packageInspection.checksumMatches,
+      complete,
+      archivedMessageCount,
+      archivedFileCount,
+      requiredMessageCount: messageCount,
+      requiredFileCount: fileCount
+    };
+    if (!fallback) fallback = candidate;
+    if (complete && archive.downloaded_at && packageInspection.packageOnDisk && packageInspection.checksumMatches) return candidate;
+  }
+  return fallback;
+};
+
+const getConversationPurgePreview = async (conversationId) => {
+  if (!await ensureChatSqlSchema() || !await ensureChatFilesSqlSchema() || !await ensureFeedSqlSchema() || !await ensureRecordsArchiveSchema(db)) {
+    const error = new Error('Хранилище не готово к окончательному удалению');
+    error.status = 503;
+    throw error;
+  }
+  const [[conversationRows], [messageRows], [versionRows], files, legalHolds] = await Promise.all([
+    db.execute(
+      `SELECT conversation_id, participant_a, participant_b, state, created_at,
+              last_message_at, message_count
+       FROM chat_conversations WHERE conversation_id = ? LIMIT 1`,
+      [conversationId]
+    ),
+    db.execute(
+      `SELECT COUNT(*) AS total, COALESCE(SUM(OCTET_LENGTH(message_json)), 0) AS total_bytes
+       FROM chat_messages WHERE conversation_id = ?`,
+      [conversationId]
+    ),
+    db.execute(
+      'SELECT COUNT(*) AS total FROM chat_message_versions WHERE conversation_id = ?',
+      [conversationId]
+    ),
+    getConversationPurgeFiles(conversationId),
+    getActiveLegalHoldsForConversation(conversationId)
+  ]);
+  const conversation = conversationRows?.[0];
+  if (!conversation) {
+    const error = new Error('Переписка не найдена');
+    error.status = 404;
+    throw error;
+  }
+  const messageCount = Number(messageRows?.[0]?.total) || 0;
+  const fileCount = files.length;
+  const exclusiveFiles = files.filter((file) => Number(file.is_exclusive) === 1);
+  const sharedFiles = files.filter((file) => !file.is_exclusive);
+  const fileBytes = files.reduce((sum, file) => sum + (Number(file.size_bytes) || 0), 0);
+  const exclusiveFileBytes = exclusiveFiles.reduce((sum, file) => sum + (Number(file.size_bytes) || 0), 0);
+  const backup = await findConversationPurgeBackup(conversationId, messageCount, fileCount);
+  const backupReady = Boolean(
+    backup?.complete
+    && backup?.downloadedAt
+    && backup?.packageOnDisk
+    && backup?.checksumMatches
+  );
+  return {
+    conversation,
+    counts: {
+      messages: messageCount,
+      messageVersions: Number(versionRows?.[0]?.total) || 0,
+      files: fileCount,
+      exclusiveFiles: exclusiveFiles.length,
+      sharedFiles: sharedFiles.length,
+      fileBytes,
+      exclusiveFileBytes,
+      sqlBytes: Number(messageRows?.[0]?.total_bytes) || 0
+    },
+    backup,
+    backupReady,
+    legalHolds,
+    canPurge: backupReady && legalHolds.length === 0
+  };
+};
+
+const stageFilesForPermanentDeletion = async (files, purgeId) => {
+  const stagingDir = path.join(dataDir, 'purge-staging', purgeId);
+  const moved = [];
+  await fs.mkdir(stagingDir, { recursive: true });
+  const seenPaths = new Set();
+  try {
+    for (const [index, file] of files.entries()) {
+      for (const [kind, resolved] of [
+        ['original', resolveStoredDownload(file)],
+        ['thumbnail', resolveStoredDownload(file, 'thumbnail')]
+      ]) {
+        if (!resolved?.filePath || seenPaths.has(resolved.filePath)) continue;
+        seenPaths.add(resolved.filePath);
+        const stagedPath = path.join(stagingDir, `${index}-${sanitizeFileName(file.id)}-${kind}-${path.basename(resolved.filePath)}`);
+        try {
+          await fs.rename(resolved.filePath, stagedPath);
+          moved.push({ sourcePath: resolved.filePath, stagedPath });
+        } catch (error) {
+          if (error.code !== 'ENOENT') throw error;
+        }
+      }
+    }
+  } catch (error) {
+    for (const file of [...moved].reverse()) {
+      await fs.mkdir(path.dirname(file.sourcePath), { recursive: true });
+      await fs.rename(file.stagedPath, file.sourcePath).catch(() => {});
+    }
+    await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
+  return { stagingDir, moved };
+};
+
+const restoreStagedPurgeFiles = async (staged = {}) => {
+  for (const file of [...(staged.moved || [])].reverse()) {
+    await fs.mkdir(path.dirname(file.sourcePath), { recursive: true });
+    await fs.rename(file.stagedPath, file.sourcePath).catch(() => {});
+  }
+  if (staged.stagingDir) await fs.rm(staged.stagingDir, { recursive: true, force: true }).catch(() => {});
 };
 
 const compactFeedPostForSql = (post = {}) => {
@@ -3078,31 +3298,11 @@ router.put('/threads/:conversationId', requireRole('admin', 'manager'), async (r
 });
 
 router.delete('/threads/:conversationId', requireRole('admin'), async (req, res) => {
-  try {
-    const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
-    if (!conversationId) {
-      return res.status(400).json({ message: 'conversationId обязателен' });
-    }
-    if (!requireConversationAccess(req, res, conversationId)) return;
-
-    const legalHolds = await getActiveLegalHoldsForConversation(conversationId);
-    if (legalHolds.length) {
-      return res.status(423).json({
-        message: 'Физическое удаление запрещено: на переписку установлен legal hold',
-        legalHolds
-      });
-    }
-
-    const deleted = await deleteSqlConversation(conversationId);
-    if (!deleted) return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
-    removeArchiveConversation(conversationId);
-
-    broadcastThreadEvent('conversation-delete', conversationId);
-    res.json({ message: 'Переписка удалена', conversationId });
-  } catch (error) {
-    console.error('Chat DELETE /threads error:', error);
-    res.status(500).json({ message: 'Не удалось удалить переписку' });
-  }
+  const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
+  res.status(409).json({
+    message: 'Прямое физическое удаление отключено. Используйте форму окончательного удаления в архиве администратора.',
+    conversationId
+  });
 });
 
 router.get('/records/conversations', requireRole('admin'), async (req, res) => {
@@ -3443,6 +3643,168 @@ router.post('/records/legal-holds/:holdId/release', requireRole('admin'), async 
   } catch (error) {
     console.error('Chat POST /records/legal-holds/release error:', error);
     res.status(500).json({ message: 'Не удалось снять legal hold' });
+  }
+});
+
+router.get('/records/purge-history', requireRole('admin'), async (req, res) => {
+  try {
+    if (!await ensureRecordsArchiveSchema(db)) return res.status(503).json({ message: 'История удалений временно недоступна' });
+    const query = String(req.query?.q || '').trim().toLowerCase().slice(0, 200);
+    const params = [];
+    let searchSql = '';
+    if (query) {
+      searchSql = `AND (
+        LOWER(entity_id) LIKE ?
+        OR LOWER(actor_login) LIKE ?
+        OR LOWER(details_json) LIKE ?
+      )`;
+      const pattern = `%${query}%`;
+      params.push(pattern, pattern, pattern);
+    }
+    const [rows] = await db.query(
+      `SELECT id, entity_id AS conversation_id, archive_id, actor_login,
+              actor_role, details_json, created_at
+       FROM records_audit_log
+       WHERE action = 'conversation_permanently_deleted'
+         ${searchSql}
+       ORDER BY created_at DESC
+       LIMIT 200`,
+      params
+    );
+    res.set('Cache-Control', 'no-store');
+    res.json({ purges: (rows || []).map((row) => ({ ...row, details: parseSqlJson(row.details_json) || {} })) });
+  } catch (error) {
+    console.error('Chat GET /records/purge-history error:', error);
+    res.status(500).json({ message: 'Не удалось получить историю окончательных удалений' });
+  }
+});
+
+router.get('/records/conversations/:conversationId/purge-preview', requireRole('admin'), async (req, res) => {
+  try {
+    const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
+    if (!conversationId) return res.status(400).json({ message: 'Выберите переписку' });
+    const preview = await getConversationPurgePreview(conversationId);
+    res.set('Cache-Control', 'no-store');
+    res.json(preview);
+  } catch (error) {
+    console.error('Chat GET /records/conversations/purge-preview error:', error);
+    res.status(error.status || 500).json({ message: error.message || 'Не удалось рассчитать окончательное удаление' });
+  }
+});
+
+router.post('/records/conversations/:conversationId/purge', requireRole('admin'), async (req, res) => {
+  let connection;
+  let stagedFiles;
+  let committed = false;
+  try {
+    const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
+    const reason = String(req.body?.reason || '').trim().slice(0, 4000);
+    const confirmationPhrase = String(req.body?.confirmationPhrase || '').trim().toUpperCase();
+    const confirmationConversationId = String(req.body?.confirmationConversationId || '').trim();
+    const archiveId = String(req.body?.archiveId || '').trim();
+    const acknowledged = req.body?.acknowledgedConsequences === true;
+    if (!conversationId || !reason) return res.status(400).json({ message: 'Укажите переписку и обязательную причину удаления' });
+    if (confirmationPhrase !== 'УДАЛИТЬ' && confirmationPhrase !== 'DELETE') {
+      return res.status(400).json({ message: 'Введите слово УДАЛИТЬ для подтверждения' });
+    }
+    if (confirmationConversationId !== conversationId || !acknowledged) {
+      return res.status(400).json({ message: 'Не получено финальное подтверждение выбранной переписки' });
+    }
+
+    const preview = await getConversationPurgePreview(conversationId);
+    if (preview.legalHolds.length) {
+      return res.status(423).json({
+        message: 'Окончательное удаление запрещено действующим legal hold',
+        legalHolds: preview.legalHolds
+      });
+    }
+    if (!preview.backupReady || !preview.backup || preview.backup.id !== archiveId) {
+      return res.status(409).json({
+        message: 'Перед удалением сформируйте, скачайте и повторно проверьте полный ZIP-архив этой переписки',
+        preview
+      });
+    }
+
+    const files = await getConversationPurgeFiles(conversationId);
+    const exclusiveFiles = files.filter((file) => Number(file.is_exclusive) === 1);
+    const exclusiveFileIds = exclusiveFiles.map((file) => file.id);
+    const purgeId = createId('purge');
+    stagedFiles = await stageFilesForPermanentDeletion(exclusiveFiles, purgeId);
+
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+    await connection.execute(
+      `UPDATE records_archive_access
+       SET revoked_at = COALESCE(revoked_at, NOW()), revoked_by = COALESCE(revoked_by, ?)
+       WHERE archive_id IN (
+         SELECT DISTINCT archive_id FROM records_archive_items
+         WHERE parent_id = ? OR (entity_type = 'chat_conversation' AND entity_id = ?)
+       )`,
+      [req.auth.login, conversationId, conversationId]
+    );
+    await connection.execute('DELETE FROM chat_read_state WHERE conversation_id = ?', [conversationId]);
+    await connection.execute('DELETE FROM chat_message_files WHERE conversation_id = ?', [conversationId]);
+    await connection.execute('DELETE FROM chat_message_versions WHERE conversation_id = ?', [conversationId]);
+    await connection.execute('DELETE FROM chat_messages WHERE conversation_id = ?', [conversationId]);
+    await connection.execute('DELETE FROM chat_conversations WHERE conversation_id = ?', [conversationId]);
+    if (exclusiveFileIds.length) {
+      await connection.query('DELETE FROM chat_files WHERE id IN (?)', [exclusiveFileIds]);
+    }
+    const auditDetails = {
+      purgeId,
+      reason,
+      conversation: preview.conversation,
+      counts: preview.counts,
+      archive: {
+        id: preview.backup.id,
+        name: preview.backup.name,
+        packageSha256: preview.backup.packageSha256,
+        downloadedAt: preview.backup.downloadedAt,
+        completedAt: preview.backup.completedAt
+      },
+      deletedFileIds: exclusiveFileIds,
+      preservedSharedFiles: preview.counts.sharedFiles
+    };
+    await connection.execute(
+      `INSERT INTO records_audit_log
+       (action, entity_type, entity_id, archive_id, actor_login, actor_role, details_json)
+       VALUES ('conversation_permanently_deleted', 'chat_conversation', ?, ?, ?, ?, ?)`,
+      [conversationId, preview.backup.id, req.auth.login, req.auth.role, JSON.stringify(auditDetails)]
+    );
+    await connection.commit();
+    committed = true;
+    connection.release();
+    connection = null;
+
+    let cleanupWarning = '';
+    try {
+      await fs.rm(stagedFiles.stagingDir, { recursive: true, force: true });
+    } catch (error) {
+      cleanupWarning = 'Записи удалены, но служебную папку файлов не удалось очистить автоматически';
+      await db.execute(
+        `INSERT INTO records_audit_log
+         (action, entity_type, entity_id, archive_id, actor_login, actor_role, details_json)
+         VALUES ('purge_file_cleanup_failed', 'chat_conversation', ?, ?, ?, ?, ?)`,
+        [conversationId, preview.backup.id, req.auth.login, req.auth.role, JSON.stringify({ purgeId, error: error.message })]
+      ).catch(() => {});
+    }
+    removeArchiveConversation(conversationId);
+    broadcastThreadEvent('conversation-delete', conversationId);
+    res.json({
+      message: 'Переписка окончательно удалена',
+      conversationId,
+      purgeId,
+      counts: preview.counts,
+      archive: { id: preview.backup.id, packageSha256: preview.backup.packageSha256 },
+      cleanupWarning: cleanupWarning || null
+    });
+  } catch (error) {
+    if (connection) await connection.rollback().catch(() => {});
+    if (!committed && stagedFiles) await restoreStagedPurgeFiles(stagedFiles);
+    console.error('Chat POST /records/conversations/purge error:', error);
+    res.status(error.status || 500).json({ message: error.message || 'Не удалось выполнить окончательное удаление' });
+  } finally {
+    connection?.release();
   }
 });
 
