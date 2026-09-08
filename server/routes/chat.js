@@ -1067,6 +1067,27 @@ const hasIndexedChatFileAccess = async (fileId, login) => {
   return Boolean(rows?.length);
 };
 
+const hasActiveRecordsArchiveFileAccess = async (fileId, login) => {
+  if (!fileId || !login || !await ensureRecordsArchiveSchema(db)) return false;
+  const [rows] = await db.execute(
+    `SELECT 1
+     FROM records_archive_access AS access_grants
+     INNER JOIN records_archive_files AS archive_files
+       ON archive_files.archive_id = access_grants.archive_id
+     INNER JOIN records_archives AS archives
+       ON archives.id = access_grants.archive_id
+     WHERE archive_files.file_id = ?
+       AND access_grants.user_login = ?
+       AND access_grants.revoked_at IS NULL
+       AND (access_grants.expires_at IS NULL OR access_grants.expires_at > NOW())
+       AND archives.status = 'completed'
+       AND archives.deleted_at IS NULL
+     LIMIT 1`,
+    [fileId, String(login).trim().toLowerCase()]
+  );
+  return Boolean(rows?.length);
+};
+
 const getFeedAttachmentsFromPost = (post = {}) => [
   ...(Array.isArray(post.attachments) ? post.attachments : []),
   post.attachment || null
@@ -1145,9 +1166,12 @@ const ensureFileDownloadAccess = async (req, fileId) => {
   }
 
   const isUploader = file.uploaded_by && String(file.uploaded_by).toLowerCase() === login;
-  const access = hasRole(req, 'admin') || isUploader || (file.scope === 'feed'
-    ? await findFeedFileReference(file)
-    : await hasIndexedChatFileAccess(file.id, login));
+  const access = hasRole(req, 'admin')
+    || isUploader
+    || await hasActiveRecordsArchiveFileAccess(file.id, login)
+    || (file.scope === 'feed'
+      ? await findFeedFileReference(file)
+      : await hasIndexedChatFileAccess(file.id, login));
   if (!access) {
     const error = new Error('Нет прав на скачивание файла');
     error.status = 403;
@@ -3212,17 +3236,41 @@ router.post('/records/conversations/:conversationId/state', requireRole('admin')
 router.get('/records/archives', requireRole('admin'), async (req, res) => {
   try {
     if (!await ensureRecordsArchiveSchema(db)) return res.status(503).json({ message: 'Архивы временно недоступны' });
-    const [rows] = await db.query(
-      `SELECT id, name, archive_type, status, selection_json, package_sha256,
-              record_count, file_count, total_bytes, created_by, created_at,
-              completed_at, downloaded_at, error_text
-       FROM records_archives
-       WHERE deleted_at IS NULL
-       ORDER BY created_at DESC
-       LIMIT 100`
-    );
+    const [[rows], [accessRows]] = await Promise.all([
+      db.query(
+        `SELECT id, name, archive_type, status, selection_json, package_sha256,
+                record_count, file_count, total_bytes, created_by, created_at,
+                completed_at, downloaded_at, error_text
+         FROM records_archives
+         WHERE deleted_at IS NULL
+         ORDER BY created_at DESC
+         LIMIT 100`
+      ),
+      db.query(
+        `SELECT access_grants.id, access_grants.archive_id, access_grants.user_login,
+                access_grants.scope_json, access_grants.granted_by,
+                access_grants.granted_at, access_grants.expires_at,
+                access_grants.revoked_at, access_grants.revoked_by,
+                users.full_name AS user_full_name
+         FROM records_archive_access AS access_grants
+         LEFT JOIN users ON LOWER(users.login) = access_grants.user_login
+         ORDER BY access_grants.granted_at DESC
+         LIMIT 500`
+      )
+    ]);
+    const accessesByArchive = (accessRows || []).reduce((result, access) => {
+      if (!result[access.archive_id]) result[access.archive_id] = [];
+      result[access.archive_id].push({ ...access, scope: parseSqlJson(access.scope_json) || {} });
+      return result;
+    }, {});
     res.set('Cache-Control', 'no-store');
-    res.json({ archives: (rows || []).map((row) => ({ ...row, selection: parseSqlJson(row.selection_json) || {} })) });
+    res.json({
+      archives: (rows || []).map((row) => ({
+        ...row,
+        selection: parseSqlJson(row.selection_json) || {},
+        accesses: accessesByArchive[row.id] || []
+      }))
+    });
   } catch (error) {
     console.error('Chat GET /records/archives error:', error);
     res.status(500).json({ message: 'Не удалось получить список сформированных архивов' });
@@ -3272,6 +3320,223 @@ router.post('/records/archives', requireRole('admin'), async (req, res) => {
   } catch (error) {
     console.error('Chat POST /records/archives error:', error);
     res.status(500).json({ message: 'Не удалось начать формирование архива' });
+  }
+});
+
+router.post('/records/archives/:archiveId/access', requireRole('admin'), async (req, res) => {
+  try {
+    const archiveId = decodeURIComponent(req.params.archiveId || '').trim();
+    const userLogin = String(req.body?.userLogin || '').trim().toLowerCase();
+    const expiresInDays = Math.min(365, Math.max(1, Number.parseInt(req.body?.expiresInDays, 10) || 7));
+    if (!archiveId || !userLogin) return res.status(400).json({ message: 'Выберите архив и сотрудника' });
+    if (!await ensureRecordsArchiveSchema(db)) return res.status(503).json({ message: 'Архивы временно недоступны' });
+
+    const [[archiveRows], [userRows]] = await Promise.all([
+      db.execute(
+        `SELECT id, archive_type, status, selection_json
+         FROM records_archives
+         WHERE id = ? AND deleted_at IS NULL
+         LIMIT 1`,
+        [archiveId]
+      ),
+      db.execute(
+        `SELECT login, role, full_name
+         FROM users
+         WHERE LOWER(login) = ? AND role IN ('employee', 'manager')
+         LIMIT 1`,
+        [userLogin]
+      )
+    ]);
+    const archive = archiveRows?.[0];
+    const targetUser = userRows?.[0];
+    if (!archive || archive.status !== 'completed') return res.status(409).json({ message: 'Доступ можно выдать только к готовому архиву' });
+    if (archive.archive_type !== 'conversation') return res.status(400).json({ message: 'Сотруднику можно выдать только архив отдельной переписки' });
+    if (!targetUser) return res.status(404).json({ message: 'Сотрудник не найден' });
+
+    const selection = parseSqlJson(archive.selection_json) || {};
+    const conversationId = String(selection.conversationId || '').trim();
+    if (!conversationId || !isConversationParticipant(conversationId, userLogin)) {
+      return res.status(403).json({ message: 'Сотруднику можно открыть только переписку, участником которой он является' });
+    }
+
+    const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000);
+    await db.execute(
+      `UPDATE records_archive_access
+       SET revoked_at = NOW(), revoked_by = ?
+       WHERE archive_id = ? AND user_login = ? AND revoked_at IS NULL`,
+      [req.auth.login, archiveId, userLogin]
+    );
+    const [result] = await db.execute(
+      `INSERT INTO records_archive_access
+       (archive_id, user_login, scope_json, granted_by, expires_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [archiveId, userLogin, JSON.stringify({ conversationId }), req.auth.login, expiresAt]
+    );
+    const accessId = Number(result.insertId);
+    await db.execute(
+      `INSERT INTO records_audit_log
+       (action, entity_type, entity_id, archive_id, actor_login, actor_role, details_json)
+       VALUES ('archive_access_granted', 'records_archive_access', ?, ?, ?, ?, ?)`,
+      [String(accessId), archiveId, req.auth.login, req.auth.role, JSON.stringify({ userLogin, conversationId, expiresAt: expiresAt.toISOString() })]
+    );
+    res.status(201).json({
+      access: {
+        id: accessId,
+        archive_id: archiveId,
+        user_login: userLogin,
+        user_full_name: targetUser.full_name,
+        scope: { conversationId },
+        granted_by: req.auth.login,
+        granted_at: new Date().toISOString(),
+        expires_at: expiresAt.toISOString(),
+        revoked_at: null
+      }
+    });
+  } catch (error) {
+    console.error('Chat POST /records/archives/access error:', error);
+    res.status(500).json({ message: 'Не удалось выдать доступ к архиву' });
+  }
+});
+
+router.post('/records/access/:accessId/revoke', requireRole('admin'), async (req, res) => {
+  try {
+    const accessId = Number.parseInt(req.params.accessId, 10);
+    if (!Number.isSafeInteger(accessId) || accessId <= 0) return res.status(400).json({ message: 'Некорректный доступ' });
+    if (!await ensureRecordsArchiveSchema(db)) return res.status(503).json({ message: 'Архивы временно недоступны' });
+    const [rows] = await db.execute(
+      'SELECT id, archive_id, user_login FROM records_archive_access WHERE id = ? LIMIT 1',
+      [accessId]
+    );
+    const access = rows?.[0];
+    if (!access) return res.status(404).json({ message: 'Доступ не найден' });
+    await db.execute(
+      `UPDATE records_archive_access
+       SET revoked_at = COALESCE(revoked_at, NOW()), revoked_by = COALESCE(revoked_by, ?)
+       WHERE id = ?`,
+      [req.auth.login, accessId]
+    );
+    await db.execute(
+      `INSERT INTO records_audit_log
+       (action, entity_type, entity_id, archive_id, actor_login, actor_role, details_json)
+       VALUES ('archive_access_revoked', 'records_archive_access', ?, ?, ?, ?, ?)`,
+      [String(accessId), access.archive_id, req.auth.login, req.auth.role, JSON.stringify({ userLogin: access.user_login })]
+    );
+    res.json({ accessId, revokedAt: new Date().toISOString(), revokedBy: req.auth.login });
+  } catch (error) {
+    console.error('Chat POST /records/access/revoke error:', error);
+    res.status(500).json({ message: 'Не удалось отозвать доступ к архиву' });
+  }
+});
+
+router.get('/records/received', async (req, res) => {
+  try {
+    if (!await ensureRecordsArchiveSchema(db)) return res.status(503).json({ message: 'Архивы временно недоступны' });
+    const userLogin = String(req.auth.login || '').trim().toLowerCase();
+    const [rows] = await db.execute(
+      `SELECT access_grants.id AS access_id, access_grants.archive_id,
+              access_grants.granted_by, access_grants.granted_at,
+              access_grants.expires_at, access_grants.scope_json,
+              archives.name, archives.archive_type, archives.completed_at,
+              archives.record_count, archives.file_count, archives.selection_json
+       FROM records_archive_access AS access_grants
+       INNER JOIN records_archives AS archives ON archives.id = access_grants.archive_id
+       WHERE access_grants.user_login = ?
+         AND access_grants.revoked_at IS NULL
+         AND (access_grants.expires_at IS NULL OR access_grants.expires_at > NOW())
+         AND archives.status = 'completed'
+         AND archives.deleted_at IS NULL
+       ORDER BY access_grants.granted_at DESC`,
+      [userLogin]
+    );
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      archives: (rows || []).map((row) => ({
+        ...row,
+        scope: parseSqlJson(row.scope_json) || {},
+        selection: parseSqlJson(row.selection_json) || {}
+      }))
+    });
+  } catch (error) {
+    console.error('Chat GET /records/received error:', error);
+    res.status(500).json({ message: 'Не удалось получить выданные архивы' });
+  }
+});
+
+router.get('/records/received/:accessId/messages', async (req, res) => {
+  try {
+    const accessId = Number.parseInt(req.params.accessId, 10);
+    const userLogin = String(req.auth.login || '').trim().toLowerCase();
+    const limit = Math.min(100, Math.max(1, Number(req.query?.limit) || CHAT_SQL_PAGE_SIZE));
+    if (!Number.isSafeInteger(accessId) || accessId <= 0) return res.status(400).json({ message: 'Некорректный доступ' });
+    if (!await ensureRecordsArchiveSchema(db)) return res.status(503).json({ message: 'Архивы временно недоступны' });
+    const [accessRows] = await db.execute(
+      `SELECT access_grants.archive_id, access_grants.scope_json,
+              archives.completed_at, archives.status
+       FROM records_archive_access AS access_grants
+       INNER JOIN records_archives AS archives ON archives.id = access_grants.archive_id
+       WHERE access_grants.id = ?
+         AND access_grants.user_login = ?
+         AND access_grants.revoked_at IS NULL
+         AND (access_grants.expires_at IS NULL OR access_grants.expires_at > NOW())
+         AND archives.status = 'completed'
+         AND archives.deleted_at IS NULL
+       LIMIT 1`,
+      [accessId, userLogin]
+    );
+    const access = accessRows?.[0];
+    if (!access) return res.status(403).json({ message: 'Доступ к архиву отсутствует или истёк' });
+    const scope = parseSqlJson(access.scope_json) || {};
+    const conversationId = String(scope.conversationId || '').trim();
+    if (!conversationId || !isConversationParticipant(conversationId, userLogin)) {
+      return res.status(403).json({ message: 'Этот архив не относится к вашему диалогу' });
+    }
+
+    const cursorParams = [];
+    let beforeSql = '';
+    if (req.query?.before) {
+      const beforeDate = new Date(req.query.before);
+      if (Number.isNaN(beforeDate.getTime())) return res.status(400).json({ message: 'Некорректный курсор архива' });
+      beforeSql = 'AND messages.created_at < ?';
+      cursorParams.push(beforeDate);
+    }
+    const [rows] = await db.query(
+      `SELECT COALESCE(
+          (SELECT versions.snapshot_json
+           FROM chat_message_versions AS versions
+           WHERE versions.message_id = messages.id
+             AND versions.created_at <= ?
+           ORDER BY versions.version_no DESC
+           LIMIT 1),
+          messages.message_json
+        ) AS message_json
+       FROM records_archive_items AS archive_items
+       INNER JOIN chat_messages AS messages
+         ON messages.id = archive_items.entity_id
+        AND messages.conversation_id = archive_items.parent_id
+       WHERE archive_items.archive_id = ?
+         AND archive_items.entity_type = 'chat_message'
+         AND archive_items.parent_id = ?
+         ${beforeSql}
+       ORDER BY messages.created_at DESC, messages.id DESC
+       LIMIT ${limit}`,
+      [access.completed_at, access.archive_id, conversationId, ...cursorParams]
+    );
+    const messages = (rows || [])
+      .map((row) => parseSqlMessage(row.message_json))
+      .filter(Boolean)
+      .reverse()
+      .map((message) => sanitizeMessageForResponse(message, { includeRetainedContent: true }));
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      accessId,
+      conversationId,
+      messages,
+      before: messages[0]?.createdAt || '',
+      hasMore: messages.length >= limit
+    });
+  } catch (error) {
+    console.error('Chat GET /records/received/messages error:', error);
+    res.status(500).json({ message: 'Не удалось открыть полученный архив' });
   }
 });
 

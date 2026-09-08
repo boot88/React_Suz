@@ -1701,7 +1701,7 @@ button:disabled {
 
 .archive-package-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   padding: 11px 13px;
@@ -1709,10 +1709,11 @@ button:disabled {
   border-radius: 12px;
 }
 
-.archive-package-row > div {
+.archive-package-details {
   display: grid;
   gap: 3px;
   min-width: 0;
+  flex: 1;
 }
 
 .archive-package-row small,
@@ -1728,6 +1729,61 @@ button:disabled {
 
 .archive-package-row.status-failed {
   border-color: rgba(190, 48, 48, .4);
+}
+
+.archive-package-actions,
+.archive-access-form,
+.archive-access-list {
+  display: grid;
+  gap: 8px;
+}
+
+.archive-package-actions {
+  min-width: min(100%, 320px);
+}
+
+.archive-access-form {
+  grid-template-columns: minmax(160px, 1fr) minmax(110px, auto);
+}
+
+.archive-access-form button {
+  grid-column: 1 / -1;
+}
+
+.archive-access-form select {
+  min-width: 0;
+  width: 100%;
+}
+
+.archive-access-list {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--chat-border);
+}
+
+.archive-access-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  background: rgba(28, 139, 79, .08);
+}
+
+.archive-access-row.inactive {
+  opacity: .62;
+  background: rgba(100, 116, 139, .08);
+}
+
+.archive-access-row button {
+  padding: 5px 8px;
+  background: #a83333;
+}
+
+.received-archives-hint {
+  margin: -4px 0 14px;
+  color: var(--chat-muted);
 }
 
 .archive-toolbar > input,
@@ -1802,6 +1858,14 @@ button:disabled {
 
   .archive-toolbar {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .archive-package-row {
+    display: grid;
+  }
+
+  .archive-package-actions {
+    width: 100%;
   }
 }
 

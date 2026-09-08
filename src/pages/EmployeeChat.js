@@ -48,7 +48,8 @@ const VIDEO_EXTENSION_PATTERN = /\.(mp4|webm|ogg|ogv|mov|m4v|avi|mkv)$/i;
 const EMPLOYEE_TABS = [
   { id: 'feed', label: 'Лента' },
   { id: 'chat', label: 'Чат' },
-  { id: 'request', label: 'Заявка' }
+  { id: 'request', label: 'Заявка' },
+  { id: 'receivedArchives', label: 'Полученные архивы' }
 ];
 const MANAGER_TABS = [
   { id: 'chat', label: 'Чат' },
@@ -338,6 +339,25 @@ const RUSSIAN_LABELS = {
   archiveNoPackages: 'Архивы ещё не формировались.',
   archiveRecords: 'записей',
   archiveFiles: 'файлов',
+  archiveGrantAccess: 'Выдать доступ',
+  archiveAccessEmployee: 'Выберите сотрудника',
+  archiveAccessDuration: 'Срок доступа',
+  archiveAccessOneDay: '1 день',
+  archiveAccessSevenDays: '7 дней',
+  archiveAccessThirtyDays: '30 дней',
+  archiveAccessNinetyDays: '90 дней',
+  archiveAccesses: 'Выданные доступы',
+  archiveAccessUntil: 'до',
+  archiveAccessRevoked: 'отозван',
+  archiveAccessExpired: 'истёк',
+  archiveRevokeAccess: 'Отозвать',
+  archiveConversationOnly: 'Доступ сотруднику выдаётся только к ZIP отдельной переписки.',
+  receivedArchives: 'Полученные архивы',
+  receivedArchivesHint: 'Здесь администратор может временно открыть вам старую переписку. Архив доступен только для чтения.',
+  receivedArchivesEmpty: 'Администратор пока не выдавал вам доступ к архивам.',
+  receivedArchiveChoose: 'Выберите архив слева, чтобы открыть переписку.',
+  receivedArchiveGrantedBy: 'Выдал',
+  receivedArchiveExpires: 'Доступ до',
   profileNamePlaceholder: 'Иванов Иван Иванович',
   positionPlaceholder: 'Например: инженер',
   departmentPlaceholder: 'Название отдела',
@@ -621,6 +641,25 @@ const ENGLISH_LABELS = {
   archiveNoPackages: 'No archives have been generated yet.',
   archiveRecords: 'records',
   archiveFiles: 'files',
+  archiveGrantAccess: 'Grant access',
+  archiveAccessEmployee: 'Choose employee',
+  archiveAccessDuration: 'Access duration',
+  archiveAccessOneDay: '1 day',
+  archiveAccessSevenDays: '7 days',
+  archiveAccessThirtyDays: '30 days',
+  archiveAccessNinetyDays: '90 days',
+  archiveAccesses: 'Granted access',
+  archiveAccessUntil: 'until',
+  archiveAccessRevoked: 'revoked',
+  archiveAccessExpired: 'expired',
+  archiveRevokeAccess: 'Revoke',
+  archiveConversationOnly: 'Employee access is available only for a ZIP of one conversation.',
+  receivedArchives: 'Received archives',
+  receivedArchivesHint: 'An administrator can temporarily open an old conversation here. Archives are read-only.',
+  receivedArchivesEmpty: 'No archive access has been granted to you yet.',
+  receivedArchiveChoose: 'Choose an archive on the left to open the conversation.',
+  receivedArchiveGrantedBy: 'Granted by',
+  receivedArchiveExpires: 'Access until',
   profileNamePlaceholder: 'Ivan Ivanov',
   positionPlaceholder: 'Example: engineer',
   departmentPlaceholder: 'Department name',
@@ -636,7 +675,7 @@ const ENGLISH_LABELS = {
   textMedium: 'Regular',
   textLarge: 'Larger'
 };
-const ENGLISH_TAB_LABELS = { feed: 'Feed', chat: 'Chat', request: 'Request', employees: 'Employees', audit: 'Audit', archive: 'Archive' };
+const ENGLISH_TAB_LABELS = { feed: 'Feed', chat: 'Chat', request: 'Request', employees: 'Employees', audit: 'Audit', archive: 'Archive', receivedArchives: 'Received archives' };
 const ENGLISH_CONTACT_FILTER_LABELS = { all: 'All', online: 'Online', unread: 'Unread', managers: 'Managers', department: 'My department', favorites: 'Favorites', recent: 'Recent', attachments: 'With attachments', tickets: 'With requests' };
 const RUNTIME_TEXT_EN = {
   'Готово': 'Done',
@@ -1917,6 +1956,13 @@ const EmployeeChat = () => {
   const [recordsArchives, setRecordsArchives] = useState([]);
   const [archivePackageName, setArchivePackageName] = useState('');
   const [archiveCreating, setArchiveCreating] = useState(false);
+  const [archiveAccessDrafts, setArchiveAccessDrafts] = useState({});
+  const [receivedArchives, setReceivedArchives] = useState([]);
+  const [receivedArchiveAccessId, setReceivedArchiveAccessId] = useState('');
+  const [receivedArchiveMessages, setReceivedArchiveMessages] = useState([]);
+  const [receivedArchiveBefore, setReceivedArchiveBefore] = useState('');
+  const [receivedArchiveHasMore, setReceivedArchiveHasMore] = useState(false);
+  const [receivedArchiveLoading, setReceivedArchiveLoading] = useState(false);
   const [feedLoading, setFeedLoading] = useState(false);
   const [feedRefreshing, setFeedRefreshing] = useState(false);
   const [feedLoadingMore, setFeedLoadingMore] = useState(false);
@@ -2574,6 +2620,105 @@ const EmployeeChat = () => {
     }
   }, [chatAuthHeaders, fetchRecordsArchives]);
 
+  const updateArchiveAccessDraft = useCallback((archiveId, patch) => {
+    setArchiveAccessDrafts((current) => ({
+      ...current,
+      [archiveId]: { userLogin: '', expiresInDays: 7, ...(current[archiveId] || {}), ...patch }
+    }));
+  }, []);
+
+  const grantRecordsArchiveAccess = useCallback(async (archive) => {
+    const draft = archiveAccessDrafts[archive.id] || {};
+    const userLogin = String(draft.userLogin || '').trim().toLowerCase();
+    const expiresInDays = Number(draft.expiresInDays) || 7;
+    if (!userLogin) {
+      notifyRef.current('Выберите сотрудника, которому нужно показать архив.', 'Архив');
+      return;
+    }
+    const confirmed = await confirmAction(
+      `Выдать сотруднику ${userLogin} доступ к архиву «${archive.name}» на ${expiresInDays} дн.? Архив будет доступен только для чтения.`,
+      'Доступ к архиву'
+    );
+    if (!confirmed) return;
+    try {
+      const response = await authFetch(
+        `${API_BASE_URL}/chat/records/archives/${encodeURIComponent(archive.id)}/access`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
+          body: JSON.stringify({ userLogin, expiresInDays })
+        }
+      );
+      await readApiJson(response, 'Не удалось выдать доступ к архиву');
+      await fetchRecordsArchives();
+      notifyRef.current('Сотрудник увидит архив в разделе «Полученные архивы».', 'Архив');
+    } catch (error) {
+      notifyRef.current(error.message || 'Не удалось выдать доступ к архиву', 'Архив');
+    }
+  }, [archiveAccessDrafts, chatAuthHeaders, confirmAction, fetchRecordsArchives]);
+
+  const revokeRecordsArchiveAccess = useCallback(async (access) => {
+    const confirmed = await confirmAction(
+      `Отозвать доступ к архиву у ${access.user_full_name || access.user_login}?`,
+      'Отзыв доступа'
+    );
+    if (!confirmed) return;
+    try {
+      const response = await authFetch(
+        `${API_BASE_URL}/chat/records/access/${encodeURIComponent(access.id)}/revoke`,
+        { method: 'POST', headers: chatAuthHeaders }
+      );
+      await readApiJson(response, 'Не удалось отозвать доступ');
+      await fetchRecordsArchives();
+    } catch (error) {
+      notifyRef.current(error.message || 'Не удалось отозвать доступ', 'Архив');
+    }
+  }, [chatAuthHeaders, confirmAction, fetchRecordsArchives]);
+
+  const fetchReceivedArchives = useCallback(async () => {
+    if (!user?.username || isManager) return;
+    setReceivedArchiveLoading(true);
+    try {
+      const response = await authFetch(`${API_BASE_URL}/chat/records/received`, { headers: chatAuthHeaders });
+      const data = await readApiJson(response, 'Не удалось получить выданные архивы');
+      const archives = Array.isArray(data?.archives) ? data.archives : [];
+      setReceivedArchives(archives);
+      setReceivedArchiveAccessId((current) => (
+        current && archives.some((archive) => String(archive.access_id) === String(current)) ? current : ''
+      ));
+    } catch (error) {
+      notifyRef.current(error.message || 'Не удалось получить выданные архивы', 'Архив');
+    } finally {
+      setReceivedArchiveLoading(false);
+    }
+  }, [chatAuthHeaders, isManager, user?.username]);
+
+  const fetchReceivedArchiveMessages = useCallback(async (accessId, { append = false } = {}) => {
+    if (!accessId || isManager) return;
+    setReceivedArchiveLoading(true);
+    try {
+      const before = append ? receivedArchiveBefore : '';
+      const beforeQuery = before ? `&before=${encodeURIComponent(before)}` : '';
+      const response = await authFetch(
+        `${API_BASE_URL}/chat/records/received/${encodeURIComponent(accessId)}/messages?limit=${CHAT_MESSAGES_PAGE_SIZE}${beforeQuery}`,
+        { headers: chatAuthHeaders }
+      );
+      const data = await readApiJson(response, 'Не удалось открыть полученный архив');
+      const messages = Array.isArray(data?.messages) ? data.messages : [];
+      setReceivedArchiveMessages((current) => append
+        ? [...new Map([...messages, ...current].map((message) => [message.id, message])).values()]
+        : messages);
+      setReceivedArchiveBefore(data?.before || '');
+      setReceivedArchiveHasMore(Boolean(data?.hasMore));
+      prefetchMediaTokens(collectThreadFileIds({ [data?.conversationId || 'archive']: messages }), 'chat');
+    } catch (error) {
+      notifyRef.current(error.message || 'Не удалось открыть полученный архив', 'Архив');
+      await fetchReceivedArchives();
+    } finally {
+      setReceivedArchiveLoading(false);
+    }
+  }, [chatAuthHeaders, fetchReceivedArchives, isManager, receivedArchiveBefore]);
+
   useEffect(() => {
     if (activeTab !== 'archive' || !isAdmin) return undefined;
     const controller = new AbortController();
@@ -2596,6 +2741,22 @@ const EmployeeChat = () => {
   // archiveBefore deliberately excluded: it changes while paging the selected archive.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, archiveFilters.q, archiveSelectedId, isAdmin]);
+
+  useEffect(() => {
+    if (activeTab !== 'receivedArchives' || isManager) return undefined;
+    fetchReceivedArchives();
+    const timer = window.setInterval(fetchReceivedArchives, 30_000);
+    return () => window.clearInterval(timer);
+  }, [activeTab, fetchReceivedArchives, isManager]);
+
+  useEffect(() => {
+    if (activeTab !== 'receivedArchives' || !receivedArchiveAccessId || isManager) return;
+    setReceivedArchiveMessages([]);
+    setReceivedArchiveBefore('');
+    fetchReceivedArchiveMessages(receivedArchiveAccessId);
+  // receivedArchiveBefore deliberately excluded: it changes while paging.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, isManager, receivedArchiveAccessId]);
 
   const fetchDialogSearchPage = useCallback(async ({ append = false, before = '', signal } = {}) => {
     const query = dialogSearch.trim();
@@ -6114,16 +6275,73 @@ const EmployeeChat = () => {
                 const statusLabel = archive.status === 'completed'
                   ? t('archiveCompleted')
                   : archive.status === 'failed' ? t('archiveFailed') : t('archivePending');
+                const conversationId = archive.selection?.conversationId || '';
+                const participantLogins = getParticipantsFromThreadId(conversationId);
+                const eligibleEmployees = participantLogins
+                  .filter((login) => !sameLogin(login, user?.username))
+                  .map((login) => {
+                    const employee = directoryEmployees.find((item) => sameLogin(item.login, login));
+                    return { login, name: employee?.full_name || formatVisibleLogin(login) };
+                  });
+                const accessDraft = archiveAccessDrafts[archive.id] || { userLogin: '', expiresInDays: 7 };
+                const accesses = Array.isArray(archive.accesses) ? archive.accesses : [];
                 return (
                   <div key={archive.id} className={`archive-package-row status-${archive.status}`}>
-                    <div>
+                    <div className="archive-package-details">
                       <strong>{archive.name}</strong>
                       <small>{statusLabel} · {archive.created_at ? new Date(archive.created_at).toLocaleString(interfaceLocale) : ''}</small>
                       {archive.status === 'completed' && <small>{archive.record_count || 0} {t('archiveRecords')} · {archive.file_count || 0} {t('archiveFiles')} · {formatFileSize(archive.total_bytes)}</small>}
                       {archive.package_sha256 && <code>SHA-256: {archive.package_sha256}</code>}
                       {archive.error_text && <em>{archive.error_text}</em>}
+                      {accesses.length > 0 && (
+                        <div className="archive-access-list">
+                          <b>{t('archiveAccesses')}</b>
+                          {accesses.map((access) => {
+                            const revoked = Boolean(access.revoked_at);
+                            const expired = !revoked && access.expires_at && new Date(access.expires_at).getTime() <= Date.now();
+                            return (
+                              <div key={access.id} className={`archive-access-row ${revoked || expired ? 'inactive' : ''}`}>
+                                <span>
+                                  {access.user_full_name || access.user_login} · {revoked
+                                    ? t('archiveAccessRevoked')
+                                    : expired
+                                      ? t('archiveAccessExpired')
+                                      : `${t('archiveAccessUntil')} ${new Date(access.expires_at).toLocaleString(interfaceLocale)}`}
+                                </span>
+                                {!revoked && !expired && <button type="button" onClick={() => revokeRecordsArchiveAccess(access)}>{t('archiveRevokeAccess')}</button>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                    {archive.status === 'completed' && <button type="button" onClick={() => downloadRecordsArchive(archive)}>{t('archiveDownload')}</button>}
+                    <div className="archive-package-actions">
+                      {archive.status === 'completed' && <button type="button" onClick={() => downloadRecordsArchive(archive)}>{t('archiveDownload')}</button>}
+                      {archive.status === 'completed' && archive.archive_type === 'conversation' && (
+                        <div className="archive-access-form">
+                          <select
+                            aria-label={t('archiveAccessEmployee')}
+                            value={accessDraft.userLogin}
+                            onChange={(event) => updateArchiveAccessDraft(archive.id, { userLogin: event.target.value })}
+                          >
+                            <option value="">{t('archiveAccessEmployee')}</option>
+                            {eligibleEmployees.map((employee) => <option key={employee.login} value={employee.login}>{employee.name} ({employee.login})</option>)}
+                          </select>
+                          <select
+                            aria-label={t('archiveAccessDuration')}
+                            value={accessDraft.expiresInDays}
+                            onChange={(event) => updateArchiveAccessDraft(archive.id, { expiresInDays: Number(event.target.value) })}
+                          >
+                            <option value={1}>{t('archiveAccessOneDay')}</option>
+                            <option value={7}>{t('archiveAccessSevenDays')}</option>
+                            <option value={30}>{t('archiveAccessThirtyDays')}</option>
+                            <option value={90}>{t('archiveAccessNinetyDays')}</option>
+                          </select>
+                          <button type="button" disabled={!accessDraft.userLogin} onClick={() => grantRecordsArchiveAccess(archive)}>{t('archiveGrantAccess')}</button>
+                        </div>
+                      )}
+                      {archive.status === 'completed' && archive.archive_type !== 'conversation' && <small>{t('archiveConversationOnly')}</small>}
+                    </div>
                   </div>
                 );
               })}
@@ -6177,6 +6395,68 @@ const EmployeeChat = () => {
                       {message.deletedAt && <em>{t('deletedMessage')} · {message.deletedBy || '—'}</em>}
                       {message.text && <div className="archive-original-text">{message.deletedAt && <strong>{t('savedOriginal')}: </strong>}{message.text}</div>}
                       {attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <AttachmentCard key={`${message.id}-archive-${index}`} cardKey={`${message.id}-archive-${index}`} file={file} isEnglish={isEnglishInterface} />)}</div>}
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {activeTab === 'receivedArchives' && !isManager && (
+          <section className="manager-panel received-archives-panel">
+            <h2>{t('receivedArchives')}</h2>
+            <p className="received-archives-hint">{t('receivedArchivesHint')}</p>
+            <div className="threads-grid archive-grid">
+              <div className="threads-list">
+                {receivedArchiveLoading && receivedArchives.length === 0 && <div className="empty-chat">{t('loading')}…</div>}
+                {!receivedArchiveLoading && receivedArchives.length === 0 && <div className="empty-chat">{t('receivedArchivesEmpty')}</div>}
+                {receivedArchives.map((archive) => (
+                  <button
+                    key={archive.access_id}
+                    type="button"
+                    className={`thread-item ${String(receivedArchiveAccessId) === String(archive.access_id) ? 'active' : ''}`}
+                    onClick={() => setReceivedArchiveAccessId(String(archive.access_id))}
+                  >
+                    <span className="thread-title">{archive.name}</span>
+                    <span className="thread-stats">{getParticipantsFromThreadId(archive.scope?.conversationId || '').join(' ↔ ')}</span>
+                    <span className="thread-last">{t('receivedArchiveExpires')}: {archive.expires_at ? new Date(archive.expires_at).toLocaleString(interfaceLocale) : '—'}</span>
+                    <span className="thread-last">{t('receivedArchiveGrantedBy')}: {archive.granted_by || '—'}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="threads-messages archive-message-viewer">
+                {!receivedArchiveAccessId && <div className="empty-chat">{t('receivedArchiveChoose')}</div>}
+                {receivedArchiveAccessId && receivedArchiveHasMore && (
+                  <button
+                    type="button"
+                    className="chat-pagination-button"
+                    disabled={receivedArchiveLoading}
+                    onClick={() => fetchReceivedArchiveMessages(receivedArchiveAccessId, { append: true })}
+                  >
+                    {t('loadPreviousMessages')}
+                  </button>
+                )}
+                {receivedArchiveAccessId && receivedArchiveMessages.map((message) => {
+                  const attachments = getMessageAttachments(message);
+                  return (
+                    <article key={message.id} className={`audit-message ${message.deletedAt ? 'deleted' : ''}`}>
+                      <div className="message-meta"><span>{message.sender}</span><span>{new Date(message.createdAt).toLocaleString(interfaceLocale)}</span></div>
+                      {message.deletedAt && <em>{t('deletedMessage')}</em>}
+                      {message.text && <div className="archive-original-text">{message.text}</div>}
+                      {attachments.length > 0 && (
+                        <div className="message-attachments-grid">
+                          {attachments.map((file, index) => (
+                            <AttachmentCard
+                              key={`${message.id}-received-archive-${index}`}
+                              cardKey={`${message.id}-received-archive-${index}`}
+                              file={file}
+                              variant="archive"
+                              isEnglish={isEnglishInterface}
+                            />
+                          ))}
+                        </div>
+                      )}
                     </article>
                   );
                 })}
