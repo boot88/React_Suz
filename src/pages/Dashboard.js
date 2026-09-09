@@ -46,6 +46,7 @@ const TABLE_STATUS_ORDER = {
 };
 const DASHBOARD_COLUMNS_KEY = 'dashboard.visibleColumns.v1';
 const DASHBOARD_COMPACT_KEY = 'dashboard.compactMode.v1';
+const SHOW_APPLICATION_ACTION_HISTORY_KEY = 'admin.showApplicationActionHistory';
 const DEFAULT_DASHBOARD_COLUMNS = ['employee', 'request', 'executor', 'created', 'status'];
 const DASHBOARD_COLUMNS = [
   { id: 'employee', label: 'Сотрудник' },
@@ -245,6 +246,7 @@ const Dashboard = () => {
   const [selectedApplication, setSelectedApplication] = useState(null);
   const [applicationEvents, setApplicationEvents] = useState([]);
   const [eventsLoading, setEventsLoading] = useState(false);
+  const [showApplicationActionHistory, setShowApplicationActionHistory] = useState(() => localStorage.getItem(SHOW_APPLICATION_ACTION_HISTORY_KEY) === 'true');
   const [workflowModal, setWorkflowModal] = useState(null);
   const [toast, setToast] = useState(null);
   const [dashboardNow, setDashboardNow] = useState(Date.now());
@@ -265,6 +267,19 @@ const Dashboard = () => {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [dateFilterActive, setDateFilterActive] = useState(false);
+
+  useEffect(() => {
+    const syncApplicationActionHistoryVisibility = () => {
+      const visible = localStorage.getItem(SHOW_APPLICATION_ACTION_HISTORY_KEY) === 'true';
+      setShowApplicationActionHistory(visible);
+      if (!visible) {
+        setApplicationEvents([]);
+        setEventsLoading(false);
+      }
+    };
+    window.addEventListener('admin:application-action-history-visibility', syncApplicationActionHistoryVisibility);
+    return () => window.removeEventListener('admin:application-action-history-visibility', syncApplicationActionHistoryVisibility);
+  }, []);
 
   const exportToExcel = async () => {
     setExportLoading(true);
@@ -448,7 +463,7 @@ const Dashboard = () => {
 
   const openApplicationPanel = async (app) => {
     setSelectedApplication(app);
-    await fetchApplicationEvents(app.id);
+    if (showApplicationActionHistory) await fetchApplicationEvents(app.id);
     if (['new', 'reopened'].includes(app.status || 'new')) {
       try {
         await authFetch(`${API_BASE_URL}/applications/${app.id}/view`, {
@@ -760,7 +775,7 @@ const Dashboard = () => {
       }));
       fetchGeneralStats();
       fetchApplications({ silent: true });
-      fetchApplicationEvents(app.id);
+      if (showApplicationActionHistory) fetchApplicationEvents(app.id);
     } catch (error) {
       setWorkflowMessage(error.message || 'Ошибка изменения статуса');
       showToast(error.message || 'Ошибка изменения статуса', 'error');
@@ -1410,7 +1425,7 @@ const Dashboard = () => {
             <a href={`/edit/${selectedApplication.id}`}>Редактировать заявку</a>
             <button type="button" className="side-panel-delete" onClick={deleteSelectedApplication} disabled={actionBusyId === selectedApplication.id}>{actionBusyId === selectedApplication.id ? 'Удаляем…' : 'Удалить заявку'}</button>
           </div>
-          <div className="side-panel-section">
+          {showApplicationActionHistory && <div className="side-panel-section">
             <h3>История действий</h3>
             {eventsLoading && <p>Загружаем историю…</p>}
             {!eventsLoading && applicationEvents.length === 0 && <p>История пока пустая.</p>}
@@ -1423,7 +1438,7 @@ const Dashboard = () => {
                 </div>
               ))}
             </div>
-          </div>
+          </div>}
         </aside>
       )}
 

@@ -299,6 +299,8 @@ const ADMIN_TRANSLATIONS = {
   'Сеть': 'Network', 'IP-адрес': 'IP address', 'Устройство': 'Device', 'Свободен': 'Available', 'Занят': 'Occupied',
   'Служебные обновления': 'Service updates', 'Редкие операции вынесены из рабочих экранов.': 'Infrequent operations are kept outside everyday workflows.',
   'Обновить справочник': 'Refresh directory', 'Обновить IP-сетку': 'Refresh IP grid',
+  'Показывать в карточке заявки блок «История действий».': 'Show the “Action history” section in the request card.',
+  'История показывается': 'History is shown', 'История скрыта': 'History is hidden',
   'Аналитика заявок': 'Request analytics', 'Объём обращений, текущие состояния и нагрузка исполнителей': 'Request volume, current states and assignee workload', 'Период': 'Period',
   'За 7 дней': 'Last 7 days', 'За 30 дней': 'Last 30 days', 'За 90 дней': 'Last 90 days',
   'Последние 7 дней': 'Last 7 days', 'Последние 30 дней': 'Last 30 days', 'Последние 90 дней': 'Last 90 days',
