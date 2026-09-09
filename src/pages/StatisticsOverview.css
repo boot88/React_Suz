@@ -224,6 +224,7 @@
 .statistics-drag-hint.is-dragging { color: var(--admin-accent-deep, #2f6587); }
 
 .chart-interaction-area {
+  position: relative;
   cursor: ew-resize;
   touch-action: pan-y;
   user-select: none;
@@ -241,6 +242,24 @@
   background: var(--admin-surface-raised, #fffdf8);
   box-shadow: 0 16px 38px rgba(10, 24, 31, .18);
   color: var(--admin-ink, #15252b);
+}
+
+.statistics-floating-tooltip {
+  position: absolute;
+  z-index: 30;
+  max-height: min(240px, calc(100% - 16px));
+  cursor: default;
+  user-select: text;
+}
+
+.statistics-application-point {
+  cursor: pointer;
+  transition: r .15s ease, filter .15s ease;
+}
+
+.statistics-application-point:hover {
+  r: 7px;
+  filter: drop-shadow(0 3px 5px rgba(47, 101, 135, .35));
 }
 
 .statistics-day-tooltip > strong,

@@ -104,11 +104,16 @@ const snapRangeDays = (days, availableDays) => {
   return Math.abs(nearest - safeDays) <= Math.max(2, nearest * .1) ? nearest : safeDays;
 };
 
-function ApplicationDayTooltip({ active, payload, onOpenApplication }) {
-  const point = payload?.[0]?.payload;
-  if (!active || !point) return null;
+function ApplicationDayTooltip({ point, onOpenApplication, onMouseEnter, onMouseLeave, style }) {
+  if (!point) return null;
   return (
-    <div className="statistics-day-tooltip" onPointerDown={(event) => event.stopPropagation()}>
+    <div
+      className="statistics-day-tooltip statistics-floating-tooltip"
+      style={style}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
       <strong>{point.date}</strong>
       <span>{point.value} {point.value === 1 ? 'заявка' : 'заявок'}</span>
       <div>
@@ -122,9 +127,21 @@ function ApplicationDayTooltip({ active, payload, onOpenApplication }) {
   );
 }
 
-function ApplicationPointDot({ cx, cy, payload }) {
+function ApplicationPointDot({ cx, cy, payload, onShow, onScheduleHide }) {
   if (!payload?.value) return null;
-  return <circle cx={cx} cy={cy} r={4} fill="#4f86a7" stroke="#fffdf8" strokeWidth={2} />;
+  return (
+    <circle
+      cx={cx}
+      cy={cy}
+      r={5}
+      fill="#4f86a7"
+      stroke="#fffdf8"
+      strokeWidth={2}
+      className="statistics-application-point"
+      onMouseEnter={() => onShow(payload, cx, cy)}
+      onMouseLeave={onScheduleHide}
+    />
+  );
 }
 
 export default function StatisticsOverview() {
@@ -138,7 +155,10 @@ export default function StatisticsOverview() {
   const [activeDay, setActiveDay] = useState('');
   const [isDraggingChart, setIsDraggingChart] = useState(false);
   const [chartDragDirection, setChartDragDirection] = useState('');
+  const [floatingDay, setFloatingDay] = useState(null);
   const chartDragRef = useRef(null);
+  const chartAreaRef = useRef(null);
+  const tooltipCloseTimerRef = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -252,6 +272,8 @@ export default function StatisticsOverview() {
     }
   }, [activeDay, dynamics]);
 
+  useEffect(() => () => window.clearTimeout(tooltipCloseTimerRef.current), []);
+
   const statusData = useMemo(() => STATUS_GROUPS
     .map((status) => ({ ...status, value: metrics[status.key] }))
     .filter(({ value }) => value > 0), [metrics]);
@@ -305,6 +327,28 @@ export default function StatisticsOverview() {
     event.currentTarget.setPointerCapture?.(event.pointerId);
     setIsDraggingChart(true);
     setChartDragDirection('');
+  };
+
+  const keepPointTooltipOpen = () => {
+    window.clearTimeout(tooltipCloseTimerRef.current);
+  };
+
+  const showPointTooltip = (point, x, y) => {
+    keepPointTooltipOpen();
+    const bounds = chartAreaRef.current?.getBoundingClientRect();
+    setActiveDay(point.day);
+    setFloatingDay({
+      point,
+      x,
+      y,
+      alignRight: Boolean(bounds && x > bounds.width * .58),
+      alignBottom: Boolean(bounds && y > bounds.height * .5)
+    });
+  };
+
+  const schedulePointTooltipClose = () => {
+    window.clearTimeout(tooltipCloseTimerRef.current);
+    tooltipCloseTimerRef.current = window.setTimeout(() => setFloatingDay(null), 420);
   };
 
   const handleChartPointerMove = (event) => {
@@ -386,6 +430,7 @@ export default function StatisticsOverview() {
           </div>
           {dynamics.length > 0 ? <>
             <div
+              ref={chartAreaRef}
               className={`chart-box chart-box--trend chart-interaction-area ${isDraggingChart ? 'is-dragging' : ''}`}
               onPointerDown={handleChartPointerDown}
               onPointerMove={handleChartPointerMove}
@@ -404,10 +449,30 @@ export default function StatisticsOverview() {
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="date" minTickGap={28} />
                   <YAxis allowDecimals={false} />
-                  <Tooltip content={<ApplicationDayTooltip onOpenApplication={openApplication} />} wrapperStyle={{ pointerEvents: 'auto', zIndex: 20 }} />
-                  <Line type="monotone" dataKey="value" name="Заявки" stroke="#4f86a7" strokeWidth={3} dot={<ApplicationPointDot />} activeDot={{ r: 7, cursor: 'pointer' }} />
+                  <Line
+                    type="monotone"
+                    dataKey="value"
+                    name="Заявки"
+                    stroke="#4f86a7"
+                    strokeWidth={3}
+                    dot={<ApplicationPointDot onShow={showPointTooltip} onScheduleHide={schedulePointTooltipClose} />}
+                    activeDot={false}
+                  />
                 </LineChart>
               </ResponsiveContainer>
+              {floatingDay && <ApplicationDayTooltip
+                point={floatingDay.point}
+                onOpenApplication={openApplication}
+                onMouseEnter={keepPointTooltipOpen}
+                onMouseLeave={schedulePointTooltipClose}
+                style={{
+                  left: floatingDay.alignRight ? floatingDay.x - 12 : floatingDay.x + 12,
+                  top: floatingDay.alignBottom ? 'auto' : floatingDay.y + 10,
+                  right: 'auto',
+                  bottom: floatingDay.alignBottom ? `calc(100% - ${floatingDay.y - 10}px)` : 'auto',
+                  transform: floatingDay.alignRight ? 'translateX(-100%)' : 'none'
+                }}
+              />}
             </div>
             {activeDayData && <div className="statistics-day-applications">
               <div><strong>Заявки за {activeDayData.date}</strong><span>{activeDayData.value}</span></div>
