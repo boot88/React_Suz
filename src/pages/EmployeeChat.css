@@ -3657,6 +3657,13 @@ button:disabled {
   justify-items: end;
 }
 
+.brand-actions .admin-panel-return-btn {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--chat-accent), var(--chat-accent-2));
+  color: #fff;
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--chat-accent) 24%, transparent);
+}
+
 
 .contact-filter-select {
   display: grid;

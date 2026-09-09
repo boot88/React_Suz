@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch, withAccessToken } from '../utils/authFetch';
@@ -74,6 +75,7 @@ const PROFILE_LANGUAGE_OPTIONS = [
 
 const RUSSIAN_LABELS = {
   workingChat: 'Рабочий чат',
+  adminPanel: 'Админка',
   profile: 'Профиль',
   chatSections: 'Разделы чата',
   contacts: 'Контакты',
@@ -413,6 +415,7 @@ const RUSSIAN_LABELS = {
 
 const ENGLISH_LABELS = {
   workingChat: 'Work chat',
+  adminPanel: 'Admin panel',
   profile: 'Profile',
   chatSections: 'Chat sections',
   contacts: 'Contacts',
@@ -1948,6 +1951,7 @@ const getApplicationStatusMeta = (status, isEnglish = false) => {
 
 const EmployeeChat = () => {
   const { user, logout, employeeDirectory, changeServicePassword } = useAuth();
+  const navigate = useNavigate();
   const isManager = user?.role === 'manager' || user?.role === 'admin';
   const baseDisplayName = user?.name || user?.username || 'Сотрудник';
   const isAdmin = user?.serverRole === 'admin' || user?.role === 'admin';
@@ -5844,7 +5848,10 @@ const EmployeeChat = () => {
             <strong>{profileForm.full_name || baseDisplayName}</strong>
             <span>{profileForm.position || user?.position || profileForm.department || t('workingChat')}</span>
           </div>
-          <div className="brand-actions"><button type="button" className="icon-btn" onClick={() => { setActiveTab('profile'); setProfileViewLogin(''); }}>{t('profile')}</button></div>
+          <div className="brand-actions">
+            {isAdmin && <button type="button" className="icon-btn admin-panel-return-btn" onClick={() => navigate('/')}>{t('adminPanel')}</button>}
+            <button type="button" className="icon-btn" onClick={() => { setActiveTab('profile'); setProfileViewLogin(''); }}>{t('profile')}</button>
+          </div>
         </div>
 
         <nav className="employee-chat-tabs" aria-label={t('chatSections')}>

@@ -21,7 +21,18 @@ import { authFetch } from './utils/authFetch';
 
 
 function App() {
+  return (
+    <Router>
+      <ApplicationsProvider>
+        <AppWorkspace />
+      </ApplicationsProvider>
+    </Router>
+  );
+}
+
+function AppWorkspace() {
   const { isAuthenticated, isLoading, user } = useAuth();
+  const location = useLocation();
   const [adminLanguage, setAdminLanguage] = useState(() => localStorage.getItem('adminLanguage') || 'ru');
   const [adminTheme, setAdminTheme] = useState(() => localStorage.getItem('adminTheme') || 'light');
 
@@ -39,42 +50,38 @@ function App() {
     );
   }
 
-  const isEmployee = user?.role === 'employee' || user?.role === 'manager';
-
-  const isAdminWorkspace = isAuthenticated && !isEmployee;
+  const isAdmin = user?.role === 'admin' || user?.serverRole === 'admin';
+  const isEmployee = !isAdmin && (user?.role === 'employee' || user?.role === 'manager');
+  const isAdminWorkspace = isAuthenticated && isAdmin;
+  const isFullscreenAdminChat = isAdminWorkspace && location.pathname === '/employee';
+  const showAdminShell = isAdminWorkspace && !isFullscreenAdminChat;
 
   return (
-    <Router>
-      <ApplicationsProvider>
-        <div className={`app-container ${isAdminWorkspace ? `admin-workspace admin-theme-${adminTheme}` : ''}`} data-admin-language={adminLanguage}>
-          {isAdminWorkspace && (
-            <Sidebar language={adminLanguage} />
-          )}
-          <div className={`app-content ${isAdminWorkspace ? 'app-content--with-sidebar admin-shell-content' : ''}`}>
-            {isAdminWorkspace && <AdminTextTranslator language={adminLanguage} />}
-            <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route path="/admin" element={<Login mode="admin" />} />
-              <Route path="/register" element={<AdminRoute><Register /></AdminRoute>} />
+    <div className={`app-container ${showAdminShell ? `admin-workspace admin-theme-${adminTheme}` : ''}`} data-admin-language={adminLanguage}>
+      {showAdminShell && <Sidebar language={adminLanguage} />}
+      <div className={`app-content ${showAdminShell ? 'app-content--with-sidebar admin-shell-content' : ''}`}>
+        {showAdminShell && <AdminTextTranslator language={adminLanguage} />}
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/admin" element={<Login mode="admin" />} />
+          <Route path="/register" element={<AdminRoute><Register /></AdminRoute>} />
 
-              <Route path="/employee" element={<ProtectedRoute><EmployeeChat /></ProtectedRoute>} />
+          <Route path="/employee" element={<ProtectedRoute><EmployeeChat /></ProtectedRoute>} />
 
-              <Route path="/" element={<AdminRoute><Dashboard /></AdminRoute>} />
-              <Route path="/add" element={<AdminRoute><AddApplication /></AdminRoute>} />
-              <Route path="/edit/:id" element={<AdminRoute><EditApplication /></AdminRoute>} />
-              <Route path="/employee-search" element={<AdminRoute><EmployeeSearch /></AdminRoute>} />
-              <Route path="/knowledge-base" element={<AdminRoute><KnowledgeBase /></AdminRoute>} />
-              <Route path="/network-map" element={<AdminRoute><NetworkMap /></AdminRoute>} />
-              <Route path="/settings" element={<AdminRoute><AdminSettings language={adminLanguage} theme={adminTheme} onLanguageChange={setAdminLanguage} onThemeChange={setAdminTheme} /></AdminRoute>} />
-              <Route path="/statistics" element={<AdminRoute><Statistics /></AdminRoute>} />
+          <Route path="/" element={<AdminRoute><Dashboard /></AdminRoute>} />
+          <Route path="/add" element={<AdminRoute><AddApplication /></AdminRoute>} />
+          <Route path="/edit/:id" element={<AdminRoute><EditApplication /></AdminRoute>} />
+          <Route path="/employee-search" element={<AdminRoute><EmployeeSearch /></AdminRoute>} />
+          <Route path="/knowledge-base" element={<AdminRoute><KnowledgeBase /></AdminRoute>} />
+          <Route path="/network-map" element={<AdminRoute><NetworkMap /></AdminRoute>} />
+          <Route path="/settings" element={<AdminRoute><AdminSettings language={adminLanguage} theme={adminTheme} onLanguageChange={setAdminLanguage} onThemeChange={setAdminTheme} /></AdminRoute>} />
+          <Route path="/statistics" element={<AdminRoute><Statistics /></AdminRoute>} />
 
-              <Route path="/support" element={<Support />} />
-              <Route path="*" element={<Navigate to={isEmployee ? '/employee' : '/'} replace />} />
-            </Routes>
-          </div>
-        </div>
-      </ApplicationsProvider>
-    </Router>
+          <Route path="/support" element={<Support />} />
+          <Route path="*" element={<Navigate to={isEmployee ? '/employee' : '/'} replace />} />
+        </Routes>
+      </div>
+    </div>
   );
 }
 
