@@ -1,0 +1,167 @@
+/* Service is opt-in. All rules stay within the third login design. */
+.jp-wrapper--design-service {
+  --login-ink: #203c36;
+  --login-muted: #68756e;
+  --login-blue: #235b4b;
+  --login-blue-strong: #174536;
+  --folio-accent: #235b4b;
+  --folio-accent-soft: #eaf1e9;
+  position: relative;
+  min-height: 100vh;
+  min-height: 100svh;
+  overflow: visible;
+  background: #f6f6ef;
+  color: var(--login-ink);
+  font-family: "Segoe UI", Arial, sans-serif;
+  padding: 0 48px 100px;
+  box-sizing: border-box;
+}
+.jp-wrapper--design-service *,
+.jp-wrapper--design-service *::before,
+.jp-wrapper--design-service *::after { box-sizing: border-box; }
+.jp-wrapper--design-service svg { width: 22px; height: 22px; flex-shrink: 0; }
+.service-header { max-width: 1280px; height: 106px; margin: auto; display: flex; align-items: center; gap: 32px; padding-right: 215px; border-bottom: 1px solid #dde1d8; }
+.service-brand { display: inline-flex; align-items: center; gap: 12px; font-size: 21px; font-weight: 700; letter-spacing: -.6px; white-space: nowrap; }
+.service-brand > span { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; background: #235b4b; color: #fff; }
+.service-network { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: #68756e; }
+.service-network svg { width: 14px; height: 14px; }
+.jp-wrapper--design-service .jp-corner-link { position: absolute; top: 43px; right: max(48px, calc((100% - 1280px) / 2)); color: #235b4b; font-size: 12px; font-weight: 600; text-decoration: none; }
+.jp-wrapper--design-service .jp-corner-link::after { content: ' ↗'; margin-left: 8px; }
+.jp-wrapper--design-service .jp-login-shell { width: min(100%, 1160px); min-height: calc(100svh - 230px); padding: 55px 0 44px; display: grid; grid-template-columns: 1.12fr 1fr; align-items: center; gap: clamp(44px, 6vw, 96px); }
+.service-intro { width: 100%; min-width: 0; }
+.service-eyebrow { display: inline-flex; gap: 9px; align-items: center; text-transform: uppercase; font-size: 11px; font-weight: 700; letter-spacing: 1.5px; color: #4c6656; }
+.service-eyebrow > span { width: 7px; height: 7px; border-radius: 50%; background: #6e8960; }
+.service-intro h2 { font-size: clamp(34px, 3.45vw, 51px); line-height: 1.13; letter-spacing: -2px; font-weight: 600; margin: 22px 0 18px; white-space: pre-line; color: #203c36; }
+.service-intro-copy { max-width: 465px; font-size: 15px; line-height: 1.8; color: #68756e; margin: 0; }
+.service-categories { display: flex; flex-wrap: wrap; gap: 18px; margin: 24px 0 29px; }
+.service-categories > span { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: #516258; }
+.service-categories svg { width: 17px; height: 17px; }
+.service-illustration { position: relative; isolation: isolate; overflow: hidden; min-height: 284px; padding: 22px 29px 25px; border-radius: 18px; background: #e4ebde; background-image: radial-gradient(#b9c8b2 0.65px, transparent 0.65px); background-size: 16px 16px; }
+.service-example-label { display: flex; align-items: center; justify-content: space-between; color: #526750; text-transform: uppercase; font-size: 9px; font-weight: 700; letter-spacing: 1.5px; margin-bottom: 20px; }
+.service-example-label > span { font-size: 18px; }
+.service-ticket { position: relative; z-index: 1; padding: 18px 21px 20px; margin-right: 22px; border: 1px solid #dbe3d6; border-radius: 12px; background: #fffffc; box-shadow: 0 12px 30px #304a3410; transform: rotate(-2deg); }
+.service-ticket-top { display: flex; align-items: center; gap: 8px; color: #73806e; font-size: 10px; }
+.service-ticket-icon { color: #3f6351; }
+.service-ticket-icon svg { width: 18px; height: 18px; }
+.service-ticket-dots { margin-left: auto; letter-spacing: 2px; }
+.service-ticket > strong { display: block; font-size: 15px; font-weight: 600; margin: 12px 0 21px; }
+.service-steps { display: flex; justify-content: space-between; gap: 12px; position: relative; }
+.service-steps::before { content: ''; position: absolute; top: 8px; left: 8px; right: 18px; border-top: 1px solid #d9e0d4; }
+.service-steps > span { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; font-size: 9px; color: #7e887b; }
+.service-steps i { width: 17px; height: 17px; display: grid; place-items: center; border: 1px solid #c9d2c4; background: #fffffc; border-radius: 50%; font-style: normal; }
+.service-steps > span:first-child i { background: #235b4b; border-color: #235b4b; color: white; }
+.service-steps .is-current { color: #235b4b; }
+.service-steps .is-current i { border: 5px solid #235b4b; box-shadow: 0 0 0 3px #e4ebde; }
+.service-chat-note { position: relative; z-index: 2; display: flex; align-items: center; gap: 12px; max-width: 335px; margin: 14px 0 0 auto; padding: 15px 18px; background: #235b4b; color: #fff; border-radius: 12px; box-shadow: 0 10px 22px #204a3020; transform: rotate(2deg); }
+.service-chat-icon { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; border-radius: 9px; background: #ffffff17; }
+.service-chat-note strong { font-size: 11px; font-weight: 600; }
+.service-chat-note p { margin: 4px 0 0; color: #d1e1d4; font-size: 10px; line-height: 1.5; }
+.service-orbit { position: absolute; z-index: -1; width: 280px; height: 280px; right: -90px; bottom: -130px; border: 35px solid #cad7be; border-radius: 50%; opacity: .55; }
+.jp-wrapper--design-service .jp-content { min-width: 0; }
+.jp-wrapper--design-service .jp-login-box { overflow: visible; border: 1px solid #e1e5dc; border-radius: 20px; background: #fffefa; backdrop-filter: none; box-shadow: 0 18px 55px #233a2710; padding: 40px 38px 28px; }
+.jp-wrapper--design-service .jp-card-topline { display: none; }
+.service-form-icon { display: grid; place-items: center; width: 47px; height: 47px; background: #eef2e8; color: #235b4b; border-radius: 13px; margin-bottom: 25px; }
+.service-form-kicker { display: block; color: #6c7b63; font-size: 9px; font-weight: 700; letter-spacing: 1.3px; }
+.jp-wrapper--design-service .jp-login-box h1 { font-size: clamp(25px, 2.15vw, 32px); line-height: 1.2; letter-spacing: -1px; font-weight: 600; margin: 12px 0; }
+.jp-wrapper--design-service .jp-subtitle { font-size: 13px; line-height: 1.7; color: #68756e; margin-bottom: 30px; }
+.jp-wrapper--design-service .jp-form { gap: 21px; }
+.jp-wrapper--design-service .jp-field label,
+.jp-wrapper--design-service .jp-recovery-form label { color: #3f5046; font-size: 12px; font-weight: 600; letter-spacing: 0; margin-bottom: 9px; }
+.jp-wrapper--design-service .jp-field input,
+.jp-wrapper--design-service .jp-recovery-form input { min-height: 51px; padding: 14px; background: #fff; border: 1px solid #d9dfd3; border-radius: 8px; font-size: 14px; color: #203c36; }
+.jp-wrapper--design-service .jp-field > input[name="username"] { padding-right: 49px; }
+.jp-wrapper--design-service input::placeholder { color: #858d81; }
+.jp-wrapper--design-service .jp-field input:focus,
+.jp-wrapper--design-service .jp-recovery-form input:focus { border-color: #4e7a59; box-shadow: 0 0 0 3px #537a4f18; }
+.jp-wrapper--design-service .jp-password-wrapper { position: relative; flex-direction: row; border-radius: 8px; }
+.jp-wrapper--design-service .jp-password-wrapper input { border-radius: 8px; padding-right: 91px; }
+.jp-wrapper--design-service .jp-password-toggle { position: absolute; right: 5px; top: 6px; bottom: 6px; min-width: 70px; min-height: 0; padding: 0 9px; margin: 0; border: none; border-radius: 5px; background: transparent; color: #4f6857; font-size: 11px; font-weight: 600; }
+.jp-wrapper--design-service .jp-password-toggle:hover { background: #eef2e8; }
+.jp-wrapper--design-service .jp-button { display: flex; justify-content: center; align-items: center; gap: 16px; min-height: 51px; padding: 13px 17px; border-radius: 8px; background: #235b4b; box-shadow: 0 4px 8px #235b4b12; font-size: 13px; font-weight: 600; }
+.jp-wrapper--design-service .jp-button:hover:not(:disabled) { background: #174536; box-shadow: 0 6px 14px #235b4b20; }
+.jp-wrapper--design-service .jp-button svg { width: 18px; height: 18px; }
+.jp-wrapper--design-service .jp-footer { display: flex; justify-content: center; margin-top: 20px; padding: 0; border: none; }
+.jp-wrapper--design-service .jp-link-button { font-size: 12px; color: #496652; font-weight: 500; text-decoration: underline; text-underline-offset: 4px; }
+.service-access-note { display: flex; justify-content: center; align-items: center; gap: 7px; margin: 25px 0 0; padding-top: 20px; border-top: 1px solid #e7e9e0; color: #76806f; font-size: 10px; line-height: 1.5; text-align: center; }
+.service-access-note svg { width: 13px; height: 13px; }
+.service-page-footer { margin: 7px auto 0; text-align: center; color: #828b7d; font-size: 11px; }
+.jp-wrapper--design-service .login-suggestions-toggle { top: 31px; right: 8px; width: 35px; height: 35px; display: grid; place-items: center; border-radius: 5px; background: #f1f4ec; color: #52694e; }
+.jp-wrapper--design-service .login-suggestions-toggle svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.5; }
+.jp-wrapper--design-service .login-suggestions-toggle.is-open svg { transform: rotate(180deg); }
+.jp-wrapper--design-service .login-directory { position: absolute; top: calc(100% + 7px); left: 0; right: 0; z-index: 40; border: 1px solid #d3ddcd; border-radius: 10px; overflow: hidden; background: #fffefa; color: #203c36; box-shadow: 0 16px 40px #1c392733; }
+.jp-wrapper--design-service .login-directory-header { background: #eef2e8; border-color: #dfe5d7; padding: 12px; gap: 10px; }
+.jp-wrapper--design-service .login-directory-header strong { font: 600 13px "Segoe UI", Arial, sans-serif; color: #203c36; }
+.jp-wrapper--design-service .login-directory-header small { color: #677761; font-size: 10px; letter-spacing: 0; }
+.jp-wrapper--design-service .login-directory-count { color: #235b4b; }
+.jp-wrapper--design-service .login-directory-list { max-height: min(290px, 42svh); scrollbar-color: #b1c1a9 #f1f4ec; }
+.jp-wrapper--design-service .login-directory-list > button { grid-template-columns: 34px minmax(0, 1fr) 18px; gap: 9px; padding: 9px 7px; border-radius: 6px; color: #203c36; }
+.jp-wrapper--design-service .login-directory-list > button:hover,
+.jp-wrapper--design-service .login-directory-list > button:focus-visible,
+.jp-wrapper--design-service .login-directory-list > button.is-selected { background: #eef3e8; border-color: #dce5d3; transform: none; }
+.jp-wrapper--design-service .login-directory-avatar { width: 33px; height: 33px; color: #42613e; border-color: #d7e1ce; background: #eaf0e4; }
+.jp-wrapper--design-service .login-directory-identity > strong { color: #203c36; font-size: 12px; white-space: normal; }
+.jp-wrapper--design-service .login-directory-identity > span,
+.jp-wrapper--design-service .login-directory-identity > small,
+.jp-wrapper--design-service .login-directory-mark,
+.jp-wrapper--design-service .login-directory-empty { color: #64745e; }
+.jp-wrapper--design-service .login-directory-footer { border-color: #e1e7db; color: #6c7a64; font-size: 10px; }
+.jp-wrapper--design-service .login-directory-empty { padding: 15px; }
+.jp-wrapper--design-service .jp-recovery-modal { border: 1px solid #d9dfd3; border-radius: 16px; background: #fffefa; }
+.jp-wrapper--design-service .jp-recovery-modal h2 { color: #203c36; }
+.jp-wrapper--design-service .jp-modal-close { background: #eef2e8; color: #235b4b; }
+.jp-wrapper--design-service .jp-language-switch,
+.jp-wrapper--design-service .jp-design-switch { background: #fffefa; border-color: #dce2d4; box-shadow: none; backdrop-filter: none; border-radius: 10px; }
+.jp-wrapper--design-service .jp-language-switch button,
+.jp-wrapper--design-service .jp-design-switch button,
+.jp-wrapper--design-service .jp-design-switch > div { border-radius: 6px; }
+.jp-wrapper--design-service .jp-design-switch > div { background: #eef2e8; }
+.jp-wrapper--design-service .jp-design-switch button.active { box-shadow: none; }
+.jp-wrapper--design-service button:focus-visible,
+.jp-wrapper--design-service a:focus-visible { outline: 2px solid #427657; outline-offset: 3px; }
+@media (max-width: 1000px) {
+  .jp-wrapper--design-service { padding: 0 28px 110px; }
+  .service-header { gap: 20px; }
+  .service-network { display: none; }
+  .jp-wrapper--design-service .jp-corner-link { right: 28px; }
+  .jp-wrapper--design-service .jp-login-shell { gap: 32px; grid-template-columns: 1fr 1fr; }
+  .jp-wrapper--design-service .jp-login-box { padding: 30px 25px 25px; }
+  .service-intro h2 { font-size: 35px; letter-spacing: -1.5px; }
+  .service-illustration { padding: 17px; }
+  .service-ticket { margin-right: 0; padding: 15px; }
+  .service-ticket > strong { font-size: 13px; }
+  .service-categories { gap: 12px; }
+}
+@media (max-width: 760px) {
+  .jp-wrapper--design-service { padding: 0 24px 145px; }
+  .service-header { height: 88px; padding-right: 170px; }
+  .service-brand { font-size: 17px; gap: 9px; }
+  .service-brand > span { width: 34px; height: 34px; border-radius: 10px; }
+  .jp-wrapper--design-service .jp-corner-link { top: 37px; right: 24px; font-size: 11px; }
+  .jp-wrapper--design-service .jp-login-shell { width: min(100%, 500px); min-height: 0; grid-template-columns: 1fr; gap: 28px; padding: 32px 0 24px; }
+  .service-intro h2 { font-size: 38px; margin: 15px 0; }
+  .service-intro-copy { font-size: 14px; line-height: 1.65; }
+  .service-categories { margin: 18px 0 0; }
+  .service-illustration { display: none; }
+  .jp-wrapper--design-service .jp-login-box { padding: 27px 25px 24px; }
+  .service-form-icon { display: none; }
+  .jp-wrapper--design-service .jp-login-box h1 { font-size: 27px; }
+  .jp-wrapper--design-service .jp-subtitle { margin-bottom: 24px; }
+  .jp-wrapper--design-service .jp-language-switch { position: absolute; left: 50%; bottom: 77px; transform: translateX(-50%); }
+  .jp-wrapper--design-service .jp-design-switch { position: absolute; left: 50%; right: auto; bottom: 20px; transform: translateX(-50%); white-space: nowrap; }
+}
+@media (max-width: 400px) {
+  .jp-wrapper--design-service { padding-left: 17px; padding-right: 17px; }
+  .service-header { height: 100px; padding-right: 0; align-items: flex-start; padding-top: 18px; }
+  .jp-wrapper--design-service .jp-corner-link { top: 68px; right: 18px; }
+  .service-intro h2 { font-size: 33px; }
+  .jp-wrapper--design-service .jp-login-box { padding: 25px 19px; }
+  .service-categories { column-gap: 11px; row-gap: 9px; }
+  .service-categories > span { font-size: 10px; }
+  .jp-wrapper--design-service .jp-design-switch { padding-left: 8px; gap: 6px; }
+  .jp-wrapper--design-service .jp-design-switch button { padding-left: 9px; padding-right: 9px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jp-wrapper--design-service *, .jp-wrapper--design-service *::before, .jp-wrapper--design-service *::after { animation: none; transition: none; }
+}
+/* The app's tablet sidebar offset must not shift the standalone sign-in page. */
+.app-container > .app-content:has(> .jp-wrapper--design-service) { margin-left: 0; min-width: 0; width: 100%; }
