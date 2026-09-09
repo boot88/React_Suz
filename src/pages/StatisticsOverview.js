@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Bar,
   BarChart,
@@ -19,7 +20,6 @@ import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
 import {
   APPLICATION_TIME_ZONE,
-  formatApplicationDuration,
   toApplicationTimestamp
 } from '../utils/applicationTime';
 
@@ -67,19 +67,6 @@ const executorCategoryOf = (value = '') => {
   })?.name || null;
 };
 
-const average = (values) => values.length
-  ? values.reduce((total, value) => total + value, 0) / values.length
-  : null;
-
-const durationBetween = (from, to) => {
-  const start = toApplicationTimestamp(from);
-  const end = toApplicationTimestamp(to);
-  return start && end && end >= start ? Math.floor((end - start) / 1000) : null;
-};
-
-const formatDuration = (seconds) => seconds == null ? '—' : formatApplicationDuration(seconds);
-const getClosedAt = (app = {}) => app.employee_confirmed_at || app.end_data || app.resolved_at;
-
 const getDayKey = (app = {}) => {
   const timestamp = toApplicationTimestamp(app.created_at || app.data);
   if (!timestamp) return null;
@@ -91,22 +78,86 @@ const formatDay = (dayKey) => {
   return date.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', timeZone: APPLICATION_TIME_ZONE });
 };
 
+const shiftDayKey = (dayKey, days) => {
+  const date = new Date(`${dayKey}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+};
+
+const getApplicationTitle = (app = {}) => app.application || app.name || 'Без названия заявки';
+
+const RANGE_PRESETS = [
+  { days: 1, label: '1 день' },
+  { days: 7, label: '7 дней' },
+  { days: 30, label: '1 месяц' },
+  { days: 90, label: '3 месяца' },
+  { days: 180, label: '6 месяцев' }
+];
+
+const snapRangeDays = (days, availableDays) => {
+  const safeDays = Math.max(1, Math.min(availableDays, Math.round(days)));
+  const candidates = [...RANGE_PRESETS.map(({ days: value }) => value), availableDays]
+    .filter((value) => value <= availableDays);
+  const nearest = candidates.reduce((best, value) => (
+    Math.abs(value - safeDays) < Math.abs(best - safeDays) ? value : best
+  ), candidates[0] || safeDays);
+  return Math.abs(nearest - safeDays) <= Math.max(2, nearest * .1) ? nearest : safeDays;
+};
+
+function ApplicationDayTooltip({ active, payload, onOpenApplication }) {
+  const point = payload?.[0]?.payload;
+  if (!active || !point) return null;
+  return (
+    <div className="statistics-day-tooltip" onPointerDown={(event) => event.stopPropagation()}>
+      <strong>{point.date}</strong>
+      <span>{point.value} {point.value === 1 ? 'заявка' : 'заявок'}</span>
+      <div>
+        {point.applications.map((app) => (
+          <button key={app.id} type="button" onClick={() => onOpenApplication(app)}>
+            <small>#{app.id}</small>{getApplicationTitle(app)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ApplicationPointDot({ cx, cy, payload }) {
+  if (!payload?.value) return null;
+  return <circle cx={cx} cy={cy} r={4} fill="#4f86a7" stroke="#fffdf8" strokeWidth={2} />;
+}
+
 export default function StatisticsOverview() {
+  const navigate = useNavigate();
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [period, setPeriod] = useState('30');
   const [executor, setExecutor] = useState('all');
   const [category, setCategory] = useState('all');
+  const [activeDay, setActiveDay] = useState('');
+  const [isDraggingChart, setIsDraggingChart] = useState(false);
+  const [chartDragDirection, setChartDragDirection] = useState('');
+  const chartDragRef = useRef(null);
 
   useEffect(() => {
     let active = true;
-    authFetch(`${API_BASE_URL}/applications?limit=1000&sort=date_desc`)
-      .then(async (response) => {
+    const loadAllApplications = async () => {
+      const allApplications = [];
+      let page = 1;
+      let totalPages = 1;
+      do {
+        const response = await authFetch(`${API_BASE_URL}/applications?page=${page}&limit=1000&sort=date_desc`);
         if (!response.ok) throw new Error('Не удалось загрузить данные');
-        return response.json();
-      })
-      .then((data) => active && setApplications(data.applications || []))
+        const data = await response.json();
+        allApplications.push(...(data.applications || []));
+        totalPages = Math.max(1, Number(data.totalPages) || 1);
+        page += 1;
+      } while (active && page <= totalPages);
+      if (active) setApplications(allApplications);
+    };
+
+    loadAllApplications()
       .catch((err) => active && setError(err.message || 'Не удалось загрузить данные'))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
@@ -116,6 +167,28 @@ export default function StatisticsOverview() {
     [...new Set(applications.map((app) => app.category).filter(Boolean))]
       .sort((a, b) => a.localeCompare(b, 'ru'))
   ), [applications]);
+
+  const availableRangeDays = useMemo(() => {
+    const timestamps = applications
+      .map((app) => toApplicationTimestamp(app.created_at || app.data))
+      .filter(Boolean);
+    if (timestamps.length === 0) return 1;
+    const earliest = Math.min(...timestamps);
+    return Math.max(1, Math.ceil((Date.now() - earliest) / 86400000) + 1);
+  }, [applications]);
+
+  const availableStartLabel = useMemo(() => {
+    const timestamps = applications
+      .map((app) => toApplicationTimestamp(app.created_at || app.data))
+      .filter(Boolean);
+    if (timestamps.length === 0) return '';
+    return new Date(Math.min(...timestamps)).toLocaleDateString('ru-RU', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      timeZone: APPLICATION_TIME_ZONE
+    });
+  }, [applications]);
 
   const periodAndCategoryFiltered = useMemo(() => {
     const threshold = period === 'all' ? null : Date.now() - Number(period) * 86400000;
@@ -137,15 +210,47 @@ export default function StatisticsOverview() {
   }, [filtered]);
 
   const dynamics = useMemo(() => {
-    const countsByDay = new Map();
+    const applicationsByDay = new Map();
     filtered.forEach((app) => {
       const day = getDayKey(app);
-      if (day) countsByDay.set(day, (countsByDay.get(day) || 0) + 1);
+      if (!day) return;
+      const dayApplications = applicationsByDay.get(day) || [];
+      dayApplications.push(app);
+      applicationsByDay.set(day, dayApplications);
     });
-    return [...countsByDay.entries()]
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([day, value]) => ({ day, date: formatDay(day), value }));
-  }, [filtered]);
+    if (applicationsByDay.size === 0) return [];
+
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: APPLICATION_TIME_ZONE });
+    const visibleDays = period === 'all' ? availableRangeDays : Math.min(availableRangeDays, Number(period) || 30);
+    const globalDays = applications.map(getDayKey).filter(Boolean).sort();
+    const startDay = period === 'all'
+      ? globalDays[0]
+      : shiftDayKey(today, -(visibleDays - 1));
+    const points = [];
+    for (let day = startDay; day <= today; day = shiftDayKey(day, 1)) {
+      const dayApplications = applicationsByDay.get(day) || [];
+      points.push({
+        day,
+        date: formatDay(day),
+        value: dayApplications.length,
+        applications: dayApplications.sort((left, right) => (
+          toApplicationTimestamp(left.created_at || left.data) - toApplicationTimestamp(right.created_at || right.data)
+        ))
+      });
+    }
+    return points;
+  }, [applications, availableRangeDays, filtered, period]);
+
+  useEffect(() => {
+    if (dynamics.length === 0) {
+      setActiveDay('');
+      return;
+    }
+    if (!dynamics.some((point) => point.day === activeDay)) {
+      const latestWithApplications = [...dynamics].reverse().find((point) => point.value > 0);
+      setActiveDay((latestWithApplications || dynamics[dynamics.length - 1]).day);
+    }
+  }, [activeDay, dynamics]);
 
   const statusData = useMemo(() => STATUS_GROUPS
     .map((status) => ({ ...status, value: metrics[status.key] }))
@@ -160,15 +265,10 @@ export default function StatisticsOverview() {
       const matching = periodAndCategoryFiltered.filter((app) => executorCategoryOf(app.executor) === executorCategory.name);
       const counts = { queue: 0, work: 0, done: 0 };
       matching.forEach((app) => { counts[getStatusGroup(app)] += 1; });
-      const closingTimes = matching
-        .filter((app) => getStatus(app) === 'done')
-        .map((app) => durationBetween(app.created_at || app.data, getClosedAt(app)))
-        .filter((value) => value != null);
       return {
         ...executorCategory,
         ...counts,
-        total: matching.length,
-        averageClosingSeconds: average(closingTimes)
+        total: matching.length
       };
     });
   }, [periodAndCategoryFiltered, executor]);
@@ -178,6 +278,63 @@ export default function StatisticsOverview() {
     fullName: row.name,
     value: row.total
   })), [executorRows]);
+
+  const activeDayData = useMemo(() => (
+    dynamics.find((point) => point.day === activeDay) || null
+  ), [activeDay, dynamics]);
+
+  const currentRangeDays = period === 'all' ? availableRangeDays : Math.min(availableRangeDays, Number(period) || 30);
+  const customPeriod = period !== 'all' && !RANGE_PRESETS.some(({ days }) => String(days) === period);
+  const rangeLabel = period === 'all'
+    ? `Всё время${availableStartLabel ? ` · с ${availableStartLabel}` : ''}`
+    : `Последние ${currentRangeDays} дн.`;
+
+  const setRangeDays = (days) => {
+    const nextDays = snapRangeDays(days, availableRangeDays);
+    setPeriod(nextDays >= availableRangeDays ? 'all' : String(nextDays));
+  };
+
+  const handleChartPointerDown = (event) => {
+    if (event.target.closest('button, a')) return;
+    chartDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      width: Math.max(1, event.currentTarget.getBoundingClientRect().width),
+      startDays: currentRangeDays
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setIsDraggingChart(true);
+    setChartDragDirection('');
+  };
+
+  const handleChartPointerMove = (event) => {
+    const drag = chartDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const delta = event.clientX - drag.startX;
+    if (Math.abs(delta) < 8) return;
+    setChartDragDirection(delta < 0 ? 'out' : 'in');
+  };
+
+  const handleChartPointerEnd = (event) => {
+    const drag = chartDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const delta = event.clientX - drag.startX;
+    const fraction = Math.min(1, Math.abs(delta) / drag.width);
+    if (Math.abs(delta) >= 12) {
+      const nextDays = delta < 0
+        ? drag.startDays + (availableRangeDays - drag.startDays) * fraction
+        : drag.startDays - (drag.startDays - 1) * fraction;
+      setRangeDays(nextDays);
+    }
+    chartDragRef.current = null;
+    setIsDraggingChart(false);
+    setChartDragDirection('');
+  };
+
+  const openApplication = (app) => {
+    if (!app?.id) return;
+    navigate(`/?application=${encodeURIComponent(app.id)}`);
+  };
 
   const hasFilters = period !== '30' || executor !== 'all' || category !== 'all';
   const resetFilters = () => {
@@ -196,7 +353,7 @@ export default function StatisticsOverview() {
     </header>
 
     <section className="statistics-filters" aria-label="Фильтры статистики">
-      <label>Период<select value={period} onChange={(event) => setPeriod(event.target.value)}><option value="7">Последние 7 дней</option><option value="30">Последние 30 дней</option><option value="90">Последние 90 дней</option><option value="all">Всё время</option></select></label>
+      <label>Период<select value={period} onChange={(event) => setPeriod(event.target.value)}>{customPeriod && <option value={period}>Последние {period} дней</option>}<option value="1">Последний день</option><option value="7">Последние 7 дней</option><option value="30">Последние 30 дней</option><option value="90">Последние 3 месяца</option><option value="180">Последние 6 месяцев</option><option value="all">Всё время</option></select></label>
       <label>Исполнитель<select value={executor} onChange={(event) => setExecutor(event.target.value)}><option value="all">Все исполнители</option>{EXECUTOR_CATEGORIES.map(({ name }) => <option key={name} value={name}>{name}</option>)}</select></label>
       <label>Категория<select value={category} onChange={(event) => setCategory(event.target.value)}><option value="all">Все категории</option>{categories.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
       {hasFilters && <button type="button" className="statistics-reset" onClick={resetFilters}>Сбросить</button>}
@@ -214,8 +371,49 @@ export default function StatisticsOverview() {
 
       <section className="reports-grid">
         <article className="report-card report-card--wide">
-          <div className="report-card-head"><div><h2>Динамика заявок</h2><p>Количество обращений по дням</p></div></div>
-          {dynamics.length > 0 ? <div className="chart-box chart-box--trend"><ResponsiveContainer><LineChart data={dynamics} margin={{ top: 8, right: 14, left: -12, bottom: 4 }}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="date" minTickGap={28} /><YAxis allowDecimals={false} /><Tooltip formatter={(value) => [value, 'Заявки']} /><Line type="monotone" dataKey="value" name="Заявки" stroke="#4f86a7" strokeWidth={3} dot={{ r: 3, fill: '#4f86a7' }} activeDot={{ r: 5 }} /></LineChart></ResponsiveContainer></div> : <div className="chart-empty">За выбранный период заявок нет</div>}
+          <div className="report-card-head statistics-trend-head">
+            <div><h2>Динамика заявок</h2><p>Наведите на точку, чтобы увидеть заявки. Нажмите название — откроется карточка.</p></div>
+            <span className="statistics-range-label">{rangeLabel}</span>
+          </div>
+          <div className="statistics-range-controls" aria-label="Масштаб графика">
+            {RANGE_PRESETS.map((preset) => <button key={preset.days} type="button" className={period === String(preset.days) ? 'active' : ''} disabled={preset.days > availableRangeDays} onClick={() => setRangeDays(preset.days)}>{preset.label}</button>)}
+            <button type="button" className={period === 'all' ? 'active' : ''} onClick={() => setPeriod('all')}>Всё время</button>
+          </div>
+          <div className={`statistics-drag-hint ${isDraggingChart ? 'is-dragging' : ''}`}>
+            <span aria-hidden="true">←</span>
+            {isDraggingChart ? (chartDragDirection === 'out' ? 'Расширяем период' : chartDragDirection === 'in' ? 'Приближаем период' : 'Ведите влево или вправо') : 'Зажмите график и ведите влево — больше времени, вправо — подробнее'}
+            <span aria-hidden="true">→</span>
+          </div>
+          {dynamics.length > 0 ? <>
+            <div
+              className={`chart-box chart-box--trend chart-interaction-area ${isDraggingChart ? 'is-dragging' : ''}`}
+              onPointerDown={handleChartPointerDown}
+              onPointerMove={handleChartPointerMove}
+              onPointerUp={handleChartPointerEnd}
+              onPointerCancel={handleChartPointerEnd}
+            >
+              <ResponsiveContainer>
+                <LineChart
+                  data={dynamics}
+                  margin={{ top: 12, right: 18, left: -12, bottom: 4 }}
+                  onMouseMove={(state) => {
+                    const point = state?.activePayload?.[0]?.payload;
+                    if (point?.day) setActiveDay(point.day);
+                  }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="date" minTickGap={28} />
+                  <YAxis allowDecimals={false} />
+                  <Tooltip content={<ApplicationDayTooltip onOpenApplication={openApplication} />} wrapperStyle={{ pointerEvents: 'auto', zIndex: 20 }} />
+                  <Line type="monotone" dataKey="value" name="Заявки" stroke="#4f86a7" strokeWidth={3} dot={<ApplicationPointDot />} activeDot={{ r: 7, cursor: 'pointer' }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            {activeDayData && <div className="statistics-day-applications">
+              <div><strong>Заявки за {activeDayData.date}</strong><span>{activeDayData.value}</span></div>
+              <div>{activeDayData.applications.map((app) => <button key={app.id} type="button" onClick={() => openApplication(app)}><small>#{app.id}</small><span>{getApplicationTitle(app)}</span></button>)}</div>
+            </div>}
+          </> : <div className="chart-empty">За выбранный период заявок нет</div>}
         </article>
 
         <article className="report-card">
@@ -234,8 +432,8 @@ export default function StatisticsOverview() {
           </div>
           <div className="statistics-table-wrap">
             <table className="statistics-table">
-              <thead><tr><th>Тип</th><th>Исполнитель</th><th>Всего</th><th>Новые</th><th>В работе</th><th>Выполнено</th><th>Среднее до закрытия</th></tr></thead>
-              <tbody>{executorRows.map((row) => <tr key={row.name}><td><span className={`executor-group executor-group--${row.group === 'Пара' ? 'pair' : row.group === 'Тройка' ? 'triple' : 'single'}`}>{row.group}</span></td><td><strong>{row.name}</strong><small>{row.shortName}</small></td><td>{row.total}</td><td>{row.queue}</td><td>{row.work}</td><td>{row.done}</td><td>{formatDuration(row.averageClosingSeconds)}</td></tr>)}</tbody>
+              <thead><tr><th>Тип</th><th>Исполнитель</th><th>Всего</th><th>Новые</th><th>В работе</th><th>Выполнено</th></tr></thead>
+              <tbody>{executorRows.map((row) => <tr key={row.name}><td><span className={`executor-group executor-group--${row.group === 'Пара' ? 'pair' : row.group === 'Тройка' ? 'triple' : 'single'}`}>{row.group}</span></td><td><strong>{row.name}</strong><small>{row.shortName}</small></td><td>{row.total}</td><td>{row.queue}</td><td>{row.work}</td><td>{row.done}</td></tr>)}</tbody>
             </table>
           </div>
         </article>

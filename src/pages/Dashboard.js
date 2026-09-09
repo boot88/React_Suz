@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import './Dashboard.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { useAuth } from '../context/AuthContext';
@@ -214,6 +215,8 @@ const getSlaState = (app = {}) => {
 
 const Dashboard = () => {
   const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [applications, setApplications] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -251,6 +254,7 @@ const Dashboard = () => {
   const [toast, setToast] = useState(null);
   const [dashboardNow, setDashboardNow] = useState(Date.now());
   const applicationsRequestIdRef = useRef(0);
+  const openedApplicationFromQueryRef = useRef('');
 
   const [stats, setStats] = useState({
     total: 0,
@@ -478,9 +482,40 @@ const Dashboard = () => {
     }
   };
 
+  useEffect(() => {
+    const applicationId = new URLSearchParams(location.search).get('application');
+    if (!applicationId || openedApplicationFromQueryRef.current === applicationId) return undefined;
+
+    let active = true;
+    const openLinkedApplication = async () => {
+      try {
+        const response = await authFetch(`${API_BASE_URL}/applications/${encodeURIComponent(applicationId)}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Не удалось открыть заявку');
+        if (!active || !data.application) return;
+        openedApplicationFromQueryRef.current = applicationId;
+        await openApplicationPanel(data.application);
+      } catch (queryError) {
+        if (active) showToast(queryError.message || 'Не удалось открыть заявку', 'error');
+      }
+    };
+
+    openLinkedApplication();
+    return () => { active = false; };
+    // openApplicationPanel использует актуальные настройки карточки; повторно
+    // открываем её только при изменении ID в адресной строке.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
+
   const closeApplicationPanel = () => {
     setSelectedApplication(null);
     setApplicationEvents([]);
+    const params = new URLSearchParams(location.search);
+    if (params.has('application')) {
+      params.delete('application');
+      openedApplicationFromQueryRef.current = '';
+      navigate({ pathname: location.pathname, search: params.toString() ? `?${params}` : '' }, { replace: true });
+    }
   };
 
   const openAcceptModal = (app) => {
