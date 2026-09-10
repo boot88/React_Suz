@@ -26,8 +26,7 @@ const VIDEO_EXTENSION_PATTERN = /\.(mp4|webm|ogg|ogv|mov|m4v|avi|mkv)$/i;
 const EMPLOYEE_TABS = [
   { id: 'feed', label: 'Лента' },
   { id: 'chat', label: 'Чат' },
-  { id: 'request', label: 'Мои заявки' },
-  { id: 'receivedArchives', label: 'Полученные архивы' }
+  { id: 'request', label: 'Мои заявки' }
 ];
 const MANAGER_TABS = [
   { id: 'chat', label: 'Чат' },

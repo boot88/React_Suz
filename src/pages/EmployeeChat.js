@@ -1122,14 +1122,14 @@ const EmployeeChat = ({ adminSection = null }) => {
   }, [activeTab, archiveSelectedId, isAdmin]);
 
   useEffect(() => {
-    if (activeTab !== 'receivedArchives' || isManager) return undefined;
+    if (activeTab !== 'profile' || isManager) return undefined;
     fetchReceivedArchives();
     const timer = window.setInterval(fetchReceivedArchives, 30_000);
     return () => window.clearInterval(timer);
   }, [activeTab, fetchReceivedArchives, isManager]);
 
   useEffect(() => {
-    if (activeTab !== 'receivedArchives' || !receivedArchiveAccessId || isManager) return;
+    if (activeTab !== 'profile' || !receivedArchiveAccessId || isManager) return;
     setReceivedArchiveMessages([]);
     setReceivedArchiveBefore('');
     fetchReceivedArchiveMessages(receivedArchiveAccessId);
@@ -4122,7 +4122,7 @@ const EmployeeChat = ({ adminSection = null }) => {
         )}
 
         {activeTab === 'profile' && (
-          <EmployeeProfileWorkspace AuthenticatedAvatar={AuthenticatedAvatar} CHAT_DENSITIES={CHAT_DENSITIES} CHAT_TEXT_SIZES={CHAT_TEXT_SIZES} CHAT_THEMES={CHAT_THEMES} ChatAppearanceSettings={ChatAppearanceSettings} DEFAULT_PROFILE_WEBSITE_LANGUAGE={DEFAULT_PROFILE_WEBSITE_LANGUAGE} PROFILE_LANGUAGE_OPTIONS={PROFILE_LANGUAGE_OPTIONS} avatarInputRef={avatarInputRef} avatarUrl={avatarUrl} changeMyPassword={changeMyPassword} chatLocalSettings={chatLocalSettings} formatVisibleLogin={formatVisibleLogin} getOptionLabel={getOptionLabel} getSafeExternalUrl={getSafeExternalUrl} handleLogout={handleLogout} isAdmin={isAdmin} isEnglishInterface={isEnglishInterface} passwordForm={passwordForm} profileForm={profileForm} profilePreview={profilePreview} profileViewLogin={profileViewLogin} removeAvatar={removeAvatar} saveMyProfile={saveMyProfile} setActiveTab={setActiveTab} setPasswordForm={setPasswordForm} setProfileViewLogin={setProfileViewLogin} setSelectedEmail={setSelectedEmail} t={t} toggleDialogToolSetting={toggleDialogToolSetting} toggleFeedToolSetting={toggleFeedToolSetting} updateChatUiSetting={updateChatUiSetting} updateProfileField={updateProfileField} user={user} />
+          <EmployeeProfileWorkspace AuthenticatedAvatar={AuthenticatedAvatar} CHAT_DENSITIES={CHAT_DENSITIES} CHAT_TEXT_SIZES={CHAT_TEXT_SIZES} CHAT_THEMES={CHAT_THEMES} ChatAppearanceSettings={ChatAppearanceSettings} DEFAULT_PROFILE_WEBSITE_LANGUAGE={DEFAULT_PROFILE_WEBSITE_LANGUAGE} PROFILE_LANGUAGE_OPTIONS={PROFILE_LANGUAGE_OPTIONS} avatarInputRef={avatarInputRef} avatarUrl={avatarUrl} changeMyPassword={changeMyPassword} chatLocalSettings={chatLocalSettings} formatVisibleLogin={formatVisibleLogin} getOptionLabel={getOptionLabel} getSafeExternalUrl={getSafeExternalUrl} handleLogout={handleLogout} isAdmin={isAdmin} isEnglishInterface={isEnglishInterface} passwordForm={passwordForm} profileForm={profileForm} profilePreview={profilePreview} profileViewLogin={profileViewLogin} receivedArchivesPanel={!isManager && <section className="profile-received-archives received-archives-panel"><h3>{t('receivedArchives')}</h3><p className="received-archives-hint">{t('receivedArchivesHint')}</p><div className="threads-grid archive-grid"><div className="threads-list">{receivedArchiveLoading && receivedArchives.length === 0 && <div className="empty-chat">{t('loading')}…</div>}{!receivedArchiveLoading && receivedArchives.length === 0 && <div className="empty-chat">{t('receivedArchivesEmpty')}</div>}{receivedArchives.map((archive) => <button key={archive.access_id} type="button" className={`thread-item ${String(receivedArchiveAccessId) === String(archive.access_id) ? 'active' : ''}`} onClick={() => setReceivedArchiveAccessId(String(archive.access_id))}><span className="thread-title">{archive.name}</span><span className="thread-stats">{getParticipantsFromThreadId(archive.scope?.conversationId || '').join(' ↔ ')}</span><span className="thread-last">{t('receivedArchiveExpires')}: {archive.expires_at ? new Date(archive.expires_at).toLocaleString(interfaceLocale) : '—'}</span><span className="thread-last">{t('receivedArchiveGrantedBy')}: {archive.granted_by || '—'}</span></button>)}</div><div className="threads-messages archive-message-viewer">{!receivedArchiveAccessId && <div className="empty-chat">{t('receivedArchiveChoose')}</div>}{receivedArchiveAccessId && receivedArchiveHasMore && <button type="button" className="chat-pagination-button" disabled={receivedArchiveLoading} onClick={() => fetchReceivedArchiveMessages(receivedArchiveAccessId, { append: true })}>{t('loadPreviousMessages')}</button>}{receivedArchiveAccessId && receivedArchiveMessages.map((message) => { const attachments = getMessageAttachments(message); return <article key={message.id} className={`audit-message ${message.deletedAt ? 'deleted' : ''}`}><div className="message-meta"><span>{message.sender}</span><span>{new Date(message.createdAt).toLocaleString(interfaceLocale)}</span></div>{message.deletedAt && <em>{t('deletedMessage')}</em>}{message.text && <div className="archive-original-text">{message.text}</div>}{attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <AttachmentCard key={`${message.id}-received-archive-${index}`} cardKey={`${message.id}-received-archive-${index}`} file={file} variant="archive" isEnglish={isEnglishInterface} />)}</div>}</article>; })}</div></div></section>} removeAvatar={removeAvatar} saveMyProfile={saveMyProfile} setActiveTab={setActiveTab} setPasswordForm={setPasswordForm} setProfileViewLogin={setProfileViewLogin} setSelectedEmail={setSelectedEmail} t={t} toggleDialogToolSetting={toggleDialogToolSetting} toggleFeedToolSetting={toggleFeedToolSetting} updateChatUiSetting={updateChatUiSetting} updateProfileField={updateProfileField} user={user} />
         )}
 
         {adminSection && activeTab === 'employees' && isAdmin && (
@@ -4133,67 +4133,6 @@ const EmployeeChat = ({ adminSection = null }) => {
           <ChatArchiveAdministration AttachmentCard={AttachmentCard} archiveAccessDrafts={archiveAccessDrafts} archiveConversations={archiveConversations} archiveCreating={archiveCreating} archiveFilters={archiveFilters} archiveHasMore={archiveHasMore} archiveLoading={archiveLoading} archiveMessages={archiveMessages} archivePackageName={archivePackageName} archiveSelectedId={archiveSelectedId} createLegalHold={createLegalHold} createRecordsArchive={createRecordsArchive} directoryEmployees={directoryEmployees} downloadRecordsArchive={downloadRecordsArchive} fetchArchiveMessages={fetchArchiveMessages} fetchConversationPurgePreview={fetchConversationPurgePreview} formatFileSize={formatFileSize} formatVisibleLogin={formatVisibleLogin} getMessageAttachments={getMessageAttachments} getParticipantsFromThreadId={getParticipantsFromThreadId} grantRecordsArchiveAccess={grantRecordsArchiveAccess} interfaceLocale={interfaceLocale} isEnglishInterface={isEnglishInterface} legalHoldFilters={legalHoldFilters} legalHoldForm={legalHoldForm} legalHoldLoading={legalHoldLoading} legalHolds={legalHolds} permanentlyDeleteConversation={permanentlyDeleteConversation} purgeHistory={purgeHistory} purgeLoading={purgeLoading} purgePreview={purgePreview} purgeReason={purgeReason} recordsArchives={recordsArchives} releaseLegalHold={releaseLegalHold} revokeRecordsArchiveAccess={revokeRecordsArchiveAccess} sameLogin={sameLogin} setArchiveFilters={setArchiveFilters} setArchivePackageName={setArchivePackageName} setArchiveSelectedId={setArchiveSelectedId} setConversationArchiveState={setConversationArchiveState} setLegalHoldFilters={setLegalHoldFilters} setLegalHoldForm={setLegalHoldForm} setPurgeReason={setPurgeReason} t={t} updateArchiveAccessDraft={updateArchiveAccessDraft} user={user} />
         )}
 
-        {activeTab === 'receivedArchives' && !isManager && (
-          <section className="manager-panel received-archives-panel">
-            <h2>{t('receivedArchives')}</h2>
-            <p className="received-archives-hint">{t('receivedArchivesHint')}</p>
-            <div className="threads-grid archive-grid">
-              <div className="threads-list">
-                {receivedArchiveLoading && receivedArchives.length === 0 && <div className="empty-chat">{t('loading')}…</div>}
-                {!receivedArchiveLoading && receivedArchives.length === 0 && <div className="empty-chat">{t('receivedArchivesEmpty')}</div>}
-                {receivedArchives.map((archive) => (
-                  <button
-                    key={archive.access_id}
-                    type="button"
-                    className={`thread-item ${String(receivedArchiveAccessId) === String(archive.access_id) ? 'active' : ''}`}
-                    onClick={() => setReceivedArchiveAccessId(String(archive.access_id))}
-                  >
-                    <span className="thread-title">{archive.name}</span>
-                    <span className="thread-stats">{getParticipantsFromThreadId(archive.scope?.conversationId || '').join(' ↔ ')}</span>
-                    <span className="thread-last">{t('receivedArchiveExpires')}: {archive.expires_at ? new Date(archive.expires_at).toLocaleString(interfaceLocale) : '—'}</span>
-                    <span className="thread-last">{t('receivedArchiveGrantedBy')}: {archive.granted_by || '—'}</span>
-                  </button>
-                ))}
-              </div>
-              <div className="threads-messages archive-message-viewer">
-                {!receivedArchiveAccessId && <div className="empty-chat">{t('receivedArchiveChoose')}</div>}
-                {receivedArchiveAccessId && receivedArchiveHasMore && (
-                  <button
-                    type="button"
-                    className="chat-pagination-button"
-                    disabled={receivedArchiveLoading}
-                    onClick={() => fetchReceivedArchiveMessages(receivedArchiveAccessId, { append: true })}
-                  >
-                    {t('loadPreviousMessages')}
-                  </button>
-                )}
-                {receivedArchiveAccessId && receivedArchiveMessages.map((message) => {
-                  const attachments = getMessageAttachments(message);
-                  return (
-                    <article key={message.id} className={`audit-message ${message.deletedAt ? 'deleted' : ''}`}>
-                      <div className="message-meta"><span>{message.sender}</span><span>{new Date(message.createdAt).toLocaleString(interfaceLocale)}</span></div>
-                      {message.deletedAt && <em>{t('deletedMessage')}</em>}
-                      {message.text && <div className="archive-original-text">{message.text}</div>}
-                      {attachments.length > 0 && (
-                        <div className="message-attachments-grid">
-                          {attachments.map((file, index) => (
-                            <AttachmentCard
-                              key={`${message.id}-received-archive-${index}`}
-                              cardKey={`${message.id}-received-archive-${index}`}
-                              file={file}
-                              variant="archive"
-                              isEnglish={isEnglishInterface}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </article>
-                  );
-                })}
-              </div>
-            </div>
-          </section>
-        )}
 
         {adminSection && activeTab === 'audit' && isAdmin && (
           <ChatAuditAdministration AUDIT_PERIODS={AUDIT_PERIODS} AttachmentCard={AttachmentCard} allConversationIds={allConversationIds} auditFilters={auditFilters} auditSearch={auditSearch} deleteMessage={deleteMessage} editMessage={editMessage} getMessageAttachments={getMessageAttachments} getOptionLabel={getOptionLabel} getParticipantsFromThreadId={getParticipantsFromThreadId} getThreadActivityMeta={getThreadActivityMeta} interfaceLocale={interfaceLocale} isAdmin={isAdmin} isEnglishInterface={isEnglishInterface} loadingConversationIds={loadingConversationIds} selectedThreadId={selectedThreadId} selectedThreadMessages={selectedThreadMessages} setAuditFilters={setAuditFilters} setAuditSearch={setAuditSearch} setSelectedThreadId={setSelectedThreadId} t={t} threadActivityById={threadActivityById} threads={threads} />
