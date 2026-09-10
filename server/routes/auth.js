@@ -10,7 +10,7 @@ const { isMysqlDatabase } = require('../utils/chatState');
 const {
   getRequestValue
 } = require('../utils/profileState');
-const { createAccessToken } = require('../utils/accessToken');
+const { issueSession, revokeSession, notifySessionChange } = require('../utils/authSessions');
 const {
   hashPassword,
   verifyPassword: isPasswordValid,
@@ -116,6 +116,8 @@ const PROFILE_PREFERENCE_BOOLEAN_KEYS = new Set([
   'enterToSend'
 ]);
 const PROFILE_PREFERENCE_ENUMS = {
+  uiDesign: new Set(['classic', 'modern']),
+  uiLanguage: new Set(['ru', 'en']),
   uiTheme: new Set(['light', 'dark']),
   uiDensity: new Set(['compact', 'regular', 'comfortable']),
   uiTextSize: new Set(['small', 'medium', 'large'])
@@ -854,7 +856,9 @@ router.get('/employees', requireAuth, async (req, res) => {
           statusText: extras.statusText || DEFAULT_PROFILE_STATUS,
           avatar,
           profile: {
-            ...extras,
+            bio: extras.bio || '',
+            website: getStoredProfileWebsite(extras),
+            statusText: extras.statusText || '',
             full_name: mapped.full_name,
             position: mapped.position,
             department: mapped.department,
@@ -926,6 +930,7 @@ router.delete('/employees/:id', requireAuth, requireRole('admin'), async (req, r
       return res.status(404).json({ message: 'Сотрудник не найден' });
     }
 
+    notifySessionChange();
     res.json({ message: 'Сотрудник удалён' });
   } catch (error) {
     console.error('Employees delete error:', error);
@@ -1226,7 +1231,8 @@ router.put('/change-password', requireAuth, async (req, res) => {
     }
 
     await db.execute('UPDATE users SET password = ? WHERE id = ?', [await hashPassword(newPassword), users[0].id]);
-    res.json({ message: 'Пароль обновлён' });
+    notifySessionChange();
+    res.json({ message: 'Пароль обновлён. Войдите снова.' });
   } catch (error) {
     console.error('Change password error:', error);
     res.status(500).json({ message: 'Не удалось сменить пароль' });
@@ -1234,6 +1240,13 @@ router.put('/change-password', requireAuth, async (req, res) => {
 });
 
 // Вход в систему
+router.get('/session', requireAuth, (req, res) => res.sendStatus(204));
+
+router.post('/logout', requireAuth, async (req, res) => {
+  try { await revokeSession(req.authToken); res.sendStatus(204); }
+  catch { res.status(503).json({ message: 'Не удалось завершить сессию' }); }
+});
+
 router.post('/login', async (req, res) => {
   try {
     res.set('Cache-Control', 'no-store');
@@ -1287,14 +1300,15 @@ router.post('/login', async (req, res) => {
     clearLoginAttempts(attemptKey);
 
     if (passwordNeedsUpgrade(user.password)) {
-      await db.execute('UPDATE users SET password = ? WHERE id = ?', [await hashPassword(passwordValue), user.id]);
+      user.password = await hashPassword(passwordValue);
+      await db.execute('UPDATE users SET password = ? WHERE id = ?', [user.password, user.id]);
     }
 
     const profile = await readProfileByLogin(user.login);
 
     res.json({
       message: 'Вход успешен',
-      token: createAccessToken({ login: user.login, role: user.role }),
+      token: await issueSession(user),
       user: {
         ...mapUser(user),
         position: profile.position || ''

@@ -16,7 +16,8 @@ const ChatComposerForm = memo(function ChatComposerForm({
   onToggleEmoji,
   onAppendEmoji,
   onToggleEnterToSend,
-  onAttachmentChange
+  onAttachmentChange,
+  hasAttachments = false
 }) {
   return (
     <form className="message-form" onSubmit={onSubmit}>
@@ -49,17 +50,17 @@ const ChatComposerForm = memo(function ChatComposerForm({
           <span>{t('composerHint')}</span>
         </div>
       </div>
-      <label className="attach-file-btn" aria-label={t('attachFiles')} title={t('attachFiles')}>
+      <label role="button" tabIndex={0} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.currentTarget.querySelector('input').click(); } }} className="attach-file-btn" aria-label={t('attachFiles')} title={t('attachFiles')}>
         📎
         <input
           type="file"
           hidden
           multiple
-          accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z"
+          accept="image/png,image/jpeg,image/webp,image/gif,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z"
           onChange={onAttachmentChange}
         />
       </label>
-      <button type="submit" disabled={isSending}>{isSending ? t('sending') : isOnline ? t('send') : t('queue')}</button>
+      <button type="submit" disabled={isSending || (!draft.trim() && !hasAttachments)}>{isSending ? t('sending') : isOnline ? t('send') : t('queue')}</button>
     </form>
   );
 });

@@ -8,6 +8,7 @@ const REFRESH_EARLY_MS = 60 * 1000;
 const tokenCache = new Map(); // fileId -> { token, expiresAt }
 
 const getCachedMediaToken = (fileId = '') => {
+  try { const token = JSON.parse(localStorage.getItem('authState') || 'null')?.user?.accessToken || ''; if (token !== cacheOwner) return ''; } catch { return ''; }
   const key = String(fileId || '').trim();
   if (!key) return '';
   const entry = tokenCache.get(key);
@@ -30,38 +31,31 @@ const storeMediaToken = (fileId, token, expiresAt) => {
 // Асинхронно запрашивает media-токены для набора файлов.
 // Используется при загрузке переписок/ленты, чтобы к моменту рендера
 // вложений в URL уже был короткоживущий токен вместо полного access_token.
-const ensureMediaTokens = async ({ fileIds = [], scope = 'chat', getToken = () => '' }) => {
-  const uniqueIds = [...new Set(
-    (Array.isArray(fileIds) ? fileIds : [])
-      .map((fileId) => String(fileId || '').trim())
-      .filter(Boolean)
-      .filter((fileId) => !getCachedMediaToken(fileId))
-  )];
-  if (!uniqueIds.length) return;
-
-  const accessToken = typeof getToken === 'function' ? getToken() : '';
-  if (!accessToken) return;
-
-  await Promise.all(uniqueIds.map(async (fileId) => {
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/chat/files/${encodeURIComponent(fileId)}/media-token`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ scope })
-        }
-      );
-      if (!response.ok) return;
+let cacheOwner = '';
+const inFlight = new Map();
+const requestTokenBatch = (batch, accessToken) => {
+  return fetch(`${API_BASE_URL}/chat/files/media-tokens`, {
+      method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileIds: batch })
+    }).then(async response => {
+      if (!response.ok || cacheOwner !== accessToken) return;
       const data = await response.json();
-      if (data?.token) storeMediaToken(fileId, data.token, data.expiresAt ? Date.parse(data.expiresAt) : Date.now() + MEDIA_TOKEN_TTL_MS);
-    } catch {
-      // Сетевая ошибка: следующий рендер повторит попытку либо использует access_token.
-    }
-  }));
+      if (cacheOwner !== accessToken) return;
+      (data.tokens || []).forEach(item => storeMediaToken(item.fileId, item.token, item.expiresAt));
+    }).catch(() => {}).finally(() => { if (cacheOwner === accessToken) batch.forEach(id => inFlight.delete(id)); });
+};
+const ensureMediaTokens = async ({ fileIds = [], getToken = () => '' }) => {
+  const accessToken = getToken();
+  if (!accessToken) return;
+  if (cacheOwner !== accessToken) { tokenCache.clear(); inFlight.clear(); cacheOwner = accessToken; }
+  const ids = [...new Set(fileIds.map(String).filter(Boolean))].filter(id => !getCachedMediaToken(id));
+  const missing = ids.filter(id => !inFlight.has(id));
+  for (let offset = 0; offset < missing.length; offset += 100) {
+    const batch = missing.slice(offset, offset + 100);
+    const request = requestTokenBatch(batch, accessToken);
+    batch.forEach(id => inFlight.set(id, request));
+  }
+  await Promise.all(ids.map(id => inFlight.get(id)));
 };
 
 const getFileIdFromUrl = (url = '') => {

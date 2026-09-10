@@ -1,3 +1,4 @@
+import { isTrustedApiUrl } from './trustedApiUrl';
 import { getCachedMediaToken, getFileIdFromUrl } from './mediaTokenCache';
 
 const AUTH_STATE_KEY = 'authState';
@@ -13,7 +14,7 @@ export const getStoredAccessToken = () => {
 
 export const withAccessToken = (url = '') => {
   const token = getStoredAccessToken();
-  if (!url || !token || url.startsWith('data:') || url.startsWith('blob:')) return url;
+  if (!url || !token || !isTrustedApiUrl(url)) return url;
 
   // Для файлов чата предпочитаем короткоживущий media-токен, чтобы полный
   // access_token не попадал в URL (история браузера, рефереры, логи).
@@ -42,8 +43,13 @@ export const withAccessToken = (url = '') => {
 export const authFetch = (input, init = {}) => {
   const headers = new Headers(init.headers || {});
   const token = getStoredAccessToken();
-  if (token && !headers.has('Authorization')) {
+  if (token && isTrustedApiUrl(typeof input === 'string' ? input : input.url) && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`);
   }
-  return fetch(input, { ...init, headers });
+  return fetch(input, { ...init, headers }).then((response) => {
+    if (response.status === 401 && token && getStoredAccessToken() === token && !String(input).includes('/auth/login')) {
+      window.dispatchEvent(new Event('auth:expired'));
+    }
+    return response;
+  });
 };

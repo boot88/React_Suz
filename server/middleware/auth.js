@@ -1,4 +1,5 @@
-const { verifyAccessToken, verifyMediaToken } = require('../utils/accessToken');
+const { resolveSession } = require('../utils/authSessions');
+const { verifyMediaToken } = require('../utils/accessToken');
 
 const normalizeLogin = (value = '') => String(value || '').trim().toLowerCase();
 const normalizeRole = (value = '') => String(value || 'employee').trim().toLowerCase();
@@ -17,9 +18,12 @@ const getRequestToken = (req, { allowQuery = false } = {}) => (
 // короткоживущему media-токену (скачивание файлов). Media-токен не даёт
 // identity для API-вызовов, только доступ к одному файлу, поэтому в этом
 // случае мы не заполняем req.auth — доступ проверяется в самом маршруте.
-const authenticateAllowQueryOrMedia = () => (req, res, next) => {
+const authenticateAllowQueryOrMedia = () => async (req, res, next) => {
   const mediaToken = String(req.query?.mt || '').trim();
-  const identity = verifyAccessToken(getRequestToken(req, { allowQuery: true }));
+  req.authToken = getRequestToken(req, { allowQuery: true });
+  let identity;
+  try { identity = req.authToken ? await resolveSession(req.authToken) : null; }
+  catch { return res.status(503).json({ message: 'Проверка сессии временно недоступна' }); }
   if (identity) {
     req.auth = {
       login: normalizeLogin(identity.login),
@@ -39,8 +43,11 @@ const authenticateAllowQueryOrMedia = () => (req, res, next) => {
   return res.status(401).json({ message: 'Требуется действующий токен авторизации' });
 };
 
-const authenticate = ({ allowQuery = false } = {}) => (req, res, next) => {
-  const identity = verifyAccessToken(getRequestToken(req, { allowQuery }));
+const authenticate = ({ allowQuery = false } = {}) => async (req, res, next) => {
+  req.authToken = getRequestToken(req, { allowQuery });
+  let identity;
+  try { identity = req.authToken ? await resolveSession(req.authToken) : null; }
+  catch { return res.status(503).json({ message: 'Проверка сессии временно недоступна' }); }
   if (!identity) {
     return res.status(401).json({ message: 'Требуется действующий токен авторизации' });
   }

@@ -21,19 +21,6 @@ const saveEmployees = (employees) => {
   localStorage.setItem(LOCAL_EMPLOYEES_KEY, JSON.stringify(employees));
 };
 
-// Общая активность сессии в localStorage обновляется активной вкладкой.
-// Позволяет не «гасить» онлайн-статус при выходе/истечении сессии в одной
-// вкладке, пока тот же пользователь работает в другой.
-const hasRecentSharedActivity = (withinMs = 2 * 60 * 1000) => {
-  try {
-    const savedState = JSON.parse(localStorage.getItem(AUTH_STATE_KEY) || 'null');
-    const lastActivityAt = Number(savedState?.lastActivityAt || 0);
-    return lastActivityAt > 0 && Date.now() - lastActivityAt < withinMs;
-  } catch {
-    return false;
-  }
-};
-
 const pushPresenceToServer = async ({ isOnline }) => {
   try {
     await authFetch(`${API_BASE_URL}/auth/presence`, {
@@ -229,14 +216,14 @@ export const AuthProvider = ({ children }) => {
   const verifyEmployeeEmail = () => true;
 
   const logout = useCallback((options = {}) => {
+    if (options.reason !== 'expired') authFetch(`${API_BASE_URL}/auth/logout`, { method: 'POST', keepalive: true }).catch(() => {});
     if (user?.username) {
       if (user?.role === 'employee') {
         const nextEmployees = upsertEmployeeOnlineStatus(user.username, false);
         mergeEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
       }
-      // При истечении сессии в фоновой вкладке не сбиваем статус, если
-      // тот же пользователь всё ещё активен в другом окне (общий localStorage).
-      const pushOffline = !(options?.reason === 'expired' && hasRecentSharedActivity());
+      // An expired credential can no longer update server presence.
+      const pushOffline = options?.reason !== 'expired';
       if (pushOffline) {
         pushPresenceToServer({ login: user.username, isOnline: false, role: user.role || 'employee' });
       }
@@ -250,7 +237,9 @@ export const AuthProvider = ({ children }) => {
 
 
   useEffect(() => {
+    if (!isAuthenticated || !user?.username) return undefined;
     const syncPresence = async () => {
+      if (document.hidden) return;
       try {
         const response = await authFetch(`${API_BASE_URL}/auth/presence`);
         if (!response.ok) return;
@@ -271,9 +260,9 @@ export const AuthProvider = ({ children }) => {
     };
 
     syncPresence();
-    const interval = setInterval(syncPresence, 10000);
+    const interval = setInterval(syncPresence, 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isAuthenticated, user?.username]);
 
   useEffect(() => {
     const updateDirectory = () => {
@@ -413,6 +402,7 @@ export const AuthProvider = ({ children }) => {
     if (!user?.username) return undefined;
 
     const markOnline = () => {
+      if (document.hidden) return;
       const nextEmployees = upsertEmployeeOnlineStatus(user.username, true);
       const currentEmployee = nextEmployees.find((item) => item.email.toLowerCase() === user.username.toLowerCase());
       if (currentEmployee) {
@@ -442,7 +432,7 @@ export const AuthProvider = ({ children }) => {
     document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('focus', markOnline);
 
-    const heartbeat = setInterval(markOnline, 15000);
+    const heartbeat = setInterval(markOnline, 45000);
 
     return () => {
       clearInterval(heartbeat);
@@ -452,6 +442,12 @@ export const AuthProvider = ({ children }) => {
       window.removeEventListener('focus', markOnline);
     };
   }, [mergeEmployeeDirectory, user]);
+
+  useEffect(() => {
+    const expired = () => logout({ reason: 'expired' });
+    window.addEventListener('auth:expired', expired);
+    return () => window.removeEventListener('auth:expired', expired);
+  }, [logout]);
 
   return (
     <AuthContext.Provider

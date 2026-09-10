@@ -84,32 +84,32 @@ const getMessageAttachmentFileIds = (message = {}) => [...new Set(
     .filter(Boolean)
 )];
 
+const encodeMessageCursor = (message = {}) => message._cursor || Buffer.from(JSON.stringify({
+  at: message.createdAt, id: message.id
+})).toString('base64url');
+
+const decodeMessageCursor = (value) => {
+  if (!value) return null;
+  let cursor;
+  try { cursor = JSON.parse(Buffer.from(String(value), 'base64url').toString()); } catch { cursor = { at: value, id: '' }; }
+  const at = new Date(cursor.at);
+  if (!Number.isFinite(at.getTime()) || typeof cursor.id !== 'string') {
+    throw Object.assign(new Error('Некорректный курсор сообщений'), { status: 400 });
+  }
+  return { at, id: cursor.id };
+};
+
 const buildConversationMessagesPageQuery = (conversationId, { limit = 50, before = '' } = {}) => {
-  const safeLimit = Math.min(200, Math.max(1, Number(limit) || 50));
+  const safeLimit = Math.min(200, Math.max(1, Math.floor(Number(limit) || 50)));
   const params = [conversationId];
   let where = 'conversation_id = ?';
-
-  if (before) {
-    const beforeDate = new Date(before);
-    if (Number.isNaN(beforeDate.getTime())) {
-      const error = new Error('Некорректный курсор пагинации сообщений');
-      error.status = 400;
-      error.code = 'INVALID_MESSAGE_CURSOR';
-      throw error;
-    }
-    where += ' AND created_at < ?';
-    params.push(beforeDate);
+  const cursor = decodeMessageCursor(before);
+  if (cursor) {
+    where += ' AND (created_at < ? OR (created_at = ? AND id < ?))';
+    params.push(cursor.at, cursor.at, cursor.id);
   }
-
-  return {
-    sql: `SELECT message_json
-     FROM chat_messages
-     WHERE ${where}
-     ORDER BY created_at DESC
-     LIMIT ${safeLimit}`,
-    params,
-    safeLimit
-  };
+  return { sql: `SELECT message_json, created_at, id FROM chat_messages WHERE ${where}
+    ORDER BY created_at DESC, id DESC LIMIT ${safeLimit}`, params, safeLimit };
 };
 
 const mergeThreadMessages = (archiveMessages = [], sqlMessages = []) => {
@@ -142,6 +142,8 @@ const groupThreadSnapshotRows = (rows = []) => (rows || []).reduce((threads, row
 }, {});
 
 module.exports = {
+  encodeMessageCursor,
+  decodeMessageCursor,
   getChatTimestamp,
   isMysqlDatabase,
   normalizeMessageAttachments,

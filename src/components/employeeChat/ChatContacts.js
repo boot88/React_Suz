@@ -4,6 +4,7 @@ const CONTACT_ROW_HEIGHT = 82;
 const CONTACT_OVERSCAN = 6;
 
 const ChatContacts = memo(function ChatContacts({
+  modern = false, resetKey = '', summaries = {}, mutedDialogs = [], onRestore,
   employees,
   selectedEmail,
   currentLogin,
@@ -36,6 +37,8 @@ const ChatContacts = memo(function ChatContacts({
     return () => observer?.disconnect();
   }, []);
 
+  useEffect(() => { setScrollTop(0); if (viewportRef.current) viewportRef.current.scrollTop = 0; }, [resetKey]);
+
   if (!employees.length) return <div className="empty-mini">{t('noResults')}</div>;
 
   const startIndex = Math.max(0, Math.floor(scrollTop / CONTACT_ROW_HEIGHT) - CONTACT_OVERSCAN);
@@ -60,6 +63,18 @@ const ChatContacts = memo(function ChatContacts({
       || email.toLowerCase() === String(managerLogin || '').toLowerCase();
     const profile = employee.profile || {};
 
+    if (modern) {
+      const summary = summaries[conversationId];
+      const preview = summary?.lastMessage?.deletedAt ? (t('contacts') === 'Контакты' ? 'Сообщение удалено' : 'Message deleted') : summary?.lastMessage?.text || (summary?.attachmentsCount ? '📎' : profile.department || formatVisibleLogin(email));
+      return <div key={email} className={`employee-chat-user modern-contact ${selectedEmail === email ? 'active' : ''}`} style={{ transform: `translateY(${index * CONTACT_ROW_HEIGHT}px)` }}>
+        <button type="button" className="modern-contact-avatar" aria-label={t('profile')} onClick={() => onOpenProfile(email)}>{(profile.full_name || email).slice(0, 1)}<i className={`status-dot ${isOnline ? 'online' : 'offline'}`} /></button>
+        <button type="button" className="modern-contact-body" onClick={() => onSelect(email)}><strong>{profile.full_name || email}</strong><small>{preview}</small></button>
+        <div className="modern-contact-meta"><time>{summary?.lastAt ? new Date(summary.lastAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : ''}</time>
+          {unreadByEmail[email] > 0 && <b className={mutedDialogs.includes(conversationId) ? 'muted-badge' : ''}>{unreadByEmail[email]}</b>}
+          <details><summary aria-label={t('dialogActions')}>⋯</summary><div className="contact-menu"><button type="button" onClick={() => onTogglePinned(conversationId)}>{pinnedSet.has(conversationId) ? '✓ ' : ''}{t('pinDialog')}</button><button type="button" onClick={() => onToggleFavorite(email)}>{favoriteSet.has(email) ? '★ ' : ''}{t('favorite')}</button>{onRestore && <button type="button" onClick={() => onRestore(conversationId)}>{t('contacts') === 'Контакты' ? 'Вернуть в диалоги' : 'Restore'}</button>}</div></details>
+        </div>
+      </div>;
+    }
     return (
       <div
         key={email}
@@ -80,6 +95,7 @@ const ChatContacts = memo(function ChatContacts({
           {unreadByEmail[email] > 0 && <span className="employee-chat-user-unread">{unreadByEmail[email]}</span>}
         </button>
         <span className="contact-card-actions">
+          {onRestore && <button type="button" onClick={() => onRestore(conversationId)}>↩</button>}
           <button type="button" className="profile-open-btn" onClick={() => onOpenProfile(email)}>{t('profile')}</button>
           <button type="button" className="favorite-contact-btn" aria-label={t('pinDialog')} onClick={() => onTogglePinned(conversationId)}>
             {pinnedSet.has(conversationId) ? '📌' : '📍'}

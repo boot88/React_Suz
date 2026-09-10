@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useParams, Link } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import Dashboard from './pages/Dashboard';
 import AddApplication from './pages/AddApplication';
@@ -19,6 +19,11 @@ import Statistics from './pages/StatisticsOverview';
 import { API_BASE_URL } from './utils/apiConfig';
 import { authFetch } from './utils/authFetch';
 
+
+function ChatAdministration() {
+  const { section } = useParams();
+  return ['employees', 'audit', 'archive'].includes(section) ? <EmployeeChat adminSection={section} /> : <Navigate to="/chat-tools/audit" replace />;
+}
 
 function App() {
   return (
@@ -67,6 +72,7 @@ function AppWorkspace() {
           <Route path="/register" element={<AdminRoute><Register /></AdminRoute>} />
 
           <Route path="/employee" element={<ProtectedRoute><EmployeeChat /></ProtectedRoute>} />
+          <Route path="/chat-tools/:section" element={<AdminRoute><ChatAdministration /></AdminRoute>} />
 
           <Route path="/" element={<AdminRoute><Dashboard /></AdminRoute>} />
           <Route path="/add" element={<AdminRoute><AddApplication /></AdminRoute>} />
@@ -253,6 +259,7 @@ function Sidebar({ language }) {
             </li>
             <li className={isActive('/add') ? 'nav-item active' : 'nav-item'}><Link to="/add" className="nav-link"><span className="nav-icon nav-icon--add" aria-hidden="true" /><span className="nav-text">{copy.add}</span></Link></li>
             <li className={isActive('/employee') ? 'nav-item active' : 'nav-item'}><Link to="/employee" className="nav-link"><span className="nav-icon nav-icon--chat" aria-hidden="true" /><span className="nav-text">{copy.chat}</span>{chatUnreadCount > 0 && <span className="nav-badge">{chatUnreadCount > 99 ? '99+' : chatUnreadCount}</span>}</Link></li>
+            <li className="nav-item"><Link to="/chat-tools/audit" className="nav-link"><span className="nav-icon nav-icon--chat" aria-hidden="true" /><span className="nav-text">{language === 'ru' ? 'Управление чатом' : 'Chat administration'}</span></Link></li>
             <li className="nav-group-title">{copy.analytics}</li>
             <li className={isActive('/statistics') ? 'nav-item active' : 'nav-item'}><Link to="/statistics" className="nav-link"><span className="nav-icon nav-icon--chart" aria-hidden="true" /><span className="nav-text">{copy.statistics}</span></Link></li>
             <li className="nav-group-title">{copy.system}</li>

@@ -1,3 +1,4 @@
+const { guardSessionStream } = require('./utils/authSessions');
 // server/server.js
 const express = require('express');
 const cors = require('cors');
@@ -80,6 +81,7 @@ app.use(cors({
   credentials: true,
   exposedHeaders: ['Content-Type', 'Authorization']
 }));
+app.use('/api/chat', express.json({ limit: '512kb' }));
 app.use(express.json({ limit: '25mb' })); // Лимит для JSON-base64 изображений базы знаний
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 app.use('/api/employees', requireAuth, employeeRoutes);
@@ -433,6 +435,7 @@ app.get('/api/applications/stream', requireAuthAllowQuery, (req, res) => {
     'X-Accel-Buffering': 'no'
   });
   res.flushHeaders?.();
+  guardSessionStream(req, res);
   const client = { res, auth: req.auth };
   applicationStreamClients.add(client);
   sendApplicationEvent(res, 'ready', { at: new Date().toISOString() });

@@ -41,22 +41,22 @@
   padding: 18px;
 }
 
-button,
-input,
-textarea,
-select {
+.employee-chat-layout button,
+.employee-chat-layout input,
+.employee-chat-layout textarea,
+.employee-chat-layout select {
   font: inherit;
 }
 
-button {
+.employee-chat-layout button {
   transition: transform .18s ease, border-color .18s ease, background .18s ease, color .18s ease;
 }
 
-button:not(:disabled):hover {
+.employee-chat-layout button:not(:disabled):hover {
   transform: translateY(-1px);
 }
 
-button:disabled {
+.employee-chat-layout button:disabled {
   opacity: .55;
   cursor: not-allowed;
 }

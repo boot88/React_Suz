@@ -22,7 +22,8 @@ const ChatDialogHeader = memo(function ChatDialogHeader({
   onMarkUnread,
   onMute,
   onClearDraft,
-  onDeleteConversation
+  onDeleteConversation,
+  canDeleteConversation = false
 }) {
   return (
     <header className="conversation-header">
@@ -34,8 +35,8 @@ const ChatDialogHeader = memo(function ChatDialogHeader({
       <div className="conversation-tools">
         <input value={search} onChange={(event) => onSearch(event.target.value)} placeholder={t('dialogSearch')} />
         {hasSearch && <span className="dialog-search-count">{searchCount ? searchIndex + 1 : 0} {t('of')} {searchCount}</span>}
-        <button type="button" disabled={!searchCount} onClick={onPreviousResult}>↑</button>
-        <button type="button" disabled={!searchCount} onClick={onNextResult}>↓</button>
+        <button type="button" disabled={!searchCount} aria-label={t('back')} onClick={onPreviousResult}>↑</button>
+        <button type="button" disabled={!searchCount} aria-label={t('searchingMessages')} onClick={onNextResult}>↓</button>
         {showMediaPanel && <button type="button" onClick={onToggleMediaPanel}>{t('mediaFiles')}</button>}
         {showConversationMenu && (
           <details className="conversation-menu" open={conversationMenuOpen} onClick={(event) => event.stopPropagation()}>
@@ -56,7 +57,7 @@ const ChatDialogHeader = memo(function ChatDialogHeader({
               <button type="button" onClick={onMarkUnread}>{t('markUnread')}</button>
               <button type="button" onClick={onMute}>{t('muteNotifications')}</button>
               <button type="button" onClick={onClearDraft}>{t('clearDraft')}</button>
-              <button type="button" className="danger-action" onClick={onDeleteConversation}>{t('deleteConversation')}</button>
+              {canDeleteConversation && <button type="button" className="danger-action" onClick={onDeleteConversation}>{t('deleteConversation')}</button>}
             </div>
           </details>
         )}

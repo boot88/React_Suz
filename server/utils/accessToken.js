@@ -23,6 +23,7 @@ const createAccessToken = ({ login, role = 'employee' } = {}) => {
   if (!normalizedLogin) throw new Error('login is required for an access token');
   const now = Date.now();
   const payload = encode({
+    sessionId: crypto.randomUUID(),
     login: normalizedLogin,
     role: String(role || 'employee').toLowerCase(),
     issuedAt: now,

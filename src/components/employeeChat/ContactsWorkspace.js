@@ -7,6 +7,7 @@ const hasAttachments = (message = {}) => (
 );
 
 const ContactsWorkspace = memo(function ContactsWorkspace({
+  modern = false, hiddenDialogs = [], archivedDialogs = [], mutedDialogs = [], onRestoreHidden, onRestoreArchived,
   employees,
   selectedEmail,
   currentLogin,
@@ -29,6 +30,7 @@ const ContactsWorkspace = memo(function ContactsWorkspace({
   onTogglePinned,
   onToggleFavorite
 }) {
+  const [directoryOpen, setDirectoryOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const favoriteSet = useMemo(() => new Set(favorites || []), [favorites]);
@@ -42,6 +44,10 @@ const ContactsWorkspace = memo(function ContactsWorkspace({
         ? threads[conversationId]
         : summary?.lastMessage ? [summary.lastMessage] : [];
       const profile = employee.profile || {};
+      if (filter === 'hidden' && !hiddenDialogs.includes(conversationId)) return false;
+      if (filter === 'archived' && !archivedDialogs.includes(conversationId)) return false;
+      if (!['hidden', 'archived'].includes(filter) && (hiddenDialogs.includes(conversationId) || archivedDialogs.includes(conversationId))) return false;
+      if (modern && !directoryOpen && !query && !['hidden', 'archived'].includes(filter) && !summary && !messages.length && !pinnedDialogs?.includes(conversationId)) return false;
       if (filter === 'online' && !employee.isOnline) return false;
       if (filter === 'unread' && !unreadByEmail[employee.email]) return false;
       if (filter === 'managers' && !['manager', 'admin'].includes(String(employee.role || '').toLowerCase())) return false;
@@ -62,11 +68,19 @@ const ContactsWorkspace = memo(function ContactsWorkspace({
         profile.cabinet,
         profile.N_tel
       ].some((value) => normalizeText(value).includes(query));
-    }).sort((left, right) => (
-      (left.profile?.full_name || left.email)
-        .localeCompare(right.profile?.full_name || right.email, 'ru', { sensitivity: 'base' })
-    ));
+    }).sort((left, right) => {
+      const leftId = getConversationId(currentLogin, left.email);
+      const rightId = getConversationId(currentLogin, right.email);
+      const pinnedDifference = Number(pinnedDialogs?.includes(rightId)) - Number(pinnedDialogs?.includes(leftId));
+      if (pinnedDifference && !directoryOpen) return pinnedDifference;
+      if (modern && !directoryOpen) {
+        const difference = (threadSummaries[rightId]?.lastTimestamp || 0) - (threadSummaries[leftId]?.lastTimestamp || 0);
+        if (difference) return difference;
+      }
+      return (left.profile?.full_name || left.email).localeCompare(right.profile?.full_name || right.email, 'ru', { sensitivity: 'base' });
+    });
   }, [
+    modern, directoryOpen, hiddenDialogs, archivedDialogs, pinnedDialogs,
     applications,
     currentLogin,
     department,
@@ -82,7 +96,8 @@ const ContactsWorkspace = memo(function ContactsWorkspace({
 
   return (
     <div className="employee-contact-panel">
-      <label className="field-label">{t('contacts')}</label>
+      <div className="contacts-heading"><label className="field-label">{modern && !directoryOpen ? (t('contacts') === 'Контакты' ? 'Диалоги' : 'Conversations') : t('contacts')}</label>
+      {modern && <button type="button" onClick={() => { setDirectoryOpen(value => !value); setFilter('all'); }}>{directoryOpen ? (t('contacts') === 'Контакты' ? 'К диалогам' : 'Conversations') : (t('contacts') === 'Контакты' ? '+ Новый диалог' : '+ New chat')}</button>}</div>
       <input
         className="employee-chat-search"
         placeholder={t('contactSearch')}
@@ -92,6 +107,8 @@ const ContactsWorkspace = memo(function ContactsWorkspace({
       <label className="contact-filter-select">
         <span>{t('filter')}</span>
         <select value={filter} onChange={(event) => setFilter(event.target.value)}>
+          <option value="archived">{t('contacts') === 'Контакты' ? 'Архивированные' : 'Archived'}</option>
+          <option value="hidden">{t('contacts') === 'Контакты' ? 'Скрытые' : 'Hidden'}</option>
           {filters.map((item) => (
             <option key={item.id} value={item.id}>{getFilterLabel(item)}</option>
           ))}
@@ -99,6 +116,11 @@ const ContactsWorkspace = memo(function ContactsWorkspace({
       </label>
       <div className={`employee-chat-list ${isManager ? 'manager-mode' : ''}`}>
         <ChatContacts
+          modern={modern}
+          resetKey={`${search}:${filter}:${directoryOpen}`}
+          summaries={threadSummaries}
+          mutedDialogs={mutedDialogs}
+          onRestore={filter === 'hidden' ? onRestoreHidden : filter === 'archived' ? onRestoreArchived : null}
           employees={visibleEmployees}
           selectedEmail={selectedEmail}
           currentLogin={currentLogin}
