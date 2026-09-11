@@ -1,10 +1,13 @@
 import React, { memo } from 'react';
 import { createPortal } from 'react-dom';
+import ChatIcon from './ChatIcon';
+import MessageActionPopover from './MessageActionPopover';
 
 const ChatMessageItem = memo(function ChatMessageItem({ item, messageListRef, AttachmentCard, AuthenticatedAvatar, REACTION_EMOJIS, activeDialogSearchResult, chatLocalSettings, copyMessageText, createRequestFromMessage, currentConversationId, deleteMessage, employeeByLogin, extractLinks, formatFeedLogin, getEmployeeAvatar, getLinkPreview, getMessageAttachments, highlightText, inlineEditMessageId, inlineEditText, interfaceLocale, isEnglishInterface, isManager, isMessageRead, isVideoAttachment, messageReactionExpanded, multiSelectMode, openAttachmentInNewTab, openChatMediaViewer, openEmployeeProfile, openForwardMessagePicker, openSelectedMessageMenu, profileForm, retryMessageSend, saveInlineEditMessage, selectedMessageId, selectedMessageIds, selectedMessageMenuPlacement, selectedMessageMenuStyle, setInlineEditMessageId, setInlineEditText, setMessageReactionExpanded, setMultiSelectMode, setReplyTo, setSelectedMessageId, startInlineEditMessage, t, threadSummaries, togglePinned, toggleReaction, toggleSelectedMessage, user }) {
                     if (item.type === 'date') return <div key={item.id} className="date-separator"><span>{item.label}</span></div>;
 
                     const message = item.message;
+                    const modern = chatLocalSettings.uiDesign === 'modern';
                     const canEdit = isManager || message.sender === user.username;
                     const isMine = message.sender === user.username;
                     const isDeleted = Boolean(message.deletedAt);
@@ -40,7 +43,10 @@ const ChatMessageItem = memo(function ChatMessageItem({ item, messageListRef, At
                           <button type="button" onClick={() => retryMessageSend(message)}>{t('retrySend')}</button>
                           <button type="button" onClick={() => startInlineEditMessage(message)}>{t('edit')}</button>
                         </div>}
-                        <button type="button" className="message-menu-trigger" aria-label={t('dialogActions')} onClick={event => openSelectedMessageMenu(message.id, event)}>⋯</button>
+                        {!isDeleted && (modern ? <div className="message-quick-actions">
+                          <button type="button" title={t('reply')} aria-label={t('reply')} onClick={event => { event.stopPropagation(); setReplyTo(message); setSelectedMessageId(''); }}><ChatIcon name="reply" /></button>
+                          <button type="button" title={t('dialogActions')} aria-label={t('dialogActions')} aria-haspopup="dialog" aria-expanded={isSelected} onClick={event => { event.stopPropagation(); openSelectedMessageMenu(message.id, event); }}><ChatIcon name="more" /></button>
+                        </div> : <button type="button" className="message-menu-trigger" aria-label={t('dialogActions')} onClick={event => openSelectedMessageMenu(message.id, event)}>⋯</button>)}
                         <div
                           role="button"
                           tabIndex={0}
@@ -48,7 +54,7 @@ const ChatMessageItem = memo(function ChatMessageItem({ item, messageListRef, At
                           onClick={(event) => {
                             event.stopPropagation();
                             if (isDeleted || window.getSelection()?.toString() || event.target.closest('a, button, input, textarea, video')) return;
-                            if (chatLocalSettings.uiDesign === 'modern' && !multiSelectMode) return;
+                            if (modern && !multiSelectMode) { openSelectedMessageMenu(message.id, event); return; }
                             if (multiSelectMode) { toggleSelectedMessage(message.id); return; }
                             if (isSelected && messageReactionExpanded) setMessageReactionExpanded(false);
                             else {
@@ -81,11 +87,11 @@ const ChatMessageItem = memo(function ChatMessageItem({ item, messageListRef, At
                             </button>
                           )}
 	                          {!isDeleted && message.forwardedFrom && <div className="forwarded-preview">{t('forwardedFrom')} {message.forwardedFrom}</div>}
-	                          {!isDeleted && message.replyTo && <button type="button" className="reply-preview reply-jump" onClick={(event) => { event.stopPropagation(); messageListRef.current?.scrollToId(message.replyTo.id); }}>↪ {message.replyTo.sender}: {message.replyTo.text || t('originalMessageDeleted')}</button>}
+	                          {!isDeleted && message.replyTo && <button type="button" className="reply-preview reply-jump" onClick={(event) => { event.stopPropagation(); messageListRef.current?.scrollToId(message.replyTo.id); }}>{modern ? <><ChatIcon name="reply" size={16} /><span className="reply-preview-content"><strong>{employeeByLogin.get(String(message.replyTo.sender || '').toLowerCase())?.full_name || message.replyTo.sender}</strong><span>{message.replyTo.text || t('attachmentPlaceholder')}</span></span></> : <>↪ {message.replyTo.sender}: {message.replyTo.text || t('originalMessageDeleted')}</>}</button>}
 	                          {isDeleted ? (
 	                            <div className="message-deleted">{t('deletedMessage')} {message.deletedBy ? `· ${message.deletedBy}` : ''}</div>
 	                          ) : hasTextContent ? (
-	                            inlineEditMessageId === message.id ? <div className="inline-message-editor"><textarea value={inlineEditText} onChange={(e) => setInlineEditText(e.target.value)} /><button type="button" onClick={() => saveInlineEditMessage(message)}>{t('saveActionButton')}</button><button type="button" onClick={() => setInlineEditMessageId('')}>{t('cancel')}</button></div> : <div className="message-text">{highlightText(message.text)}</div>
+	                            inlineEditMessageId === message.id ? <div className="inline-message-editor"><textarea autoFocus={modern} aria-label={t('edit')} value={inlineEditText} onChange={(e) => setInlineEditText(e.target.value)} /><button type="button" onClick={() => saveInlineEditMessage(message)}>{t('saveActionButton')}</button><button type="button" onClick={() => setInlineEditMessageId('')}>{t('cancel')}</button></div> : <div className="message-text">{highlightText(message.text)}</div>
                           ) : null}
 
                           {linkPreviews.length > 0 && !isDeleted && (
@@ -133,9 +139,11 @@ const ChatMessageItem = memo(function ChatMessageItem({ item, messageListRef, At
                                       event.stopPropagation();
                                       toggleReaction(message.id, emoji);
                                     }}
+                                    aria-pressed={active}
+                                    aria-label={`${emoji} · ${(message.reactions?.[emoji] || []).length}`}
                                     title={(message.reactions?.[emoji] || []).join(', ')}
                                   >
-                                    {emoji}
+                                    {emoji}{modern && <span className="reaction-count">{message.reactions[emoji].length}</span>}
                                   </button>
                                 );
                               })}
@@ -151,7 +159,26 @@ const ChatMessageItem = memo(function ChatMessageItem({ item, messageListRef, At
                           )}
                         </div>
 
-                        {isSelected && !isDeleted && typeof document !== 'undefined' && createPortal((
+                        {isSelected && !isDeleted && modern && <MessageActionPopover theme={chatLocalSettings.uiTheme} style={selectedMessageMenuStyle} label={t('dialogActions')} onClose={() => { setSelectedMessageId(''); setMessageReactionExpanded(false); }}>
+                          <div className="modern-popover-heading"><span>{t('emoji')}</span><button type="button" aria-label={t('cancel')} onClick={() => setSelectedMessageId('')}><ChatIcon name="close" size={16} /></button></div>
+                          <div className="modern-reaction-picker">
+                            {visibleReactions.map(emoji => <button key={emoji} type="button" aria-label={emoji} aria-pressed={(message.reactions?.[emoji] || []).includes(user.username)} onClick={() => { toggleReaction(message.id, emoji); setSelectedMessageId(''); setMessageReactionExpanded(false); }}>{emoji}</button>)}
+                            <button type="button" className="more-reactions" aria-label={isEnglishInterface ? 'More reactions' : 'Другие реакции'} aria-expanded={messageReactionExpanded} onClick={() => setMessageReactionExpanded(!messageReactionExpanded)}><ChatIcon name={messageReactionExpanded ? 'close' : 'more'} /></button>
+                          </div>
+                          <div className="modern-menu-actions">
+                            <button type="button" onClick={() => { setReplyTo(message); setSelectedMessageId(''); }}><ChatIcon name="reply" />{t('reply')}</button>
+                            {hasTextContent && <button type="button" onClick={() => { copyMessageText(message); setSelectedMessageId(''); }}><ChatIcon name="copy" />{t('copy')}</button>}
+                            <button type="button" onClick={() => openForwardMessagePicker(message)}><ChatIcon name="forward" />{t('forward')}</button>
+                            <button type="button" onClick={() => { togglePinned(message.id); setSelectedMessageId(''); }}><ChatIcon name="pin" />{message.pinned ? t('unpin') : t('pin')}</button>
+                            {canEdit && hasTextContent && <button type="button" onClick={() => startInlineEditMessage(message)}><ChatIcon name="edit" />{t('edit')}</button>}
+                            {chatLocalSettings.showExtraMessageActions === true && <>
+                              <button type="button" onClick={() => { setMultiSelectMode(true); toggleSelectedMessage(message.id); setSelectedMessageId(''); }}><ChatIcon name="check" />{t('selectMultiple')}</button>
+                              <button type="button" onClick={() => createRequestFromMessage(message)}><ChatIcon name="forward" />{t('createRequest')}</button>
+                            </>}
+                            {canEdit && <button type="button" className="danger-action" onClick={() => { deleteMessage(message.id); setSelectedMessageId(''); }}><ChatIcon name="delete" />{t('delete')}</button>}
+                          </div>
+                        </MessageActionPopover>}
+                        {isSelected && !isDeleted && !modern && typeof document !== 'undefined' && createPortal((
                           <div className={`selected-message-menu message-action-popover floating theme-${chatLocalSettings.uiTheme || 'light'} ${isMine ? 'mine' : ''} ${selectedMessageMenuPlacement === 'below' ? 'open-below' : ''}`} style={selectedMessageMenuStyle} onClick={(event) => event.stopPropagation()}>
                             <div className="selected-reaction-row compact-reaction-row">
                               {visibleReactions.map((emoji) => {

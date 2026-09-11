@@ -59,6 +59,7 @@ export default function EmployeeFeedWorkspace({ AttachmentCard, FEED_CATEGORIES,
                   <FeedPostCard
                     key={post.id}
                     post={post}
+                    modern={chatLocalSettings.uiDesign === 'modern'}
                     selected={selectedFeedPostId === post.id}
                     menuOpen={openFeedMenuId === post.id}
                     mutationPending={postMutationPending}
@@ -95,6 +96,7 @@ export default function EmployeeFeedWorkspace({ AttachmentCard, FEED_CATEGORIES,
                     MediaCard={FeedMediaCard}
                     AttachmentCard={AttachmentCard}
                     onOpenProfile={openEmployeeProfile}
+                    onCloseMenu={() => setOpenFeedMenuId('')}
                     onToggleMenu={(postId) => setOpenFeedMenuId((current) => (current === postId ? '' : postId))}
                     onStartEdit={startEditFeedPost}
                     onEditText={setEditingFeedText}
@@ -119,7 +121,7 @@ export default function EmployeeFeedWorkspace({ AttachmentCard, FEED_CATEGORIES,
                     onExpandReactions={() => setFeedReactionExpanded(true)}
                     onReplyComment={(postId, author) => setCommentDrafts((current) => ({
                       ...current,
-                      [postId]: `@${formatFeedLogin(author)} `,
+                      [postId]: `@${formatFeedLogin(author)} ${current[postId] || ''}`,
                     }))}
                     onDeleteComment={deleteFeedComment}
                     onToggleComments={(postId, expanded) => {

@@ -1,9 +1,12 @@
-import React, { memo } from 'react';
+import React, { memo, useEffect, useRef } from 'react';
+import ChatIcon from './ChatIcon';
 import FeedComments from './FeedComments';
 import AuthenticatedAvatar from './AuthenticatedAvatar';
 
 const FeedPostCard = memo(function FeedPostCard({
   post,
+  modern = false,
+  onCloseMenu,
   selected,
   menuOpen,
   mutationPending,
@@ -61,6 +64,17 @@ const FeedPostCard = memo(function FeedPostCard({
   onCommentDraftChange,
   onSubmitComment
 }) {
+  const menuButtonRef = useRef(null);
+  const closeMenuRef = useRef(onCloseMenu);
+  closeMenuRef.current = onCloseMenu;
+  useEffect(() => {
+    if (!modern || !menuOpen) return undefined;
+    const closeOnEscape = event => {
+      if (event.key === 'Escape') { closeMenuRef.current?.(); menuButtonRef.current?.focus(); }
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [modern, menuOpen]);
   return (
     <article
       className={`employee-feed-post ${post.pinned ? 'pinned-feed-post' : ''} ${selected ? 'selected' : ''}`}
@@ -85,16 +99,17 @@ const FeedPostCard = memo(function FeedPostCard({
           type="button"
           className={`feed-post-select-button ${selected ? 'active' : ''}`}
           aria-pressed={selected}
-          aria-label={selected ? t('selectedPost') : t('selectPost')}
+          aria-label={modern ? t('emoji') : selected ? t('selectedPost') : t('selectPost')}
+          title={modern ? t('emoji') : undefined}
           onClick={() => onSelect(post.id)}
         >
-          {selected ? '✓' : '○'}
+          {modern ? <ChatIcon name="smile" size={21} /> : selected ? '✓' : '○'}
         </button>
-        <button type="button" className="feed-post-menu-button" onClick={() => onToggleMenu(post.id)}>
-          ⋯
+        <button ref={menuButtonRef} type="button" className="feed-post-menu-button" aria-label={t('dialogActions')} aria-expanded={menuOpen} onClick={() => onToggleMenu(post.id)}>
+          {modern ? <ChatIcon name="more" size={22} /> : '⋯'}
         </button>
         {menuOpen && (
-          <div className="feed-post-menu">
+          <div className="feed-post-menu" onClick={event => { if (modern && event.target.closest('button')) onCloseMenu?.(); }}>
             {canManage && (
               <button type="button" disabled={mutationPending} onClick={() => onStartEdit(post)}>
                 {t('editText')}
@@ -164,6 +179,7 @@ const FeedPostCard = memo(function FeedPostCard({
               className={active ? 'active' : ''}
               disabled={mutationPending}
               aria-busy={mutationPending}
+              aria-pressed={active}
               onClick={() => onToggleReaction(post.id, emoji)}
               title={(post.reactions?.[emoji] || []).join(', ')}
             >
@@ -185,6 +201,8 @@ const FeedPostCard = memo(function FeedPostCard({
                   className={active ? 'active' : ''}
                   disabled={mutationPending}
                   aria-busy={mutationPending}
+                  aria-pressed={active}
+                  aria-label={emoji}
                   onClick={() => onToggleReaction(post.id, emoji)}
                 >
                   {emoji}
@@ -192,7 +210,7 @@ const FeedPostCard = memo(function FeedPostCard({
               );
             })}
             {!reactionExpanded && (
-              <button type="button" className="more-reactions" onClick={onExpandReactions}>⌄</button>
+              <button type="button" className="more-reactions" aria-label={isEnglish ? 'More reactions' : 'Другие реакции'} onClick={onExpandReactions}>⌄</button>
             )}
           </div>
           {canPin && (
@@ -206,6 +224,7 @@ const FeedPostCard = memo(function FeedPostCard({
       )}
 
       <FeedComments
+        modern={modern}
         postId={post.id}
         comments={comments}
         totalComments={totalComments}

@@ -1,8 +1,10 @@
-import React, { memo } from 'react';
+import React, { memo, useRef } from 'react';
+import ChatIcon from './ChatIcon';
 import AuthenticatedAvatar from './AuthenticatedAvatar';
 
 const FeedComments = memo(function FeedComments({
   postId,
+  modern = false,
   comments,
   totalComments,
   hiddenCommentsCount,
@@ -25,6 +27,7 @@ const FeedComments = memo(function FeedComments({
   onDraftChange,
   onSubmit
 }) {
+  const inputRef = useRef(null);
   return (
     <div className="employee-feed-comments">
       <div className="employee-feed-comments-title">{t('comments')} · {totalComments}</div>
@@ -65,7 +68,7 @@ const FeedComments = memo(function FeedComments({
               <span>{comment.text}</span>
               <small>{new Date(comment.createdAt).toLocaleString(interfaceLocale)}</small>
               <div className="feed-comment-actions compact">
-                <button type="button" onClick={() => onReply(postId, comment.author)}>{t('reply')}</button>
+                <button type="button" onClick={() => { onReply(postId, comment.author); if (modern) inputRef.current?.focus({ preventScroll: true }); }}>{t('reply')}</button>
                 {canDelete && (
                   <button
                     type="button"
@@ -93,7 +96,7 @@ const FeedComments = memo(function FeedComments({
             : t('showAllComments')} ({totalComments})
         </button>
       )}
-      <div className="employee-feed-comment-form">
+      <form className="employee-feed-comment-form" onSubmit={event => { event.preventDefault(); if (!pending && draft.trim()) onSubmit(postId); }}>
         <div className="feed-avatar comment-avatar feed-avatar-current">
           <AuthenticatedAvatar
             src={currentAvatar}
@@ -103,18 +106,33 @@ const FeedComments = memo(function FeedComments({
             fallback={<span>{String(currentName || '?').slice(0, 1).toUpperCase()}</span>}
           />
         </div>
-        <input
+        {modern ? <textarea
+          ref={inputRef}
+          aria-label={t('writeComment')}
+          placeholder={t('writeComment')}
+          value={draft}
+          rows={2}
+          disabled={pending}
+          onChange={event => onDraftChange(postId, event.target.value)}
+          onKeyDown={event => {
+            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              if (!pending && draft.trim()) onSubmit(postId);
+            }
+          }}
+        /> : <input
+          aria-label={t('writeComment')}
           placeholder={t('writeComment')}
           value={draft}
           disabled={pending}
           onChange={(event) => onDraftChange(postId, event.target.value)}
-        />
-        {draft.trim() && (
-          <button type="button" disabled={pending} onClick={() => onSubmit(postId)}>
-            {t('sendComment')}
+        />}
+        {(modern || draft.trim()) && (
+          <button type="submit" disabled={pending || !draft.trim()} aria-label={t('sendComment')} title={t('sendComment')}>
+            {modern ? <ChatIcon name="send" size={19} /> : t('sendComment')}
           </button>
         )}
-      </div>
+      </form>
     </div>
   );
 });

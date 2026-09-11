@@ -7,6 +7,8 @@ import ChatAuditAdministration from '../components/employeeChat/ChatAuditAdminis
 import ChatArchiveAdministration from '../components/employeeChat/ChatArchiveAdministration';
 import ChatEmployeeAdministration from '../components/employeeChat/ChatEmployeeAdministration';
 import ChatMessageItem from '../components/employeeChat/ChatMessageItem';
+import ChatIcon from '../components/employeeChat/ChatIcon';
+import ModernMediaViewer from '../components/employeeChat/ModernMediaViewer';
 import useStableMessageProps from '../components/employeeChat/useStableMessageProps';
 import ChatAppearanceSettings from '../components/employeeChat/ChatAppearanceSettings';
 import useMessageOutbox from '../components/employeeChat/useMessageOutbox';
@@ -32,6 +34,11 @@ import './EmployeeChat.css';
 import './EmployeeChatModern.css';
 
 import { MANAGER_TEMPLATE_MESSAGES, EMPLOYEE_TEMPLATE_MESSAGES, MANAGER_TEMPLATE_MESSAGES_EN, EMPLOYEE_TEMPLATE_MESSAGES_EN, REACTION_EMOJIS, QUICK_EMOJIS, MAX_ATTACHMENT_SIZE_MB, MAX_ATTACHMENT_SIZE, CHAT_MESSAGES_PAGE_SIZE, FEED_POSTS_PAGE_SIZE, FEED_COMMENTS_PAGE_SIZE, EMPLOYEE_TABS, MANAGER_TABS, REQUEST_CATEGORIES, REQUEST_PRIORITIES, DEFAULT_PROFILE_WEBSITE_LANGUAGE, PROFILE_LANGUAGE_OPTIONS, RUSSIAN_LABELS, ENGLISH_LABELS, ENGLISH_TAB_LABELS, ENGLISH_CONTACT_FILTER_LABELS, translateRuntimeText, FEED_CATEGORIES, ENGLISH_FEED_CATEGORY_LABELS, ENGLISH_REQUEST_CATEGORY_LABELS, ENGLISH_REQUEST_PRIORITY_LABELS, CHAT_FILTERS, CONTACT_FILTERS, CHAT_MEDIA_TABS, AUDIT_PERIODS, CHAT_THEMES, CHAT_DENSITIES, CHAT_TEXT_SIZES, formatEnglishProfileLogin, getWebsiteByLanguage, getConversationId, getParticipantsFromThreadId, getAvatarKey, getGreetingKey, createMessageId, readReadState, saveReadState, getReadTimestamp, getReadMessageId, readChatLocalSettings, saveChatLocalSettings, readPendingMessages, savePendingMessages, getMessageAttachments, getMessageMediaAttachments, extractLinks, getSafeExternalUrl, getLinkPreview, readFeedReadAt, saveFeedReadAt, readCustomTemplates, saveCustomTemplates, getFeedItemTimestamp, getFeedLatestTimestamp, getForwardedMessageText, readDirectoryCache, saveDirectoryCache, readProfileDraft, getProfileValue, saveProfileDraft, processAvatar, sleep, isNetworkFailure, getFriendlyNetworkMessage, readApiJson, fetchJsonWithRetry, createAttachmentThumbnailDataUrl, nudgeVideoToFirstFrame, normalizeText, formatDateLabel, getDateKey, isVideoAttachment, formatFileSize, getFileIcon, dataUrlToBlob, openAttachmentInNewTab, formatFeedLogin, getFeedAttachments, getFeedPostsSignature, getVisibleFeedPosts, sortFeedPosts, setFeedReactionForUser, sameLogin, readSavedFeedDraft, saveFeedDraft, clearSavedFeedDraft, readHiddenFeedPosts, saveHiddenFeedPosts, isImageAttachment, isMediaAttachment, resolveAttachmentUrl, getAttachmentUrl, getOriginalAttachmentUrl, getVideoPosterUrl, getPostShareUrl, isPostAuthor, collectThreadFileIds, collectFeedFileIds, prefetchMediaTokens, canManageFeedPost, VideoPosterFrame, AttachmentCard, FeedMediaCard, getThreadActivityMeta, isThreadInPeriod, getApplicationStatusMeta } from '../components/employeeChat/chatPresentation';
+
+const sameViewerFile = (left, right) => left === right || Boolean(left && right && (
+  (left.id && right.id && String(left.id) === String(right.id))
+  || (!left.id && !right.id && (left.url || left.dataUrl) && (left.url || left.dataUrl) === (right.url || right.dataUrl))
+));
 
 const EmployeeChat = ({ adminSection = null }) => {
   const { user, logout, employeeDirectory, changeServicePassword } = useAuth();
@@ -2853,6 +2860,11 @@ const EmployeeChat = ({ adminSection = null }) => {
     setMessageReactionExpanded(false);
   };
 
+  useEffect(() => {
+    if (!replyTo || mediaViewer || chatLocalSettings.uiDesign !== 'modern') return;
+    messageTextareaRef.current?.focus({ preventScroll: true });
+  }, [replyTo, mediaViewer, chatLocalSettings.uiDesign]);
+
   const replyToViewedMedia = () => {
     if (!mediaViewer?.message) return;
     setReplyTo(mediaViewer.message);
@@ -2899,14 +2911,14 @@ const EmployeeChat = ({ adminSection = null }) => {
         ? getFeedAttachments(current.post).filter(isMediaAttachment)
         : current.message ? (current.scope === 'dialog' ? items.map((item) => item.file) : getMessageMediaAttachments(current.message)) : [current.file].filter(Boolean);
       if (files.length < 2) return current;
-      const currentIndex = Math.max(0, Math.min(files.length - 1, current.fileIndex || 0));
+      const currentIndex = Math.max(0, files.findIndex((file, index) => sameViewerFile(file, current.file) && (!items.length || items[index].message.id === current.message.id)));
       const nextIndex = (currentIndex + direction + files.length) % files.length;
-      return { ...current, file: files[nextIndex], fileIndex: nextIndex };
+      return { ...current, ...(items[nextIndex] ? { message: items[nextIndex].message } : {}), file: files[nextIndex], fileIndex: nextIndex };
     });
   }, [getConversationMediaItems]);
 
   useEffect(() => {
-    if (!mediaViewer) return undefined;
+    if (!mediaViewer || chatLocalSettings.uiDesign === 'modern') return undefined;
     const onKeyDown = (event) => {
       if (event.key === 'Escape') setMediaViewer(null);
       if (event.key === 'ArrowLeft') moveMediaViewer(-1);
@@ -2914,7 +2926,7 @@ const EmployeeChat = ({ adminSection = null }) => {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [mediaViewer, moveMediaViewer]);
+  }, [mediaViewer, moveMediaViewer, chatLocalSettings.uiDesign]);
 
   const deleteChatAttachment = async (messageId, fileIndex = 0, targetConversationId = currentConversationId) => {
     if (!messageId || !targetConversationId) return;
@@ -3005,7 +3017,9 @@ const EmployeeChat = ({ adminSection = null }) => {
       return;
     }
     if (!mediaViewer?.message?.id) return;
-    const { message, fileIndex = 0 } = mediaViewer;
+    const { message, file } = mediaViewer;
+    const fileIndex = getMessageAttachments(message).findIndex(item => sameViewerFile(item, file));
+    if (fileIndex < 0) return;
     setMediaViewer(null);
     try {
       await deleteChatAttachment(message.id, fileIndex);
@@ -4044,7 +4058,7 @@ const EmployeeChat = ({ adminSection = null }) => {
                     </details>
                   )}
 
-	                  {replyTo && <div className="reply-preview active-reply">{t('replyTo')}: {replyTo.sender}: {replyTo.text}<button type="button" onClick={() => setReplyTo(null)}>×</button></div>}
+	                  {replyTo && <div className="reply-preview active-reply">{chatLocalSettings.uiDesign === 'modern' ? <><ChatIcon name="reply" /><span className="reply-preview-content"><strong>{t('replyTo')}: {employeeByLogin.get(String(replyTo.sender || '').toLowerCase())?.full_name || replyTo.sender}</strong><span>{replyTo.text || t('attachmentPlaceholder')}</span></span></> : <>{t('replyTo')}: {replyTo.sender}: {replyTo.text}</>}<button type="button" aria-label={t('cancel')} onClick={() => setReplyTo(null)}>×</button></div>}
 
                   {chatUploadQueue.length > 0 && (
                     <div className="chat-upload-queue" aria-live="polite">
@@ -4091,6 +4105,7 @@ const EmployeeChat = ({ adminSection = null }) => {
                     draft={draft}
                     textareaRef={messageTextareaRef}
                     emojiOptions={QUICK_EMOJIS}
+                    modern={chatLocalSettings.uiDesign === 'modern'}
                     isEmojiOpen={isEmojiOpen}
                     enterToSend={chatLocalSettings.enterToSend !== false}
                     isSending={isSendingMessage}
@@ -4145,8 +4160,26 @@ const EmployeeChat = ({ adminSection = null }) => {
 
       {mediaViewer && (() => {
         const viewerFiles = getViewerFiles();
-        const viewerIndex = Math.max(0, Math.min(viewerFiles.length - 1, mediaViewer.fileIndex || 0));
+        const viewerIndex = Math.max(0, viewerFiles.findIndex(file => sameViewerFile(file, mediaViewer.file)));
         const hasManyViewerFiles = viewerFiles.length > 1;
+        if (chatLocalSettings.uiDesign === 'modern') {
+          const source = mediaViewer.source === 'feed' ? mediaViewer.post : mediaViewer.message;
+          const sourceLogin = source?.sender || source?.author;
+          return <ModernMediaViewer
+            file={mediaViewer.file} files={viewerFiles} index={viewerIndex}
+            author={source?.authorName || employeeByLogin.get(String(sourceLogin || '').toLowerCase())?.full_name || sourceLogin}
+            date={source?.createdAt ? new Date(source.createdAt).toLocaleString(interfaceLocale) : ''}
+            theme={chatLocalSettings.uiTheme} isEnglish={isEnglishInterface} t={t}
+            isVideoAttachment={isVideoAttachment} getOriginalAttachmentUrl={getOriginalAttachmentUrl}
+            getAttachmentUrl={getAttachmentUrl} getVideoPosterUrl={getVideoPosterUrl} VideoPosterFrame={VideoPosterFrame}
+            onClose={() => setMediaViewer(null)} onMove={moveMediaViewer}
+            onSelect={index => moveMediaViewer(index - viewerIndex)}
+            onReply={mediaViewer.message ? replyToViewedMedia : undefined}
+            onShare={mediaViewer.source === 'feed' ? shareViewedFeedMedia : mediaViewer.message ? shareViewedMedia : undefined}
+            onDelete={(mediaViewer.source === 'feed' ? canManageFeedPost(mediaViewer.post, user, isManager, isAdmin) : mediaViewer.message && (isManager || mediaViewer.message.sender === user.username)) ? deleteViewedMedia : undefined}
+            deletePending={mediaViewer.source === 'feed' && isFeedPostPending(mediaViewer.post?.id)}
+          />;
+        }
         return (
           <div
             className="photo-viewer-backdrop"
@@ -4186,7 +4219,7 @@ const EmployeeChat = ({ adminSection = null }) => {
             )}
             {hasManyViewerFiles && <button type="button" className="photo-viewer-nav next" onClick={() => moveMediaViewer(1)}>›</button>}
           </div>
-          {hasManyViewerFiles && <div className="photo-viewer-thumbs" onMouseDown={(event) => event.stopPropagation()}>{viewerFiles.map((file, index) => <button key={file.id || `${file.name}-${index}`} type="button" className={index === viewerIndex ? 'active' : ''} onClick={() => setMediaViewer((current) => ({ ...current, file, fileIndex: index }))}>{isVideoAttachment(file) ? <VideoPosterFrame file={file} alt={file.name || t('thumbnailAlt')} isEnglish={isEnglishInterface} /> : <img src={getAttachmentUrl(file)} alt={file.name || t('thumbnailAlt')} loading="lazy" decoding="async" />}</button>)}</div>}
+          {hasManyViewerFiles && <div className="photo-viewer-thumbs" onMouseDown={(event) => event.stopPropagation()}>{viewerFiles.map((file, index) => <button key={file.id || `${file.name}-${index}`} type="button" className={index === viewerIndex ? 'active' : ''} onClick={() => moveMediaViewer(index - viewerIndex)}>{isVideoAttachment(file) ? <VideoPosterFrame file={file} alt={file.name || t('thumbnailAlt')} isEnglish={isEnglishInterface} /> : <img src={getAttachmentUrl(file)} alt={file.name || t('thumbnailAlt')} loading="lazy" decoding="async" />}</button>)}</div>}
         </div>
         );
       })()}

@@ -1,7 +1,9 @@
-import React, { memo } from 'react';
+import React, { memo, useEffect, useRef } from 'react';
+import ChatIcon from './ChatIcon';
 
 const ChatComposerForm = memo(function ChatComposerForm({
   t,
+  modern = false,
   draft,
   textareaRef,
   emojiOptions,
@@ -19,15 +21,36 @@ const ChatComposerForm = memo(function ChatComposerForm({
   onAttachmentChange,
   hasAttachments = false
 }) {
+  const emojiRef = useRef(null);
+  const toggleEmojiRef = useRef(onToggleEmoji);
+  toggleEmojiRef.current = onToggleEmoji;
+  useEffect(() => {
+    if (!modern || !isEmojiOpen) return undefined;
+    const closeOutside = event => {
+      if (!emojiRef.current?.contains(event.target) && !event.target.closest('.composer-emoji-btn')) toggleEmojiRef.current();
+    };
+    const closeOnEscape = event => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      toggleEmojiRef.current();
+      textareaRef.current?.focus({ preventScroll: true });
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [modern, isEmojiOpen, textareaRef]);
   return (
     <form className="message-form" onSubmit={onSubmit}>
       <div className="composer-textarea-box">
         <div className="composer-input-shell">
-          <button type="button" className="composer-emoji-btn" aria-label={t('emoji')} onClick={onToggleEmoji}>☺</button>
+          <button type="button" className="composer-emoji-btn" aria-label={t('emoji')} aria-expanded={isEmojiOpen} onClick={onToggleEmoji}>{modern ? <ChatIcon name="smile" size={21} /> : '☺'}</button>
           {isEmojiOpen && (
-            <div className="emoji-picker composer-emoji-picker">
+            <div ref={emojiRef} className="emoji-picker composer-emoji-picker" role="group" aria-label={t('emoji')}>
               {emojiOptions.map((emoji) => (
-                <button key={emoji} type="button" onClick={() => onAppendEmoji(emoji)}>{emoji}</button>
+                <button key={emoji} type="button" aria-label={emoji} onClick={() => { onAppendEmoji(emoji); textareaRef.current?.focus({ preventScroll: true }); }}>{emoji}</button>
               ))}
             </div>
           )}
