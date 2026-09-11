@@ -2840,7 +2840,7 @@
   display: block;
 }
 
-.employee-feed-media-tile span {
+.employee-feed-media-tile > .feed-media-caption {
   position: absolute;
   left: 8px;
   right: 8px;
