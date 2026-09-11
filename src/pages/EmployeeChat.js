@@ -204,6 +204,7 @@ const EmployeeChat = ({ adminSection = null }) => {
   const [modal, setModal] = useState(null);
   const modalResolverRef = useRef(null);
   const messagesWrapRef = useRef(null);
+  const nearBottomRef = useRef(false);
   const messageListRef = useRef(null);
   const feedListRef = useRef(null);
   const feedPostsRef = useRef([]);
@@ -1910,6 +1911,7 @@ const EmployeeChat = ({ adminSection = null }) => {
   useEffect(() => {
     setSelectedMessageId('');
     setMessageReactionExpanded(false);
+    nearBottomRef.current = false;
   }, [activeTab, selectedEmail]);
 
   useEffect(() => {
@@ -3994,9 +3996,11 @@ const EmployeeChat = ({ adminSection = null }) => {
                   onScroll={(event) => {
                     const wrap = event.currentTarget;
                     const distanceFromBottom = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight;
-                    if (distanceFromBottom <= 80 && unreadByEmail[selectedEmail] > 0) {
+                    const isNearBottom = distanceFromBottom <= 80;
+                    if (isNearBottom && !nearBottomRef.current && unreadByEmail[selectedEmail] > 0) {
                       setReadViewportVersion((current) => current + 1);
                     }
+                    nearBottomRef.current = isNearBottom;
                     if (normalizedDialogSearch || dateSearchMessages || event.currentTarget.scrollTop > 32 || hiddenDialogMessagesCount > 0 || !threadHasMore[currentConversationId]) return;
                     loadOlderDialogMessages();
                   }}

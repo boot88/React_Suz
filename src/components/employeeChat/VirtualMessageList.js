@@ -51,7 +51,9 @@ export default function VirtualMessageList({ items, viewportRef, listRef, render
     const node = viewportRef.current;
     const old = previous.current;
     if (node && old && old.items.length && items.length && old.offsets !== offsets) {
-      if (old.offsets[old.items.length] - (old.top + old.height) < 100 && old.items[0].id === items[0].id) {
+      const currentDistanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight;
+      const wasNearBottom = old.offsets[old.items.length] - (old.top + old.height) < 100;
+      if (wasNearBottom && currentDistanceFromBottom < 100 && old.items[0].id === items[0].id) {
         node.scrollTop = node.scrollHeight;
       } else {
         let anchor = 0;
