@@ -533,11 +533,6 @@
   padding: 14px;
 }
 
-/* The chat virtual list owns scroll anchoring while message previews resize. */
-.messages-wrap {
-  overflow-anchor: none;
-}
-
 .empty-chat {
   min-height: 220px;
   display: grid;
@@ -6827,11 +6822,6 @@
   font-size: 23px;
   transform: translate(-50%, -50%);
   backdrop-filter: blur(8px);
-}
-
-.playable-video-shell.feed .video-poster-play {
-  left: 18px;
-  transform: translateY(-50%);
 }
 
 .video-preview-label {
