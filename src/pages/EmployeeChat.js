@@ -1358,6 +1358,15 @@ const EmployeeChat = ({ adminSection = null }) => {
     return result.item;
   }, [chatAuthHeaders]);
 
+  const persistMessageReaction = useCallback(async (conversationId, messageId, emoji, active) => {
+    const result = await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/reactions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
+      body: JSON.stringify({ emoji, active })
+    }, { attempts: 1, fallbackMessage: 'Не удалось поставить реакцию' });
+    return result.item;
+  }, [chatAuthHeaders]);
+
   useEffect(() => {
     const refreshCoreData = () => {
       if (typeof document !== 'undefined' && document.hidden) return;
@@ -2752,16 +2761,36 @@ const EmployeeChat = ({ adminSection = null }) => {
   };
 
   const toggleReaction = async (messageId, emoji, targetConversationId = currentConversationId) => {
-    try {
-      await updateMessage(messageId, (item) => {
+    if (!targetConversationId) return;
+    const previousMessages = threadsRef.current[targetConversationId] || [];
+    const sourceMessage = previousMessages.find((item) => item.id === messageId);
+    if (!sourceMessage) return;
+    const actorHasReaction = (sourceMessage.reactions?.[emoji] || [])
+      .some((login) => sameLogin(login, user.username));
+    const active = !actorHasReaction;
+    setThreads((current) => ({
+      ...current,
+      [targetConversationId]: (current[targetConversationId] || previousMessages).map((item) => {
+        if (item.id !== messageId) return item;
         const reactions = { ...(item.reactions || {}) };
-        const users = new Set(reactions[emoji] || []);
-        if (users.has(user.username)) users.delete(user.username);
-        else users.add(user.username);
-        reactions[emoji] = [...users];
+        const users = (Array.isArray(reactions[emoji]) ? reactions[emoji] : [])
+          .filter((login) => !sameLogin(login, user.username));
+        if (active) users.push(user.username);
+        if (users.length) reactions[emoji] = users;
+        else delete reactions[emoji];
         return { ...item, reactions };
-      }, targetConversationId);
+      })
+    }));
+    try {
+      const saved = await persistMessageReaction(targetConversationId, messageId, emoji, active);
+      if (saved) {
+        setThreads((current) => ({
+          ...current,
+          [targetConversationId]: mergeMessages(current[targetConversationId], [saved])
+        }));
+      }
     } catch (error) {
+      await fetchConversationMessages(targetConversationId, { silent: true });
       notify(error.message || 'Не удалось поставить реакцию', 'Реакция');
     }
   };

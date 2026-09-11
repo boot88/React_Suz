@@ -3175,6 +3175,93 @@ router.post('/threads/:conversationId/messages', async (req, res) => {
   }
 });
 
+router.post('/threads/:conversationId/messages/:messageId/reactions', async (req, res) => {
+  let connection;
+  let transactionActive = false;
+  try {
+    const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
+    const messageId = decodeURIComponent(req.params.messageId || '').trim();
+    const emoji = String(req.body?.emoji || '').trim();
+    const active = req.body?.active;
+
+    if (!conversationId || !messageId) {
+      return res.status(400).json({ message: 'conversationId и messageId обязательны' });
+    }
+    if (!emoji || emoji.length > 32 || typeof active !== 'boolean') {
+      return res.status(400).json({ message: 'Неверные параметры реакции' });
+    }
+    if (!requireConversationAccess(req, res, conversationId)) return;
+    if (!hasRole(req, 'admin') && await isSqlConversationArchived(conversationId)) {
+      return res.status(409).json({ message: 'Переписка находится в архиве администратора' });
+    }
+    if (!await ensureChatSqlSchema()) {
+      return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
+    }
+
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+    transactionActive = true;
+    const [rows] = await connection.execute(
+      `SELECT message_json
+       FROM chat_messages
+       WHERE conversation_id = ? AND id = ?
+       LIMIT 1
+       FOR UPDATE`,
+      [conversationId, messageId]
+    );
+    const existingMessage = parseSqlMessage(rows?.[0]?.message_json);
+    if (!existingMessage) {
+      await connection.rollback();
+      transactionActive = false;
+      return res.status(404).json({ message: 'Сообщение не найдено' });
+    }
+    if (existingMessage.deletedAt) {
+      await connection.rollback();
+      transactionActive = false;
+      return res.status(409).json({ message: 'На скрытое сообщение нельзя поставить реакцию' });
+    }
+
+    const reactions = { ...(existingMessage.reactions || {}) };
+    const users = (Array.isArray(reactions[emoji]) ? reactions[emoji] : [])
+      .filter((login) => !isSameLogin(login, req.auth.login));
+    if (active) users.push(req.auth.login);
+    if (users.length) reactions[emoji] = users;
+    else delete reactions[emoji];
+
+    const now = new Date().toISOString();
+    const updatedItem = {
+      ...existingMessage,
+      reactions,
+      updatedAt: now,
+      deliveryStatus: 'sent'
+    };
+    await connection.execute(
+      `UPDATE chat_messages
+       SET message_json = ?, updated_at = ?
+       WHERE conversation_id = ? AND id = ?`,
+      [JSON.stringify(updatedItem), new Date(now), conversationId, messageId]
+    );
+    await connection.commit();
+    transactionActive = false;
+
+    indexMessageForRecordsArchive(db, conversationId, updatedItem).catch((error) => {
+      console.warn('Chat reaction archive indexing failed:', error.message);
+    });
+    backupMessageToArchive(conversationId, updatedItem);
+    const publicItem = sanitizeMessageForResponse(updatedItem);
+    broadcastThreadEvent('message-updated', conversationId, { item: publicItem });
+    res.json({ message: 'Реакция обновлена', conversationId, item: publicItem });
+  } catch (error) {
+    if (transactionActive && connection) {
+      await connection.rollback().catch(() => {});
+    }
+    console.error('Chat POST /threads/messages/reactions error:', error);
+    res.status(error.status || 500).json({ message: error.status ? error.message : 'Не удалось обновить реакцию' });
+  } finally {
+    connection?.release();
+  }
+});
+
 router.patch('/threads/:conversationId/messages/:messageId', async (req, res) => {
   try {
     const conversationId = decodeURIComponent(req.params.conversationId || '').trim();

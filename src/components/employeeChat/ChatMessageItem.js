@@ -38,8 +38,8 @@ const ChatMessageItem = memo(function ChatMessageItem({ item, messageListRef, At
 
                     return (
                       <div key={message.id} data-message-id={message.id} className={`message-row ${isMine ? 'mine' : ''} ${isSelected ? 'selected' : ''} ${selectedMessageIds.includes(message.id) ? 'multi-selected' : ''} ${activeDialogSearchResult?.id === message.id ? 'search-current' : ''}`}>
-                        {isMine && ['waiting', 'error'].includes(message.deliveryStatus) && <div className="message-send-recovery" role="status">
-                          <span>{message.deliveryStatus === 'error' ? (isEnglishInterface ? 'Not sent' : 'Не отправлено') : t('deliveryWaiting')}</span>
+                        {isMine && message.deliveryStatus === 'error' && <div className="message-send-recovery" role="alert">
+                          <span>{isEnglishInterface ? 'Not sent' : 'Не отправлено'}</span>
                           <button type="button" onClick={() => retryMessageSend(message)}>{t('retrySend')}</button>
                           <button type="button" onClick={() => startInlineEditMessage(message)}>{t('edit')}</button>
                         </div>}
