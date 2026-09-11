@@ -185,7 +185,7 @@ const parseSqlMessage = (value) => {
   try { return JSON.parse(value); } catch { return null; }
 };
 
-const writeSqlMessage = async (conversationId, message = {}, { insertOnly = false, expectedMessage = null } = {}) => {
+const writeSqlMessage = async (conversationId, message = {}, { insertOnly = false, expectedSerializedMessage = null } = {}) => {
   if (!await ensureChatSqlSchema()) return false;
   const [owners] = await db.execute('SELECT conversation_id, sender_login FROM chat_messages WHERE id = ?', [message.id]);
   if (owners.length && (owners[0].conversation_id !== conversationId || !isSameLogin(owners[0].sender_login, message.sender))) {
@@ -196,10 +196,10 @@ const writeSqlMessage = async (conversationId, message = {}, { insertOnly = fals
   const deletedAt = message.deletedAt ? new Date(message.deletedAt) : null;
   const params = [message.id, conversationId, message.sender || null, JSON.stringify(message), createdAt, updatedAt, deletedAt];
 
-  if (expectedMessage) {
+  if (expectedSerializedMessage !== null) {
     const [updated] = await db.execute(`UPDATE chat_messages SET message_json = ?, updated_at = ?, deleted_at = ?
       WHERE id = ? AND conversation_id = ? AND sender_login = ? AND BINARY message_json = BINARY ?`,
-      [JSON.stringify(message), updatedAt, deletedAt, message.id, conversationId, message.sender, JSON.stringify(expectedMessage)]);
+      [JSON.stringify(message), updatedAt, deletedAt, message.id, conversationId, message.sender, expectedSerializedMessage]);
     if (!updated.affectedRows) throw Object.assign(new Error('Сообщение уже изменилось. Обновите диалог и повторите действие.'), { status: 409 });
   } else {
     await db.execute(
@@ -246,7 +246,7 @@ const readSqlConversationMessages = async (conversationId, { limit = CHAT_SQL_PA
   return (rows || []).map((row) => { const message = parseSqlMessage(row.message_json); return message ? { ...message, _cursor: encodeMessageCursor({ id: row.id, createdAt: row.created_at }) } : null; }).filter(Boolean).reverse();
 };
 
-const readSqlMessageById = async (conversationId, messageId) => {
+const readSqlMessageRecordById = async (conversationId, messageId) => {
   if (!await ensureChatSqlSchema()) return null;
   const [rows] = await db.execute(
     `SELECT message_json
@@ -255,7 +255,17 @@ const readSqlMessageById = async (conversationId, messageId) => {
      LIMIT 1`,
     [conversationId, messageId]
   );
-  return parseSqlMessage(rows?.[0]?.message_json);
+  if (!rows?.[0]) return null;
+  const serializedMessage = typeof rows[0].message_json === 'string'
+    ? rows[0].message_json
+    : JSON.stringify(rows[0].message_json);
+  const message = parseSqlMessage(rows[0].message_json);
+  return message ? { message, serializedMessage } : null;
+};
+
+const readSqlMessageById = async (conversationId, messageId) => {
+  const record = await readSqlMessageRecordById(conversationId, messageId);
+  return record?.message || null;
 };
 
 const isSqlConversationArchived = async (conversationId) => {
@@ -3182,7 +3192,8 @@ router.patch('/threads/:conversationId/messages/:messageId', async (req, res) =>
     if (!patch || typeof patch !== 'object') {
       return res.status(400).json({ message: 'message или patch обязателен' });
     }
-    const existingMessage = await readSqlMessageById(conversationId, messageId);
+    const existingRecord = await readSqlMessageRecordById(conversationId, messageId);
+    const existingMessage = existingRecord?.message;
     if (!existingMessage) return res.status(404).json({ message: 'Сообщение не найдено' });
     if (existingMessage.deletedAt) {
       if (patch.deletedAt) {
@@ -3246,7 +3257,9 @@ router.patch('/threads/:conversationId/messages/:messageId', async (req, res) =>
     const updatedItem = attemptsContentChange && !isDeleteRequest
       ? await prepareClientMessage(req, conversationId, nextMessage, { ...existingMessage, audit: nextMessage.audit, editedBy: nextMessage.editedBy })
       : nextMessage;
-    const stored = await writeSqlMessage(conversationId, updatedItem, { expectedMessage: existingMessage });
+    const stored = await writeSqlMessage(conversationId, updatedItem, {
+      expectedSerializedMessage: existingRecord.serializedMessage
+    });
     if (!stored) return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
     backupMessageToArchive(conversationId, updatedItem);
 
