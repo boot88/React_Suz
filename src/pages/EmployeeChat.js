@@ -1882,6 +1882,8 @@ const EmployeeChat = ({ adminSection = null }) => {
   useEffect(() => {
     if (!currentConversationId) return;
     skipDraftSaveRef.current = true;
+    setReplyTo(null);
+    setInlineEditMessageId('');
     const saved = chatDraftsRef.current[currentConversationId] || {};
     setDraft(saved.text || '');
     setAttachmentDrafts(Array.isArray(saved.attachments) ? saved.attachments : []);
@@ -1911,7 +1913,7 @@ const EmployeeChat = ({ adminSection = null }) => {
     if (!textarea) return;
     textarea.style.height = 'auto';
     textarea.style.height = `${Math.min(textarea.scrollHeight, 220)}px`;
-  }, [draft]);
+  }, [draft, activeTab, currentConversationId, chatLocalSettings.uiDesign]);
 
   useEffect(() => {
     const handleOnline = () => { setIsOnline(true); setConnectionState('reconnecting'); };
@@ -1927,8 +1929,10 @@ const EmployeeChat = ({ adminSection = null }) => {
   useEffect(() => {
     setSelectedMessageId('');
     setMessageReactionExpanded(false);
+    setConversationMenuOpen(false);
+    setIsEmojiOpen(false);
     nearBottomRef.current = false;
-  }, [activeTab, selectedEmail]);
+  }, [activeTab, selectedEmail, chatLocalSettings.uiDesign]);
 
   useEffect(() => {
     if (!currentConversationId || activeTab !== 'chat' || document.hidden || suppressReadRef.current === currentConversationId || dialogSearch.trim() || dateSearchMessages) return;
@@ -3903,6 +3907,8 @@ const EmployeeChat = ({ adminSection = null }) => {
 
         <ContactsWorkspace
           modern={chatLocalSettings.uiDesign === 'modern'}
+          theme={chatLocalSettings.uiTheme}
+          getEmployeeAvatar={getEmployeeAvatar}
           hiddenDialogs={chatLocalSettings.hidden}
           archivedDialogs={chatLocalSettings.archived}
           mutedDialogs={chatLocalSettings.muted}
@@ -3925,7 +3931,7 @@ const EmployeeChat = ({ adminSection = null }) => {
           getConversationId={getConversationId}
           formatVisibleLogin={formatVisibleLogin}
           t={t}
-          onSelect={setSelectedEmail}
+          onSelect={(email) => { setSelectedEmail(email); setActiveTab('chat'); }}
           onOpenProfile={handleOpenContactProfile}
           onTogglePinned={handleTogglePinnedContact}
           onToggleFavorite={handleToggleFavoriteContact}
@@ -3955,6 +3961,10 @@ const EmployeeChat = ({ adminSection = null }) => {
               <>
                 <ChatDialogHeader
                   t={t}
+                  modern={chatLocalSettings.uiDesign === 'modern'}
+                  theme={chatLocalSettings.uiTheme}
+                  isPinned={chatLocalSettings.pinned?.includes(currentConversationId)}
+                  isMuted={chatLocalSettings.muted?.includes(currentConversationId)}
                   contactName={activeContact?.profile?.full_name || selectedEmail}
                   visibleLogin={formatVisibleLogin(selectedEmail)}
                   search={dialogSearch}
@@ -3972,6 +3982,7 @@ const EmployeeChat = ({ adminSection = null }) => {
                   onNextResult={() => setDialogSearchIndex((prev) => Math.min(dialogSearchResults.length - 1, prev + 1))}
                   onToggleMediaPanel={() => setMediaPanelOpen((prev) => !prev)}
                   onToggleMenu={() => setConversationMenuOpen((prev) => !prev)}
+                  onCloseMenu={() => setConversationMenuOpen(false)}
                   onArchive={() => {
                     toggleLocalListValue('archived', currentConversationId);
                     setSelectedEmail('');

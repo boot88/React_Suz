@@ -83,11 +83,10 @@
 .modern-contact-meta { display: grid; justify-items: end; gap: 4px; font-size: 10px; color: var(--chat-muted); }
 .modern-contact-meta b { border-radius: 10px; background: #326cd5; color: white; min-width: 18px; text-align: center; padding: 2px 5px; }
 .modern-contact-meta b.muted-badge { background: #78879a; }
-.modern-contact-meta details { position: relative; }
-.modern-contact-meta summary { list-style: none; cursor: pointer; font-size: 16px; line-height: 12px; }
-.modern-contact-meta details[open] { z-index: 5; }
-.contact-menu { position: absolute; right: 0; top: 16px; width: 190px; padding: 8px; border: 1px solid var(--chat-border); border-radius: 8px; background: var(--chat-surface); box-shadow: 0 8px 24px #0002; }
-.contact-menu button { display: block; width: 100%; text-align: left; color: var(--chat-ink); border: 0; background: transparent; padding: 8px; }
+.employee-chat-layout.design-modern .modern-contact-avatar > img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.employee-chat-layout.design-modern .modern-contact-body strong svg { margin-right: 4px; vertical-align: middle; color: var(--chat-accent); }
+.employee-chat-layout.design-modern .modern-contact-menu-trigger { display: grid; place-items: center; width: 28px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--chat-muted); box-shadow: none; }
+.employee-chat-layout.design-modern .modern-contact-menu-trigger:is(:hover, [aria-expanded="true"]) { background: var(--chat-bg); color: var(--chat-accent); }
 .employee-chat-layout.design-modern .conversation-header { flex: 0 0 auto; display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 0; padding: 14px 24px; background: var(--chat-surface); border: 0; border-bottom: 1px solid var(--chat-border); border-radius: 0; }
 .employee-chat-layout.design-modern .conversation-header .eyebrow { display: none; }
 .employee-chat-layout.design-modern .conversation-header h2 { font-size: 16px; margin: 0; color: var(--chat-ink); }
@@ -104,7 +103,7 @@
 .employee-chat-layout.design-modern .message-form > button { background: #326cd5; color: #fff; border: 0; border-radius: 8px; box-shadow: none; }
 .employee-chat-layout.design-modern .composer-hints { font-size: 10px; color: var(--chat-muted); }
 .employee-chat-layout.design-modern .date-separator span { background: transparent; color: var(--chat-muted); font-size: 11px; }
-.employee-chat-layout.design-modern button:hover { transform: none; }
+.employee-chat-layout.design-modern button:not(:disabled):hover { transform: none; }
 @media (max-width: 1100px) {
   .employee-chat-layout.density-compact { grid-template-columns: 1fr; }
   .employee-chat-layout.design-modern { grid-template-columns: 290px minmax(0,1fr); }
@@ -317,3 +316,36 @@
 .employee-chat-layout.design-modern .message-form { background: transparent; box-shadow: none; padding: 0; }
 .employee-chat-layout.design-modern .attach-file-btn { width: 40px; min-width: 0; min-height: 42px; border: 1px solid var(--chat-border); border-radius: 8px; background: var(--chat-bg); color: var(--chat-muted); box-shadow: none; }
 @media (max-width: 720px) { .employee-chat-layout.design-modern .attach-file-btn { width: 34px; } }
+
+/* Keep legacy minimum widths and fixed composer styles out of the new layout. */
+.employee-chat-layout.design-modern .conversation-identity { flex: 1; min-width: 0; }
+.employee-chat-layout.design-modern .conversation-identity :is(h2, p) { overflow-wrap: anywhere; }
+.employee-chat-layout.design-modern .conversation-tools { align-items: center; flex-wrap: wrap; max-width: 100%; }
+.employee-chat-layout.design-modern .conversation-tools input { flex: 1 1 160px; }
+.employee-chat-layout.design-modern .conversation-tools button { flex-shrink: 0; min-height: 36px; padding: 6px 10px; border: 1px solid var(--chat-border); border-radius: 8px; background: var(--chat-surface); color: var(--chat-ink); box-shadow: none; }
+.employee-chat-layout.design-modern .conversation-tools .modern-dialog-menu-trigger { display: grid; place-items: center; width: 36px; padding: 0; }
+.employee-chat-layout.design-modern .conversation-tools button[aria-expanded="true"] { color: var(--chat-accent); background: var(--chat-bg); }
+.employee-chat-layout.design-modern .composer-textarea-box { min-width: 0; }
+.employee-chat-layout.design-modern .message-form textarea { overflow-y: auto; scrollbar-width: thin; }
+.employee-chat-layout.design-modern .message-form textarea::-webkit-scrollbar { width: 4px; }
+.employee-chat-layout.design-modern .composer-hints { flex-wrap: wrap; }
+/* These !important declarations override the old global emoji-button reset. */
+.employee-chat-layout.design-modern .composer-emoji-btn { top: 4px; width: 34px; height: 34px; transform: none !important; color: var(--chat-muted) !important; filter: none; }
+.employee-chat-layout.design-modern .composer-emoji-btn:is(:hover, [aria-expanded="true"]) { color: var(--chat-accent) !important; background: var(--chat-bg) !important; }
+.employee-chat-layout.design-modern .composer-emoji-btn:focus-visible { outline: 2px solid var(--chat-accent) !important; outline-offset: 2px; }
+.employee-chat-layout.design-modern :is(.profile-panel, .profile-preview-card) { min-width: 0; background: var(--chat-surface); border: 1px solid var(--chat-border); border-radius: 12px; box-shadow: none; }
+.employee-chat-layout.design-modern :is(.profile-appearance-settings, .profile-toggle-row) { background: var(--chat-bg); border-color: var(--chat-border); }
+.employee-chat-layout.design-modern :is(.profile-form, .profile-password-form, .chat-design-settings, .profile-appearance-controls) :is(input, textarea, select) { min-width: 0; width: 100%; color: var(--chat-ink); background: var(--chat-bg); border: 1px solid var(--chat-border); border-radius: 8px; }
+.employee-chat-layout.design-modern .employee-brand-meta { min-width: 0; }
+.employee-chat-layout.design-modern .employee-brand-meta :is(strong, span) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 1100px) {
+  .employee-chat-layout.design-modern .conversation-identity { flex-basis: 100%; }
+  .employee-chat-layout.design-modern .conversation-tools { width: 100%; }
+  .employee-chat-layout.design-modern .profile-settings-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  .employee-chat-layout.design-modern .conversation-tools input { flex-basis: 100%; width: 100%; }
+  .employee-chat-layout.design-modern .profile-workspace { padding: 12px; }
+  .employee-chat-layout.design-modern .profile-form-labeled { grid-template-columns: minmax(0, 1fr); }
+  .employee-chat-layout.design-modern .composer-wrap { padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+}

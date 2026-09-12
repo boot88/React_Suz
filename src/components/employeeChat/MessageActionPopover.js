@@ -2,7 +2,7 @@ import React, { useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
 // Portaled menus need their own design tokens and viewport positioning.
-export default function MessageActionPopover({ children, theme, style, label, onClose }) {
+export default function MessageActionPopover({ children, theme, style, label, onClose, anchor }) {
   const menuRef = useRef(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -26,7 +26,7 @@ export default function MessageActionPopover({ children, theme, style, label, on
     const observer = new ResizeObserver(fit);
     observer.observe(menu);
     const dismiss = event => {
-      if (!menu.contains(event.target)) closeRef.current();
+      if (!menu.contains(event.target) && !anchor?.contains(event.target)) closeRef.current();
     };
     const keys = event => {
       if (event.key === 'Escape') {
@@ -59,7 +59,7 @@ export default function MessageActionPopover({ children, theme, style, label, on
       window.visualViewport?.removeEventListener('resize', fit);
       if (menu.contains(document.activeElement)) trigger?.focus?.({ preventScroll: true });
     };
-  }, [style]);
+  }, [style, anchor]);
 
   return createPortal(<div ref={menuRef} className={`modern-message-popover modern-chat-surface theme-${theme || 'light'}`} style={style} role="dialog" aria-label={label} onClick={event => event.stopPropagation()}>{children}</div>, document.body);
 }

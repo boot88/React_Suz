@@ -8,6 +8,7 @@ const hasAttachments = (message = {}) => (
 
 const ContactsWorkspace = memo(function ContactsWorkspace({
   modern = false, hiddenDialogs = [], archivedDialogs = [], mutedDialogs = [], onRestoreHidden, onRestoreArchived,
+  theme = 'light', getEmployeeAvatar,
   employees,
   selectedEmail,
   currentLogin,
@@ -117,6 +118,8 @@ const ContactsWorkspace = memo(function ContactsWorkspace({
       <div className={`employee-chat-list ${isManager ? 'manager-mode' : ''}`}>
         <ChatContacts
           modern={modern}
+          theme={theme}
+          getEmployeeAvatar={getEmployeeAvatar}
           resetKey={`${search}:${filter}:${directoryOpen}`}
           summaries={threadSummaries}
           mutedDialogs={mutedDialogs}
