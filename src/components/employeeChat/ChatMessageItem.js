@@ -129,7 +129,8 @@ const ChatMessageItem = memo(function ChatMessageItem({ item, messageListRef, At
                           {!isDeleted && messageReactionBadges.length > 0 && (
 	                            <div className="message-reactions-inline" aria-label={t('emoji')}>
                               {messageReactionBadges.map((emoji) => {
-                                const active = (message.reactions?.[emoji] || []).includes(user.username);
+                                const reactionUsers = message.reactions?.[emoji] || [];
+                                const active = reactionUsers.some((login) => formatFeedLogin(login).toLowerCase() === formatFeedLogin(user.username).toLowerCase());
                                 return (
                                   <button
                                     key={emoji}
@@ -140,10 +141,15 @@ const ChatMessageItem = memo(function ChatMessageItem({ item, messageListRef, At
                                       toggleReaction(message.id, emoji);
                                     }}
                                     aria-pressed={active}
-                                    aria-label={`${emoji} · ${(message.reactions?.[emoji] || []).length}`}
-                                    title={(message.reactions?.[emoji] || []).join(', ')}
+                                    aria-label={`${emoji} · ${reactionUsers.length}`}
+                                    title={reactionUsers.join(', ')}
                                   >
-                                    {emoji}{modern && <span className="reaction-count">{message.reactions[emoji].length}</span>}
+                                    {modern ? (
+                                      <span className="chat-reaction-symbols" aria-hidden="true">
+                                        {reactionUsers.slice(0, 2).map((login, index) => <span key={`${login}-${index}`}>{emoji}</span>)}
+                                        {reactionUsers.length > 2 && <small>+{reactionUsers.length - 2}</small>}
+                                      </span>
+                                    ) : emoji}
                                   </button>
                                 );
                               })}
@@ -162,7 +168,7 @@ const ChatMessageItem = memo(function ChatMessageItem({ item, messageListRef, At
                         {isSelected && !isDeleted && modern && <MessageActionPopover theme={chatLocalSettings.uiTheme} style={selectedMessageMenuStyle} label={t('dialogActions')} onClose={() => { setSelectedMessageId(''); setMessageReactionExpanded(false); }}>
                           <div className="modern-popover-heading"><span>{t('emoji')}</span><button type="button" aria-label={t('cancel')} onClick={() => setSelectedMessageId('')}><ChatIcon name="close" size={16} /></button></div>
                           <div className="modern-reaction-picker">
-                            {visibleReactions.map(emoji => <button key={emoji} type="button" aria-label={emoji} aria-pressed={(message.reactions?.[emoji] || []).includes(user.username)} onClick={() => { toggleReaction(message.id, emoji); setSelectedMessageId(''); setMessageReactionExpanded(false); }}>{emoji}</button>)}
+                            {visibleReactions.map(emoji => <button key={emoji} type="button" aria-label={emoji} aria-pressed={(message.reactions?.[emoji] || []).some((login) => formatFeedLogin(login).toLowerCase() === formatFeedLogin(user.username).toLowerCase())} onClick={() => { toggleReaction(message.id, emoji); setSelectedMessageId(''); setMessageReactionExpanded(false); }}>{emoji}</button>)}
                             <button type="button" className="more-reactions" aria-label={isEnglishInterface ? 'More reactions' : 'Другие реакции'} aria-expanded={messageReactionExpanded} onClick={() => setMessageReactionExpanded(!messageReactionExpanded)}><ChatIcon name={messageReactionExpanded ? 'close' : 'more'} /></button>
                           </div>
                           <div className="modern-menu-actions">
@@ -182,7 +188,7 @@ const ChatMessageItem = memo(function ChatMessageItem({ item, messageListRef, At
                           <div className={`selected-message-menu message-action-popover floating theme-${chatLocalSettings.uiTheme || 'light'} ${isMine ? 'mine' : ''} ${selectedMessageMenuPlacement === 'below' ? 'open-below' : ''}`} style={selectedMessageMenuStyle} onClick={(event) => event.stopPropagation()}>
                             <div className="selected-reaction-row compact-reaction-row">
                               {visibleReactions.map((emoji) => {
-                                const active = (message.reactions?.[emoji] || []).includes(user.username);
+                                const active = (message.reactions?.[emoji] || []).some((login) => formatFeedLogin(login).toLowerCase() === formatFeedLogin(user.username).toLowerCase());
                                 return <button key={emoji} type="button" className={active ? 'active' : ''} onClick={() => { toggleReaction(message.id, emoji); setSelectedMessageId(''); setMessageReactionExpanded(false); }}>{emoji}</button>;
                               })}
                               {!messageReactionExpanded && <button type="button" className="more-reactions" onClick={() => setMessageReactionExpanded(true)}>⌄</button>}

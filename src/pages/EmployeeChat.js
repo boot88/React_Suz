@@ -40,6 +40,17 @@ const sameViewerFile = (left, right) => left === right || Boolean(left && right 
   || (!left.id && !right.id && (left.url || left.dataUrl) && (left.url || left.dataUrl) === (right.url || right.dataUrl))
 ));
 
+const setChatReactionForUser = (message = {}, emoji, login, active) => {
+  const reactions = Object.entries(message.reactions || {}).reduce((next, [reactionEmoji, reactionUsers]) => {
+    const users = (Array.isArray(reactionUsers) ? reactionUsers : [])
+      .filter((reactionLogin) => !sameLogin(reactionLogin, login));
+    if (users.length) next[reactionEmoji] = users;
+    return next;
+  }, {});
+  if (active) reactions[emoji] = [...(reactions[emoji] || []), login];
+  return { ...message, reactions };
+};
+
 const EmployeeChat = ({ adminSection = null }) => {
   const { user, logout, employeeDirectory, changeServicePassword } = useAuth();
   const navigate = useNavigate();
@@ -218,6 +229,9 @@ const EmployeeChat = ({ adminSection = null }) => {
   const threadsRef = useRef({});
   const pendingFeedActionsRef = useRef(new Set());
   const pendingFeedPostIdsRef = useRef(new Set());
+  const pendingChatReactionIntentsRef = useRef(new Map());
+  const chatReactionQueuesRef = useRef(new Map());
+  const chatReactionVersionRef = useRef(0);
   const feedMutationVersionRef = useRef(0);
   const feedFetchSequenceRef = useRef(0);
   const feedFetchControllerRef = useRef(null);
@@ -1497,6 +1511,10 @@ const EmployeeChat = ({ adminSection = null }) => {
         const conversationId = payload.conversationId;
         const message = payload.item;
         if (!conversationId || !message?.id) return;
+        const pendingReaction = pendingChatReactionIntentsRef.current.get(`${conversationId}:${message.id}`);
+        const incomingMessage = pendingReaction
+          ? setChatReactionForUser(message, pendingReaction.emoji, user.username, pendingReaction.active)
+          : message;
         prefetchMediaTokens(collectThreadFileIds({ [conversationId]: [message] }), 'chat');
         scheduleSummary();
         conversationMutationRef.current[conversationId] = (conversationMutationRef.current[conversationId] || 0) + 1;
@@ -1504,12 +1522,7 @@ const EmployeeChat = ({ adminSection = null }) => {
         setThreads((prev) => {
           if (!Object.prototype.hasOwnProperty.call(prev, conversationId)) return prev;
           const current = Array.isArray(prev[conversationId]) ? prev[conversationId] : [];
-          const exists = current.some((item) => item.id === message.id);
-          const next = exists
-            ? current.map((item) => (item.id === message.id ? { ...item, ...message } : item))
-            : [...current, message].sort((left, right) => (
-              new Date(left.createdAt || 0).getTime() - new Date(right.createdAt || 0).getTime()
-            ));
+          const next = mergeMessages(current, [incomingMessage]);
           writeCachedConversation(user.username, conversationId, next);
           return { ...prev, [conversationId]: next };
         });
@@ -1656,11 +1669,14 @@ const EmployeeChat = ({ adminSection = null }) => {
 
     const handleFeedReactionUpdated = (event) => {
       const payload = readFeedEvent(event);
-      if (!payload?.postId) return;
+      if (!payload?.postId || !payload?.emoji || !payload?.login || typeof payload?.active !== 'boolean') return;
       feedMutationVersionRef.current += 1;
       setFeedPosts((current) => current.map((post) => (
         post.id === payload.postId
-          ? { ...post, reactions: payload.reactions || post.reactions, updatedAt: payload.updatedAt || post.updatedAt }
+          ? {
+            ...setFeedReactionForUser(post, payload.emoji, payload.login, payload.active),
+            updatedAt: payload.updatedAt || post.updatedAt
+          }
           : post
       )));
     };
@@ -2769,33 +2785,49 @@ const EmployeeChat = ({ adminSection = null }) => {
     const previousMessages = threadsRef.current[targetConversationId] || [];
     const sourceMessage = previousMessages.find((item) => item.id === messageId);
     if (!sourceMessage) return;
-    const actorHasReaction = (sourceMessage.reactions?.[emoji] || [])
-      .some((login) => sameLogin(login, user.username));
+    const reactionKey = `${targetConversationId}:${messageId}`;
+    const currentIntent = pendingChatReactionIntentsRef.current.get(reactionKey);
+    const actorHasReaction = currentIntent
+      ? currentIntent.active && currentIntent.emoji === emoji
+      : (sourceMessage.reactions?.[emoji] || []).some((login) => sameLogin(login, user.username));
     const active = !actorHasReaction;
+    const reactionVersion = ++chatReactionVersionRef.current;
+    pendingChatReactionIntentsRef.current.set(reactionKey, { version: reactionVersion, emoji, active });
     setThreads((current) => ({
       ...current,
       [targetConversationId]: (current[targetConversationId] || previousMessages).map((item) => {
         if (item.id !== messageId) return item;
-        const reactions = { ...(item.reactions || {}) };
-        const users = (Array.isArray(reactions[emoji]) ? reactions[emoji] : [])
-          .filter((login) => !sameLogin(login, user.username));
-        if (active) users.push(user.username);
-        if (users.length) reactions[emoji] = users;
-        else delete reactions[emoji];
-        return { ...item, reactions };
+        return setChatReactionForUser(item, emoji, user.username, active);
       })
     }));
+    const previousRequest = chatReactionQueuesRef.current.get(reactionKey) || Promise.resolve();
+    const request = previousRequest
+      .catch(() => {})
+      .then(() => persistMessageReaction(targetConversationId, messageId, emoji, active));
+    chatReactionQueuesRef.current.set(reactionKey, request);
     try {
-      const saved = await persistMessageReaction(targetConversationId, messageId, emoji, active);
-      if (saved) {
+      const saved = await request;
+      const latestIntent = pendingChatReactionIntentsRef.current.get(reactionKey);
+      if (latestIntent?.version === reactionVersion) {
+        pendingChatReactionIntentsRef.current.delete(reactionKey);
+      }
+      if (saved && latestIntent?.version === reactionVersion) {
         setThreads((current) => ({
           ...current,
           [targetConversationId]: mergeMessages(current[targetConversationId], [saved])
         }));
       }
     } catch (error) {
-      await fetchConversationMessages(targetConversationId, { silent: true });
-      notify(error.message || 'Не удалось поставить реакцию', 'Реакция');
+      const latestIntent = pendingChatReactionIntentsRef.current.get(reactionKey);
+      if (latestIntent?.version === reactionVersion) {
+        pendingChatReactionIntentsRef.current.delete(reactionKey);
+        await fetchConversationMessages(targetConversationId, { silent: true });
+        notify(error.message || 'Не удалось поставить реакцию', 'Реакция');
+      }
+    } finally {
+      if (chatReactionQueuesRef.current.get(reactionKey) === request) {
+        chatReactionQueuesRef.current.delete(reactionKey);
+      }
     }
   };
 
@@ -3783,8 +3815,8 @@ const EmployeeChat = ({ adminSection = null }) => {
     const post = feedPostsRef.current.find((item) => item.id === postId);
     if (!post) return;
     const actionKey = `reaction:${postId}:${emoji}`;
-    if (!beginFeedAction(actionKey, postId)) return;
-    const wasActive = (post.reactions?.[emoji] || []).includes(login);
+    if (!beginFeedAction(actionKey)) return;
+    const wasActive = (post.reactions?.[emoji] || []).some((reactionLogin) => sameLogin(reactionLogin, login));
     const active = !wasActive;
     setFeedPosts((current) => current.map((item) => (
       item.id === postId ? setFeedReactionForUser(item, emoji, login, active) : item
@@ -3798,7 +3830,7 @@ const EmployeeChat = ({ adminSection = null }) => {
       }, { attempts: 4, fallbackMessage: 'Не удалось обновить реакцию' });
       setFeedPosts((current) => current.map((item) => (
         item.id === postId
-          ? { ...item, reactions: data?.reactions || data?.post?.reactions || item.reactions }
+          ? setFeedReactionForUser(item, data?.emoji || emoji, data?.login || login, data?.active ?? active)
           : item
       )));
     } catch (error) {
@@ -3810,7 +3842,7 @@ const EmployeeChat = ({ adminSection = null }) => {
         'Лента'
       );
     } finally {
-      endFeedAction(actionKey, postId);
+      endFeedAction(actionKey);
     }
   };
 

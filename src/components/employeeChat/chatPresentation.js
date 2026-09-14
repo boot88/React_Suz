@@ -1497,9 +1497,9 @@ const sortFeedPosts = (posts = []) => [...posts].sort((a, b) => (
 
 const setFeedReactionForUser = (post = {}, emoji, login, active) => {
   const reactions = { ...(post.reactions || {}) };
-  const users = new Set(Array.isArray(reactions[emoji]) ? reactions[emoji] : []);
+  const users = new Set((Array.isArray(reactions[emoji]) ? reactions[emoji] : [])
+    .filter((reactionLogin) => !sameLogin(reactionLogin, login)));
   if (active) users.add(login);
-  else users.delete(login);
   if (users.size) reactions[emoji] = [...users];
   else delete reactions[emoji];
   return { ...post, reactions };

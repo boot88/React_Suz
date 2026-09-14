@@ -188,11 +188,13 @@
 .employee-chat-layout.design-modern .active-reply { margin-bottom: 12px; }
 .employee-chat-layout.design-modern .active-reply > button { flex: 0 0 30px; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--chat-muted); font-size: 22px; box-shadow: none; }
 .employee-chat-layout.design-modern .forwarded-preview { padding: 4px 0 8px; border: 0; background: transparent; color: var(--chat-accent); font-size: 11px; }
-.employee-chat-layout.design-modern .message-reactions-inline { gap: 5px; background: transparent; animation: none; }
-.employee-chat-layout.design-modern .message-reactions-inline button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 40px; min-height: 29px; padding: 3px 8px; background: var(--chat-surface); border: 1px solid var(--chat-border); border-radius: 16px; color: var(--chat-ink); box-shadow: none; font-size: 16px; font-weight: 500; }
-.employee-chat-layout.design-modern .message-reactions-inline button.active { background: #326cd51a; border-color: var(--chat-accent); color: var(--chat-accent); }
-.employee-chat-layout.design-modern .reaction-count { font-size: 11px; font-weight: 600; }
-.employee-chat-layout.design-modern .message-reactions-inline button:hover { border-color: var(--chat-accent); }
+.employee-chat-layout.design-modern .message-row .message-reactions-inline { gap: 5px; background: transparent; animation: none; }
+.employee-chat-layout.design-modern .message-row .message-reactions-inline button { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; min-height: 29px; padding: 2px; background: transparent; border: 1px solid transparent; border-radius: 8px; color: var(--chat-ink); box-shadow: none; font-size: 16px; font-weight: 500; }
+.employee-chat-layout.design-modern .message-row .message-reactions-inline button.active { background: transparent; border-color: transparent; color: var(--chat-accent); }
+.employee-chat-layout.design-modern .message-row .message-reactions-inline button:hover { background: var(--chat-bg); border-color: transparent; }
+.employee-chat-layout.design-modern .chat-reaction-symbols { display: inline-flex; align-items: center; padding-left: 4px; }
+.employee-chat-layout.design-modern .chat-reaction-symbols > span { display: block; margin-left: -4px; filter: drop-shadow(0 1px 1px #0c1b3424); }
+.employee-chat-layout.design-modern .chat-reaction-symbols > small { margin-left: 2px; color: var(--chat-muted); font-size: 10px; font-weight: 600; }
 .employee-chat-layout.design-modern .inline-message-editor textarea { width: 100%; min-height: 70px; padding: 10px; border-radius: 8px; color: var(--chat-ink); background: var(--chat-surface); }
 .employee-chat-layout.design-modern .inline-message-editor button { margin: 6px 6px 0 0; padding: 6px 10px; border: 1px solid var(--chat-border); border-radius: 6px; color: var(--chat-accent); background: var(--chat-surface); }
 

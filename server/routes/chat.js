@@ -3221,12 +3221,15 @@ router.post('/threads/:conversationId/messages/:messageId/reactions', async (req
       return res.status(409).json({ message: 'На скрытое сообщение нельзя поставить реакцию' });
     }
 
-    const reactions = { ...(existingMessage.reactions || {}) };
-    const users = (Array.isArray(reactions[emoji]) ? reactions[emoji] : [])
-      .filter((login) => !isSameLogin(login, req.auth.login));
-    if (active) users.push(req.auth.login);
-    if (users.length) reactions[emoji] = users;
-    else delete reactions[emoji];
+    // A direct conversation has one reaction per participant. Selecting another
+    // emoji replaces the actor's previous choice instead of accumulating badges.
+    const reactions = Object.entries(existingMessage.reactions || {}).reduce((next, [reactionEmoji, reactionUsers]) => {
+      const users = (Array.isArray(reactionUsers) ? reactionUsers : [])
+        .filter((login) => !isSameLogin(login, req.auth.login));
+      if (users.length) next[reactionEmoji] = users;
+      return next;
+    }, {});
+    if (active) reactions[emoji] = [...(reactions[emoji] || []), req.auth.login];
 
     const now = new Date().toISOString();
     const updatedItem = {
