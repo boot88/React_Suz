@@ -172,6 +172,7 @@ const FeedPostCard = memo(function FeedPostCard({
 
       <div className="message-reactions-inline feed-reactions-inline">
         {reactionEmojis.filter((emoji) => (post.reactions?.[emoji] || []).length > 0).map((emoji) => {
+          const reactionCount = (post.reactions?.[emoji] || []).length;
           const active = (post.reactions?.[emoji] || []).some((login) => (
             formatLogin(login).toLowerCase() === formatLogin(currentLogin).toLowerCase()
           ));
@@ -183,10 +184,11 @@ const FeedPostCard = memo(function FeedPostCard({
               disabled={mutationPending}
               aria-busy={mutationPending}
               aria-pressed={active}
+              aria-label={`${emoji} · ${reactionCount}`}
               onClick={() => onToggleReaction(post.id, emoji)}
               title={(post.reactions?.[emoji] || []).join(', ')}
             >
-              {emoji} {(post.reactions?.[emoji] || []).length}
+              {emoji}{reactionCount > 1 ? ` ${reactionCount}` : ''}
             </button>
           );
         })}
