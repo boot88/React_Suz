@@ -110,6 +110,10 @@ export default function EmployeeFeedWorkspace({ AttachmentCard, FEED_CATEGORIES,
                     onDelete={deleteFeedPost}
                     onOpenMedia={openFeedMediaViewer}
                     onToggleReaction={toggleFeedReaction}
+                    onCloseReactionPicker={() => {
+                      setSelectedFeedPostId('');
+                      setFeedReactionExpanded(false);
+                    }}
                     onSelect={(postId) => {
                       if (selectedFeedPostId === postId && feedReactionExpanded) {
                         setFeedReactionExpanded(false);

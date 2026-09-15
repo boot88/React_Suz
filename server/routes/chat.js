@@ -1786,8 +1786,18 @@ const writeSqlFeedComment = async (postId, comment = {}) => {
 const readSqlFeedReactions = async (postIds = []) => {
   if (!postIds.length || !await ensureFeedSqlSchema()) return {};
   const placeholders = postIds.map(() => '?').join(',');
-  const [rows] = await db.execute(`SELECT post_id, emoji, login FROM feed_reactions WHERE post_id IN (${placeholders})`, postIds);
+  const [rows] = await db.execute(
+    `SELECT post_id, emoji, login
+     FROM feed_reactions
+     WHERE post_id IN (${placeholders})
+     ORDER BY created_at DESC, emoji DESC`,
+    postIds
+  );
+  const seenActors = new Set();
   return (rows || []).reduce((acc, row) => {
+    const actorKey = `${row.post_id}:${String(row.login || '').trim().toLowerCase()}`;
+    if (seenActors.has(actorKey)) return acc;
+    seenActors.add(actorKey);
     if (!acc[row.post_id]) acc[row.post_id] = {};
     if (!acc[row.post_id][row.emoji]) acc[row.post_id][row.emoji] = [];
     acc[row.post_id][row.emoji].push(row.login);
@@ -1912,6 +1922,31 @@ const setSqlFeedReaction = async (postId, emoji, login, active) => {
     await db.execute('INSERT INTO feed_reactions (post_id, emoji, login, created_at) VALUES (?, ?, ?, ?)', [postId, emoji, login, new Date()]);
   }
   return true;
+};
+
+const setSqlExclusiveFeedReaction = async (postId, emoji, login, active) => {
+  if (!await ensureFeedSqlSchema()) return false;
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.execute(
+      'DELETE FROM feed_reactions WHERE post_id = ? AND login = ?',
+      [postId, login]
+    );
+    if (active) {
+      await connection.execute(
+        'INSERT INTO feed_reactions (post_id, emoji, login, created_at) VALUES (?, ?, ?, ?)',
+        [postId, emoji, login, new Date()]
+      );
+    }
+    await connection.commit();
+    return true;
+  } catch (error) {
+    await connection.rollback().catch(() => {});
+    throw error;
+  } finally {
+    connection.release();
+  }
 };
 
 const ensureStorage = async () => {
@@ -2793,7 +2828,7 @@ router.post('/feed/posts/:postId/reactions', async (req, res) => {
     const currentReactions = await readSqlFeedReactions([postId]);
     const currentUsers = new Set(currentReactions[postId]?.[emoji] || []);
     const active = typeof req.body?.active === 'boolean' ? req.body.active : !currentUsers.has(login);
-    if (!await setSqlFeedReaction(postId, emoji, login, active)) {
+    if (!await setSqlExclusiveFeedReaction(postId, emoji, login, active)) {
       return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
     }
     const nextReactions = await readSqlFeedReactions([postId]);

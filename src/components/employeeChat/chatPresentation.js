@@ -1496,12 +1496,13 @@ const sortFeedPosts = (posts = []) => [...posts].sort((a, b) => (
 ));
 
 const setFeedReactionForUser = (post = {}, emoji, login, active) => {
-  const reactions = { ...(post.reactions || {}) };
-  const users = new Set((Array.isArray(reactions[emoji]) ? reactions[emoji] : [])
-    .filter((reactionLogin) => !sameLogin(reactionLogin, login)));
-  if (active) users.add(login);
-  if (users.size) reactions[emoji] = [...users];
-  else delete reactions[emoji];
+  const reactions = Object.entries(post.reactions || {}).reduce((next, [reactionEmoji, reactionUsers]) => {
+    const users = (Array.isArray(reactionUsers) ? reactionUsers : [])
+      .filter((reactionLogin) => !sameLogin(reactionLogin, login));
+    if (users.length) next[reactionEmoji] = users;
+    return next;
+  }, {});
+  if (active && emoji) reactions[emoji] = [...(reactions[emoji] || []), login];
   return { ...post, reactions };
 };
 

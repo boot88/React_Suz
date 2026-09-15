@@ -232,6 +232,10 @@ const EmployeeChat = ({ adminSection = null }) => {
   const pendingChatReactionIntentsRef = useRef(new Map());
   const chatReactionQueuesRef = useRef(new Map());
   const chatReactionVersionRef = useRef(0);
+  const pendingFeedReactionIntentsRef = useRef(new Map());
+  const feedReactionQueuesRef = useRef(new Map());
+  const feedReactionVersionRef = useRef(0);
+  const feedReactionAppliedAtRef = useRef(new Map());
   const feedMutationVersionRef = useRef(0);
   const feedFetchSequenceRef = useRef(0);
   const feedFetchControllerRef = useRef(null);
@@ -1670,15 +1674,26 @@ const EmployeeChat = ({ adminSection = null }) => {
     const handleFeedReactionUpdated = (event) => {
       const payload = readFeedEvent(event);
       if (!payload?.postId || !payload?.emoji || !payload?.login || typeof payload?.active !== 'boolean') return;
+      const actorKey = `${payload.postId}:${formatFeedLogin(payload.login).toLowerCase()}`;
+      const eventTimestamp = new Date(payload.updatedAt || 0).getTime() || 0;
+      const appliedTimestamp = feedReactionAppliedAtRef.current.get(actorKey) || 0;
+      if (eventTimestamp && eventTimestamp <= appliedTimestamp) return;
+      if (eventTimestamp) feedReactionAppliedAtRef.current.set(actorKey, eventTimestamp);
       feedMutationVersionRef.current += 1;
-      setFeedPosts((current) => current.map((post) => (
-        post.id === payload.postId
-          ? {
-            ...setFeedReactionForUser(post, payload.emoji, payload.login, payload.active),
-            updatedAt: payload.updatedAt || post.updatedAt
-          }
-          : post
-      )));
+      setFeedPosts((current) => current.map((post) => {
+        if (post.id !== payload.postId) return post;
+        let updatedPost = setFeedReactionForUser(post, payload.emoji, payload.login, payload.active);
+        const pendingReaction = pendingFeedReactionIntentsRef.current.get(payload.postId);
+        if (pendingReaction) {
+          updatedPost = setFeedReactionForUser(
+            updatedPost,
+            pendingReaction.emoji,
+            user.username,
+            pendingReaction.active
+          );
+        }
+        return { ...updatedPost, updatedAt: payload.updatedAt || post.updatedAt };
+      }));
     };
 
     const handleFeedPinUpdated = (event) => {
@@ -3814,35 +3829,68 @@ const EmployeeChat = ({ adminSection = null }) => {
     const login = user?.username || 'employee';
     const post = feedPostsRef.current.find((item) => item.id === postId);
     if (!post) return;
-    const actionKey = `reaction:${postId}:${emoji}`;
-    if (!beginFeedAction(actionKey)) return;
-    const wasActive = (post.reactions?.[emoji] || []).some((reactionLogin) => sameLogin(reactionLogin, login));
+    const currentIntent = pendingFeedReactionIntentsRef.current.get(postId);
+    const previousEmoji = currentIntent
+      ? (currentIntent.active ? currentIntent.emoji : '')
+      : (Object.entries(post.reactions || {}).find(([, reactionLogins]) => (
+        (Array.isArray(reactionLogins) ? reactionLogins : []).some((reactionLogin) => sameLogin(reactionLogin, login))
+      ))?.[0] || '');
+    const wasActive = currentIntent
+      ? currentIntent.active && currentIntent.emoji === emoji
+      : previousEmoji === emoji;
     const active = !wasActive;
+    const reactionVersion = ++feedReactionVersionRef.current;
+    const actionKey = `reaction:${postId}:${reactionVersion}`;
+    if (!beginFeedAction(actionKey)) return;
+    pendingFeedReactionIntentsRef.current.set(postId, { version: reactionVersion, emoji, active });
     setFeedPosts((current) => current.map((item) => (
       item.id === postId ? setFeedReactionForUser(item, emoji, login, active) : item
     )));
 
-    try {
-      const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/reactions`, {
+    const previousRequest = feedReactionQueuesRef.current.get(postId) || Promise.resolve();
+    const request = previousRequest
+      .catch(() => {})
+      .then(() => fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/reactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emoji, active })
-      }, { attempts: 4, fallbackMessage: 'Не удалось обновить реакцию' });
-      setFeedPosts((current) => current.map((item) => (
-        item.id === postId
-          ? setFeedReactionForUser(item, data?.emoji || emoji, data?.login || login, data?.active ?? active)
-          : item
-      )));
+      }, { attempts: 4, fallbackMessage: 'Не удалось обновить реакцию' }));
+    feedReactionQueuesRef.current.set(postId, request);
+    try {
+      const data = await request;
+      const responseTimestamp = new Date(data?.updatedAt || 0).getTime() || 0;
+      if (responseTimestamp) {
+        feedReactionAppliedAtRef.current.set(
+          `${postId}:${formatFeedLogin(data?.login || login).toLowerCase()}`,
+          responseTimestamp
+        );
+      }
+      const latestIntent = pendingFeedReactionIntentsRef.current.get(postId);
+      if (latestIntent?.version === reactionVersion) {
+        pendingFeedReactionIntentsRef.current.delete(postId);
+        setFeedPosts((current) => current.map((item) => (
+          item.id === postId
+            ? setFeedReactionForUser(item, data?.emoji || emoji, data?.login || login, data?.active ?? active)
+            : item
+        )));
+      }
     } catch (error) {
-      setFeedPosts((current) => current.map((item) => (
-        item.id === postId ? setFeedReactionForUser(item, emoji, login, wasActive) : item
-      )));
-      notify(
-        isNetworkFailure(error) ? getFriendlyNetworkMessage('Не удалось обновить реакцию') : (error.message || 'Не удалось обновить реакцию'),
-        'Лента'
-      );
+      const latestIntent = pendingFeedReactionIntentsRef.current.get(postId);
+      if (latestIntent?.version === reactionVersion) {
+        pendingFeedReactionIntentsRef.current.delete(postId);
+        setFeedPosts((current) => current.map((item) => (
+          item.id === postId ? setFeedReactionForUser(item, previousEmoji, login, Boolean(previousEmoji)) : item
+        )));
+        notify(
+          isNetworkFailure(error) ? getFriendlyNetworkMessage('Не удалось обновить реакцию') : (error.message || 'Не удалось обновить реакцию'),
+          'Лента'
+        );
+      }
     } finally {
       endFeedAction(actionKey);
+      if (feedReactionQueuesRef.current.get(postId) === request) {
+        feedReactionQueuesRef.current.delete(postId);
+      }
     }
   };
 

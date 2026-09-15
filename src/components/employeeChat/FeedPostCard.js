@@ -56,6 +56,7 @@ const FeedPostCard = memo(function FeedPostCard({
   onDelete,
   onOpenMedia,
   onToggleReaction,
+  onCloseReactionPicker,
   onSelect,
   onExpandReactions,
   onReplyComment,
@@ -171,7 +172,9 @@ const FeedPostCard = memo(function FeedPostCard({
 
       <div className="message-reactions-inline feed-reactions-inline">
         {reactionEmojis.filter((emoji) => (post.reactions?.[emoji] || []).length > 0).map((emoji) => {
-          const active = (post.reactions?.[emoji] || []).includes(currentLogin);
+          const active = (post.reactions?.[emoji] || []).some((login) => (
+            formatLogin(login).toLowerCase() === formatLogin(currentLogin).toLowerCase()
+          ));
           return (
             <button
               key={emoji}
@@ -193,7 +196,9 @@ const FeedPostCard = memo(function FeedPostCard({
         <div className="feed-selected-menu compact-feed-selected-menu">
           <div className="selected-reaction-row feed-reaction-picker">
             {(reactionExpanded ? reactionEmojis : reactionEmojis.slice(0, 7)).map((emoji) => {
-              const active = (post.reactions?.[emoji] || []).includes(currentLogin);
+              const active = (post.reactions?.[emoji] || []).some((login) => (
+                formatLogin(login).toLowerCase() === formatLogin(currentLogin).toLowerCase()
+              ));
               return (
                 <button
                   key={emoji}
@@ -203,7 +208,10 @@ const FeedPostCard = memo(function FeedPostCard({
                   aria-busy={mutationPending}
                   aria-pressed={active}
                   aria-label={emoji}
-                  onClick={() => onToggleReaction(post.id, emoji)}
+                  onClick={() => {
+                    onToggleReaction(post.id, emoji);
+                    onCloseReactionPicker?.();
+                  }}
                 >
                   {emoji}
                 </button>
