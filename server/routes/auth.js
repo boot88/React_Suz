@@ -297,11 +297,6 @@ const sanitizeProfilePreferences = (preferences = {}) => {
 
 const provisionUsersFromPhoneBook = async () => {
   await ensureUsersSchema();
-  if (!DEFAULT_EMPLOYEE_PASSWORD || !DEFAULT_ADMIN_PASSWORD) {
-    const error = new Error('Для синхронизации пользователей задайте DEFAULT_EMPLOYEE_PASSWORD и DEFAULT_ADMIN_PASSWORD в переменных окружения');
-    error.status = 503;
-    throw error;
-  }
 
   const [phoneRows] = await db.execute(
     `SELECT full_name, position, department, room, internal_phone, external_phone, email
@@ -366,6 +361,10 @@ const provisionUsersFromPhoneBook = async () => {
   }
 
   const desiredLogins = desiredUsers.map((item) => item.login);
+  const [existingRows] = await db.execute('SELECT login, password FROM users');
+  const existingByLogin = new Map(existingRows.map((item) => [normalizeLogin(item.login), item]));
+  const passwordHashes = new Map();
+  const passwordSetupRequired = [];
 
   const [removedUsers] = await db.execute(
     'DELETE FROM users WHERE provisioned_from_directory = 1 AND login NOT IN (?)',
@@ -373,7 +372,24 @@ const provisionUsersFromPhoneBook = async () => {
   );
 
   for (const user of desiredUsers) {
-    const passwordHash = await hashPassword(user.initialPassword);
+    const existingUser = existingByLogin.get(normalizeLogin(user.login));
+    let passwordHash = existingUser?.password || '';
+
+    if (!passwordHash) {
+      if (user.initialPassword) {
+        if (!passwordHashes.has(user.initialPassword)) {
+          passwordHashes.set(user.initialPassword, await hashPassword(user.initialPassword));
+        }
+        passwordHash = passwordHashes.get(user.initialPassword);
+      } else {
+        // Справочник должен обновляться даже без общих паролей в окружении.
+        // Новый аккаунт получает неизвестный случайный пароль и остаётся
+        // заблокированным для входа, пока администратор не назначит пароль.
+        passwordHash = await hashPassword(crypto.randomBytes(32).toString('base64url'));
+        passwordSetupRequired.push({ login: user.login, full_name: user.full_name });
+      }
+    }
+
     await db.execute(
       `INSERT INTO users (login, password, role, full_name, position, department, phone, external_phone, room, provisioned_from_directory)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
@@ -392,7 +408,11 @@ const provisionUsersFromPhoneBook = async () => {
 
   return {
     total: desiredUsers.length,
+    created: desiredUsers.filter((item) => !existingByLogin.has(normalizeLogin(item.login))).length,
+    updated: desiredUsers.filter((item) => existingByLogin.has(normalizeLogin(item.login))).length,
     removed: Number(removedUsers?.affectedRows || 0),
+    passwordSetupRequired: passwordSetupRequired.length,
+    passwordSetupLogins: passwordSetupRequired,
     employees: desiredUsers.filter((item) => item.role === 'employee').length,
     admins: desiredUsers.filter((item) => item.role === 'admin').length,
     adminLogins: desiredUsers.filter((item) => item.role === 'admin').map((item) => ({ login: item.login, full_name: item.full_name }))
