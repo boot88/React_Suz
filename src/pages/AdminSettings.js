@@ -25,7 +25,7 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
     if (!window.confirm(kind === 'directory' ? 'Обновить справочник сотрудников? Изменения будут сохранены.' : 'Обновить данные IP-сетки?')) return;
     setBusy(kind); setMessage('');
     try {
-      if (kind === 'directory') { const data = await syncEmployees(); const passwordsRequired = Number(data.accounts?.passwordSetupRequired || 0); setMessage(`Справочник и учётные записи обновлены: добавлено ${data.inserted || 0}, изменено ${data.updated || 0}, удалено ушедших ${data.deactivated || data.accounts?.removed || 0}. Активных сотрудников: ${data.accounts?.total || data.activeAfter || 0}.${passwordsRequired ? ` Для ${passwordsRequired} новых аккаунтов нужно назначить пароль в управлении доступом.` : ''}`); window.dispatchEvent(new Event('employee-directory-updated')); }
+      if (kind === 'directory') { const data = await syncEmployees(); const createdAccounts = Number(data.accounts?.created || 0); setMessage(`Справочник и учётные записи обновлены: добавлено ${data.inserted || 0}, изменено ${data.updated || 0}, удалено ушедших ${data.deactivated || data.accounts?.removed || 0}. Активных сотрудников: ${data.accounts?.total || data.activeAfter || 0}.${createdAccounts ? ` Новых аккаунтов: ${createdAccounts}; начальный пароль — 12345.` : ''}`); window.dispatchEvent(new Event('employee-directory-updated')); }
       else { const r = await authFetch(`${API_BASE_URL}/network-map`); const data = await r.json(); if (!r.ok) throw new Error(data.message); sessionStorage.setItem('network-map-cache', JSON.stringify(data)); setMessage('Данные IP-сетки обновлены.'); }
     } catch (e) { setMessage(e.message || 'Не удалось выполнить обновление.'); } finally { setBusy(''); }
   };

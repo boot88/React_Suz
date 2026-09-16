@@ -83,8 +83,7 @@ const notificationsFilePath = path.join(dataDir, 'managerNotifications.json');
 const presenceFilePath = path.join(dataDir, 'presence.json');
 const profileAvatarDir = path.join(__dirname, '..', 'uploads', 'profile');
 
-const DEFAULT_EMPLOYEE_PASSWORD = String(process.env.DEFAULT_EMPLOYEE_PASSWORD || '');
-const DEFAULT_ADMIN_PASSWORD = String(process.env.DEFAULT_ADMIN_PASSWORD || '');
+const NEW_DIRECTORY_ACCOUNT_PASSWORD = '12345';
 const MANAGER_LOGIN = normalizeLogin(process.env.MANAGER_LOGIN || '');
 const MANAGER_PASSWORD = String(process.env.MANAGER_PASSWORD || '');
 const MANAGER_NAME = String(process.env.MANAGER_NAME || 'Ответственный менеджер').trim();
@@ -128,7 +127,6 @@ const ADMIN_FULL_NAMES = [
   'Сальников Георгий Ефимович',
   'Польников Д.В.'
 ];
-let missingProvisionPasswordsWarned = false;
 let usersSchemaReady = false;
 let usersSchemaPromise = null;
 let managerAccountReady = false;
@@ -331,7 +329,6 @@ const provisionUsersFromPhoneBook = async () => {
     desiredUsers.push({
       login,
       role: isAdmin ? 'admin' : 'employee',
-      initialPassword: isAdmin ? DEFAULT_ADMIN_PASSWORD : DEFAULT_EMPLOYEE_PASSWORD,
       full_name: employee.full_name,
       department: departments || null,
       position: positions || null,
@@ -350,7 +347,6 @@ const provisionUsersFromPhoneBook = async () => {
     desiredUsers.push({
       login,
       role: 'admin',
-      initialPassword: DEFAULT_ADMIN_PASSWORD,
       full_name: adminName,
       department: null,
       position: null,
@@ -363,8 +359,7 @@ const provisionUsersFromPhoneBook = async () => {
   const desiredLogins = desiredUsers.map((item) => item.login);
   const [existingRows] = await db.execute('SELECT login, password FROM users');
   const existingByLogin = new Map(existingRows.map((item) => [normalizeLogin(item.login), item]));
-  const passwordHashes = new Map();
-  const passwordSetupRequired = [];
+  let newAccountPasswordHash = '';
 
   const [removedUsers] = await db.execute(
     'DELETE FROM users WHERE provisioned_from_directory = 1 AND login NOT IN (?)',
@@ -376,24 +371,17 @@ const provisionUsersFromPhoneBook = async () => {
     let passwordHash = existingUser?.password || '';
 
     if (!passwordHash) {
-      if (user.initialPassword) {
-        if (!passwordHashes.has(user.initialPassword)) {
-          passwordHashes.set(user.initialPassword, await hashPassword(user.initialPassword));
-        }
-        passwordHash = passwordHashes.get(user.initialPassword);
-      } else {
-        // Справочник должен обновляться даже без общих паролей в окружении.
-        // Новый аккаунт получает неизвестный случайный пароль и остаётся
-        // заблокированным для входа, пока администратор не назначит пароль.
-        passwordHash = await hashPassword(crypto.randomBytes(32).toString('base64url'));
-        passwordSetupRequired.push({ login: user.login, full_name: user.full_name });
+      if (!newAccountPasswordHash) {
+        newAccountPasswordHash = await hashPassword(NEW_DIRECTORY_ACCOUNT_PASSWORD);
       }
+      passwordHash = newAccountPasswordHash;
     }
 
     await db.execute(
       `INSERT INTO users (login, password, role, full_name, position, department, phone, external_phone, room, provisioned_from_directory)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
        ON DUPLICATE KEY UPDATE
+         /* password намеренно не обновляется: сохраняем пароль, который сотрудник сменил вручную */
          role = VALUES(role),
          full_name = VALUES(full_name),
          position = VALUES(position),
@@ -411,8 +399,6 @@ const provisionUsersFromPhoneBook = async () => {
     created: desiredUsers.filter((item) => !existingByLogin.has(normalizeLogin(item.login))).length,
     updated: desiredUsers.filter((item) => existingByLogin.has(normalizeLogin(item.login))).length,
     removed: Number(removedUsers?.affectedRows || 0),
-    passwordSetupRequired: passwordSetupRequired.length,
-    passwordSetupLogins: passwordSetupRequired,
     employees: desiredUsers.filter((item) => item.role === 'employee').length,
     admins: desiredUsers.filter((item) => item.role === 'admin').length,
     adminLogins: desiredUsers.filter((item) => item.role === 'admin').map((item) => ({ login: item.login, full_name: item.full_name }))
@@ -807,15 +793,6 @@ const ensureUsersProvisionedFromPhoneBook = async () => {
   if (Number(rows?.[0]?.total || 0) > 0) {
     await ensureManagerAccount();
     return null;
-  }
-  if (!DEFAULT_EMPLOYEE_PASSWORD || !DEFAULT_ADMIN_PASSWORD) {
-    if (!missingProvisionPasswordsWarned) {
-      missingProvisionPasswordsWarned = true;
-      console.warn('Automatic user provisioning is disabled until DEFAULT_EMPLOYEE_PASSWORD and DEFAULT_ADMIN_PASSWORD are configured.');
-    }
-    const error = new Error('Для первого запуска задайте DEFAULT_EMPLOYEE_PASSWORD и DEFAULT_ADMIN_PASSWORD в переменных окружения Render.');
-    error.status = 503;
-    throw error;
   }
   await employeeRoutes.ensurePhoneBookData();
   const result = await provisionUsersFromPhoneBook();
