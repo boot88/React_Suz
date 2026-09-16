@@ -3537,6 +3537,123 @@ router.delete('/threads/:conversationId', requireRole('admin'), async (req, res)
   });
 });
 
+const readAuditSearchParams = (req) => {
+  const employee = String(req.query?.employee || '').trim().toLowerCase().slice(0, 255);
+  const from = String(req.query?.from || '').trim();
+  const to = String(req.query?.to || '').trim();
+  const query = String(req.query?.q || '').trim().toLowerCase().slice(0, 200);
+  if (!employee) throw Object.assign(new Error('Выберите сотрудника из справочника'), { status: 400 });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    throw Object.assign(new Error('Укажите начало и конец периода'), { status: 400 });
+  }
+  if (from > to) throw Object.assign(new Error('Конечная дата не может быть раньше начальной'), { status: 400 });
+  return { employee, from, to, query };
+};
+
+const appendAuditMessageSearch = (conditions, params, query, alias = 'messages') => {
+  if (!query) return;
+  const pattern = `%${query}%`;
+  conditions.push(`(
+    LOWER(${alias}.message_json) LIKE ?
+    OR EXISTS (
+      SELECT 1 FROM chat_message_versions AS versions
+      WHERE versions.message_id = ${alias}.id
+        AND LOWER(versions.snapshot_json) LIKE ?
+    )
+  )`);
+  params.push(pattern, pattern);
+};
+
+router.get('/audit/conversations', requireRole('admin'), async (req, res) => {
+  try {
+    const { employee, from, to, query } = readAuditSearchParams(req);
+    if (!await ensureChatSqlSchema()) {
+      return res.status(503).json({ message: 'Хранилище переписки временно недоступно' });
+    }
+    const conditions = [
+      '(messages.participant_a = ? OR messages.participant_b = ?)',
+      "messages.created_at >= CONCAT(?, ' 00:00:00')",
+      "messages.created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY)"
+    ];
+    const params = [employee, employee, from, to];
+    appendAuditMessageSearch(conditions, params, query);
+    const [rows] = await db.query(
+      `SELECT messages.conversation_id,
+              MIN(messages.participant_a) AS participant_a,
+              MIN(messages.participant_b) AS participant_b,
+              COUNT(DISTINCT messages.id) AS message_count,
+              COUNT(DISTINCT CASE WHEN messages.deleted_at IS NOT NULL THEN messages.id END) AS deleted_count,
+              COUNT(DISTINCT links.file_id) AS file_count,
+              MIN(messages.created_at) AS first_at,
+              MAX(messages.created_at) AS last_at
+       FROM chat_messages AS messages
+       LEFT JOIN chat_message_files AS links ON links.message_id = messages.id
+       WHERE ${conditions.join(' AND ')}
+       GROUP BY messages.conversation_id
+       ORDER BY last_at DESC
+       LIMIT 300`,
+      params
+    );
+    res.set('Cache-Control', 'no-store');
+    res.json({ employee, from, to, query, conversations: rows || [] });
+  } catch (error) {
+    console.error('Chat GET /audit/conversations error:', error);
+    res.status(error.status || 500).json({ message: error.status ? error.message : 'Не удалось найти переписку сотрудника' });
+  }
+});
+
+router.get('/audit/conversations/:conversationId/messages', requireRole('admin'), async (req, res) => {
+  try {
+    const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
+    if (!conversationId) return res.status(400).json({ message: 'Выберите переписку' });
+    const { employee, from, to, query } = readAuditSearchParams(req);
+    if (!await ensureChatSqlSchema()) {
+      return res.status(503).json({ message: 'Хранилище переписки временно недоступно' });
+    }
+    const limit = Math.min(200, Math.max(1, Math.floor(Number(req.query?.limit)) || CHAT_SQL_PAGE_SIZE));
+    const conditions = [
+      'messages.conversation_id = ?',
+      '(messages.participant_a = ? OR messages.participant_b = ?)',
+      "messages.created_at >= CONCAT(?, ' 00:00:00')",
+      "messages.created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY)"
+    ];
+    const params = [conversationId, employee, employee, from, to];
+    const cursor = decodeMessageCursor(req.query?.before || '');
+    if (cursor) {
+      conditions.push('(messages.created_at < ? OR (messages.created_at = ? AND messages.id < ?))');
+      params.push(cursor.at, cursor.at, cursor.id);
+    }
+    appendAuditMessageSearch(conditions, params, query);
+    const [rows] = await db.query(
+      `SELECT messages.id, messages.message_json, messages.created_at
+       FROM chat_messages AS messages
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY messages.created_at DESC, messages.id DESC
+       LIMIT ${limit}`,
+      params
+    );
+    const page = (rows || [])
+      .map((row) => parseSqlMessage(row.message_json))
+      .filter(Boolean)
+      .reverse();
+    const retainedMessages = await hydrateRetainedDeletedMessages(conversationId, page);
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      conversationId,
+      employee,
+      from,
+      to,
+      query,
+      messages: retainedMessages.map((message) => sanitizeMessageForResponse(message, { includeRetainedContent: true })),
+      before: page.length ? encodeMessageCursor(page[0]) : '',
+      hasMore: page.length >= limit
+    });
+  } catch (error) {
+    console.error('Chat GET /audit/conversations/messages error:', error);
+    res.status(error.status || 500).json({ message: error.status ? error.message : 'Не удалось открыть переписку' });
+  }
+});
+
 router.get('/records/conversations', requireRole('admin'), async (req, res) => {
   try {
     if (!await ensureChatSqlSchema() || !await ensureRecordsArchiveSchema(db)) {

@@ -33,7 +33,7 @@ import AuthenticatedAvatar from '../components/employeeChat/AuthenticatedAvatar'
 import './EmployeeChat.css';
 import './EmployeeChatModern.css';
 
-import { MANAGER_TEMPLATE_MESSAGES, EMPLOYEE_TEMPLATE_MESSAGES, MANAGER_TEMPLATE_MESSAGES_EN, EMPLOYEE_TEMPLATE_MESSAGES_EN, REACTION_EMOJIS, QUICK_EMOJIS, MAX_ATTACHMENT_SIZE_MB, MAX_ATTACHMENT_SIZE, CHAT_MESSAGES_PAGE_SIZE, FEED_POSTS_PAGE_SIZE, FEED_COMMENTS_PAGE_SIZE, EMPLOYEE_TABS, MANAGER_TABS, REQUEST_CATEGORIES, REQUEST_PRIORITIES, DEFAULT_PROFILE_WEBSITE_LANGUAGE, PROFILE_LANGUAGE_OPTIONS, RUSSIAN_LABELS, ENGLISH_LABELS, ENGLISH_TAB_LABELS, ENGLISH_CONTACT_FILTER_LABELS, translateRuntimeText, FEED_CATEGORIES, ENGLISH_FEED_CATEGORY_LABELS, ENGLISH_REQUEST_CATEGORY_LABELS, ENGLISH_REQUEST_PRIORITY_LABELS, CHAT_FILTERS, CONTACT_FILTERS, CHAT_MEDIA_TABS, AUDIT_PERIODS, CHAT_THEMES, CHAT_DENSITIES, CHAT_TEXT_SIZES, formatEnglishProfileLogin, getWebsiteByLanguage, getConversationId, getParticipantsFromThreadId, getAvatarKey, getGreetingKey, createMessageId, readReadState, saveReadState, getReadTimestamp, getReadMessageId, readChatLocalSettings, saveChatLocalSettings, readPendingMessages, savePendingMessages, getMessageAttachments, getMessageMediaAttachments, extractLinks, getSafeExternalUrl, getLinkPreview, readFeedReadAt, saveFeedReadAt, readCustomTemplates, saveCustomTemplates, getFeedItemTimestamp, getFeedLatestTimestamp, getForwardedMessageText, readDirectoryCache, saveDirectoryCache, readProfileDraft, getProfileValue, saveProfileDraft, processAvatar, sleep, isNetworkFailure, getFriendlyNetworkMessage, readApiJson, fetchJsonWithRetry, createAttachmentThumbnailDataUrl, nudgeVideoToFirstFrame, normalizeText, formatDateLabel, getDateKey, isVideoAttachment, formatFileSize, getFileIcon, dataUrlToBlob, openAttachmentInNewTab, formatFeedLogin, getFeedAttachments, getFeedPostsSignature, getVisibleFeedPosts, sortFeedPosts, setFeedReactionForUser, sameLogin, readSavedFeedDraft, saveFeedDraft, clearSavedFeedDraft, readHiddenFeedPosts, saveHiddenFeedPosts, isImageAttachment, isMediaAttachment, resolveAttachmentUrl, getAttachmentUrl, getOriginalAttachmentUrl, getVideoPosterUrl, getPostShareUrl, isPostAuthor, collectThreadFileIds, collectFeedFileIds, prefetchMediaTokens, canManageFeedPost, VideoPosterFrame, AttachmentCard, FeedMediaCard, getThreadActivityMeta, isThreadInPeriod, getApplicationStatusMeta } from '../components/employeeChat/chatPresentation';
+import { MANAGER_TEMPLATE_MESSAGES, EMPLOYEE_TEMPLATE_MESSAGES, MANAGER_TEMPLATE_MESSAGES_EN, EMPLOYEE_TEMPLATE_MESSAGES_EN, REACTION_EMOJIS, QUICK_EMOJIS, MAX_ATTACHMENT_SIZE_MB, MAX_ATTACHMENT_SIZE, CHAT_MESSAGES_PAGE_SIZE, FEED_POSTS_PAGE_SIZE, FEED_COMMENTS_PAGE_SIZE, EMPLOYEE_TABS, MANAGER_TABS, REQUEST_CATEGORIES, REQUEST_PRIORITIES, DEFAULT_PROFILE_WEBSITE_LANGUAGE, PROFILE_LANGUAGE_OPTIONS, RUSSIAN_LABELS, ENGLISH_LABELS, ENGLISH_TAB_LABELS, ENGLISH_CONTACT_FILTER_LABELS, translateRuntimeText, FEED_CATEGORIES, ENGLISH_FEED_CATEGORY_LABELS, ENGLISH_REQUEST_CATEGORY_LABELS, ENGLISH_REQUEST_PRIORITY_LABELS, CHAT_FILTERS, CONTACT_FILTERS, CHAT_MEDIA_TABS, CHAT_THEMES, CHAT_DENSITIES, CHAT_TEXT_SIZES, formatEnglishProfileLogin, getWebsiteByLanguage, getConversationId, getParticipantsFromThreadId, getAvatarKey, getGreetingKey, createMessageId, readReadState, saveReadState, getReadTimestamp, getReadMessageId, readChatLocalSettings, saveChatLocalSettings, readPendingMessages, savePendingMessages, getMessageAttachments, getMessageMediaAttachments, extractLinks, getSafeExternalUrl, getLinkPreview, readFeedReadAt, saveFeedReadAt, readCustomTemplates, saveCustomTemplates, getFeedItemTimestamp, getFeedLatestTimestamp, getForwardedMessageText, readDirectoryCache, saveDirectoryCache, readProfileDraft, getProfileValue, saveProfileDraft, processAvatar, sleep, isNetworkFailure, getFriendlyNetworkMessage, readApiJson, fetchJsonWithRetry, createAttachmentThumbnailDataUrl, nudgeVideoToFirstFrame, normalizeText, formatDateLabel, getDateKey, isVideoAttachment, formatFileSize, getFileIcon, dataUrlToBlob, openAttachmentInNewTab, formatFeedLogin, getFeedAttachments, getFeedPostsSignature, getVisibleFeedPosts, sortFeedPosts, setFeedReactionForUser, sameLogin, readSavedFeedDraft, saveFeedDraft, clearSavedFeedDraft, readHiddenFeedPosts, saveHiddenFeedPosts, isImageAttachment, isMediaAttachment, resolveAttachmentUrl, getAttachmentUrl, getOriginalAttachmentUrl, getVideoPosterUrl, getPostShareUrl, isPostAuthor, collectThreadFileIds, collectFeedFileIds, prefetchMediaTokens, canManageFeedPost, VideoPosterFrame, AttachmentCard, FeedMediaCard, getApplicationStatusMeta } from '../components/employeeChat/chatPresentation';
 
 const sameViewerFile = (left, right) => left === right || Boolean(left && right && (
   (left.id && right.id && String(left.id) === String(right.id))
@@ -85,7 +85,6 @@ const EmployeeChat = ({ adminSection = null }) => {
   const fetchThreadsVersionRef = useRef(0);
   const conversationMutationRef = useRef({});
   const [dateSearchMessages, setDateSearchMessages] = useState(null);
-  const [selectedThreadId, setSelectedThreadId] = useState('');
   const [draft, setDraft] = useState('');
   const [attachmentDrafts, setAttachmentDrafts] = useState([]);
   const [chatUploadQueue, setChatUploadQueue] = useState([]);
@@ -396,15 +395,6 @@ const EmployeeChat = ({ adminSection = null }) => {
     room: ''
   });
   const [showEmployeePassword, setShowEmployeePassword] = useState(false);
-  const [auditSearch, setAuditSearch] = useState('');
-  const [auditFilters, setAuditFilters] = useState({
-    showEmpty: false,
-    attachmentsOnly: false,
-    deletedOnly: false,
-    period: 'all'
-  });
-
-
   const currentConversationId = selectedEmail ? getConversationId(user.username, selectedEmail) : null;
   const templateMessages = useMemo(() => [
     ...(isEnglishInterface
@@ -419,7 +409,6 @@ const EmployeeChat = ({ adminSection = null }) => {
     loadingConversationIds[currentConversationId]
     || !Object.prototype.hasOwnProperty.call(threads, currentConversationId)
   ));
-  const selectedThreadMessages = selectedThreadId ? (threads[selectedThreadId] || []) : [];
 
   useEffect(() => {
     setVisibleDialogMessageCount(CHAT_MESSAGES_PAGE_SIZE);
@@ -1441,16 +1430,6 @@ const EmployeeChat = ({ adminSection = null }) => {
       controller.abort();
     };
   }, [currentConversationId, fetchConversationMessages, user.username]);
-
-  useEffect(() => {
-    if (activeTab !== 'audit' || !selectedThreadId) return undefined;
-    const controller = new AbortController();
-    fetchConversationMessages(selectedThreadId, {
-      signal: controller.signal,
-      includeDeletedContent: isAdmin
-    });
-    return () => controller.abort();
-  }, [activeTab, fetchConversationMessages, isAdmin, selectedThreadId]);
 
   const synchronizeConversation = useCallback(async (id) => {
     const knownIds = (threadsRef.current[id] || []).filter(message => !['waiting', 'sending', 'error'].includes(message.deliveryStatus)).map(message => message.id);
@@ -2869,24 +2848,6 @@ const EmployeeChat = ({ adminSection = null }) => {
     }
   };
 
-  const editMessage = async (messageId, targetConversationId = currentConversationId) => {
-    const sourceMessage = (threads[targetConversationId] || []).find((item) => item.id === messageId);
-    const nextText = await promptAction('Изменить текст сообщения:', sourceMessage?.text || '');
-    if (!nextText || !targetConversationId) return;
-
-    try {
-      await updateMessage(messageId, (item) => ({
-        ...item,
-        text: String(nextText).trim(),
-        editedAt: new Date().toISOString(),
-        editedBy: user.username,
-        audit: [...(item.audit || []), { action: 'edit', by: user.username, at: new Date().toISOString(), previousText: item.text }]
-      }), targetConversationId);
-    } catch (error) {
-      notify(error.message || 'Не удалось изменить сообщение', 'Сообщение');
-    }
-  };
-
   const copyMessageText = async (message) => {
     const text = String(message?.text || '').trim();
     if (!text) {
@@ -3223,40 +3184,6 @@ const EmployeeChat = ({ adminSection = null }) => {
 
   const activeApplications = useMemo(() => myApplications.filter((item) => item.status !== 'done' && !item.fl), [myApplications]);
   const completedApplications = useMemo(() => myApplications.filter((item) => item.status === 'done' || item.fl), [myApplications]);
-  const threadActivityById = useMemo(() => {
-    const ids = new Set([...Object.keys(threadSummaries), ...Object.keys(threads)]);
-    return Object.fromEntries([...ids].map((threadId) => {
-      const summary = threadSummaries[threadId];
-      const loadedMessages = threads[threadId];
-      if (Array.isArray(loadedMessages) && loadedMessages.length) {
-        return [threadId, getThreadActivityMeta(loadedMessages)];
-      }
-      return [threadId, {
-        visible: Boolean(summary?.lastMessage),
-        messageCount: Number(summary?.messageCount) || 0,
-        deletedCount: Number(summary?.deletedCount) || 0,
-        attachmentsCount: Number(summary?.attachmentsCount) || 0,
-        lastAt: summary?.lastAt || '',
-        lastTimestamp: Number(summary?.lastTimestamp) || 0
-      }];
-    }));
-  }, [threadSummaries, threads]);
-
-  const allConversationIds = useMemo(() => Object.keys(threadActivityById).filter((threadId) => {
-    const messages = threads[threadId] || [];
-    const meta = threadActivityById[threadId] || getThreadActivityMeta(messages);
-    if (!auditFilters.showEmpty && !meta.visible) return false;
-    if (auditFilters.attachmentsOnly && meta.attachmentsCount === 0) return false;
-    if (auditFilters.deletedOnly && meta.deletedCount === 0) return false;
-    if (!isThreadInPeriod(meta.lastTimestamp, auditFilters.period)) return false;
-
-    const query = auditSearch.trim().toLowerCase();
-    if (!query) return true;
-    const participantsText = getParticipantsFromThreadId(threadId).join(' ').toLowerCase();
-    const messagesText = messages.map((message) => [message.sender, message.text, message.deletedBy].filter(Boolean).join(' ')).join(' ').toLowerCase();
-    return `${participantsText} ${messagesText}`.includes(query);
-  }).sort((a, b) => (threadActivityById[b]?.lastTimestamp || 0) - (threadActivityById[a]?.lastTimestamp || 0)), [auditFilters, auditSearch, threadActivityById, threads]);
-
   const employeeByLogin = useMemo(() => new Map(directoryEmployees.map(employee => [String(employee.login).toLowerCase(), employee])), [directoryEmployees]);
   const activeContact = chatCandidates.find((item) => item.email === selectedEmail);
   const remoteTypingLogin = currentConversationId ? remoteTypingByConversation[currentConversationId] : '';
@@ -4274,7 +4201,7 @@ const EmployeeChat = ({ adminSection = null }) => {
 
 
         {adminSection && activeTab === 'audit' && isAdmin && (
-          <ChatAuditAdministration AUDIT_PERIODS={AUDIT_PERIODS} AttachmentCard={AttachmentCard} allConversationIds={allConversationIds} auditFilters={auditFilters} auditSearch={auditSearch} deleteMessage={deleteMessage} editMessage={editMessage} getMessageAttachments={getMessageAttachments} getOptionLabel={getOptionLabel} getParticipantsFromThreadId={getParticipantsFromThreadId} getThreadActivityMeta={getThreadActivityMeta} interfaceLocale={interfaceLocale} isAdmin={isAdmin} isEnglishInterface={isEnglishInterface} loadingConversationIds={loadingConversationIds} selectedThreadId={selectedThreadId} selectedThreadMessages={selectedThreadMessages} setAuditFilters={setAuditFilters} setAuditSearch={setAuditSearch} setSelectedThreadId={setSelectedThreadId} t={t} threadActivityById={threadActivityById} threads={threads} />
+          <ChatAuditAdministration AttachmentCard={AttachmentCard} chatAuthHeaders={chatAuthHeaders} directoryEmployees={directoryEmployees} getMessageAttachments={getMessageAttachments} interfaceLocale={interfaceLocale} isEnglishInterface={isEnglishInterface} sameLogin={sameLogin} t={t} />
         )}
       </section>
 
