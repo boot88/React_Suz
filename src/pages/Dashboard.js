@@ -243,6 +243,7 @@ const Dashboard = () => {
   const [visibleColumns, setVisibleColumns] = useState(readVisibleColumns);
   const [compactMode, setCompactMode] = useState(() => localStorage.getItem(DASHBOARD_COMPACT_KEY) === 'true');
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('dashboard.viewMode') || 'timeline');
+  const [timelineCardDesign, setTimelineCardDesign] = useState('legacy');
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
   const [bulkExecutor, setBulkExecutor] = useState('');
@@ -1237,13 +1238,72 @@ const Dashboard = () => {
                 )}
               </div>
             )}
-            {viewMode === 'timeline' ? <div className="request-timeline">{Object.entries(displayedApplications.reduce((groups, app) => { const key = new Date(app.created_at || app.data).toLocaleDateString('ru-RU', { timeZone: APPLICATION_TIME_ZONE }); (groups[key] ||= []).push(app); return groups; }, {})).map(([date, apps]) => <section className="timeline-day" key={date}><h4>{date}</h4><div className="timeline-row">{apps.sort((a, b) => new Date(a.created_at || a.data) - new Date(b.created_at || b.data)).map(app => (
-  <button type="button" className="timeline-request" key={app.id} onClick={() => openApplicationPanel(app)}>
-    <strong className="timeline-title">{app.application || 'Без названия заявки'}</strong>
-    <span className="timeline-contact">{app.name || 'ФИО не указано'} · каб. {app.cabinet || '—'} · тел. {app.N_tel || '—'}</span>
-    <small>#{app.id} · {formatTime(app.created_at || app.data)} · {getStatusLabel(app)}</small>
-  </button>
-))}</div></section>)}</div> : <div className="table-responsive">
+            {viewMode === 'timeline' ? (
+              <>
+                <div className={`request-timeline request-timeline--${timelineCardDesign}`}>
+                  {Object.entries(displayedApplications.reduce((groups, app) => {
+                    const key = new Date(app.created_at || app.data).toLocaleDateString('ru-RU', { timeZone: APPLICATION_TIME_ZONE });
+                    (groups[key] ||= []).push(app);
+                    return groups;
+                  }, {})).map(([date, apps]) => (
+                    <section className="timeline-day" key={date}>
+                      <h4>{date}</h4>
+                      <div className="timeline-row">
+                        {apps.sort((a, b) => new Date(a.created_at || a.data) - new Date(b.created_at || b.data)).map((app) => {
+                          const status = getApplicationStatus(app);
+                          const statusMeta = STATUS_META[status] || STATUS_META.new;
+                          if (timelineCardDesign === 'modern') {
+                            return (
+                              <button
+                                type="button"
+                                className={`timeline-request timeline-request--modern timeline-request--${status}`}
+                                key={app.id}
+                                onClick={() => openApplicationPanel(app)}
+                              >
+                                <span className="timeline-modern-head">
+                                  <time>{formatTime(app.created_at || app.data)}</time>
+                                  <span className={`timeline-modern-status timeline-modern-status--${status}`}>
+                                    <i aria-hidden="true" />
+                                    {statusMeta.label}
+                                  </span>
+                                </span>
+                                <strong className="timeline-title">{app.application || 'Без названия заявки'}</strong>
+                                <span className="timeline-modern-details">
+                                  <span className="timeline-cabinet">Каб. {app.cabinet || '—'}</span>
+                                  <span className="timeline-person">{app.name || 'ФИО не указано'}</span>
+                                  <span className="timeline-phone">Тел. {app.N_tel || '—'}</span>
+                                </span>
+                                <small className="timeline-request-id">Заявка #{app.id}</small>
+                              </button>
+                            );
+                          }
+                          return (
+                            <button type="button" className="timeline-request" key={app.id} onClick={() => openApplicationPanel(app)}>
+                              <strong className="timeline-title">{app.application || 'Без названия заявки'}</strong>
+                              <span className="timeline-contact">{app.name || 'ФИО не указано'} · каб. {app.cabinet || '—'} · тел. {app.N_tel || '—'}</span>
+                              <small>#{app.id} · {formatTime(app.created_at || app.data)} · {getStatusLabel(app)}</small>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+                <div className="timeline-design-control">
+                  <span className={timelineCardDesign === 'legacy' ? 'active' : ''}>Старый дизайн</span>
+                  <label className="timeline-design-toggle">
+                    <input
+                      type="checkbox"
+                      checked={timelineCardDesign === 'modern'}
+                      onChange={(event) => setTimelineCardDesign(event.target.checked ? 'modern' : 'legacy')}
+                      aria-label="Переключить дизайн карточек заявок"
+                    />
+                    <span aria-hidden="true"><i /></span>
+                  </label>
+                  <span className={timelineCardDesign === 'modern' ? 'active' : ''}>Новый дизайн</span>
+                </div>
+              </>
+            ) : <div className="table-responsive">
               <table className={`applications-table ${compactMode ? 'applications-table-compact' : ''}`}>
                 <thead>
                   <tr>
