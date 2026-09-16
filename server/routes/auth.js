@@ -148,6 +148,7 @@ const ensureUsersSchema = async () => {
       position VARCHAR(255) NULL,
       department VARCHAR(255) NULL,
       phone VARCHAR(100) NULL,
+      external_phone VARCHAR(100) NULL,
       room VARCHAR(100) NULL,
       provisioned_from_directory TINYINT(1) NOT NULL DEFAULT 0,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -163,6 +164,9 @@ const ensureUsersSchema = async () => {
     }
     if (!existing.has('position')) {
       await db.execute('ALTER TABLE users ADD COLUMN position VARCHAR(255) NULL');
+    }
+    if (!existing.has('external_phone')) {
+      await db.execute('ALTER TABLE users ADD COLUMN external_phone VARCHAR(100) NULL AFTER phone');
     }
     usersSchemaReady = true;
   })().finally(() => {
@@ -300,7 +304,7 @@ const provisionUsersFromPhoneBook = async () => {
   }
 
   const [phoneRows] = await db.execute(
-    `SELECT full_name, position, department, room, internal_phone, email
+    `SELECT full_name, position, department, room, internal_phone, external_phone, email
      FROM phone_book
      WHERE is_active = 1 AND full_name IS NOT NULL AND TRIM(full_name) <> ''
      ORDER BY full_name`
@@ -313,11 +317,12 @@ const provisionUsersFromPhoneBook = async () => {
   phoneRows.forEach((employee) => {
     const key = normalizePersonName(employee.full_name);
     if (!key) return;
-    const current = employeesByName.get(key) || { ...employee, departments: [], positions: [], rooms: [], phones: [] };
+    const current = employeesByName.get(key) || { ...employee, departments: [], positions: [], rooms: [], phones: [], externalPhones: [] };
     current.departments.push(employee.department);
     current.positions.push(employee.position);
     current.rooms.push(employee.room);
     current.phones.push(employee.internal_phone);
+    current.externalPhones.push(employee.external_phone);
     employeesByName.set(key, current);
   });
 
@@ -336,6 +341,7 @@ const provisionUsersFromPhoneBook = async () => {
       department: departments || null,
       position: positions || null,
       phone: joinUniqueValues(employee.phones) || null,
+      external_phone: joinUniqueValues(employee.externalPhones) || null,
       room: joinUniqueValues(employee.rooms) || null
     });
   });
@@ -354,13 +360,14 @@ const provisionUsersFromPhoneBook = async () => {
       department: null,
       position: null,
       phone: null,
+      external_phone: null,
       room: null
     });
   }
 
   const desiredLogins = desiredUsers.map((item) => item.login);
 
-  await db.execute(
+  const [removedUsers] = await db.execute(
     'DELETE FROM users WHERE provisioned_from_directory = 1 AND login NOT IN (?)',
     [desiredLogins.length ? desiredLogins : ['__none__']]
   );
@@ -368,22 +375,24 @@ const provisionUsersFromPhoneBook = async () => {
   for (const user of desiredUsers) {
     const passwordHash = await hashPassword(user.initialPassword);
     await db.execute(
-      `INSERT INTO users (login, password, role, full_name, position, department, phone, room, provisioned_from_directory)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+      `INSERT INTO users (login, password, role, full_name, position, department, phone, external_phone, room, provisioned_from_directory)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
        ON DUPLICATE KEY UPDATE
          role = VALUES(role),
          full_name = VALUES(full_name),
          position = VALUES(position),
          department = VALUES(department),
          phone = VALUES(phone),
+         external_phone = VALUES(external_phone),
          room = VALUES(room),
          provisioned_from_directory = 1`,
-      [user.login, passwordHash, user.role, user.full_name, user.position, user.department, user.phone, user.room]
+      [user.login, passwordHash, user.role, user.full_name, user.position, user.department, user.phone, user.external_phone, user.room]
     );
   }
 
   return {
     total: desiredUsers.length,
+    removed: Number(removedUsers?.affectedRows || 0),
     employees: desiredUsers.filter((item) => item.role === 'employee').length,
     admins: desiredUsers.filter((item) => item.role === 'admin').length,
     adminLogins: desiredUsers.filter((item) => item.role === 'admin').map((item) => ({ login: item.login, full_name: item.full_name }))
@@ -718,6 +727,7 @@ const mapUser = (user) => ({
   position: user.position || '',
   department: user.department,
   phone: user.phone,
+  external_phone: user.external_phone,
   room: user.room,
   display_name: getShortPersonName(user.full_name || user.login)
 });
@@ -729,7 +739,7 @@ router.post('/provision-from-phone-book', requireAuth, requireRole('admin'), asy
     res.json({ message: 'Пользователи синхронизированы со справочником сотрудников', ...stats });
   } catch (error) {
     console.error('Provision users error:', error);
-    res.status(500).json({ message: 'Не удалось синхронизировать пользователей со справочником' });
+    res.status(error.status || 500).json({ message: error.message || 'Не удалось синхронизировать пользователей со справочником' });
   }
 });
 
@@ -835,8 +845,9 @@ router.post('/register', requireAuth, requireRole('admin'), async (req, res) => 
 // Список сотрудников (для полу-админа)
 router.get('/employees', requireAuth, async (req, res) => {
   try {
+    await ensureUsersSchema();
     const [users] = await db.execute(
-      'SELECT id, login, role, full_name, position, department, phone, room FROM users WHERE role IN ("employee", "manager", "admin") ORDER BY login'
+      'SELECT id, login, role, full_name, position, department, phone, external_phone, room FROM users WHERE role IN ("employee", "manager", "admin") ORDER BY login'
     );
     const profiles = await readProfiles();
     res.set('Cache-Control', 'no-store');
@@ -863,6 +874,7 @@ router.get('/employees', requireAuth, async (req, res) => {
             position: mapped.position,
             department: mapped.department,
             phone: mapped.phone,
+            external_phone: mapped.external_phone,
             room: mapped.room,
             avatar
           }
@@ -908,7 +920,7 @@ router.put('/employees/:id', requireAuth, requireRole('admin'), async (req, res)
       );
     }
 
-    const [rows] = await db.execute('SELECT id, login, role, full_name, department, phone, room FROM users WHERE id = ?', [id]);
+    const [rows] = await db.execute('SELECT id, login, role, full_name, position, department, phone, external_phone, room FROM users WHERE id = ?', [id]);
     if (!rows.length) {
       return res.status(404).json({ message: 'Сотрудник не найден' });
     }
@@ -1034,13 +1046,14 @@ router.post('/presence', requireAuth, async (req, res) => {
 
 router.get('/profile', requireAuth, async (req, res) => {
   try {
+    await ensureUsersSchema();
     const normalizedLogin = normalizeLogin(req.query?.login || '');
     if (!normalizedLogin) {
       return res.status(400).json({ message: 'login обязателен' });
     }
 
     const [users] = await db.execute(
-      'SELECT id, login, role, full_name, position, department, phone, room FROM users WHERE LOWER(login) = ?',
+      'SELECT id, login, role, full_name, position, department, phone, external_phone, room FROM users WHERE LOWER(login) = ?',
       [normalizedLogin]
     );
 
@@ -1059,6 +1072,7 @@ router.get('/profile', requireAuth, async (req, res) => {
         full_name: user.full_name || normalizedLogin,
         department: user.department || '',
         phone: user.phone || '',
+        external_phone: user.external_phone || '',
         room: user.room || '',
         position: user.position || '',
         bio: extras.bio || '',
@@ -1311,7 +1325,7 @@ router.post('/login', async (req, res) => {
       token: await issueSession(user),
       user: {
         ...mapUser(user),
-        position: profile.position || ''
+        position: profile.position || user.position || ''
       }
     });
   } catch (error) {

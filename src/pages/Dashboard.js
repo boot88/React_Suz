@@ -110,6 +110,10 @@ const isEmployeeCreatedApplication = (app = {}) => (
   app.source === 'chat' || Boolean(String(app.employee_login || '').trim())
 );
 const isAdministratorCreatedApplication = (app = {}) => !isEmployeeCreatedApplication(app);
+const normalizeEmployeeLookupValue = (value = '') => String(value)
+  .toLowerCase()
+  .replace(/ё/g, 'е')
+  .replace(/[^а-яa-z0-9]/g, '');
 
 const getApplicationStatus = (app = {}) => app.status || (app.fl ? 'done' : 'new');
 const isQueueApplication = (app = {}) => ['new', 'reopened'].includes(getApplicationStatus(app));
@@ -218,6 +222,7 @@ const Dashboard = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [applications, setApplications] = useState([]);
+  const [employeeDirectory, setEmployeeDirectory] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [limit, setLimit] = useState(10);
@@ -284,6 +289,26 @@ const Dashboard = () => {
     };
     window.addEventListener('admin:application-action-history-visibility', syncApplicationActionHistoryVisibility);
     return () => window.removeEventListener('admin:application-action-history-visibility', syncApplicationActionHistoryVisibility);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const loadEmployeeDirectory = async () => {
+      try {
+        const response = await authFetch(`${API_BASE_URL}/auth/employees`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.message || 'Не удалось загрузить справочник сотрудников');
+        if (active) setEmployeeDirectory(Array.isArray(data.employees) ? data.employees : []);
+      } catch (error) {
+        console.error('Ошибка загрузки справочника для карточек заявок:', error);
+      }
+    };
+    loadEmployeeDirectory();
+    window.addEventListener('employee-directory-updated', loadEmployeeDirectory);
+    return () => {
+      active = false;
+      window.removeEventListener('employee-directory-updated', loadEmployeeDirectory);
+    };
   }, []);
 
   const exportToExcel = async () => {
@@ -1022,6 +1047,14 @@ const Dashboard = () => {
   }, [applications, sortMode]);
 
   const selectedAppTimes = selectedApplication ? getApplicationTimes(selectedApplication, dashboardNow) : null;
+  const employeesByLogin = useMemo(() => new Map(employeeDirectory.map((employee) => [String(employee.login || '').toLowerCase(), employee])), [employeeDirectory]);
+  const employeesByName = useMemo(() => new Map(employeeDirectory.map((employee) => [normalizeEmployeeLookupValue(employee.full_name), employee])), [employeeDirectory]);
+  const getApplicationEmployee = (app = {}) => (
+    employeesByLogin.get(String(app.employee_login || '').toLowerCase())
+    || employeesByName.get(normalizeEmployeeLookupValue(app.name))
+    || null
+  );
+  const selectedEmployee = selectedApplication ? getApplicationEmployee(selectedApplication) : null;
   const selectedWorkCycles = Array.isArray(selectedApplication?.work_cycles) ? selectedApplication.work_cycles : [];
   const selectedCumulativeWorkSeconds = selectedApplication ? getCumulativeWorkSeconds(selectedApplication, dashboardNow) : null;
   // Полный срок заявки всегда идёт от первой подачи до окончательного
@@ -1321,6 +1354,7 @@ const Dashboard = () => {
 	                    displayedApplications.map((app) => {
                         const primaryAction = getPrimaryTableAction(app);
                         const status = app.status || (app.fl ? 'done' : 'new');
+                        const applicationEmployee = getApplicationEmployee(app);
                         return (
 	                      <tr
 	                        key={app.id}
@@ -1332,7 +1366,8 @@ const Dashboard = () => {
                           </td>
 	                        {isColumnVisible('employee') && <td className="cell-person">
 	                          <strong>{app.name || 'Сотрудник'}</strong>
-	                          <span>каб. {app.cabinet || '—'}{app.N_tel ? ` · ${app.N_tel}` : ''}</span>
+	                          {applicationEmployee?.position && <span>{applicationEmployee.position}</span>}
+	                          <span>каб. {applicationEmployee?.room || app.cabinet || '—'} · вн. {applicationEmployee?.phone || app.N_tel || '—'}{applicationEmployee?.external_phone ? ` · внеш. ${applicationEmployee.external_phone}` : ''}</span>
 	                        </td>}
 
 	                        {isColumnVisible('request') && <td
@@ -1454,7 +1489,7 @@ const Dashboard = () => {
           <div className="side-panel-head">
             <span>{getStatusLabel(selectedApplication)}</span>
             <h2>Заявка #{selectedApplication.id}</h2>
-            <p>{selectedApplication.name} · каб. {selectedApplication.cabinet || '—'} · тел: {selectedApplication.N_tel || '—'}</p>
+            <p>{selectedApplication.name}{selectedEmployee?.position ? ` · ${selectedEmployee.position}` : ''}</p>
           </div>
           <div className="time-summary-card">
             <strong>{getStatusLabel(selectedApplication)}</strong>
@@ -1475,6 +1510,14 @@ const Dashboard = () => {
             <h3>Описание</h3>
             <p>{selectedApplication.application}</p>
           </div>
+          <div className="side-panel-section"><h3>Сотрудник</h3><div className="side-panel-grid">
+            <div><strong>ФИО</strong><span>{selectedEmployee?.full_name || selectedApplication.name || '—'}</span></div>
+            <div><strong>Должность</strong><span>{selectedEmployee?.position || '—'}</span></div>
+            <div><strong>Отдел</strong><span>{selectedEmployee?.department || '—'}</span></div>
+            <div><strong>Кабинет</strong><span>{selectedEmployee?.room || selectedApplication.cabinet || '—'}</span></div>
+            <div><strong>Внутренний телефон</strong><span>{selectedEmployee?.phone || selectedApplication.N_tel || '—'}</span></div>
+            <div><strong>Внешний телефон</strong><span>{selectedEmployee?.external_phone || '—'}</span></div>
+          </div></div>
           <div className="side-panel-section"><h3>Хронология</h3><div className="side-panel-grid">
             {!isAdministratorCreatedApplication(selectedApplication) && <div><strong>Категория</strong><span>{selectedApplication.category || '—'}</span></div>}
             {!isAdministratorCreatedApplication(selectedApplication) && <div><strong>Приоритет</strong><span>{selectedApplication.priority || 'Обычный'}</span></div>}

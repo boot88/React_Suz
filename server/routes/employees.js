@@ -40,6 +40,7 @@ const createSourceKey = (employee) => createEmployeeIdentity(employee) || [
   employee.full_name || '',
   employee.room || '',
   employee.internal_phone || '',
+  employee.external_phone || '',
   employee.email || ''
 ].map(normalizeSourceKeyPart).filter(Boolean).join('|');
 
@@ -100,6 +101,7 @@ const rowToEmployee = (cells) => {
     position: normalizedCells[1] || '',
     department: normalizedCells[2] || '',
     room: normalizedCells[3] || '',
+    external_phone: normalizedCells[4] || '',
     internal_phone: normalizedCells[5] || '',
     email: normalizedCells[6] && normalizedCells[6] !== '""' ? normalizedCells[6] : email
   };
@@ -164,6 +166,7 @@ const ensurePhoneBookSchema = async () => {
       department VARCHAR(255) NULL,
       room VARCHAR(100) NULL,
       internal_phone VARCHAR(100) NULL,
+      external_phone VARCHAR(100) NULL,
       email VARCHAR(255) NULL,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       last_seen_at DATETIME NULL,
@@ -178,6 +181,7 @@ const ensurePhoneBookSchema = async () => {
     ['source_key', 'ALTER TABLE phone_book ADD COLUMN source_key VARCHAR(255) NULL'],
     ['is_active', 'ALTER TABLE phone_book ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1'],
     ['last_seen_at', 'ALTER TABLE phone_book ADD COLUMN last_seen_at DATETIME NULL'],
+    ['external_phone', 'ALTER TABLE phone_book ADD COLUMN external_phone VARCHAR(100) NULL AFTER internal_phone'],
     ['updated_at', 'ALTER TABLE phone_book ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'],
     ['created_at', 'ALTER TABLE phone_book ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP']
   ];
@@ -188,7 +192,7 @@ const ensurePhoneBookSchema = async () => {
 
   await pool.execute(`
     UPDATE phone_book
-    SET source_key = LOWER(TRIM(CONCAT_WS('|', NULLIF(email, ''), full_name, COALESCE(department, ''), COALESCE(room, ''), COALESCE(internal_phone, ''))))
+    SET source_key = LOWER(TRIM(CONCAT_WS('|', NULLIF(email, ''), full_name, COALESCE(department, ''), COALESCE(room, ''), COALESCE(internal_phone, ''), COALESCE(external_phone, ''))))
     WHERE source_key IS NULL OR source_key = ''
   `);
 
@@ -197,6 +201,7 @@ const ensurePhoneBookSchema = async () => {
     'CREATE INDEX idx_phone_book_full_name ON phone_book (full_name)',
     'CREATE INDEX idx_phone_book_department ON phone_book (department)',
     'CREATE INDEX idx_phone_book_phone ON phone_book (internal_phone)',
+    'CREATE INDEX idx_phone_book_external_phone ON phone_book (external_phone)',
     'CREATE INDEX idx_phone_book_email ON phone_book (email)',
     'CREATE INDEX idx_phone_book_is_active ON phone_book (is_active)'
   ];
@@ -217,6 +222,7 @@ const EMPLOYEE_SYNC_FIELDS = [
   ['department', 'Отдел'],
   ['room', 'Кабинет'],
   ['internal_phone', 'Телефон вн.'],
+  ['external_phone', 'Телефон внешний'],
   ['email', 'Email']
 ];
 
@@ -227,6 +233,7 @@ const serializeEmployee = (employee = {}) => ({
   department: employee.department || '',
   room: employee.room || '',
   internal_phone: employee.internal_phone || '',
+  external_phone: employee.external_phone || '',
   email: employee.email || ''
 });
 
@@ -280,14 +287,15 @@ const syncEmployees = async (employees) => {
 
       await connection.execute(
         `INSERT INTO phone_book
-          (source_key, full_name, position, department, room, internal_phone, email, is_active, last_seen_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+          (source_key, full_name, position, department, room, internal_phone, external_phone, email, is_active, last_seen_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
          ON DUPLICATE KEY UPDATE
           full_name = VALUES(full_name),
           position = VALUES(position),
           department = VALUES(department),
           room = VALUES(room),
           internal_phone = VALUES(internal_phone),
+          external_phone = VALUES(external_phone),
           email = VALUES(email),
           is_active = 1,
           last_seen_at = VALUES(last_seen_at)`,
@@ -298,6 +306,7 @@ const syncEmployees = async (employees) => {
           employee.department || null,
           employee.room || null,
           employee.internal_phone || null,
+          employee.external_phone || null,
           employee.email || null,
           now
         ]
@@ -368,7 +377,7 @@ router.get('/search', async (req, res) => {
       return res.status(400).json({ error: 'Не указаны поле поиска или запрос' });
     }
 
-    const validFields = ['full_name', 'position', 'department', 'room', 'internal_phone', 'email'];
+    const validFields = ['full_name', 'position', 'department', 'room', 'internal_phone', 'external_phone', 'email'];
     if (!validFields.includes(field)) {
       return res.status(400).json({ error: 'Недопустимое поле для поиска' });
     }

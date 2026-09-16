@@ -18,7 +18,8 @@ const EmployeeSearch = () => {
     { value: 'position', label: 'Должность' },
     { value: 'department', label: 'Отдел' },
     { value: 'room', label: 'Кабинет' },
-    { value: 'internal_phone', label: 'Телефон' },
+    { value: 'internal_phone', label: 'Телефон внутренний' },
+    { value: 'external_phone', label: 'Телефон внешний' },
     { value: 'email', label: 'Email' }
   ];
 
@@ -82,6 +83,7 @@ const EmployeeSearch = () => {
       <td>{employee.department}</td>
       <td>{employee.room}</td>
       <td>{employee.internal_phone}</td>
+      <td>{employee.external_phone}</td>
       <td>{employee.email || <span className="no-data">-</span>}</td>
     </>
   );
@@ -214,6 +216,7 @@ const EmployeeSearch = () => {
                   <th>Отдел</th>
                   <th>Кабинет</th>
                   <th>Телефон вн.</th>
+                  <th>Телефон внешний</th>
                   <th>Email</th>
                 </tr>
               </thead>
@@ -236,6 +239,7 @@ const EmployeeSearch = () => {
                   <th>Отдел</th>
                   <th>Кабинет</th>
                   <th>Телефон вн.</th>
+                  <th>Телефон внешний</th>
                   <th>Email</th>
                 </tr>
               </thead>
@@ -289,7 +293,8 @@ const EmployeeSearch = () => {
                   <th>Должность</th>
                   <th>Отдел</th>
                   <th>Кабинет</th>
-                  <th>Телефон</th>
+                  <th>Телефон внутренний</th>
+                  <th>Телефон внешний</th>
                   <th>Email</th>
                 </tr>
               </thead>
@@ -301,6 +306,7 @@ const EmployeeSearch = () => {
                     <td>{employee.department}</td>
                     <td>{employee.room}</td>
                     <td>{employee.internal_phone}</td>
+                    <td>{employee.external_phone}</td>
                     <td>
                       {employee.email ? (
                         <a

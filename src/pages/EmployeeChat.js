@@ -185,6 +185,7 @@ const EmployeeChat = ({ adminSection = null }) => {
     full_name: user?.name || '',
     department: '',
     phone: '',
+    external_phone: '',
     room: '',
     position: user?.position || '',
     bio: '',
@@ -542,6 +543,7 @@ const EmployeeChat = ({ adminSection = null }) => {
       full_name: getProfileValue(profile, cachedProfile, 'full_name', 'fullName', 'name'),
       department: getProfileValue(profile, cachedProfile, 'department'),
       phone: getProfileValue(profile, cachedProfile, 'phone', 'internalPhone', 'internal_phone', 'N_tel'),
+      external_phone: getProfileValue(profile, cachedProfile, 'external_phone', 'externalPhone'),
       room: getProfileValue(profile, cachedProfile, 'room', 'cabinet'),
       position: getProfileValue(profile, cachedProfile, 'position'),
       bio: getProfileValue(profile, cachedProfile, 'bio'),
@@ -556,7 +558,9 @@ const EmployeeChat = ({ adminSection = null }) => {
     if (!mergedProfile.full_name) mergedProfile.full_name = directoryProfile.full_name || '';
     if (!mergedProfile.department) mergedProfile.department = directoryProfile.department || '';
     if (!mergedProfile.phone) mergedProfile.phone = directoryProfile.phone || directoryProfile.internal_phone || directoryProfile.N_tel || '';
+    if (!mergedProfile.external_phone) mergedProfile.external_phone = directoryProfile.external_phone || directoryProfile.externalPhone || '';
     if (!mergedProfile.room) mergedProfile.room = directoryProfile.room || directoryProfile.cabinet || '';
+    if (!mergedProfile.position) mergedProfile.position = directoryProfile.position || '';
     if (mode === 'form') {
       const serverPreferences = profile.preferences && typeof profile.preferences === 'object'
         ? profile.preferences
@@ -579,6 +583,7 @@ const EmployeeChat = ({ adminSection = null }) => {
           full_name: mergedProfile.full_name,
           department: mergedProfile.department,
           phone: mergedProfile.phone,
+          external_phone: mergedProfile.external_phone,
           room: mergedProfile.room,
           position: mergedProfile.position,
           bio: mergedProfile.bio,

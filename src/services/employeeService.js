@@ -71,17 +71,26 @@ export const getAllEmployees = async () => {
 // Ручное обновление справочника сотрудников
 export const syncEmployees = async () => {
   try {
-    const response = await authFetch(`${API_BASE_URL}/employees/sync`, {
+    const directoryResponse = await authFetch(`${API_BASE_URL}/employees/sync`, {
       method: 'POST'
     });
 
-    const data = await response.json();
+    const directory = await directoryResponse.json();
 
-    if (!response.ok) {
-      throw new Error(data.error || 'Ошибка при обновлении справочника сотрудников');
+    if (!directoryResponse.ok) {
+      throw new Error(directory.error || 'Ошибка при обновлении справочника сотрудников');
     }
 
-    return data;
+    const accountsResponse = await authFetch(`${API_BASE_URL}/auth/provision-from-phone-book`, {
+      method: 'POST'
+    });
+    const accounts = await accountsResponse.json().catch(() => ({}));
+
+    if (!accountsResponse.ok) {
+      throw new Error(accounts.message || 'Справочник обновлён, но не удалось обновить учётные записи сотрудников');
+    }
+
+    return { ...directory, accounts };
   } catch (error) {
     console.error('Error syncing employees:', error);
     throw error;

@@ -93,7 +93,7 @@ const ChatContacts = memo(function ChatContacts({
 
     if (modern) {
       const summary = summaries[conversationId];
-      const preview = summary?.lastMessage?.deletedAt ? (t('contacts') === 'Контакты' ? 'Сообщение удалено' : 'Message deleted') : summary?.lastMessage?.text || (summary?.attachmentsCount ? '📎' : profile.department || formatVisibleLogin(email));
+      const preview = summary?.lastMessage?.deletedAt ? (t('contacts') === 'Контакты' ? 'Сообщение удалено' : 'Message deleted') : summary?.lastMessage?.text || (summary?.attachmentsCount ? '📎' : profile.position || profile.department || formatVisibleLogin(email));
       return <div key={email} className={`employee-chat-user modern-contact ${selectedEmail === email ? 'active' : ''}`} style={{ transform: `translateY(${index * CONTACT_ROW_HEIGHT}px)` }}>
         <button type="button" className="modern-contact-avatar" aria-label={`${t('profile')}: ${profile.full_name || email}`} onClick={() => onOpenProfile(email)}><AuthenticatedAvatar src={getEmployeeAvatar?.(email, profile.avatar) || ''} alt="" fallback={<span>{(profile.full_name || email).slice(0, 1)}</span>} /><i className={`status-dot ${isOnline ? 'online' : 'offline'}`} /></button>
         <button type="button" className="modern-contact-body" aria-current={selectedEmail === email ? 'true' : undefined} onClick={() => onSelect(email)}><strong>{pinnedSet.has(conversationId) && <ChatIcon name="pin" size={12} />}{profile.full_name || email}</strong><small>{preview}</small></button>
@@ -117,7 +117,7 @@ const ChatContacts = memo(function ChatContacts({
           <span className="employee-chat-user-main">
             <span className="employee-chat-user-email">{profile.full_name || email}</span>
             <span className="employee-chat-user-extra">
-              {formatVisibleLogin(email)} · {profile.department || t('departmentMissing')} · {t('cabinetShort')}. {profile.room || '—'}
+              {formatVisibleLogin(email)} · {profile.position || profile.department || t('departmentMissing')} · {t('cabinetShort')}. {profile.room || '—'}
             </span>
           </span>
           {(isManagerContact || isOnline) && (

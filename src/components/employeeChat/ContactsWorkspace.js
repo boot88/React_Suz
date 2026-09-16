@@ -65,6 +65,7 @@ const ContactsWorkspace = memo(function ContactsWorkspace({
         profile.department,
         profile.position,
         profile.phone,
+        profile.external_phone,
         profile.room,
         profile.cabinet,
         profile.N_tel
