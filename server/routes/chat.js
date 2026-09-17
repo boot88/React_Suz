@@ -4440,7 +4440,7 @@ router.get('/records/periods', requireRole('admin'), async (req, res) => {
     }
     const keySql = mode === 'day' ? "DATE_FORMAT(created_at, '%Y-%m-%d')" : "DATE_FORMAT(created_at, '%Y-%m')";
     const cutoff = getArchiveCutoffDate(mode);
-    const [[messagePeriods], [postPeriods], [trackedRows]] = await Promise.all([
+    const [[messagePeriods], [postPeriods], [trackedRows], [sourceRows]] = await Promise.all([
       db.query(`SELECT ${keySql} AS period_key, MIN(DATE(created_at)) AS from_date, MAX(DATE(created_at)) AS to_date, COUNT(*) AS message_count
         FROM chat_messages WHERE created_at < ? GROUP BY period_key`, [cutoff]),
       db.query(`SELECT ${keySql} AS period_key, MIN(DATE(created_at)) AS from_date, MAX(DATE(created_at)) AS to_date, COUNT(*) AS post_count
@@ -4449,7 +4449,12 @@ router.get('/records/periods', requireRole('admin'), async (req, res) => {
           archives.downloaded_at, archives.total_bytes AS archive_bytes
         FROM records_archive_periods AS periods
         LEFT JOIN records_archives AS archives ON archives.id = periods.archive_id
-        WHERE periods.period_mode = ?`, [mode])
+        WHERE periods.period_mode = ?`, [mode]),
+      db.query(`SELECT COUNT(*) AS total_count, MIN(created_at) AS first_at, MAX(created_at) AS last_at FROM (
+        SELECT created_at FROM chat_messages
+        UNION ALL
+        SELECT created_at FROM feed_posts
+      ) AS records_source`)
     ]);
     const merged = new Map();
     const add = (row, kind) => {
@@ -4486,7 +4491,14 @@ router.get('/records/periods', requireRole('admin'), async (req, res) => {
       }
     }
     res.set('Cache-Control', 'no-store');
-    res.json({ mode, cutoff: mode === 'day' ? '3 days' : '1 year', periods });
+    const source = sourceRows?.[0] || {};
+    res.json({
+      mode,
+      cutoff: mode === 'day' ? '3 days' : '1 year',
+      cutoffAt: cutoff.toISOString(),
+      source: { totalCount: Number(source.total_count) || 0, firstAt: source.first_at || null, lastAt: source.last_at || null },
+      periods
+    });
   } catch (error) {
     console.error('Chat GET /records/periods error:', error);
     res.status(error.status || 500).json({ message: error.message || 'Не удалось загрузить периоды' });
@@ -4551,8 +4563,12 @@ router.post('/records/periods/:periodKey/purge', requireRole('admin'), async (re
     if (!await ensureChatSqlSchema() || !await ensureFeedSqlSchema() || !await ensureRecordsArchiveSchema(db)) return res.sendStatus(503);
     const archiveId = `period-${period.mode}-${period.key}`;
     const [archiveRows] = await db.execute("SELECT id, status, downloaded_at, storage_path FROM records_archives WHERE id=? AND deleted_at IS NULL LIMIT 1", [archiveId]);
-    if (!archiveRows?.[0] || archiveRows[0].status !== 'completed' || !archiveRows[0].downloaded_at) {
-      return res.status(409).json({ message: 'Сначала создайте и сохраните готовый архив на внешний носитель' });
+    if (!archiveRows?.[0] || archiveRows[0].status !== 'completed' || (period.mode !== 'day' && !archiveRows[0].downloaded_at)) {
+      return res.status(409).json({
+        message: period.mode === 'day'
+          ? 'Сначала создайте архив выбранного дня'
+          : 'Сначала создайте и сохраните готовый архив на внешний носитель'
+      });
     }
     const stats = await getPeriodSourceStats(period);
     connection = await db.getConnection();

@@ -1711,8 +1711,19 @@
   gap: 12px;
 }
 
+.archive-periods-title > div { display: grid; gap: 4px; }
+.archive-test-switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; color: var(--chat-muted); font-size: 12px; }
+.archive-test-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.archive-test-switch i { position: relative; width: 38px; height: 22px; border-radius: 999px; background: #cbd5e1; transition: .18s ease; }
+.archive-test-switch i::after { content: ''; position: absolute; width: 16px; height: 16px; top: 3px; left: 3px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(15, 23, 42, .25); transition: .18s ease; }
+.archive-test-switch input:checked + i { background: var(--chat-accent); }
+.archive-test-switch input:checked + i::after { transform: translateX(16px); }
+.archive-test-switch input:focus-visible + i { box-shadow: 0 0 0 3px rgba(30, 90, 168, .18); }
+
 .archive-periods-title span,
 .archive-period-empty { color: var(--chat-muted); font-size: 12px; }
+.archive-period-empty { display: grid; gap: 5px; }
+.archive-period-empty small { color: var(--chat-ink); font-size: 11px; }
 
 .archive-period-list {
   display: grid;
