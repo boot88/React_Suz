@@ -8,7 +8,7 @@ const PHONE_BOOK_URL = process.env.PHONE_BOOK_URL || 'http://web3.nioch.nsc.ru/n
 const MIN_SYNC_EMPLOYEES = Number(process.env.EMPLOYEE_SYNC_MIN_ROWS || 50);
 const PHONE_BOOK_PAGE_SIZE = Number(process.env.PHONE_BOOK_PAGE_SIZE || 20);
 const PHONE_BOOK_MAX_PAGES = Number(process.env.PHONE_BOOK_MAX_PAGES || 25);
-const SYNC_CHANGE_PREVIEW_LIMIT = Number(process.env.EMPLOYEE_SYNC_CHANGE_PREVIEW_LIMIT || 5);
+const SYNC_CHANGE_PREVIEW_LIMIT = Number(process.env.EMPLOYEE_SYNC_CHANGE_PREVIEW_LIMIT || 1000);
 
 const decodeHtmlEntities = (value = '') => String(value)
   .replace(/&nbsp;/gi, ' ')
