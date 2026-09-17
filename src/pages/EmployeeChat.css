@@ -3677,8 +3677,7 @@
   color: #78350f;
 }
 
-.employee-feed-post-text mark,
-.employee-feed-comment-body > span mark {
+.employee-feed-post-text mark {
   padding: 0 2px;
   border-radius: 4px;
   background: #fde68a;

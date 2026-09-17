@@ -278,8 +278,7 @@ const FeedPostCard = memo(function FeedPostCard({
         onDelete={onDeleteComment}
         onToggleExpanded={onToggleComments}
         onDraftChange={onCommentDraftChange}
-          onSubmit={onSubmitComment}
-          highlightText={highlightSearchText}
+        onSubmit={onSubmitComment}
         />
     </article>
   );

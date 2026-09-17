@@ -25,8 +25,7 @@ const FeedComments = memo(function FeedComments({
   onDelete,
   onToggleExpanded,
   onDraftChange,
-  onSubmit,
-  highlightText = (text) => text
+  onSubmit
 }) {
   const inputRef = useRef(null);
   return (
@@ -66,7 +65,7 @@ const FeedComments = memo(function FeedComments({
               >
                 {comment.authorName || formatLogin(comment.author)}
               </button>
-              <span>{highlightText(comment.text)}</span>
+              <span>{comment.text}</span>
               <small>{new Date(comment.createdAt).toLocaleString(interfaceLocale)}</small>
               <div className="feed-comment-actions compact">
                 <button type="button" onClick={() => { onReply(postId, comment.author); if (modern) inputRef.current?.focus({ preventScroll: true }); }}>{t('reply')}</button>
