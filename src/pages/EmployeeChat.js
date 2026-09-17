@@ -93,9 +93,12 @@ const EmployeeChat = ({ adminSection = null }) => {
   const [dialogSearch, setDialogSearch] = useState('');
   const [dialogSearchIndex, setDialogSearchIndex] = useState(0);
   const [serverDialogSearchResults, setServerDialogSearchResults] = useState([]);
+  const [dialogSearchTotal, setDialogSearchTotal] = useState(0);
   const [dialogSearchLoading, setDialogSearchLoading] = useState(false);
   const [dialogSearchHasMore, setDialogSearchHasMore] = useState(false);
   const [dialogSearchBefore, setDialogSearchBefore] = useState('');
+  const [dialogSearchContext, setDialogSearchContext] = useState(null);
+  const [dialogSearchContextLoading, setDialogSearchContextLoading] = useState(false);
   const [dialogFilter, setDialogFilter] = useState('all');
   const [visibleDialogMessageCount, setVisibleDialogMessageCount] = useState(CHAT_MESSAGES_PAGE_SIZE);
   const [mediaPanelOpen, setMediaPanelOpen] = useState(false);
@@ -128,6 +131,12 @@ const EmployeeChat = ({ adminSection = null }) => {
   const [feedReactionExpanded, setFeedReactionExpanded] = useState(false);
   const [openFeedMenuId, setOpenFeedMenuId] = useState('');
   const [feedSearch, setFeedSearch] = useState('');
+  const [feedSearchIndex, setFeedSearchIndex] = useState(0);
+  const [feedSearchResults, setFeedSearchResults] = useState([]);
+  const [feedSearchTotal, setFeedSearchTotal] = useState(0);
+  const [feedSearchCursor, setFeedSearchCursor] = useState('');
+  const [feedSearchHasMore, setFeedSearchHasMore] = useState(false);
+  const [feedSearchLoading, setFeedSearchLoading] = useState(false);
   const [feedFilter, setFeedFilter] = useState('all');
   const [visibleFeedPostCount, setVisibleFeedPostCount] = useState(FEED_POSTS_PAGE_SIZE);
   const [feedCategory, setFeedCategory] = useState(() => readSavedFeedDraft(user?.username || 'guest').category);
@@ -1162,6 +1171,7 @@ const EmployeeChat = ({ adminSection = null }) => {
         const combined = append ? [...current, ...messages] : messages;
         return [...new Map(combined.map((message) => [message.id, message])).values()];
       });
+      setDialogSearchTotal(Number(data?.total || messages.length));
       setDialogSearchBefore(data?.before || '');
       setDialogSearchHasMore(Boolean(data?.hasMore));
     } catch (error) {
@@ -1173,8 +1183,10 @@ const EmployeeChat = ({ adminSection = null }) => {
 
   useEffect(() => {
     setServerDialogSearchResults([]);
+    setDialogSearchTotal(0);
     setDialogSearchBefore('');
     setDialogSearchHasMore(false);
+    setDialogSearchContext(null);
     if (!currentConversationId || dialogSearch.trim().length < 2) {
       setDialogSearchLoading(false);
       return undefined;
@@ -1283,6 +1295,36 @@ const EmployeeChat = ({ adminSection = null }) => {
       setFeedLoadingMore(false);
     }
   }, [feedBefore, feedHasMore, feedLoadingMore, notify]);
+
+  const fetchFeedSearchPage = useCallback(async ({ append = false, cursor = '', signal } = {}) => {
+    const query = feedSearch.trim();
+    if (query.length < 2) return;
+    setFeedSearchLoading(true);
+    try {
+      const params = new URLSearchParams({ q: query, limit: String(FEED_POSTS_PAGE_SIZE), commentsLimit: '3' });
+      if (cursor) params.set('cursor', cursor);
+      const response = await authFetch(`${API_BASE_URL}/chat/feed/search?${params.toString()}`, { signal });
+      const data = await readApiJson(response, 'Не удалось выполнить поиск по ленте');
+      if (signal?.aborted) return;
+      const posts = getVisibleFeedPosts(data?.posts);
+      setFeedSearchResults((current) => {
+        const combined = append ? [...current, ...posts] : posts;
+        return [...new Map(combined.map((post) => [post.id, post])).values()];
+      });
+      setFeedSearchTotal(Number(data?.total || posts.length));
+      setFeedSearchCursor(data?.cursor || '');
+      setFeedSearchHasMore(Boolean(data?.hasMore));
+      setFeedPosts((current) => {
+        const byId = new Map([...current, ...posts].filter((post) => post?.id).map((post) => [post.id, post]));
+        return sortFeedPosts([...byId.values()]);
+      });
+      prefetchMediaTokens(collectFeedFileIds(posts), 'feed');
+    } catch (error) {
+      if (error?.name !== 'AbortError') notify(error.message || 'Не удалось выполнить поиск по ленте', 'Лента');
+    } finally {
+      if (!signal?.aborted) setFeedSearchLoading(false);
+    }
+  }, [feedSearch, notify]);
 
   const fetchMyApplications = useCallback(async ({ silent = true } = {}) => {
     if (!user?.username) return;
@@ -3148,17 +3190,10 @@ const EmployeeChat = ({ adminSection = null }) => {
   const visibleMessages = useMemo(() => {
     const now = Date.now();
     const day = 24 * 60 * 60 * 1000;
-    const source = normalizedDialogSearch.length >= 2 ? serverDialogSearchResults : (dateSearchMessages || currentMessages);
+    const source = dialogSearchContext?.messages || dateSearchMessages || currentMessages;
     return [...source].sort(compareMessages).filter((message) => {
       const isDeleted = Boolean(message.deletedAt);
       const attachments = isDeleted ? [] : getMessageAttachments(message);
-      if (normalizedDialogSearch && isDeleted) return false;
-      if (normalizedDialogSearch && ![
-        message.text,
-        message.sender,
-        message.attachment?.name,
-        ...attachments.map((item) => item.name)
-      ].some((value) => normalizeText(value).includes(normalizedDialogSearch))) return false;
       const timestamp = new Date(message.createdAt || 0).getTime();
       if (dialogFilter === 'mine') return message.sender === user.username;
       if (dialogFilter === 'peer') return message.sender !== user.username;
@@ -3169,17 +3204,61 @@ const EmployeeChat = ({ adminSection = null }) => {
       if (dialogFilter === 'month') return now - timestamp <= 31 * day;
       return true;
     });
-  }, [currentMessages, dateSearchMessages, dialogFilter, normalizedDialogSearch, serverDialogSearchResults, user.username]);
+  }, [currentMessages, dateSearchMessages, dialogFilter, dialogSearchContext, user.username]);
   const dialogSearchResults = normalizedDialogSearch.length >= 2
     ? serverDialogSearchResults
     : [];
   const activeDialogSearchResult = dialogSearchResults[dialogSearchIndex] || null;
+
   useEffect(() => {
-    if (!activeDialogSearchResult?.id) return;
-    window.requestAnimationFrame(() => {
-      messageListRef.current?.scrollToId(activeDialogSearchResult.id);
-    });
-  }, [activeDialogSearchResult?.id]);
+    if (!activeDialogSearchResult?.id || !currentConversationId) {
+      setDialogSearchContextLoading(false);
+      return undefined;
+    }
+    const controller = new AbortController();
+    const loadContext = async () => {
+      setDialogSearchContextLoading(true);
+      try {
+        const response = await authFetch(
+          `${API_BASE_URL}/chat/threads/${encodeURIComponent(currentConversationId)}/context?messageId=${encodeURIComponent(activeDialogSearchResult.id)}&limit=${CHAT_MESSAGES_PAGE_SIZE}`,
+          { headers: chatAuthHeaders, signal: controller.signal }
+        );
+        const data = await readApiJson(response, 'Не удалось открыть найденное сообщение');
+        if (controller.signal.aborted) return;
+        setDialogSearchContext({
+          messageId: data?.messageId || activeDialogSearchResult.id,
+          messages: Array.isArray(data?.messages) ? data.messages : []
+        });
+      } catch (error) {
+        if (!controller.signal.aborted) notifyRef.current(error.message || 'Не удалось открыть найденное сообщение', 'Чат');
+      } finally {
+        if (!controller.signal.aborted) setDialogSearchContextLoading(false);
+      }
+    };
+    loadContext();
+    return () => controller.abort();
+  }, [activeDialogSearchResult?.id, chatAuthHeaders, currentConversationId]);
+
+  useEffect(() => {
+    if (!activeDialogSearchResult?.id || dialogSearchContext?.messageId !== activeDialogSearchResult.id) return;
+    const frame = window.requestAnimationFrame(() => messageListRef.current?.scrollToId(activeDialogSearchResult.id));
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeDialogSearchResult?.id, dialogSearchContext?.messageId, dialogSearchContext?.messages?.length]);
+
+  const showPreviousDialogSearchResult = () => {
+    setDialogSearchIndex((current) => Math.max(0, current - 1));
+  };
+
+  const showNextDialogSearchResult = async () => {
+    if (dialogSearchIndex < dialogSearchResults.length - 1) {
+      setDialogSearchIndex((current) => current + 1);
+      return;
+    }
+    if (!dialogSearchHasMore || dialogSearchLoading) return;
+    const nextIndex = dialogSearchResults.length;
+    await fetchDialogSearchPage({ append: true, before: dialogSearchBefore });
+    setDialogSearchIndex(nextIndex);
+  };
 
   const highlightText = (text = '') => {
     if (!normalizedDialogSearch) return text;
@@ -3206,9 +3285,9 @@ const EmployeeChat = ({ adminSection = null }) => {
   }), [dialogMediaItems, mediaPanelSearch, mediaPanelTab]);
 
   const paginatedVisibleMessages = useMemo(() => {
-    const startIndex = normalizedDialogSearch || dateSearchMessages ? 0 : Math.max(0, visibleMessages.length - visibleDialogMessageCount);
+    const startIndex = normalizedDialogSearch || dialogSearchContext || dateSearchMessages ? 0 : Math.max(0, visibleMessages.length - visibleDialogMessageCount);
     return visibleMessages.slice(startIndex);
-  }, [visibleMessages, visibleDialogMessageCount, normalizedDialogSearch, dateSearchMessages]);
+  }, [visibleMessages, visibleDialogMessageCount, normalizedDialogSearch, dialogSearchContext, dateSearchMessages]);
   const hiddenDialogMessagesCount = Math.max(0, visibleMessages.length - paginatedVisibleMessages.length);
 
   const messagesWithDateSeparators = useMemo(() => {
@@ -3227,15 +3306,12 @@ const EmployeeChat = ({ adminSection = null }) => {
 
 
   const visibleFeedPosts = useMemo(() => {
-    const query = feedSearch.trim().toLowerCase();
     const now = Date.now();
     const day = 24 * 60 * 60 * 1000;
     return sortFeedPosts(getVisibleFeedPosts(feedPosts)
       .filter((post) => !hiddenFeedPostIds.includes(post.id))
       .filter((post) => {
         const attachments = getFeedAttachments(post);
-        const text = [post.text, post.authorName, post.author, post.category, ...attachments.map((file) => file.name)].filter(Boolean).join(' ').toLowerCase();
-        if (query && !text.includes(query)) return false;
         const timestamp = getFeedItemTimestamp(post);
         if (feedFilter === 'mine') return isPostAuthor(post, user);
         if (feedFilter === 'photo') return attachments.some(isImageAttachment);
@@ -3247,12 +3323,63 @@ const EmployeeChat = ({ adminSection = null }) => {
         if (feedFilter === 'month') return now - timestamp <= 31 * day;
         return true;
       }));
-  }, [feedFilter, feedPosts, feedReadTimestamp, feedSearch, hiddenFeedPostIds, user]);
+  }, [feedFilter, feedPosts, feedReadTimestamp, hiddenFeedPostIds, user]);
+
+  const activeFeedSearchResult = feedSearchResults[feedSearchIndex] || null;
+  const showPreviousFeedSearchResult = () => setFeedSearchIndex((current) => Math.max(0, current - 1));
+  const showNextFeedSearchResult = async () => {
+    if (feedSearchIndex < feedSearchResults.length - 1) {
+      setFeedSearchIndex((current) => current + 1);
+      return;
+    }
+    if (!feedSearchHasMore || feedSearchLoading) return;
+    const nextIndex = feedSearchResults.length;
+    await fetchFeedSearchPage({ append: true, cursor: feedSearchCursor });
+    setFeedSearchIndex(nextIndex);
+  };
 
   const pinnedFeedPosts = useMemo(() => visibleFeedPosts.filter((post) => post.pinned), [visibleFeedPosts]);
   const regularFeedPosts = useMemo(() => visibleFeedPosts.filter((post) => !post.pinned), [visibleFeedPosts]);
   const paginatedRegularFeedPosts = useMemo(() => regularFeedPosts.slice(0, visibleFeedPostCount), [regularFeedPosts, visibleFeedPostCount]);
   const hiddenFeedPostsCount = Math.max(0, regularFeedPosts.length - paginatedRegularFeedPosts.length);
+
+  useEffect(() => {
+    setFeedSearchIndex(0);
+    if (feedSearch.trim().length >= 2) setFeedFilter('all');
+  }, [feedSearch]);
+
+  useEffect(() => {
+    setFeedSearchResults([]);
+    setFeedSearchTotal(0);
+    setFeedSearchCursor('');
+    setFeedSearchHasMore(false);
+    if (feedSearch.trim().length < 2) {
+      setFeedSearchLoading(false);
+      return undefined;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => fetchFeedSearchPage({ signal: controller.signal }), 300);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [feedSearch, fetchFeedSearchPage]);
+
+  useEffect(() => {
+    if (!activeFeedSearchResult?.id || activeTab !== 'feed') return undefined;
+    const regularIndex = regularFeedPosts.findIndex((post) => post.id === activeFeedSearchResult.id);
+    if (regularIndex >= 0 && visibleFeedPostCount <= regularIndex) {
+      setVisibleFeedPostCount(regularIndex + 1);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      const escapedId = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+        ? CSS.escape(String(activeFeedSearchResult.id))
+        : String(activeFeedSearchResult.id).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+      feedListRef.current?.querySelector(`[data-feed-post-id="${escapedId}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [activeFeedSearchResult?.id, activeTab, regularFeedPosts, visibleFeedPostCount]);
 
   const sortComments = (comments = []) => {
     const visible = comments.filter((comment) => !comment.deletedAt);
@@ -3921,15 +4048,17 @@ const EmployeeChat = ({ adminSection = null }) => {
                   hasSearch={Boolean(normalizedDialogSearch)}
                   searchIndex={dialogSearchIndex}
                   searchCount={dialogSearchResults.length}
+                  searchTotal={dialogSearchTotal}
                   showMediaPanel={chatLocalSettings.showDialogMediaPanel === true}
                   showConversationMenu={chatLocalSettings.showConversationMenu === true || chatLocalSettings.uiDesign === 'modern'}
                   conversationMenuOpen={conversationMenuOpen}
                   onSearch={(value) => {
                     setDialogSearch(value);
                     setDialogSearchIndex(0);
+                    if (value.trim().length >= 2) setDialogFilter('all');
                   }}
-                  onPreviousResult={() => setDialogSearchIndex((prev) => Math.max(0, prev - 1))}
-                  onNextResult={() => setDialogSearchIndex((prev) => Math.min(dialogSearchResults.length - 1, prev + 1))}
+                  onPreviousResult={showPreviousDialogSearchResult}
+                  onNextResult={showNextDialogSearchResult}
                   onToggleMediaPanel={() => setMediaPanelOpen((prev) => !prev)}
                   onToggleMenu={() => setConversationMenuOpen((prev) => !prev)}
                   onCloseMenu={() => setConversationMenuOpen(false)}
@@ -4005,13 +4134,16 @@ const EmployeeChat = ({ adminSection = null }) => {
                       setReadViewportVersion((current) => current + 1);
                     }
                     nearBottomRef.current = isNearBottom;
-                    if (normalizedDialogSearch || dateSearchMessages || event.currentTarget.scrollTop > 32 || hiddenDialogMessagesCount > 0 || !threadHasMore[currentConversationId]) return;
+                    if (normalizedDialogSearch || dialogSearchContext || dateSearchMessages || event.currentTarget.scrollTop > 32 || hiddenDialogMessagesCount > 0 || !threadHasMore[currentConversationId]) return;
                     loadOlderDialogMessages();
                   }}
                 >
-                  {dateSearchMessages && <button type="button" className="chat-pagination-button" onClick={() => setDateSearchMessages(null)}>{isEnglishInterface ? 'Back to conversation' : 'Вернуться в переписку'}</button>}
+                  {(dialogSearchContext || dateSearchMessages) && <button type="button" className="chat-pagination-button" onClick={() => { setDialogSearchContext(null); setDateSearchMessages(null); if (dialogSearchContext) setDialogSearch(''); }}>{isEnglishInterface ? 'Back to conversation' : 'Вернуться в переписку'}</button>}
                   {normalizedDialogSearch.length >= 2 && dialogSearchLoading && (
                     <div className="chat-search-status">{t('searchingMessages')}</div>
+                  )}
+                  {normalizedDialogSearch.length >= 2 && dialogSearchContextLoading && (
+                    <div className="chat-search-status">{t('loading')}…</div>
                   )}
                   {normalizedDialogSearch.length >= 2 && dialogSearchHasMore && (
                     <button
@@ -4023,7 +4155,7 @@ const EmployeeChat = ({ adminSection = null }) => {
                       {t('loadMoreSearchResults')}
                     </button>
                   )}
-                  {!normalizedDialogSearch && !dateSearchMessages && (hiddenDialogMessagesCount > 0 || threadHasMore[currentConversationId]) && <button type="button" className="chat-pagination-button" disabled={isLoadingOlderDialog} onClick={() => hiddenDialogMessagesCount > 0 ? setVisibleDialogMessageCount((prev) => prev + CHAT_MESSAGES_PAGE_SIZE) : loadOlderDialogMessages()}>{t('loadPreviousMessages')} · {t('showingLatestMessages').replace('{shown}', String(paginatedVisibleMessages.length)).replace('{total}', String(threadHasMore[currentConversationId] ? `${visibleMessages.length}+` : visibleMessages.length))}</button>}
+                  {!normalizedDialogSearch && !dialogSearchContext && !dateSearchMessages && (hiddenDialogMessagesCount > 0 || threadHasMore[currentConversationId]) && <button type="button" className="chat-pagination-button" disabled={isLoadingOlderDialog} onClick={() => hiddenDialogMessagesCount > 0 ? setVisibleDialogMessageCount((prev) => prev + CHAT_MESSAGES_PAGE_SIZE) : loadOlderDialogMessages()}>{t('loadPreviousMessages')} · {t('showingLatestMessages').replace('{shown}', String(paginatedVisibleMessages.length)).replace('{total}', String(threadHasMore[currentConversationId] ? `${visibleMessages.length}+` : visibleMessages.length))}</button>}
                   {!isCurrentConversationLoading && messagesWithDateSeparators.length === 0 && <div className="empty-chat">{dialogSearch ? t('noMessageSearchResults') : t('noMessages')}</div>}
                   {<VirtualMessageList key={currentConversationId} items={messagesWithDateSeparators} viewportRef={messagesWrapRef} listRef={messageListRef} renderItem={item => <ChatMessageItem item={item} {...messageItemProps} />} />}
                 </div>
@@ -4127,7 +4259,7 @@ const EmployeeChat = ({ adminSection = null }) => {
         )}
 
         {activeTab === 'feed' && (
-          <EmployeeFeedWorkspace AttachmentCard={AttachmentCard} FEED_CATEGORIES={FEED_CATEGORIES} FEED_POSTS_PAGE_SIZE={FEED_POSTS_PAGE_SIZE} FeedComposer={FeedComposer} FeedMediaCard={FeedMediaCard} FeedPostCard={FeedPostCard} REACTION_EMOJIS={REACTION_EMOJIS} addCommentToPost={addCommentToPost} addFeedPost={addFeedPost} avatarUrl={avatarUrl} canManageFeedPost={canManageFeedPost} chatLocalSettings={chatLocalSettings} commentDrafts={commentDrafts} commentSort={commentSort} copyFeedPostLink={copyFeedPostLink} deleteFeedComment={deleteFeedComment} deleteFeedPost={deleteFeedPost} directoryEmployees={directoryEmployees} editingFeedPostId={editingFeedPostId} editingFeedText={editingFeedText} expandedCommentPosts={expandedCommentPosts} feedAttachments={feedAttachments} feedCategory={feedCategory} feedDraft={feedDraft} feedError={feedError} feedHasMore={feedHasMore} feedListRef={feedListRef} feedLoading={feedLoading} feedLoadingMore={feedLoadingMore} feedReactionExpanded={feedReactionExpanded} feedRefreshing={feedRefreshing} feedSearch={feedSearch} fetchFeed={fetchFeed} formatFeedLogin={formatFeedLogin} formatFileSize={formatFileSize} getAttachmentUrl={getAttachmentUrl} getEmployeeAvatar={getEmployeeAvatar} getFeedAttachments={getFeedAttachments} getFeedCategoryLabel={getFeedCategoryLabel} getFileIcon={getFileIcon} getOriginalAttachmentUrl={getOriginalAttachmentUrl} getVideoPosterUrl={getVideoPosterUrl} hiddenFeedPostsCount={hiddenFeedPostsCount} hideFeedPost={hideFeedPost} interfaceLocale={interfaceLocale} isAdmin={isAdmin} isEnglishInterface={isEnglishInterface} isFeedPostPending={isFeedPostPending} isImageAttachment={isImageAttachment} isManager={isManager} isMediaAttachment={isMediaAttachment} isPublishingFeed={isPublishingFeed} isVideoAttachment={isVideoAttachment} loadFeedComments={loadFeedComments} loadMoreFeedPosts={loadMoreFeedPosts} localizeRuntimeText={localizeRuntimeText} nudgeVideoToFirstFrame={nudgeVideoToFirstFrame} onFeedFileChange={onFeedFileChange} openEmployeeProfile={openEmployeeProfile} openFeedMediaViewer={openFeedMediaViewer} openFeedMenuId={openFeedMenuId} paginatedRegularFeedPosts={paginatedRegularFeedPosts} pendingFeedActions={pendingFeedActions} pinnedFeedPosts={pinnedFeedPosts} profileForm={profileForm} quoteFeedPost={quoteFeedPost} regularFeedPosts={regularFeedPosts} removeFeedAttachment={removeFeedAttachment} sameLogin={sameLogin} saveFeedPostEdit={saveFeedPostEdit} selectedFeedPostId={selectedFeedPostId} setCommentDrafts={setCommentDrafts} setEditingFeedPostId={setEditingFeedPostId} setEditingFeedText={setEditingFeedText} setExpandedCommentPosts={setExpandedCommentPosts} setFeedCategory={setFeedCategory} setFeedDraft={setFeedDraft} setFeedReactionExpanded={setFeedReactionExpanded} setFeedSearch={setFeedSearch} setMediaViewer={setMediaViewer} setOpenFeedMenuId={setOpenFeedMenuId} setSelectedFeedPostId={setSelectedFeedPostId} setVisibleFeedPostCount={setVisibleFeedPostCount} shareFeedPostToChat={shareFeedPostToChat} sortComments={sortComments} startEditFeedPost={startEditFeedPost} t={t} toggleFeedPinned={toggleFeedPinned} toggleFeedReaction={toggleFeedReaction} user={user} visibleFeedPosts={visibleFeedPosts} />
+          <EmployeeFeedWorkspace AttachmentCard={AttachmentCard} FEED_CATEGORIES={FEED_CATEGORIES} FEED_POSTS_PAGE_SIZE={FEED_POSTS_PAGE_SIZE} FeedComposer={FeedComposer} FeedMediaCard={FeedMediaCard} FeedPostCard={FeedPostCard} REACTION_EMOJIS={REACTION_EMOJIS} addCommentToPost={addCommentToPost} addFeedPost={addFeedPost} avatarUrl={avatarUrl} canManageFeedPost={canManageFeedPost} chatLocalSettings={chatLocalSettings} commentDrafts={commentDrafts} commentSort={commentSort} copyFeedPostLink={copyFeedPostLink} deleteFeedComment={deleteFeedComment} deleteFeedPost={deleteFeedPost} directoryEmployees={directoryEmployees} editingFeedPostId={editingFeedPostId} editingFeedText={editingFeedText} expandedCommentPosts={expandedCommentPosts} feedAttachments={feedAttachments} feedCategory={feedCategory} feedDraft={feedDraft} feedError={feedError} feedHasMore={feedHasMore} feedListRef={feedListRef} feedLoading={feedLoading} feedLoadingMore={feedLoadingMore} feedReactionExpanded={feedReactionExpanded} feedRefreshing={feedRefreshing} feedSearch={feedSearch} feedSearchHasMore={feedSearchHasMore} feedSearchIndex={feedSearchIndex} feedSearchLoading={feedSearchLoading} feedSearchResults={feedSearchResults} feedSearchTotal={feedSearchTotal} fetchFeed={fetchFeed} formatFeedLogin={formatFeedLogin} formatFileSize={formatFileSize} getAttachmentUrl={getAttachmentUrl} getEmployeeAvatar={getEmployeeAvatar} getFeedAttachments={getFeedAttachments} getFeedCategoryLabel={getFeedCategoryLabel} getFileIcon={getFileIcon} getOriginalAttachmentUrl={getOriginalAttachmentUrl} getVideoPosterUrl={getVideoPosterUrl} hiddenFeedPostsCount={hiddenFeedPostsCount} hideFeedPost={hideFeedPost} interfaceLocale={interfaceLocale} isAdmin={isAdmin} isEnglishInterface={isEnglishInterface} isFeedPostPending={isFeedPostPending} isImageAttachment={isImageAttachment} isManager={isManager} isMediaAttachment={isMediaAttachment} isPublishingFeed={isPublishingFeed} isVideoAttachment={isVideoAttachment} loadFeedComments={loadFeedComments} loadMoreFeedPosts={loadMoreFeedPosts} localizeRuntimeText={localizeRuntimeText} nudgeVideoToFirstFrame={nudgeVideoToFirstFrame} onFeedFileChange={onFeedFileChange} onNextFeedSearchResult={showNextFeedSearchResult} onPreviousFeedSearchResult={showPreviousFeedSearchResult} openEmployeeProfile={openEmployeeProfile} openFeedMediaViewer={openFeedMediaViewer} openFeedMenuId={openFeedMenuId} paginatedRegularFeedPosts={paginatedRegularFeedPosts} pendingFeedActions={pendingFeedActions} pinnedFeedPosts={pinnedFeedPosts} profileForm={profileForm} quoteFeedPost={quoteFeedPost} regularFeedPosts={regularFeedPosts} removeFeedAttachment={removeFeedAttachment} sameLogin={sameLogin} saveFeedPostEdit={saveFeedPostEdit} searchCurrentPostId={activeFeedSearchResult?.id || ''} selectedFeedPostId={selectedFeedPostId} setCommentDrafts={setCommentDrafts} setEditingFeedPostId={setEditingFeedPostId} setEditingFeedText={setEditingFeedText} setExpandedCommentPosts={setExpandedCommentPosts} setFeedCategory={setFeedCategory} setFeedDraft={setFeedDraft} setFeedReactionExpanded={setFeedReactionExpanded} setFeedSearch={setFeedSearch} setMediaViewer={setMediaViewer} setOpenFeedMenuId={setOpenFeedMenuId} setSelectedFeedPostId={setSelectedFeedPostId} setVisibleFeedPostCount={setVisibleFeedPostCount} shareFeedPostToChat={shareFeedPostToChat} sortComments={sortComments} startEditFeedPost={startEditFeedPost} t={t} toggleFeedPinned={toggleFeedPinned} toggleFeedReaction={toggleFeedReaction} user={user} visibleFeedPosts={visibleFeedPosts} />
         )}
 
         {activeTab === 'profile' && (

@@ -16,6 +16,7 @@ const {
   buildFeedCommentsPageQuery,
   buildFeedPostsPageQuery,
   canManageFeedRecord,
+  decodeFeedCursor,
   encodeFeedCursor,
   createSerialMutationQueue
 } = require('../utils/feedState');
@@ -357,6 +358,69 @@ const searchSqlConversationMessages = async (
   return (rows || [])
     .map((row) => ({ ...parseSqlMessage(row.message_json), _cursor: encodeMessageCursor({ id: row.id, createdAt: row.created_at }) }))
     .filter(Boolean);
+};
+
+const countSqlConversationSearchResults = async (conversationId, query = '') => {
+  if (!await ensureChatSqlSchema()) return null;
+  const normalizedQuery = String(query || '').trim().slice(0, 200).toLowerCase();
+  const [rows] = await db.query(
+    `SELECT COUNT(*) AS total
+     FROM chat_messages
+     WHERE conversation_id = ?
+       AND deleted_at IS NULL
+       AND (
+         LOWER(CASE
+           WHEN JSON_VALID(message_json)
+           THEN COALESCE(JSON_UNQUOTE(JSON_EXTRACT(message_json, '$.text')), '')
+           ELSE ''
+         END) LIKE ?
+         OR LOWER(message_json) LIKE ?
+       )`,
+    [conversationId, `%${normalizedQuery}%`, `%${normalizedQuery}%`]
+  );
+  return Number(rows?.[0]?.total || 0);
+};
+
+const readSqlConversationContext = async (conversationId, messageId, limit = 25) => {
+  if (!await ensureChatSqlSchema()) return null;
+  const safeLimit = Math.min(50, Math.max(1, Math.floor(Number(limit)) || 25));
+  const [targetRows] = await db.execute(
+    `SELECT id, created_at
+     FROM chat_messages
+     WHERE conversation_id = ? AND id = ? AND deleted_at IS NULL
+     LIMIT 1`,
+    [conversationId, String(messageId || '')]
+  );
+  const target = targetRows?.[0];
+  if (!target) return { messageId: String(messageId || ''), messages: [] };
+
+  const [olderRows] = await db.query(
+    `SELECT message_json
+     FROM chat_messages
+     WHERE conversation_id = ?
+       AND deleted_at IS NULL
+       AND (created_at < ? OR (created_at = ? AND id <= ?))
+     ORDER BY created_at DESC, id DESC
+     LIMIT ${safeLimit}`,
+    [conversationId, target.created_at, target.created_at, target.id]
+  );
+  const [newerRows] = await db.query(
+    `SELECT message_json
+     FROM chat_messages
+     WHERE conversation_id = ?
+       AND deleted_at IS NULL
+       AND (created_at > ? OR (created_at = ? AND id > ?))
+     ORDER BY created_at ASC, id ASC
+     LIMIT ${safeLimit}`,
+    [conversationId, target.created_at, target.created_at, target.id]
+  );
+
+  const messages = [...(olderRows || [])].reverse()
+    .concat(newerRows || [])
+    .map((row) => parseSqlMessage(row.message_json))
+    .filter(Boolean);
+
+  return { messageId: target.id, messages };
 };
 
 const readSqlReadStates = async (login) => {
@@ -1855,22 +1919,7 @@ const countSqlFeedComments = async (postIds = []) => {
   return Object.fromEntries((rows || []).map((row) => [row.post_id, Number(row.total) || 0]));
 };
 
-const readSqlFeedPosts = async ({ limit = 50, cursor = '', before = '', commentsLimit = 3 } = {}) => {
-  if (!await ensureFeedSqlSchema()) return null;
-  const query = buildFeedPostsPageQuery({ limit, cursor, before });
-  let rows;
-  try {
-    [rows] = await db.execute(query.sql, query.params);
-  } catch (error) {
-    console.warn('Feed ordered page execute failed; retrying with MySQL query mode:', {
-      code: error.code || 'FEED_POSTS_PAGE_QUERY_FAILED',
-      message: error.message
-    });
-    [rows] = await db.query(query.sql, query.params);
-  }
-  const posts = (rows || [])
-    .map((row) => parseSqlJson(row.post_json))
-    .filter((post) => post && !post.deletedAt);
+const hydrateSqlFeedPosts = async (posts = [], commentsLimit = 3) => {
   const postIds = posts.map((post) => post.id).filter(Boolean);
   const [reactionsByPost, commentCounts, commentsByPost] = await Promise.all([
     readSqlFeedReactions(postIds).catch((error) => {
@@ -1893,6 +1942,86 @@ const readSqlFeedPosts = async ({ limit = 50, cursor = '', before = '', comments
     commentCount: commentCounts[post.id] || 0,
     commentsPreviewLimit: commentsLimit
   }));
+};
+
+const readSqlFeedPosts = async ({ limit = 50, cursor = '', before = '', commentsLimit = 3 } = {}) => {
+  if (!await ensureFeedSqlSchema()) return null;
+  const query = buildFeedPostsPageQuery({ limit, cursor, before });
+  let rows;
+  try {
+    [rows] = await db.execute(query.sql, query.params);
+  } catch (error) {
+    console.warn('Feed ordered page execute failed; retrying with MySQL query mode:', {
+      code: error.code || 'FEED_POSTS_PAGE_QUERY_FAILED',
+      message: error.message
+    });
+    [rows] = await db.query(query.sql, query.params);
+  }
+  const posts = (rows || [])
+    .map((row) => parseSqlJson(row.post_json))
+    .filter((post) => post && !post.deletedAt);
+  return hydrateSqlFeedPosts(posts, commentsLimit);
+};
+
+const searchSqlFeedPosts = async ({ query = '', limit = 25, cursor = '', commentsLimit = 3 } = {}) => {
+  if (!await ensureFeedSqlSchema()) return null;
+  const normalizedQuery = String(query || '').trim().slice(0, 200).toLowerCase();
+  const safeLimit = Math.min(50, Math.max(1, Math.floor(Number(limit)) || 25));
+  const cursorValue = decodeFeedCursor(cursor);
+  const searchPattern = `%${normalizedQuery}%`;
+  const params = [searchPattern, searchPattern];
+  let cursorSql = '';
+  if (cursorValue) {
+    cursorSql = ` AND (
+      posts.pinned < ?
+      OR (posts.pinned = ? AND (posts.created_at < ? OR (posts.created_at = ? AND posts.id < ?)))
+    )`;
+    params.push(cursorValue.pinned, cursorValue.pinned, cursorValue.createdAt, cursorValue.createdAt, cursorValue.id);
+  }
+  const [rows] = await db.query(
+    `SELECT posts.post_json
+     FROM feed_posts AS posts
+     WHERE posts.deleted_at IS NULL
+       AND (
+         LOWER(posts.post_json) LIKE ?
+         OR EXISTS (
+           SELECT 1 FROM feed_comments AS comments
+           WHERE comments.post_id = posts.id
+             AND comments.deleted_at IS NULL
+             AND LOWER(comments.comment_json) LIKE ?
+         )
+       )
+       ${cursorSql}
+     ORDER BY posts.pinned DESC, posts.created_at DESC, posts.id DESC
+     LIMIT ${safeLimit}`,
+    params
+  );
+  const posts = (rows || [])
+    .map((row) => parseSqlJson(row.post_json))
+    .filter((post) => post && !post.deletedAt);
+  return hydrateSqlFeedPosts(posts, commentsLimit);
+};
+
+const countSqlFeedSearchResults = async (query = '') => {
+  if (!await ensureFeedSqlSchema()) return null;
+  const normalizedQuery = String(query || '').trim().slice(0, 200).toLowerCase();
+  const searchPattern = `%${normalizedQuery}%`;
+  const [rows] = await db.query(
+    `SELECT COUNT(*) AS total
+     FROM feed_posts AS posts
+     WHERE posts.deleted_at IS NULL
+       AND (
+         LOWER(posts.post_json) LIKE ?
+         OR EXISTS (
+           SELECT 1 FROM feed_comments AS comments
+           WHERE comments.post_id = posts.id
+             AND comments.deleted_at IS NULL
+             AND LOWER(comments.comment_json) LIKE ?
+         )
+       )`,
+    [searchPattern, searchPattern]
+  );
+  return Number(rows?.[0]?.total || 0);
 };
 
 const readSqlFeedPost = async (postId) => {
@@ -2509,6 +2638,32 @@ const orphanCleanupTimer = setInterval(() => {
 }, 60 * 60 * 1000);
 orphanCleanupTimer.unref?.();
 
+router.get('/feed/search', async (req, res) => {
+  try {
+    const query = String(req.query?.q || '').trim();
+    if (query.length < 2) return res.status(400).json({ message: 'Для поиска введите минимум два символа' });
+    const limit = Math.min(50, Math.max(1, Math.floor(Number(req.query?.limit)) || 25));
+    const commentsLimit = Math.min(5, Math.max(2, Number(req.query?.commentsLimit) || 3));
+    const [posts, total] = await Promise.all([
+      searchSqlFeedPosts({ query, limit, cursor: req.query?.cursor || '', commentsLimit }),
+      countSqlFeedSearchResults(query)
+    ]);
+    if (!Array.isArray(posts)) return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
+    const lastPost = posts[posts.length - 1] || null;
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      posts,
+      total: Number(total || 0),
+      cursor: lastPost ? encodeFeedCursor(lastPost) : '',
+      hasMore: posts.length >= limit,
+      storage: 'mysql'
+    });
+  } catch (error) {
+    console.error('Chat GET /feed/search error:', error);
+    res.status(error.status || 500).json({ message: error.status === 400 ? error.message : 'Не удалось выполнить поиск по ленте' });
+  }
+});
+
 router.get('/feed', async (req, res) => {
   try {
     const limit = Math.min(100, Math.max(1, Math.floor(Number(req.query?.limit)) || 25));
@@ -2954,11 +3109,14 @@ router.get('/threads/:conversationId/search', async (req, res) => {
       return res.status(400).json({ message: 'Для поиска введите минимум два символа' });
     }
     const limit = Math.min(50, Math.max(1, Math.floor(Number(req.query?.limit)) || CHAT_SEARCH_PAGE_SIZE));
-    const messages = await searchSqlConversationMessages(conversationId, {
+    const [messages, total] = await Promise.all([
+      searchSqlConversationMessages(conversationId, {
       query,
       limit,
       before: req.query?.before || ''
-    });
+      }),
+      countSqlConversationSearchResults(conversationId, query)
+    ]);
     if (!Array.isArray(messages)) {
       return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
     }
@@ -2968,6 +3126,7 @@ router.get('/threads/:conversationId/search', async (req, res) => {
       conversationId,
       query,
       messages: stripInlinePayloads(messages),
+      total: Number(total || 0),
       before,
       hasMore: messages.length >= limit
     });
@@ -2976,6 +3135,30 @@ router.get('/threads/:conversationId/search', async (req, res) => {
     res.status(error.status || 500).json({
       message: error.status === 400 ? error.message : 'Не удалось выполнить поиск по переписке'
     });
+  }
+});
+
+router.get('/threads/:conversationId/context', async (req, res) => {
+  try {
+    const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
+    const messageId = String(req.query?.messageId || '').trim();
+    if (!conversationId) return res.status(400).json({ message: 'conversationId обязателен' });
+    if (!messageId) return res.status(400).json({ message: 'messageId обязателен' });
+    if (!requireConversationAccess(req, res, conversationId)) return;
+    if (!hasRole(req, 'admin') && await isSqlConversationArchived(conversationId)) {
+      return res.status(403).json({ message: 'Переписка находится в архиве администратора' });
+    }
+    const context = await readSqlConversationContext(conversationId, messageId, req.query?.limit || 25);
+    if (!context) return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      conversationId,
+      messageId: context.messageId,
+      messages: stripInlinePayloads(context.messages)
+    });
+  } catch (error) {
+    console.error('Chat GET /threads/context error:', error);
+    res.status(error.status || 500).json({ message: 'Не удалось открыть сообщение в переписке' });
   }
 });
 

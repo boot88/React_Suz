@@ -14,6 +14,7 @@ const ChatDialogHeader = memo(function ChatDialogHeader({
   hasSearch,
   searchIndex,
   searchCount,
+  searchTotal = 0,
   showMediaPanel,
   showConversationMenu,
   conversationMenuOpen,
@@ -52,9 +53,9 @@ const ChatDialogHeader = memo(function ChatDialogHeader({
       </div>
       <div className="conversation-tools">
         <input value={search} onChange={(event) => onSearch(event.target.value)} placeholder={t('dialogSearch')} aria-label={t('dialogSearch')} />
-        {hasSearch && <span className="dialog-search-count">{searchCount ? searchIndex + 1 : 0} {t('of')} {searchCount}</span>}
-        <button type="button" disabled={!searchCount} aria-label={t('back')} onClick={onPreviousResult}>↑</button>
-        <button type="button" disabled={!searchCount} aria-label={t('searchingMessages')} onClick={onNextResult}>↓</button>
+        {hasSearch && <span className="dialog-search-count">{searchCount ? searchIndex + 1 : 0} {t('of')} {searchTotal || searchCount}</span>}
+        <button type="button" disabled={!searchCount || searchIndex <= 0} aria-label={t('back')} onClick={onPreviousResult}>↑</button>
+        <button type="button" disabled={!searchCount || searchIndex >= (searchTotal || searchCount) - 1} aria-label={t('searchingMessages')} onClick={onNextResult}>↓</button>
         {showMediaPanel && <button type="button" onClick={onToggleMediaPanel}>{t('mediaFiles')}</button>}
         {showConversationMenu && (modern ? <>
           <button ref={menuTriggerRef} type="button" className="modern-dialog-menu-trigger" aria-label={t('dialogActions')} aria-haspopup="dialog" aria-expanded={conversationMenuOpen} onClick={event => {

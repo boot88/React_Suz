@@ -6,6 +6,7 @@ import AuthenticatedAvatar from './AuthenticatedAvatar';
 const FeedPostCard = memo(function FeedPostCard({
   post,
   modern = false,
+  searchCurrent = false,
   onCloseMenu,
   selected,
   menuOpen,
@@ -78,7 +79,8 @@ const FeedPostCard = memo(function FeedPostCard({
   }, [modern, menuOpen]);
   return (
     <article
-      className={`employee-feed-post ${post.pinned ? 'pinned-feed-post' : ''} ${selected ? 'selected' : ''}`}
+      data-feed-post-id={post.id}
+      className={`employee-feed-post ${post.pinned ? 'pinned-feed-post' : ''} ${selected ? 'selected' : ''} ${searchCurrent ? 'feed-search-current' : ''}`}
     >
       <header className="employee-feed-post-header vk-feed-post-header">
         <button
