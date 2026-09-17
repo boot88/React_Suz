@@ -12,7 +12,7 @@ import useStableMessageProps from '../components/employeeChat/useStableMessagePr
 import ChatAppearanceSettings from '../components/employeeChat/ChatAppearanceSettings';
 import useMessageOutbox from '../components/employeeChat/useMessageOutbox';
 import { mergeMessages, compareMessages, isMessageRead } from '../utils/chatMessages';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../utils/apiConfig';
@@ -38,6 +38,17 @@ const sameViewerFile = (left, right) => left === right || Boolean(left && right 
   (left.id && right.id && String(left.id) === String(right.id))
   || (!left.id && !right.id && (left.url || left.dataUrl) && (left.url || left.dataUrl) === (right.url || right.dataUrl))
 ));
+
+const getOneYearAgoTimestamp = () => {
+  const cutoff = new Date();
+  cutoff.setFullYear(cutoff.getFullYear() - 1);
+  return cutoff.getTime();
+};
+
+const isWithinVisibleHistory = (item = {}) => {
+  const timestamp = new Date(item.createdAt || item.updatedAt || 0).getTime();
+  return !Number.isFinite(timestamp) || timestamp >= getOneYearAgoTimestamp();
+};
 
 const setChatReactionForUser = (message = {}, emoji, login, active) => {
   const reactions = Object.entries(message.reactions || {}).reduce((next, [reactionEmoji, reactionUsers]) => {
@@ -230,6 +241,7 @@ const EmployeeChat = ({ adminSection = null }) => {
   const [modal, setModal] = useState(null);
   const modalResolverRef = useRef(null);
   const messagesWrapRef = useRef(null);
+  const chatPrependAnchorRef = useRef(null);
   const nearBottomRef = useRef(false);
   const messageListRef = useRef(null);
   const feedListRef = useRef(null);
@@ -401,7 +413,9 @@ const EmployeeChat = ({ adminSection = null }) => {
     ...customTemplates
   ], [customTemplates, isEnglishInterface, isManager]);
   const currentMessages = useMemo(() => (
-    currentConversationId ? (threads[currentConversationId] || []) : []
+    currentConversationId
+      ? (threads[currentConversationId] || []).filter(isWithinVisibleHistory)
+      : []
   ), [currentConversationId, threads]);
   const isCurrentConversationLoading = Boolean(currentConversationId && (
     loadingConversationIds[currentConversationId]
@@ -410,6 +424,7 @@ const EmployeeChat = ({ adminSection = null }) => {
 
   useEffect(() => {
     setVisibleDialogMessageCount(CHAT_MESSAGES_PAGE_SIZE);
+    chatPrependAnchorRef.current = null;
   }, [currentConversationId, dialogFilter, dialogSearch]);
 
   useEffect(() => {
@@ -1159,7 +1174,7 @@ const EmployeeChat = ({ adminSection = null }) => {
     if (!currentConversationId || query.length < 2) return;
     setDialogSearchLoading(true);
     try {
-      const params = new URLSearchParams({ q: query, limit: '25' });
+      const params = new URLSearchParams({ q: query, limit: String(CHAT_MESSAGES_PAGE_SIZE) });
       if (before) params.set('before', before);
       const response = await authFetch(
         `${API_BASE_URL}/chat/threads/${encodeURIComponent(currentConversationId)}/search?${params.toString()}`,
@@ -1214,6 +1229,7 @@ const EmployeeChat = ({ adminSection = null }) => {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось загрузить предыдущие сообщения');
       const olderMessages = Array.isArray(data?.messages) ? data.messages : [];
+      if (!olderMessages.length) chatPrependAnchorRef.current = null;
       historyCursorRef.current[currentConversationId] = data.before || '';
       setThreads((prev) => {
         const current = Array.isArray(prev[currentConversationId]) ? prev[currentConversationId] : [];
@@ -1224,6 +1240,7 @@ const EmployeeChat = ({ adminSection = null }) => {
       setThreadHasMore((prev) => ({ ...prev, [currentConversationId]: Boolean(data?.hasMore) && olderMessages.length >= CHAT_MESSAGES_PAGE_SIZE }));
       setVisibleDialogMessageCount((prev) => prev + CHAT_MESSAGES_PAGE_SIZE);
     } catch (error) {
+      chatPrependAnchorRef.current = null;
       notify(error.message || 'Не удалось загрузить предыдущие сообщения', 'Чат');
     } finally {
       setIsLoadingOlderDialog(false);
@@ -3300,6 +3317,15 @@ const EmployeeChat = ({ adminSection = null }) => {
   }, [visibleMessages, visibleDialogMessageCount, normalizedDialogSearch, dialogSearchContext, dateSearchMessages]);
   const hiddenDialogMessagesCount = Math.max(0, visibleMessages.length - paginatedVisibleMessages.length);
 
+  useLayoutEffect(() => {
+    const anchor = chatPrependAnchorRef.current;
+    const wrap = messagesWrapRef.current;
+    if (!anchor || !wrap || anchor.conversationId !== currentConversationId) return;
+    const addedHeight = wrap.scrollHeight - anchor.scrollHeight;
+    wrap.scrollTop = Math.max(0, anchor.scrollTop + addedHeight);
+    chatPrependAnchorRef.current = null;
+  }, [currentConversationId, paginatedVisibleMessages.length]);
+
   const messagesWithDateSeparators = useMemo(() => {
     let lastDateKey = '';
     return paginatedVisibleMessages.flatMap((message) => {
@@ -4144,8 +4170,25 @@ const EmployeeChat = ({ adminSection = null }) => {
                       setReadViewportVersion((current) => current + 1);
                     }
                     nearBottomRef.current = isNearBottom;
-                    if (normalizedDialogSearch || dialogSearchContext || dateSearchMessages || event.currentTarget.scrollTop > 32 || hiddenDialogMessagesCount > 0 || !threadHasMore[currentConversationId]) return;
-                    loadOlderDialogMessages();
+                    if (
+                      normalizedDialogSearch
+                      || dialogSearchContext
+                      || dateSearchMessages
+                      || wrap.scrollTop > 96
+                      || isLoadingOlderDialog
+                      || chatPrependAnchorRef.current
+                    ) return;
+                    if (hiddenDialogMessagesCount <= 0 && !threadHasMore[currentConversationId]) return;
+                    chatPrependAnchorRef.current = {
+                      conversationId: currentConversationId,
+                      scrollHeight: wrap.scrollHeight,
+                      scrollTop: wrap.scrollTop
+                    };
+                    if (hiddenDialogMessagesCount > 0) {
+                      setVisibleDialogMessageCount((current) => current + CHAT_MESSAGES_PAGE_SIZE);
+                    } else {
+                      loadOlderDialogMessages();
+                    }
                   }}
                 >
                   {(dialogSearchContext || dateSearchMessages) && <button type="button" className="chat-pagination-button" onClick={() => { setDialogSearchContext(null); setDateSearchMessages(null); if (dialogSearchContext) setDialogSearch(''); }}>{isEnglishInterface ? 'Back to conversation' : 'Вернуться в переписку'}</button>}
@@ -4155,17 +4198,6 @@ const EmployeeChat = ({ adminSection = null }) => {
                   {normalizedDialogSearch.length >= 2 && dialogSearchContextLoading && (
                     <div className="chat-search-status">{t('loading')}…</div>
                   )}
-                  {normalizedDialogSearch.length >= 2 && dialogSearchHasMore && (
-                    <button
-                      type="button"
-                      className="chat-pagination-button"
-                      disabled={dialogSearchLoading}
-                      onClick={() => fetchDialogSearchPage({ append: true, before: dialogSearchBefore })}
-                    >
-                      {t('loadMoreSearchResults')}
-                    </button>
-                  )}
-                  {!normalizedDialogSearch && !dialogSearchContext && !dateSearchMessages && (hiddenDialogMessagesCount > 0 || threadHasMore[currentConversationId]) && <button type="button" className="chat-pagination-button" disabled={isLoadingOlderDialog} onClick={() => hiddenDialogMessagesCount > 0 ? setVisibleDialogMessageCount((prev) => prev + CHAT_MESSAGES_PAGE_SIZE) : loadOlderDialogMessages()}>{t('loadPreviousMessages')} · {t('showingLatestMessages').replace('{shown}', String(paginatedVisibleMessages.length)).replace('{total}', String(threadHasMore[currentConversationId] ? `${visibleMessages.length}+` : visibleMessages.length))}</button>}
                   {!isCurrentConversationLoading && messagesWithDateSeparators.length === 0 && <div className="empty-chat">{dialogSearch ? t('noMessageSearchResults') : t('noMessages')}</div>}
                   {<VirtualMessageList key={currentConversationId} items={messagesWithDateSeparators} viewportRef={messagesWrapRef} listRef={messageListRef} renderItem={item => <ChatMessageItem item={item} {...messageItemProps} />} />}
                 </div>

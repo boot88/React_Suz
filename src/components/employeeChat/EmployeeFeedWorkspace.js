@@ -1,6 +1,33 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 
 export default function EmployeeFeedWorkspace({ AttachmentCard, FEED_CATEGORIES, FEED_POSTS_PAGE_SIZE, FeedComposer, FeedMediaCard, FeedPostCard, REACTION_EMOJIS, addCommentToPost, addFeedPost, avatarUrl, canManageFeedPost, chatLocalSettings, commentDrafts, commentSort, copyFeedPostLink, deleteFeedComment, deleteFeedPost, directoryEmployees, editingFeedPostId, editingFeedText, expandedCommentPosts, feedAttachments, feedCategory, feedDraft, feedError, feedHasMore, feedListRef, feedLoading, feedLoadingMore, feedReactionExpanded, feedRefreshing, feedSearch, feedSearchHasMore, feedSearchIndex, feedSearchLoading, feedSearchResults, feedSearchTotal, fetchFeed, formatFeedLogin, formatFileSize, getAttachmentUrl, getEmployeeAvatar, getFeedAttachments, getFeedCategoryLabel, getFileIcon, getOriginalAttachmentUrl, getVideoPosterUrl, hiddenFeedPostsCount, hideFeedPost, interfaceLocale, isAdmin, isEnglishInterface, isFeedPostPending, isImageAttachment, isManager, isMediaAttachment, isPublishingFeed, isVideoAttachment, loadFeedComments, loadMoreFeedPosts, localizeRuntimeText, nudgeVideoToFirstFrame, onFeedFileChange, onNextFeedSearchResult, onPreviousFeedSearchResult, openEmployeeProfile, openFeedMediaViewer, openFeedMenuId, paginatedRegularFeedPosts, pendingFeedActions, pinnedFeedPosts, profileForm, quoteFeedPost, regularFeedPosts, removeFeedAttachment, sameLogin, saveFeedPostEdit, searchCurrentPostId, selectedFeedPostId, setCommentDrafts, setEditingFeedPostId, setEditingFeedText, setExpandedCommentPosts, setFeedCategory, setFeedDraft, setFeedReactionExpanded, setFeedSearch, setMediaViewer, setOpenFeedMenuId, setSelectedFeedPostId, setVisibleFeedPostCount, shareFeedPostToChat, sortComments, startEditFeedPost, t, toggleFeedPinned, toggleFeedReaction, user, visibleFeedPosts }) {
+  const feedLoadSentinelRef = useRef(null);
+
+  useEffect(() => {
+    const root = feedListRef.current;
+    const sentinel = feedLoadSentinelRef.current;
+    if (
+      !root
+      || !sentinel
+      || typeof IntersectionObserver === 'undefined'
+      || feedSearch.trim().length >= 2
+      || pendingFeedActions.length > 0
+      || (hiddenFeedPostsCount <= 0 && (!feedHasMore || feedLoadingMore))
+    ) return undefined;
+
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry?.isIntersecting) return;
+      if (hiddenFeedPostsCount > 0) {
+        setVisibleFeedPostCount((current) => Math.min(current + FEED_POSTS_PAGE_SIZE, regularFeedPosts.length));
+      } else if (feedHasMore && !feedLoadingMore) {
+        loadMoreFeedPosts();
+      }
+    }, { root, rootMargin: '0px 0px 420px 0px', threshold: 0.01 });
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [FEED_POSTS_PAGE_SIZE, feedHasMore, feedListRef, feedLoadingMore, feedSearch, hiddenFeedPostsCount, loadMoreFeedPosts, pendingFeedActions.length, regularFeedPosts.length, setVisibleFeedPostCount]);
+
   return (<section className="employee-feed-section">
             <div className="feed-toolbar compact-feed-toolbar sticky-feed-search"><div className="feed-search-shell"><span className="feed-search-icon">🔍</span><input type="search" placeholder={t('searchFeed')} value={feedSearch} onChange={(e) => setFeedSearch(e.target.value)} />{feedSearch && <button type="button" className="feed-search-clear" onClick={() => setFeedSearch('')} aria-label={t('clearSearch')}>×</button>}</div>{feedSearch.trim().length >= 2 && <div className="feed-search-navigation"><span>{feedSearchResults.length ? feedSearchIndex + 1 : 0} {t('of')} {feedSearchTotal || feedSearchResults.length}</span><button type="button" disabled={feedSearchIndex <= 0 || feedSearchLoading} aria-label={t('back')} onClick={onPreviousFeedSearchResult}>↑</button><button type="button" disabled={feedSearchLoading || (!feedSearchHasMore && feedSearchIndex >= feedSearchResults.length - 1)} aria-label={t('searchingMessages')} onClick={onNextFeedSearchResult}>↓</button></div>}</div>
             <div className="employee-feed-list" ref={feedListRef} onClick={(event) => { if (event.target === event.currentTarget) { setSelectedFeedPostId(''); setFeedReactionExpanded(false); } }}>
@@ -146,7 +173,7 @@ export default function EmployeeFeedWorkspace({ AttachmentCard, FEED_CATEGORIES,
                   />
                 );
               })}
-              {(hiddenFeedPostsCount > 0 || feedHasMore) && <button type="button" className="chat-pagination-button feed-pagination-button" disabled={feedLoadingMore || pendingFeedActions.length > 0} onClick={() => { if (hiddenFeedPostsCount > 0) setVisibleFeedPostCount((prev) => prev + FEED_POSTS_PAGE_SIZE); else loadMoreFeedPosts(); }}>{feedLoadingMore ? t('loading') : t('loadMoreFeed')} · {paginatedRegularFeedPosts.length}/{regularFeedPosts.length}{feedHasMore ? '+' : ''}</button>}
+              <div ref={feedLoadSentinelRef} className="feed-infinite-scroll-sentinel" aria-live="polite">{feedLoadingMore ? `${t('loading')}…` : ''}</div>
             </div>
           </section>);
 }

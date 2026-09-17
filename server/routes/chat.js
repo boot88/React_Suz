@@ -70,7 +70,8 @@ const MAX_BACKUPS_PER_FILE = 30;
 const MAX_UPLOAD_SIZE = 50 * 1024 * 1024;
 const MAX_MULTIPART_OVERHEAD = 3 * 1024 * 1024;
 const CHAT_SQL_PAGE_SIZE = 50;
-const CHAT_SEARCH_PAGE_SIZE = 25;
+const CHAT_SEARCH_PAGE_SIZE = 50;
+const FEED_SQL_PAGE_SIZE = 30;
 const STREAM_EVENT_BUFFER_SIZE = 500;
 const ORPHAN_UPLOAD_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const ALLOWED_UPLOAD_SCOPES = new Set(['chat', 'feed']);
@@ -236,9 +237,9 @@ const writeSqlMessage = async (conversationId, message = {}, { insertOnly = fals
   return true;
 };
 
-const readSqlConversationMessages = async (conversationId, { limit = CHAT_SQL_PAGE_SIZE, before = '' } = {}) => {
+const readSqlConversationMessages = async (conversationId, { limit = CHAT_SQL_PAGE_SIZE, before = '', withinLastYear = false } = {}) => {
   if (!await ensureChatSqlSchema()) return null;
-  const { sql, params } = buildConversationMessagesPageQuery(conversationId, { limit, before });
+  const { sql, params } = buildConversationMessagesPageQuery(conversationId, { limit, before, withinLastYear });
 
   // The limit is a server-clamped integer. Keeping it out of the prepared
   // statement avoids MySQL 8.4/mysql2 LIMIT marker incompatibilities.
@@ -342,6 +343,7 @@ const searchSqlConversationMessages = async (
      FROM chat_messages
      WHERE conversation_id = ?
        AND deleted_at IS NULL
+       AND created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
        AND LOWER(CASE
          WHEN JSON_VALID(message_json)
          THEN COALESCE(JSON_UNQUOTE(JSON_EXTRACT(message_json, '$.text')), '')
@@ -365,6 +367,7 @@ const countSqlConversationSearchResults = async (conversationId, query = '') => 
      FROM chat_messages
      WHERE conversation_id = ?
        AND deleted_at IS NULL
+       AND created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
        AND LOWER(CASE
          WHEN JSON_VALID(message_json)
          THEN COALESCE(JSON_UNQUOTE(JSON_EXTRACT(message_json, '$.text')), '')
@@ -375,13 +378,16 @@ const countSqlConversationSearchResults = async (conversationId, query = '') => 
   return Number(rows?.[0]?.total || 0);
 };
 
-const readSqlConversationContext = async (conversationId, messageId, limit = 25) => {
+const readSqlConversationContext = async (conversationId, messageId, limit = CHAT_SQL_PAGE_SIZE) => {
   if (!await ensureChatSqlSchema()) return null;
-  const safeLimit = Math.min(50, Math.max(1, Math.floor(Number(limit)) || 25));
+  const safeLimit = Math.min(50, Math.max(1, Math.floor(Number(limit)) || 50));
+  const olderLimit = Math.ceil(safeLimit / 2);
+  const newerLimit = Math.floor(safeLimit / 2);
   const [targetRows] = await db.execute(
     `SELECT id, created_at
      FROM chat_messages
      WHERE conversation_id = ? AND id = ? AND deleted_at IS NULL
+       AND created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
      LIMIT 1`,
     [conversationId, String(messageId || '')]
   );
@@ -393,9 +399,10 @@ const readSqlConversationContext = async (conversationId, messageId, limit = 25)
      FROM chat_messages
      WHERE conversation_id = ?
        AND deleted_at IS NULL
+       AND created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
        AND (created_at < ? OR (created_at = ? AND id <= ?))
      ORDER BY created_at DESC, id DESC
-     LIMIT ${safeLimit}`,
+     LIMIT ${olderLimit}`,
     [conversationId, target.created_at, target.created_at, target.id]
   );
   const [newerRows] = await db.query(
@@ -403,9 +410,10 @@ const readSqlConversationContext = async (conversationId, messageId, limit = 25)
      FROM chat_messages
      WHERE conversation_id = ?
        AND deleted_at IS NULL
+       AND created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
        AND (created_at > ? OR (created_at = ? AND id > ?))
      ORDER BY created_at ASC, id ASC
-     LIMIT ${safeLimit}`,
+     LIMIT ${newerLimit}`,
     [conversationId, target.created_at, target.created_at, target.id]
   );
 
@@ -481,6 +489,7 @@ const readSqlThreadSummaries = async (login) => {
          SUM(deleted_at IS NOT NULL) OVER (PARTITION BY conversation_id) AS deleted_count
        FROM chat_messages
        WHERE (participant_a = ? OR participant_b = ?)
+         AND created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
          AND NOT EXISTS (
            SELECT 1 FROM chat_conversations AS conversations
            WHERE conversations.conversation_id = chat_messages.conversation_id
@@ -488,10 +497,12 @@ const readSqlThreadSummaries = async (login) => {
          )
      ) AS m
      LEFT JOIN (
-       SELECT conversation_id, COUNT(*) AS attachment_count
-       FROM chat_message_files
-       WHERE participant_a = ? OR participant_b = ?
-       GROUP BY conversation_id
+       SELECT files.conversation_id, COUNT(*) AS attachment_count
+       FROM chat_message_files AS files
+       INNER JOIN chat_messages AS attachment_messages ON attachment_messages.id = files.message_id
+       WHERE (files.participant_a = ? OR files.participant_b = ?)
+         AND attachment_messages.created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
+       GROUP BY files.conversation_id
      ) AS f ON f.conversation_id = m.conversation_id
      WHERE m.message_rank = 1
      ORDER BY m.created_at DESC`,
@@ -502,6 +513,7 @@ const readSqlThreadSummaries = async (login) => {
     FROM chat_messages m LEFT JOIN chat_read_state r ON r.conversation_id = m.conversation_id AND r.user_login = ?
     LEFT JOIN chat_messages anchor ON anchor.id = r.last_read_message_id AND anchor.conversation_id = m.conversation_id
     WHERE (m.participant_a = ? OR m.participant_b = ?) AND m.sender_login <> ? AND m.deleted_at IS NULL
+      AND m.created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
       AND (m.created_at > COALESCE(anchor.created_at, r.last_read_at, '1970-01-01')
         OR (m.created_at = anchor.created_at AND m.id > anchor.id)) GROUP BY m.conversation_id`,
     [normalizedLogin, normalizedLogin, normalizedLogin, normalizedLogin]);
@@ -1976,6 +1988,7 @@ const searchSqlFeedPosts = async ({ query = '', limit = 25, cursor = '', comment
     `SELECT posts.post_json
      FROM feed_posts AS posts
      WHERE posts.deleted_at IS NULL
+       AND posts.created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
        AND LOWER(CASE
          WHEN JSON_VALID(posts.post_json)
          THEN COALESCE(JSON_UNQUOTE(JSON_EXTRACT(posts.post_json, '$.text')), '')
@@ -2000,6 +2013,7 @@ const countSqlFeedSearchResults = async (query = '') => {
     `SELECT COUNT(*) AS total
      FROM feed_posts AS posts
      WHERE posts.deleted_at IS NULL
+       AND posts.created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
        AND LOWER(CASE
          WHEN JSON_VALID(posts.post_json)
          THEN COALESCE(JSON_UNQUOTE(JSON_EXTRACT(posts.post_json, '$.text')), '')
@@ -2628,7 +2642,7 @@ router.get('/feed/search', async (req, res) => {
   try {
     const query = String(req.query?.q || '').trim();
     if (query.length < 2) return res.status(400).json({ message: 'Для поиска введите минимум два символа' });
-    const limit = Math.min(50, Math.max(1, Math.floor(Number(req.query?.limit)) || 25));
+    const limit = Math.min(50, Math.max(1, Math.floor(Number(req.query?.limit)) || FEED_SQL_PAGE_SIZE));
     const commentsLimit = Math.min(5, Math.max(2, Number(req.query?.commentsLimit) || 3));
     const [posts, total] = await Promise.all([
       searchSqlFeedPosts({ query, limit, cursor: req.query?.cursor || '', commentsLimit }),
@@ -2652,7 +2666,7 @@ router.get('/feed/search', async (req, res) => {
 
 router.get('/feed', async (req, res) => {
   try {
-    const limit = Math.min(100, Math.max(1, Math.floor(Number(req.query?.limit)) || 25));
+    const limit = Math.min(100, Math.max(1, Math.floor(Number(req.query?.limit)) || FEED_SQL_PAGE_SIZE));
     const commentsLimit = Math.min(5, Math.max(2, Number(req.query?.commentsLimit) || 3));
     const cursor = String(req.query?.cursor || '').trim();
     const before = req.query?.before || '';
@@ -3134,7 +3148,7 @@ router.get('/threads/:conversationId/context', async (req, res) => {
     if (!hasRole(req, 'admin') && await isSqlConversationArchived(conversationId)) {
       return res.status(403).json({ message: 'Переписка находится в архиве администратора' });
     }
-    const context = await readSqlConversationContext(conversationId, messageId, req.query?.limit || 25);
+    const context = await readSqlConversationContext(conversationId, messageId, req.query?.limit || CHAT_SQL_PAGE_SIZE);
     if (!context) return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
     res.set('Cache-Control', 'no-store');
     res.json({
@@ -3168,6 +3182,7 @@ router.get('/threads/:conversationId/date', async (req, res) => {
       `SELECT message_json
        FROM chat_messages
        WHERE conversation_id = ?
+         AND created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
          AND created_at >= CONCAT(?, ' 00:00:00')
          AND created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY)
        ORDER BY created_at ASC, id ASC
@@ -3212,7 +3227,7 @@ router.get('/threads/:conversationId/messages', async (req, res) => {
     }
     const limit = Math.min(200, Math.max(1, Math.floor(Number(req.query?.limit)) || CHAT_SQL_PAGE_SIZE));
     const before = req.query?.before || '';
-    const messages = await readSqlConversationMessages(conversationId, { limit, before });
+    const messages = await readSqlConversationMessages(conversationId, { limit, before, withinLastYear: true });
     if (!Array.isArray(messages)) {
       return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
     }

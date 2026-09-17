@@ -93,7 +93,7 @@ const decodeFeedCursor = (cursor = '') => {
 const buildFeedPostsPageQuery = ({ limit = 50, cursor = '', before = '' } = {}) => {
   const safeLimit = toSafeSqlLimit(limit);
   const params = [];
-  let where = 'deleted_at IS NULL';
+  let where = 'deleted_at IS NULL AND created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)';
   const decodedCursor = decodeFeedCursor(cursor);
   if (decodedCursor) {
     where += ` AND (

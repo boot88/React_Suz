@@ -99,10 +99,11 @@ const decodeMessageCursor = (value) => {
   return { at, id: cursor.id };
 };
 
-const buildConversationMessagesPageQuery = (conversationId, { limit = 50, before = '' } = {}) => {
+const buildConversationMessagesPageQuery = (conversationId, { limit = 50, before = '', withinLastYear = false } = {}) => {
   const safeLimit = Math.min(200, Math.max(1, Math.floor(Number(limit) || 50)));
   const params = [conversationId];
   let where = 'conversation_id = ?';
+  if (withinLastYear) where += ' AND created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)';
   const cursor = decodeMessageCursor(before);
   if (cursor) {
     where += ' AND (created_at < ? OR (created_at = ? AND id < ?))';

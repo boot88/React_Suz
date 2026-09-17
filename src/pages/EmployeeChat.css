@@ -5147,6 +5147,15 @@
   padding-right: 4px;
 }
 
+.feed-infinite-scroll-sentinel {
+  display: grid;
+  min-height: 32px;
+  place-items: center;
+  color: var(--chat-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .feed-composer-post {
   gap: 12px;
   border-color: rgba(37, 99, 235, .14);
@@ -5986,12 +5995,6 @@
 .chat-pagination-button:hover {
   border-color: rgba(30, 90, 168, .48);
   background: rgba(30, 90, 168, .08);
-}
-
-.feed-pagination-button {
-  width: max-content;
-  max-width: 100%;
-  margin-bottom: 24px;
 }
 
 /* Keep sender name readable on outgoing blue message bubbles */

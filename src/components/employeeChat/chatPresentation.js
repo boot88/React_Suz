@@ -20,7 +20,7 @@ const EMPLOYEE_CUSTOM_TEMPLATES_KEY = 'employeeChatCustomTemplates';
 const MAX_ATTACHMENT_SIZE_MB = 50;
 const MAX_ATTACHMENT_SIZE = MAX_ATTACHMENT_SIZE_MB * 1024 * 1024;
 const CHAT_MESSAGES_PAGE_SIZE = 50;
-const FEED_POSTS_PAGE_SIZE = 25;
+const FEED_POSTS_PAGE_SIZE = 30;
 const FEED_COMMENTS_PAGE_SIZE = 20;
 const VIDEO_EXTENSION_PATTERN = /\.(mp4|webm|ogg|ogv|mov|m4v|avi|mkv)$/i;
 const EMPLOYEE_TABS = [
@@ -1489,7 +1489,17 @@ const getFeedPostsSignature = (posts = []) => JSON.stringify((Array.isArray(post
     : ''
 })));
 
-const getVisibleFeedPosts = (posts = []) => (Array.isArray(posts) ? posts.filter((post) => post && !post.deletedAt) : []);
+const getOneYearAgoTimestamp = () => {
+  const cutoff = new Date();
+  cutoff.setFullYear(cutoff.getFullYear() - 1);
+  return cutoff.getTime();
+};
+const getVisibleFeedPosts = (posts = []) => {
+  const cutoff = getOneYearAgoTimestamp();
+  return Array.isArray(posts)
+    ? posts.filter((post) => post && !post.deletedAt && getFeedItemTimestamp(post) >= cutoff)
+    : [];
+};
 const sortFeedPosts = (posts = []) => [...posts].sort((a, b) => (
   Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
   || new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
