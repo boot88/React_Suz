@@ -3731,18 +3731,23 @@ const readAuditSearchParams = (req) => {
     throw Object.assign(new Error('Укажите начало и конец периода'), { status: 400 });
   }
   if (from > to) throw Object.assign(new Error('Конечная дата не может быть раньше начальной'), { status: 400 });
-  return { employee, from, to, query };
+  const periodMode = req.query?.periodMode === 'day' ? 'day' : 'month';
+  return { employee, from, to, query, periodMode };
 };
+
+const getArchiveCutoffSql = (periodMode) => periodMode === 'day'
+  ? 'DATE_SUB(NOW(), INTERVAL 3 DAY)'
+  : 'DATE_SUB(NOW(), INTERVAL 1 YEAR)';
 
 const appendAuditMessageSearch = (conditions, params, query, alias = 'messages') => {
   if (!query) return;
   const pattern = `%${query}%`;
   conditions.push(`(
-    LOWER(${alias}.message_json) LIKE ?
+    LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(${alias}.message_json, '$.text')), '')) LIKE ?
     OR EXISTS (
       SELECT 1 FROM chat_message_versions AS versions
       WHERE versions.message_id = ${alias}.id
-        AND LOWER(versions.snapshot_json) LIKE ?
+        AND LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(versions.snapshot_json, '$.text')), '')) LIKE ?
     )
   )`);
   params.push(pattern, pattern);
@@ -3750,7 +3755,7 @@ const appendAuditMessageSearch = (conditions, params, query, alias = 'messages')
 
 router.get('/audit/conversations', requireRole('admin'), async (req, res) => {
   try {
-    const { employee, from, to, query } = readAuditSearchParams(req);
+    const { employee, from, to, query, periodMode } = readAuditSearchParams(req);
     if (!await ensureChatSqlSchema()) {
       return res.status(503).json({ message: 'Хранилище переписки временно недоступно' });
     }
@@ -3759,6 +3764,7 @@ router.get('/audit/conversations', requireRole('admin'), async (req, res) => {
       "messages.created_at >= CONCAT(?, ' 00:00:00')",
       "messages.created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY)"
     ];
+    conditions.push(`messages.created_at < ${getArchiveCutoffSql(periodMode)}`);
     const params = [employee, employee, from, to];
     appendAuditMessageSearch(conditions, params, query);
     const [rows] = await db.query(
@@ -3790,7 +3796,7 @@ router.get('/audit/conversations/:conversationId/messages', requireRole('admin')
   try {
     const conversationId = decodeURIComponent(req.params.conversationId || '').trim();
     if (!conversationId) return res.status(400).json({ message: 'Выберите переписку' });
-    const { employee, from, to, query } = readAuditSearchParams(req);
+    const { employee, from, to, query, periodMode } = readAuditSearchParams(req);
     if (!await ensureChatSqlSchema()) {
       return res.status(503).json({ message: 'Хранилище переписки временно недоступно' });
     }
@@ -3801,6 +3807,7 @@ router.get('/audit/conversations/:conversationId/messages', requireRole('admin')
       "messages.created_at >= CONCAT(?, ' 00:00:00')",
       "messages.created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY)"
     ];
+    conditions.push(`messages.created_at < ${getArchiveCutoffSql(periodMode)}`);
     const params = [conversationId, employee, employee, from, to];
     const cursor = decodeMessageCursor(req.query?.before || '');
     if (cursor) {
@@ -3835,6 +3842,33 @@ router.get('/audit/conversations/:conversationId/messages', requireRole('admin')
   } catch (error) {
     console.error('Chat GET /audit/conversations/messages error:', error);
     res.status(error.status || 500).json({ message: error.status ? error.message : 'Не удалось открыть переписку' });
+  }
+});
+
+router.get('/audit/feed', requireRole('admin'), async (req, res) => {
+  try {
+    const { employee, from, to, query, periodMode } = readAuditSearchParams(req);
+    if (!await ensureFeedSqlSchema()) return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
+    const conditions = [
+      'LOWER(posts.author_login) = ?',
+      "posts.created_at >= CONCAT(?, ' 00:00:00')",
+      "posts.created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY)",
+      `posts.created_at < ${getArchiveCutoffSql(periodMode)}`
+    ];
+    const params = [employee, from, to];
+    if (query) {
+      conditions.push("LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(posts.post_json, '$.text')), '')) LIKE ?");
+      params.push(`%${query}%`);
+    }
+    const [rows] = await db.query(`SELECT posts.id, posts.post_json, posts.created_at, COUNT(DISTINCT links.file_id) AS file_count
+      FROM feed_posts AS posts LEFT JOIN feed_post_files AS links ON links.post_id=posts.id
+      WHERE ${conditions.join(' AND ')} GROUP BY posts.id, posts.post_json, posts.created_at
+      ORDER BY posts.created_at DESC LIMIT 300`, params);
+    res.set('Cache-Control', 'no-store');
+    res.json({ posts: (rows || []).map((row) => ({ ...(parseSqlJson(row.post_json) || {}), id: row.id, createdAt: parseSqlJson(row.post_json)?.createdAt || row.created_at, fileCount: Number(row.file_count) || 0 })) });
+  } catch (error) {
+    console.error('Chat GET /audit/feed error:', error);
+    res.status(error.status || 500).json({ message: error.message || 'Не удалось найти публикации' });
   }
 });
 
@@ -4338,6 +4372,367 @@ router.post('/records/conversations/:conversationId/purge', requireRole('admin')
     res.status(error.status || 500).json({ message: error.message || 'Не удалось выполнить окончательное удаление' });
   } finally {
     connection?.release();
+  }
+});
+
+const readArchivePeriod = (req) => {
+  const mode = req.query?.mode === 'day' || req.body?.mode === 'day' ? 'day' : 'month';
+  const key = String(req.params?.periodKey || req.body?.periodKey || '').trim();
+  const pattern = mode === 'day' ? /^\d{4}-\d{2}-\d{2}$/ : /^\d{4}-\d{2}$/;
+  if (key && !pattern.test(key)) throw Object.assign(new Error('Некорректный период'), { status: 400 });
+  const from = mode === 'day' ? key : `${key}-01`;
+  const start = key ? new Date(`${from}T00:00:00Z`) : null;
+  if (key && Number.isNaN(start.getTime())) throw Object.assign(new Error('Некорректный период'), { status: 400 });
+  const end = start ? new Date(start) : null;
+  if (end) mode === 'day' ? end.setUTCDate(end.getUTCDate() + 1) : end.setUTCMonth(end.getUTCMonth() + 1);
+  const to = end ? new Date(end.getTime() - 86400000).toISOString().slice(0, 10) : '';
+  return { mode, key, from, to };
+};
+
+const getPeriodSourceStats = async ({ mode, key, from, to }) => {
+  const cutoffSql = getArchiveCutoffSql(mode);
+  const dateParams = [from, to];
+  const [[messageRows], [postRows], [fileRows]] = await Promise.all([
+    db.query(`SELECT COUNT(*) AS count FROM chat_messages
+      WHERE created_at >= CONCAT(?, ' 00:00:00')
+        AND created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY)
+        AND created_at < ${cutoffSql}`, dateParams),
+    db.query(`SELECT COUNT(*) AS count FROM feed_posts
+      WHERE created_at >= CONCAT(?, ' 00:00:00')
+        AND created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY)
+        AND created_at < ${cutoffSql}`, dateParams),
+    db.query(`SELECT COUNT(*) AS file_count, COALESCE(SUM(files.size_bytes), 0) AS source_bytes
+      FROM chat_files AS files INNER JOIN (
+        SELECT DISTINCT links.file_id FROM chat_message_files AS links
+        INNER JOIN chat_messages AS messages ON messages.id = links.message_id
+        WHERE messages.created_at >= CONCAT(?, ' 00:00:00')
+          AND messages.created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY)
+          AND messages.created_at < ${cutoffSql}
+        UNION
+        SELECT DISTINCT links.file_id FROM feed_post_files AS links
+        INNER JOIN feed_posts AS posts ON posts.id = links.post_id
+        WHERE posts.created_at >= CONCAT(?, ' 00:00:00')
+          AND posts.created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY)
+          AND posts.created_at < ${cutoffSql}
+      ) AS selected_files ON selected_files.file_id = files.id`, [...dateParams, ...dateParams])
+  ]);
+  return {
+    messageCount: Number(messageRows?.[0]?.count) || 0,
+    postCount: Number(postRows?.[0]?.count) || 0,
+    fileCount: Number(fileRows?.[0]?.file_count) || 0,
+    sourceBytes: Number(fileRows?.[0]?.source_bytes) || 0
+  };
+};
+
+router.get('/records/periods', requireRole('admin'), async (req, res) => {
+  try {
+    const mode = req.query?.mode === 'day' ? 'day' : 'month';
+    if (!await ensureChatSqlSchema() || !await ensureFeedSqlSchema() || !await ensureRecordsArchiveSchema(db)) {
+      return res.status(503).json({ message: 'Поиск документов временно недоступен' });
+    }
+    const keySql = mode === 'day' ? "DATE_FORMAT(created_at, '%Y-%m-%d')" : "DATE_FORMAT(created_at, '%Y-%m')";
+    const cutoffSql = getArchiveCutoffSql(mode);
+    const [[messagePeriods], [postPeriods], [trackedRows]] = await Promise.all([
+      db.query(`SELECT ${keySql} AS period_key, MIN(DATE(created_at)) AS from_date, MAX(DATE(created_at)) AS to_date, COUNT(*) AS message_count
+        FROM chat_messages WHERE created_at < ${cutoffSql} GROUP BY period_key`),
+      db.query(`SELECT ${keySql} AS period_key, MIN(DATE(created_at)) AS from_date, MAX(DATE(created_at)) AS to_date, COUNT(*) AS post_count
+        FROM feed_posts WHERE created_at < ${cutoffSql} GROUP BY period_key`),
+      db.query(`SELECT periods.*, archives.status AS archive_status, archives.completed_at,
+          archives.downloaded_at, archives.total_bytes AS archive_bytes
+        FROM records_archive_periods AS periods
+        LEFT JOIN records_archives AS archives ON archives.id = periods.archive_id
+        WHERE periods.period_mode = ?`, [mode])
+    ]);
+    const merged = new Map();
+    const add = (row, kind) => {
+      const current = merged.get(row.period_key) || { periodKey: row.period_key, mode, messageCount: 0, postCount: 0, fileCount: 0, sourceBytes: 0, state: 'available' };
+      current[kind] = Number(row[kind === 'messageCount' ? 'message_count' : 'post_count']) || 0;
+      current.from = String(row.from_date).slice(0, 10);
+      current.to = String(row.to_date).slice(0, 10);
+      merged.set(row.period_key, current);
+    };
+    (messagePeriods || []).forEach((row) => add(row, 'messageCount'));
+    (postPeriods || []).forEach((row) => add(row, 'postCount'));
+    for (const row of trackedRows || []) {
+      const current = merged.get(row.period_key) || { periodKey: row.period_key, mode, messageCount: 0, postCount: 0 };
+      Object.assign(current, {
+        from: String(row.from_date).slice(0, 10), to: String(row.to_date).slice(0, 10), state: row.state,
+        archiveId: row.archive_id || '', archiveStatus: row.archive_status || '', archiveBytes: Number(row.archive_bytes) || 0,
+        completedAt: row.completed_at, downloadedAt: row.downloaded_at,
+        fileCount: Number(row.file_count) || 0, sourceBytes: Number(row.source_bytes) || 0
+      });
+      if (row.state === 'deleted') {
+        current.messageCount = Number(row.message_count) || 0;
+        current.postCount = Number(row.post_count) || 0;
+      }
+      merged.set(row.period_key, current);
+    }
+    const periods = [...merged.values()].sort((a, b) => b.periodKey.localeCompare(a.periodKey));
+    for (const period of periods) {
+      const bounds = readArchivePeriod({ query: { mode }, params: { periodKey: period.periodKey }, body: {} });
+      period.from = bounds.from;
+      period.to = bounds.to;
+      if (period.state !== 'deleted') {
+        const stats = await getPeriodSourceStats({ mode, key: period.periodKey, from: period.from, to: period.to });
+        Object.assign(period, stats);
+      }
+    }
+    res.set('Cache-Control', 'no-store');
+    res.json({ mode, cutoff: mode === 'day' ? '3 days' : '1 year', periods });
+  } catch (error) {
+    console.error('Chat GET /records/periods error:', error);
+    res.status(error.status || 500).json({ message: error.message || 'Не удалось загрузить периоды' });
+  }
+});
+
+router.post('/records/periods/:periodKey/archive', requireRole('admin'), async (req, res) => {
+  try {
+    const period = readArchivePeriod(req);
+    if (!await ensureChatSqlSchema() || !await ensureChatFilesSqlSchema() || !await ensureFeedSqlSchema() || !await ensureRecordsArchiveSchema(db)) {
+      return res.status(503).json({ message: 'Хранилище не готово к формированию архива' });
+    }
+    const stats = await getPeriodSourceStats(period);
+    if (!stats.messageCount && !stats.postCount) return res.status(404).json({ message: 'В этом периоде нет доступных для архивации записей' });
+    const archiveId = `period-${period.mode}-${period.key}`;
+    const [existingRows] = await db.execute('SELECT status, selection_json FROM records_archives WHERE id = ? LIMIT 1', [archiveId]);
+    const previous = parseSqlJson(existingRows?.[0]?.selection_json)?.sourceStats || {};
+    const wouldShrink = existingRows?.[0]?.status === 'completed' && (
+      stats.messageCount < Number(previous.messageCount || 0)
+      || stats.postCount < Number(previous.postCount || 0)
+      || stats.fileCount < Number(previous.fileCount || 0)
+      || stats.sourceBytes < Number(previous.sourceBytes || 0)
+    );
+    if (wouldShrink) return res.status(409).json({ message: 'Новая копия меньше сохранённой. Большой архив оставлен без изменений.' });
+    const unchanged = existingRows?.[0]?.status === 'completed'
+      && ['messageCount', 'postCount', 'fileCount', 'sourceBytes'].every((name) => Number(previous[name] || 0) === stats[name]);
+    if (unchanged) return res.json({ archive: { id: archiveId, status: 'completed', unchanged: true } });
+    const cutoffDate = new Date();
+    if (period.mode === 'day') cutoffDate.setUTCDate(cutoffDate.getUTCDate() - 3);
+    else cutoffDate.setUTCFullYear(cutoffDate.getUTCFullYear() - 1);
+    const cutoffAt = cutoffDate.toISOString();
+    const selection = { scope: 'period', periodMode: period.mode, periodKey: period.key, from: period.from, to: period.to, cutoffAt, sourceStats: stats };
+    const name = `Переписки за ${period.key}`;
+    await db.execute(
+      `INSERT INTO records_archives (id, name, archive_type, status, selection_json, created_by)
+       VALUES (?, ?, 'period', 'pending', ?, ?)
+       ON DUPLICATE KEY UPDATE name=VALUES(name), status='pending', selection_json=VALUES(selection_json),
+         created_by=VALUES(created_by), completed_at=NULL, downloaded_at=NULL, error_text=NULL, deleted_at=NULL`,
+      [archiveId, name, JSON.stringify(selection), req.auth.login]
+    );
+    await db.execute('DELETE FROM records_archive_items WHERE archive_id = ?', [archiveId]);
+    await db.execute('DELETE FROM records_archive_files WHERE archive_id = ?', [archiveId]);
+    await db.execute(`INSERT INTO records_archive_periods
+      (period_mode, period_key, from_date, to_date, state, archive_id, message_count, post_count, file_count, source_bytes)
+      VALUES (?, ?, ?, ?, 'available', ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE from_date=VALUES(from_date), to_date=VALUES(to_date), state='available', archive_id=VALUES(archive_id),
+        message_count=VALUES(message_count), post_count=VALUES(post_count), file_count=VALUES(file_count), source_bytes=VALUES(source_bytes), deleted_at=NULL, deleted_by=NULL`,
+      [period.mode, period.key, period.from, period.to, archiveId, stats.messageCount, stats.postCount, stats.fileCount, stats.sourceBytes]);
+    setImmediate(() => buildRecordsArchivePackage({ db, archiveId, selection, archiveRoot: recordsArchiveDir, uploadsDir,
+      actor: { login: req.auth.login, role: req.auth.role } }).catch((error) => console.error(`Period archive ${archiveId} failed:`, error)));
+    res.status(202).json({ archive: { id: archiveId, name, status: 'pending', selection } });
+  } catch (error) {
+    console.error('Chat POST /records/periods/archive error:', error);
+    res.status(error.status || 500).json({ message: error.message || 'Не удалось создать архив периода' });
+  }
+});
+
+router.post('/records/periods/:periodKey/purge', requireRole('admin'), async (req, res) => {
+  let connection;
+  let orphanFiles = [];
+  try {
+    const period = readArchivePeriod(req);
+    if (String(req.body?.confirmation || '') !== 'УДАЛИТЬ') return res.status(400).json({ message: 'Для удаления введите УДАЛИТЬ' });
+    if (!await ensureChatSqlSchema() || !await ensureFeedSqlSchema() || !await ensureRecordsArchiveSchema(db)) return res.sendStatus(503);
+    const archiveId = `period-${period.mode}-${period.key}`;
+    const [archiveRows] = await db.execute("SELECT id, status, downloaded_at, storage_path FROM records_archives WHERE id=? AND deleted_at IS NULL LIMIT 1", [archiveId]);
+    if (!archiveRows?.[0] || archiveRows[0].status !== 'completed' || !archiveRows[0].downloaded_at) {
+      return res.status(409).json({ message: 'Сначала создайте и сохраните готовый архив на внешний носитель' });
+    }
+    const stats = await getPeriodSourceStats(period);
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+    const dateParams = [period.from, period.to];
+    const [messageRows] = await connection.query(`SELECT id FROM chat_messages WHERE created_at >= CONCAT(?, ' 00:00:00') AND created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY) AND created_at < ${getArchiveCutoffSql(period.mode)} FOR UPDATE`, dateParams);
+    const [postRows] = await connection.query(`SELECT id FROM feed_posts WHERE created_at >= CONCAT(?, ' 00:00:00') AND created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY) AND created_at < ${getArchiveCutoffSql(period.mode)} FOR UPDATE`, dateParams);
+    const messageIds = messageRows.map((row) => row.id); const postIds = postRows.map((row) => row.id);
+    const holdConditions = [];
+    const holdParams = [];
+    if (messageIds.length) { holdConditions.push("(items.entity_type='chat_message' AND items.entity_id IN (?))"); holdParams.push(messageIds); }
+    if (postIds.length) { holdConditions.push("(items.entity_type='feed_post' AND items.entity_id IN (?))"); holdParams.push(postIds); }
+    if (holdConditions.length) {
+      const [heldRows] = await connection.query(`SELECT 1 FROM records_legal_hold_items AS items
+        INNER JOIN records_legal_holds AS holds ON holds.id=items.hold_id
+        WHERE holds.status='active' AND (holds.ends_at IS NULL OR holds.ends_at > NOW())
+          AND (${holdConditions.join(' OR ')}) LIMIT 1`, holdParams);
+      if (heldRows.length) throw Object.assign(new Error('Период содержит записи под запретом удаления (legal hold)'), { status: 409 });
+    }
+    const candidateFileIds = [];
+    if (messageIds.length) {
+      const [rows] = await connection.query('SELECT DISTINCT file_id FROM chat_message_files WHERE message_id IN (?)', [messageIds]);
+      candidateFileIds.push(...rows.map((row) => row.file_id));
+    }
+    if (postIds.length) {
+      const [rows] = await connection.query('SELECT DISTINCT file_id FROM feed_post_files WHERE post_id IN (?)', [postIds]);
+      candidateFileIds.push(...rows.map((row) => row.file_id));
+    }
+    if (messageIds.length) {
+      await connection.query('DELETE FROM chat_message_files WHERE message_id IN (?)', [messageIds]);
+      await connection.query('DELETE FROM chat_message_versions WHERE message_id IN (?)', [messageIds]);
+      await connection.query('DELETE FROM chat_messages WHERE id IN (?)', [messageIds]);
+    }
+    if (postIds.length) {
+      await connection.query('DELETE FROM feed_post_files WHERE post_id IN (?)', [postIds]);
+      await connection.query('DELETE FROM feed_reactions WHERE post_id IN (?)', [postIds]);
+      await connection.query('DELETE FROM feed_comments WHERE post_id IN (?)', [postIds]);
+      await connection.query('DELETE FROM feed_posts WHERE id IN (?)', [postIds]);
+    }
+    if (candidateFileIds.length) {
+      const [rows] = await connection.query(`SELECT files.id, files.relative_path, files.scope, files.stored_name, files.metadata_json
+        FROM chat_files AS files WHERE files.id IN (?)
+          AND NOT EXISTS (SELECT 1 FROM chat_message_files WHERE file_id=files.id)
+          AND NOT EXISTS (SELECT 1 FROM feed_post_files WHERE file_id=files.id)`, [[...new Set(candidateFileIds)]]);
+      orphanFiles = rows || [];
+      if (orphanFiles.length) await connection.query('DELETE FROM chat_files WHERE id IN (?)', [orphanFiles.map((file) => file.id)]);
+    }
+    await connection.execute(`UPDATE records_archive_periods SET state='deleted', deleted_at=NOW(), deleted_by=?, restored_at=NULL, restored_by=NULL,
+      message_count=?, post_count=?, file_count=?, source_bytes=? WHERE period_mode=? AND period_key=?`,
+      [req.auth.login, stats.messageCount, stats.postCount, stats.fileCount, stats.sourceBytes, period.mode, period.key]);
+    await connection.query(`UPDATE chat_conversations AS conversations SET message_count=(SELECT COUNT(*) FROM chat_messages AS messages WHERE messages.conversation_id=conversations.conversation_id),
+      last_message_at=(SELECT MAX(created_at) FROM chat_messages AS messages WHERE messages.conversation_id=conversations.conversation_id)`);
+    await connection.commit();
+    for (const file of orphanFiles) {
+      const metadata = parseSqlJson(file.metadata_json) || {};
+      const relativePaths = [file.relative_path || path.join(file.scope || 'chat', file.stored_name || ''), metadata.thumbnailStoredName ? path.join(file.scope || 'chat', metadata.thumbnailStoredName) : ''].filter(Boolean);
+      for (const relativePath of relativePaths) {
+        const target = path.resolve(uploadsDir, relativePath);
+        if (target.startsWith(`${path.resolve(uploadsDir)}${path.sep}`)) await fs.rm(target, { force: true }).catch(() => {});
+      }
+    }
+    const localArchivePath = archiveRows[0].storage_path ? path.resolve(String(archiveRows[0].storage_path)) : '';
+    if (localArchivePath && localArchivePath.startsWith(`${path.resolve(recordsArchiveDir)}${path.sep}`)) await fs.rm(localArchivePath, { force: true }).catch(() => {});
+    await db.execute('UPDATE records_archives SET storage_path=NULL, deleted_at=NOW() WHERE id=?', [archiveId]);
+    res.json({ message: 'Переписка периода удалена', period, counts: stats });
+  } catch (error) {
+    if (connection) await connection.rollback().catch(() => {});
+    console.error('Chat POST /records/periods/purge error:', error);
+    res.status(error.status || 500).json({ message: error.message || 'Не удалось удалить период' });
+  } finally { connection?.release(); }
+});
+
+const PERIOD_IMPORT_COLUMNS = {
+  chat_conversations: ['conversation_id', 'participant_a', 'participant_b', 'state', 'created_at', 'last_message_at', 'message_count', 'archived_at', 'archived_by', 'updated_at'],
+  chat_messages: ['id', 'conversation_id', 'sender_login', 'message_json', 'created_at', 'updated_at', 'deleted_at'],
+  chat_message_versions: ['message_id', 'conversation_id', 'version_no', 'action', 'snapshot_json', 'snapshot_sha256', 'actor_login', 'actor_role', 'created_at'],
+  chat_files: ['id', 'scope', 'original_name', 'stored_name', 'relative_path', 'url', 'thumbnail_url', 'mime_type', 'size_bytes', 'sha256', 'uploaded_at', 'metadata_json', 'uploaded_by', 'claimed_at', 'retention_state', 'retained_at', 'is_verified', 'deleted_at'],
+  chat_message_files: ['message_id', 'file_id', 'conversation_id', 'participant_a', 'participant_b'],
+  feed_posts: ['id', 'author_login', 'post_json', 'pinned', 'created_at', 'updated_at', 'deleted_at'],
+  feed_comments: ['id', 'post_id', 'author_login', 'comment_json', 'created_at', 'updated_at', 'deleted_at'],
+  feed_reactions: ['post_id', 'emoji', 'login', 'created_at'],
+  feed_post_files: ['post_id', 'file_id']
+};
+
+const upsertPeriodRows = async (connection, table, rows) => {
+  const allowed = PERIOD_IMPORT_COLUMNS[table];
+  if (!allowed || !rows?.length) return;
+  for (const row of rows) {
+    const columns = allowed.filter((column) => Object.prototype.hasOwnProperty.call(row, column));
+    if (!columns.length) continue;
+    const updates = columns.map((column) => `\`${column}\`=VALUES(\`${column}\`)`).join(',');
+    await connection.execute(
+      `INSERT INTO \`${table}\` (${columns.map((column) => `\`${column}\``).join(',')}) VALUES (${columns.map(() => '?').join(',')}) ON DUPLICATE KEY UPDATE ${updates}`,
+      columns.map((column) => row[column])
+    );
+  }
+};
+
+const receivePeriodArchive = (req, targetPath) => new Promise((resolve, reject) => {
+  const maxBytes = 2 * 1024 * 1024 * 1024;
+  let received = 0;
+  const output = fsSync.createWriteStream(targetPath, { flags: 'wx' });
+  req.on('data', (chunk) => {
+    received += chunk.length;
+    if (received > maxBytes) req.destroy(Object.assign(new Error('Архив больше 2 ГБ'), { status: 413 }));
+  });
+  req.on('error', reject); output.on('error', reject);
+  output.on('finish', () => resolve(received));
+  req.pipe(output);
+});
+
+router.post('/records/periods/import', requireRole('admin'), async (req, res) => {
+  let connection;
+  const importId = createId('period-import');
+  const tempRoot = path.join(recordsArchiveDir, `${importId}.importing`);
+  const zipPath = path.join(recordsArchiveDir, `${importId}.zip`);
+  try {
+    if (!String(req.headers['content-type'] || '').toLowerCase().includes('application/zip')) {
+      return res.status(415).json({ message: 'Выберите ZIP-архив, созданный программой' });
+    }
+    if (!await ensureChatSqlSchema() || !await ensureChatFilesSqlSchema() || !await ensureFeedSqlSchema() || !await ensureRecordsArchiveSchema(db)) return res.sendStatus(503);
+    await fs.mkdir(recordsArchiveDir, { recursive: true });
+    await receivePeriodArchive(req, zipPath);
+    const { stdout: entryOutput } = await execFileAsync('unzip', ['-Z1', zipPath], { maxBuffer: 20 * 1024 * 1024 });
+    const entries = String(entryOutput).split(/\r?\n/).filter(Boolean);
+    if (entries.some((entry) => path.isAbsolute(entry) || entry.split(/[\\/]/).includes('..'))) throw Object.assign(new Error('Архив содержит небезопасные пути'), { status: 400 });
+    await fs.mkdir(tempRoot, { recursive: true });
+    await execFileAsync('unzip', ['-q', zipPath, '-d', tempRoot], { timeout: 60 * 60 * 1000 });
+    const checksumText = await fs.readFile(path.join(tempRoot, 'checksums.sha256'), 'utf8');
+    for (const line of checksumText.split(/\r?\n/).filter(Boolean)) {
+      const match = line.match(/^([a-f0-9]{64})\s{2}(.+)$/i);
+      if (!match) throw Object.assign(new Error('Некорректный список контрольных сумм'), { status: 400 });
+      const artifact = path.resolve(tempRoot, match[2]);
+      if (!artifact.startsWith(`${path.resolve(tempRoot)}${path.sep}`)) throw Object.assign(new Error('Некорректный путь в контрольных суммах'), { status: 400 });
+      const digest = crypto.createHash('sha256').update(await fs.readFile(artifact)).digest('hex');
+      if (digest !== match[1].toLowerCase()) throw Object.assign(new Error(`Архив повреждён: ${match[2]}`), { status: 400 });
+    }
+    const manifest = JSON.parse(await fs.readFile(path.join(tempRoot, 'manifest.json'), 'utf8'));
+    if (manifest?.format !== 'react-suz-records-archive' || manifest?.selection?.scope !== 'period') {
+      throw Object.assign(new Error('Это не архив периода переписки'), { status: 400 });
+    }
+    const period = { mode: manifest.selection.periodMode === 'day' ? 'day' : 'month', key: String(manifest.selection.periodKey || ''), from: manifest.selection.from, to: manifest.selection.to };
+    if (!(period.mode === 'day' ? /^\d{4}-\d{2}-\d{2}$/.test(period.key) : /^\d{4}-\d{2}$/.test(period.key))) throw Object.assign(new Error('В архиве указан некорректный период'), { status: 400 });
+    const chats = JSON.parse(await fs.readFile(path.join(tempRoot, 'json', 'chats.json'), 'utf8'));
+    const feed = JSON.parse(await fs.readFile(path.join(tempRoot, 'json', 'feed.json'), 'utf8'));
+    const fileData = JSON.parse(await fs.readFile(path.join(tempRoot, 'json', 'files.json'), 'utf8'));
+    for (const copied of fileData.copiedFiles || []) {
+      if (copied.missing || !copied.archivePath || !copied.restorePath) continue;
+      const source = path.resolve(tempRoot, copied.archivePath);
+      const target = path.resolve(uploadsDir, copied.restorePath);
+      if (!source.startsWith(`${path.resolve(tempRoot)}${path.sep}`) || !target.startsWith(`${path.resolve(uploadsDir)}${path.sep}`)) throw Object.assign(new Error('Некорректный путь вложения'), { status: 400 });
+      const digest = crypto.createHash('sha256').update(await fs.readFile(source)).digest('hex');
+      if (copied.sha256 && digest !== copied.sha256) throw Object.assign(new Error(`Повреждён файл ${copied.originalName || copied.fileId}`), { status: 400 });
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.copyFile(source, target);
+    }
+    connection = await db.getConnection(); await connection.beginTransaction();
+    await upsertPeriodRows(connection, 'chat_conversations', chats.conversations || []);
+    await upsertPeriodRows(connection, 'chat_messages', (chats.messages || []).map(({ message, ...row }) => row));
+    await upsertPeriodRows(connection, 'chat_message_versions', (chats.versions || []).map(({ snapshot, ...row }) => row));
+    await upsertPeriodRows(connection, 'chat_files', fileData.files || []);
+    await upsertPeriodRows(connection, 'chat_message_files', chats.fileLinks || []);
+    await upsertPeriodRows(connection, 'feed_posts', (feed.posts || []).map(({ post, ...row }) => row));
+    await upsertPeriodRows(connection, 'feed_comments', (feed.comments || []).map(({ comment, ...row }) => row));
+    await upsertPeriodRows(connection, 'feed_reactions', feed.reactions || []);
+    await upsertPeriodRows(connection, 'feed_post_files', feed.fileLinks || []);
+    const archiveId = `period-${period.mode}-${period.key}`;
+    const stats = manifest.selection.sourceStats || {};
+    await connection.execute(`INSERT INTO records_archive_periods
+      (period_mode, period_key, from_date, to_date, state, archive_id, message_count, post_count, file_count, source_bytes, restored_at, restored_by)
+      VALUES (?, ?, ?, ?, 'restored', ?, ?, ?, ?, ?, NOW(), ?)
+      ON DUPLICATE KEY UPDATE state='restored', archive_id=VALUES(archive_id), deleted_at=NULL, deleted_by=NULL,
+        restored_at=NOW(), restored_by=VALUES(restored_by), message_count=VALUES(message_count), post_count=VALUES(post_count), file_count=VALUES(file_count), source_bytes=VALUES(source_bytes)`,
+      [period.mode, period.key, period.from, period.to, archiveId, Number(stats.messageCount)||0, Number(stats.postCount)||0, Number(stats.fileCount)||0, Number(stats.sourceBytes)||0, req.auth.login]);
+    await connection.query(`UPDATE chat_conversations AS conversations SET message_count=(SELECT COUNT(*) FROM chat_messages AS messages WHERE messages.conversation_id=conversations.conversation_id),
+      last_message_at=(SELECT MAX(created_at) FROM chat_messages AS messages WHERE messages.conversation_id=conversations.conversation_id)`);
+    await connection.commit();
+    res.json({ message: 'Архив восстановлен', period });
+  } catch (error) {
+    if (connection) await connection.rollback().catch(() => {});
+    console.error('Chat POST /records/periods/import error:', error);
+    if (!res.headersSent) res.status(error.status || 500).json({ message: error.message || 'Не удалось восстановить архив' });
+  } finally {
+    connection?.release();
+    await fs.rm(tempRoot, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(zipPath, { force: true }).catch(() => {});
   }
 });
 

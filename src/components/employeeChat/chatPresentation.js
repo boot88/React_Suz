@@ -31,8 +31,7 @@ const EMPLOYEE_TABS = [
 const MANAGER_TABS = [
   { id: 'chat', label: 'Чат' },
   { id: 'feed', label: 'Лента' },
-  { id: 'audit', label: 'Аудит' },
-  { id: 'archive', label: 'Архив' }
+  { id: 'audit', label: 'Поиск документов' }
 ];
 const REQUEST_CATEGORIES = ['Техника', 'Сеть', 'ПО', 'Доступы', 'Другое'];
 const REQUEST_PRIORITIES = ['Обычный', 'Важный', 'Срочный'];

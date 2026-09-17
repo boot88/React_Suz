@@ -84,6 +84,26 @@ const schemaStatements = [
     INDEX idx_archive_files_file (file_id),
     INDEX idx_archive_files_sha256 (sha256)
   )`,
+  `CREATE TABLE IF NOT EXISTS records_archive_periods (
+    period_mode VARCHAR(16) NOT NULL,
+    period_key VARCHAR(16) NOT NULL,
+    from_date DATE NOT NULL,
+    to_date DATE NOT NULL,
+    state VARCHAR(24) NOT NULL DEFAULT 'available',
+    archive_id VARCHAR(64) NULL,
+    message_count BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    post_count BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    file_count BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    source_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    deleted_at DATETIME NULL,
+    deleted_by VARCHAR(255) NULL,
+    restored_at DATETIME NULL,
+    restored_by VARCHAR(255) NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (period_mode, period_key),
+    INDEX idx_records_archive_periods_state (state, from_date),
+    INDEX idx_records_archive_periods_archive (archive_id)
+  )`,
   `CREATE TABLE IF NOT EXISTS records_archive_access (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     archive_id VARCHAR(64) NOT NULL,

@@ -1694,6 +1694,84 @@
   background: rgba(255, 255, 255, .48);
 }
 
+.archive-periods-panel {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-lg);
+  background: rgba(255, 255, 255, .48);
+}
+
+.archive-periods-title,
+.archive-period-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.archive-periods-title span,
+.archive-period-empty { color: var(--chat-muted); font-size: 12px; }
+
+.archive-period-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+  gap: 9px;
+  max-height: 310px;
+  overflow: auto;
+}
+
+.archive-period-card {
+  display: grid;
+  gap: 8px;
+  padding: 11px;
+  border: 1px solid var(--chat-border);
+  border-radius: 12px;
+  background: var(--chat-surface);
+}
+
+.archive-period-card.deleted { border-style: dashed; opacity: .72; }
+
+.archive-period-select {
+  display: grid;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--chat-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.archive-period-select span,
+.archive-period-select em { color: var(--chat-muted); font-size: 12px; font-style: normal; }
+
+.archive-period-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.archive-period-actions button,
+.archive-period-footer button {
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid var(--chat-border);
+  border-radius: 9px;
+  background: rgba(30, 90, 168, .08);
+  color: var(--chat-accent);
+  font-weight: 800;
+  cursor: pointer;
+}
+.archive-period-actions button.danger { color: #b91c1c; background: rgba(220, 38, 38, .07); }
+.archive-period-actions button:disabled { opacity: .55; cursor: wait; }
+
+.archive-period-footer {
+  margin-top: 4px;
+  padding: 13px 14px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-lg);
+}
+
+.archive-period-footer label { display: inline-flex; align-items: center; gap: 8px; color: var(--chat-muted); font-size: 13px; }
+.archive-period-footer input { width: auto; }
+
 .audit-search-field {
   display: grid;
   gap: 7px;
@@ -1791,6 +1869,15 @@
 }
 
 .audit-results-grid { flex: 1; }
+
+.audit-feed-results { display: grid; gap: 9px; }
+.audit-feed-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 9px;
+  max-height: 360px;
+  overflow: auto;
+}
 
 .audit-conversation-list {
   padding-right: 4px;

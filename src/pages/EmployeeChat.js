@@ -3192,7 +3192,7 @@ const EmployeeChat = ({ adminSection = null }) => {
   const typingHint = remoteTypingLogin
     ? `${activeContact?.profile?.full_name || formatVisibleLogin(remoteTypingLogin)} ${t('typing')}…`
     : '';
-  const tabs = adminSection ? MANAGER_TABS.filter(tab => ['archive', 'audit'].includes(tab.id)) : (isManager ? MANAGER_TABS.filter(tab => ['chat', 'feed'].includes(tab.id)) : EMPLOYEE_TABS);
+  const tabs = adminSection ? MANAGER_TABS.filter(tab => tab.id === 'audit') : (isManager ? MANAGER_TABS.filter(tab => ['chat', 'feed'].includes(tab.id)) : EMPLOYEE_TABS);
   const unreadTotal = Object.entries(unreadByEmail).reduce((sum, [email, count]) => sum + ((chatLocalSettings.muted || []).includes(getConversationId(user.username, email)) ? 0 : count), 0);
   const feedReadTimestamp = feedReadAt ? new Date(feedReadAt).getTime() : 0;
   const feedBadge = feedPosts.reduce((count, post) => {
@@ -4314,7 +4314,7 @@ const EmployeeChat = ({ adminSection = null }) => {
 
 
         {adminSection && activeTab === 'audit' && isAdmin && (
-          <ChatAuditAdministration AttachmentCard={AttachmentCard} chatAuthHeaders={chatAuthHeaders} directoryEmployees={directoryEmployees} getMessageAttachments={getMessageAttachments} interfaceLocale={interfaceLocale} isEnglishInterface={isEnglishInterface} sameLogin={sameLogin} t={t} />
+          <ChatAuditAdministration AttachmentCard={AttachmentCard} chatAuthHeaders={chatAuthHeaders} directoryEmployees={directoryEmployees} formatFileSize={formatFileSize} getMessageAttachments={getMessageAttachments} interfaceLocale={interfaceLocale} isEnglishInterface={isEnglishInterface} sameLogin={sameLogin} t={t} />
         )}
       </section>
 

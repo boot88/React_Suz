@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_BASE_URL } from '../../utils/apiConfig';
 import { authFetch } from '../../utils/authFetch';
 
@@ -8,6 +8,7 @@ export default function ChatAuditAdministration({
   AttachmentCard,
   chatAuthHeaders,
   directoryEmployees,
+  formatFileSize,
   getMessageAttachments,
   interfaceLocale,
   isEnglishInterface,
@@ -41,6 +42,7 @@ export default function ChatAuditAdministration({
   const [dateRange, setDateRange] = useState({ from: '', to: '' });
   const [wordSearch, setWordSearch] = useState('');
   const [conversations, setConversations] = useState([]);
+  const [feedPosts, setFeedPosts] = useState([]);
   const [selectedConversationId, setSelectedConversationId] = useState('');
   const [messages, setMessages] = useState([]);
   const [messagesBefore, setMessagesBefore] = useState('');
@@ -48,6 +50,92 @@ export default function ChatAuditAdministration({
   const [searchLoading, setSearchLoading] = useState(false);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [error, setError] = useState('');
+  const [periodMode, setPeriodMode] = useState('month');
+  const [periods, setPeriods] = useState([]);
+  const [periodsLoading, setPeriodsLoading] = useState(false);
+  const [periodAction, setPeriodAction] = useState('');
+  const archiveInputRef = useRef(null);
+
+  const loadPeriods = useCallback(async () => {
+    setPeriodsLoading(true);
+    try {
+      const response = await authFetch(`${API_BASE_URL}/chat/records/periods?mode=${periodMode}`, { headers: chatAuthHeaders });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Не удалось загрузить периоды');
+      setPeriods(Array.isArray(data.periods) ? data.periods : []);
+    } catch (requestError) {
+      setError(requestError.message || 'Не удалось загрузить периоды');
+    } finally { setPeriodsLoading(false); }
+  }, [chatAuthHeaders, periodMode]);
+
+  useEffect(() => { loadPeriods(); }, [loadPeriods]);
+  useEffect(() => {
+    if (!periods.some((period) => period.archiveStatus === 'pending')) return undefined;
+    const timer = window.setInterval(loadPeriods, 2000);
+    return () => window.clearInterval(timer);
+  }, [loadPeriods, periods]);
+
+  const selectPeriod = (period) => {
+    if (period.state === 'deleted') return;
+    setDateRange({ from: period.from, to: period.to });
+    clearResults();
+  };
+
+  const createPeriodArchive = async (period) => {
+    setPeriodAction(`archive:${period.periodKey}`); setError('');
+    try {
+      const response = await authFetch(`${API_BASE_URL}/chat/records/periods/${encodeURIComponent(period.periodKey)}/archive?mode=${periodMode}`, {
+        method: 'POST', headers: { ...chatAuthHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: periodMode })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Не удалось создать архив');
+      await loadPeriods();
+    } catch (requestError) { setError(requestError.message || 'Не удалось создать архив'); }
+    finally { setPeriodAction(''); }
+  };
+
+  const downloadPeriodArchive = async (period) => {
+    setPeriodAction(`download:${period.periodKey}`); setError('');
+    try {
+      const response = await authFetch(`${API_BASE_URL}/chat/records/archives/${encodeURIComponent(period.archiveId)}/download-token`, { method: 'POST', headers: chatAuthHeaders });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Не удалось подготовить скачивание');
+      const anchor = document.createElement('a');
+      anchor.href = `${API_BASE_URL}/chat/records/archives/${encodeURIComponent(period.archiveId)}/download?mt=${encodeURIComponent(data.token)}`;
+      anchor.download = `Переписки-${period.periodKey}.zip`; document.body.appendChild(anchor); anchor.click(); anchor.remove();
+      window.setTimeout(loadPeriods, 1500);
+    } catch (requestError) { setError(requestError.message || 'Не удалось скачать архив'); }
+    finally { setPeriodAction(''); }
+  };
+
+  const purgePeriod = async (period) => {
+    const confirmation = window.prompt(`Будут удалены переписки, публикации и файлы за ${period.periodKey}. Введите УДАЛИТЬ`);
+    if (confirmation !== 'УДАЛИТЬ') return;
+    setPeriodAction(`purge:${period.periodKey}`); setError('');
+    try {
+      const response = await authFetch(`${API_BASE_URL}/chat/records/periods/${encodeURIComponent(period.periodKey)}/purge?mode=${periodMode}`, {
+        method: 'POST', headers: { ...chatAuthHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: periodMode, confirmation })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Не удалось удалить период');
+      clearResults(); await loadPeriods();
+    } catch (requestError) { setError(requestError.message || 'Не удалось удалить период'); }
+    finally { setPeriodAction(''); }
+  };
+
+  const importPeriodArchive = async (file) => {
+    if (!file) return;
+    setPeriodAction('import'); setError('');
+    try {
+      const response = await authFetch(`${API_BASE_URL}/chat/records/periods/import`, {
+        method: 'POST', headers: { ...chatAuthHeaders, 'Content-Type': 'application/zip' }, body: file
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Не удалось добавить архив');
+      await loadPeriods();
+    } catch (requestError) { setError(requestError.message || 'Не удалось добавить архив'); }
+    finally { setPeriodAction(''); if (archiveInputRef.current) archiveInputRef.current.value = ''; }
+  };
 
   const employeeOptions = useMemo(() => directoryEmployees
     .filter((employee) => employee?.login && String(employee.role || '').toLowerCase() !== 'admin')
@@ -66,6 +154,7 @@ export default function ChatAuditAdministration({
 
   const clearResults = useCallback(() => {
     setConversations([]);
+    setFeedPosts([]);
     setSelectedConversationId('');
     setMessages([]);
     setMessagesBefore('');
@@ -101,14 +190,17 @@ export default function ChatAuditAdministration({
     setError('');
     try {
       const params = new URLSearchParams({ employee: employeeLogin, from: dateRange.from, to: dateRange.to });
+      params.set('periodMode', periodMode);
       if (wordSearch.trim()) params.set('q', wordSearch.trim());
-      const response = await authFetch(`${API_BASE_URL}/chat/audit/conversations?${params.toString()}`, {
-        headers: chatAuthHeaders,
-        signal
-      });
-      const data = await response.json().catch(() => ({}));
+      const [response, feedResponse] = await Promise.all([
+        authFetch(`${API_BASE_URL}/chat/audit/conversations?${params.toString()}`, { headers: chatAuthHeaders, signal }),
+        authFetch(`${API_BASE_URL}/chat/audit/feed?${params.toString()}`, { headers: chatAuthHeaders, signal })
+      ]);
+      const [data, feedData] = await Promise.all([response.json().catch(() => ({})), feedResponse.json().catch(() => ({}))]);
       if (!response.ok) throw new Error(data.message || copy.searchFailed);
+      if (!feedResponse.ok) throw new Error(feedData.message || copy.searchFailed);
       const nextConversations = Array.isArray(data?.conversations) ? data.conversations : [];
+      setFeedPosts(Array.isArray(feedData?.posts) ? feedData.posts : []);
       setConversations(nextConversations);
       setSelectedConversationId((current) => (
         nextConversations.some((conversation) => conversation.conversation_id === current)
@@ -124,13 +216,14 @@ export default function ChatAuditAdministration({
       if (requestError?.name !== 'AbortError') {
         setError(requestError.message || copy.searchFailed);
         setConversations([]);
+        setFeedPosts([]);
         setSelectedConversationId('');
         setMessages([]);
       }
     } finally {
       if (!signal?.aborted) setSearchLoading(false);
     }
-  }, [chatAuthHeaders, copy.searchFailed, dateRange.from, dateRange.to, employeeLogin, searchReady, wordSearch]);
+  }, [chatAuthHeaders, copy.searchFailed, dateRange.from, dateRange.to, employeeLogin, periodMode, searchReady, wordSearch]);
 
   const fetchMessages = useCallback(async (conversationId, { append = false, signal } = {}) => {
     if (!conversationId || !searchReady) return;
@@ -138,6 +231,7 @@ export default function ChatAuditAdministration({
     setError('');
     try {
       const params = new URLSearchParams({ employee: employeeLogin, from: dateRange.from, to: dateRange.to, limit: '200' });
+      params.set('periodMode', periodMode);
       if (wordSearch.trim()) params.set('q', wordSearch.trim());
       if (append && messagesBefore) params.set('before', messagesBefore);
       const response = await authFetch(
@@ -160,7 +254,7 @@ export default function ChatAuditAdministration({
     } finally {
       if (!signal?.aborted) setMessagesLoading(false);
     }
-  }, [chatAuthHeaders, copy.conversationFailed, dateRange.from, dateRange.to, employeeLogin, messagesBefore, searchReady, wordSearch]);
+  }, [chatAuthHeaders, copy.conversationFailed, dateRange.from, dateRange.to, employeeLogin, messagesBefore, periodMode, searchReady, wordSearch]);
 
   useEffect(() => {
     if (!employeeLogin || !dateRange.from || !dateRange.to) {
@@ -199,12 +293,36 @@ export default function ChatAuditAdministration({
     <section className="manager-panel audit-search-panel">
       <div className="audit-search-heading">
         <div>
-          <h2>{t('employeeMessages')}</h2>
+          <h2>{isEnglishInterface ? 'Document search' : 'Поиск документов'}</h2>
           <p>{isEnglishInterface
             ? 'Select an employee and a period first. Message search becomes available after the conversations are loaded.'
             : 'Сначала выберите сотрудника и период. После загрузки переписки можно уточнить результат поиском по словам.'}</p>
         </div>
         {selectedEmployee && <span>{copy.selected}: <strong>{selectedEmployee.fullName}</strong></span>}
+      </div>
+
+      <div className="archive-periods-panel">
+        <div className="archive-periods-title"><strong>Доступные периоды</strong><span>{periodMode === 'day' ? 'Старше 3 дней · тестовый режим' : 'Старше одного года'}</span></div>
+        {periodsLoading && <div className="archive-period-empty">Загружаем периоды…</div>}
+        {!periodsLoading && periods.length === 0 && <div className="archive-period-empty">Подходящих периодов пока нет.</div>}
+        <div className="archive-period-list">
+          {periods.map((period) => {
+            const deleted = period.state === 'deleted';
+            const busy = periodAction.endsWith(`:${period.periodKey}`);
+            return <article key={`${period.mode}-${period.periodKey}`} className={`archive-period-card ${deleted ? 'deleted' : ''}`}>
+              <button type="button" className="archive-period-select" disabled={deleted} onClick={() => selectPeriod(period)}>
+                <b>{deleted ? '✕ ' : ''}Переписки за {new Date(`${period.from}T12:00:00`).toLocaleDateString(interfaceLocale, periodMode === 'day' ? { day: 'numeric', month: 'long', year: 'numeric' } : { month: 'long', year: 'numeric' })}</b>
+                <span>{period.messageCount || 0} сообщений · {period.postCount || 0} публикаций · {period.fileCount || 0} файлов · {formatFileSize(period.sourceBytes || 0)}</span>
+                {deleted && <em>Удалено с диска — добавьте архив для восстановления</em>}
+              </button>
+              <div className="archive-period-actions">
+                {!deleted && <button type="button" disabled={busy} onClick={() => createPeriodArchive(period)}>{period.archiveId ? 'Обновить архив' : 'Создать архив'}</button>}
+                {!deleted && period.archiveStatus === 'completed' && <button type="button" disabled={busy} onClick={() => downloadPeriodArchive(period)}>Сохранить ZIP</button>}
+                {!deleted && period.downloadedAt && <button type="button" className="danger" disabled={busy} onClick={() => purgePeriod(period)}>Удалить полностью</button>}
+              </div>
+            </article>;
+          })}
+        </div>
       </div>
 
       <div className="audit-search-form">
@@ -217,11 +335,11 @@ export default function ChatAuditAdministration({
         </label>
         <label className="audit-search-field">
           <span>2. {copy.from}</span>
-          <input type="date" value={dateRange.from} disabled={!employeeLogin} onChange={(event) => setDateRange((current) => ({ ...current, from: event.target.value }))} />
+          <input type="date" value={dateRange.from} onChange={(event) => setDateRange((current) => ({ ...current, from: event.target.value }))} />
         </label>
         <label className="audit-search-field">
           <span>{copy.to}</span>
-          <input type="date" value={dateRange.to} min={dateRange.from || undefined} disabled={!employeeLogin} onChange={(event) => setDateRange((current) => ({ ...current, to: event.target.value }))} />
+          <input type="date" value={dateRange.to} min={dateRange.from || undefined} onChange={(event) => setDateRange((current) => ({ ...current, to: event.target.value }))} />
         </label>
         <label className="audit-search-field audit-search-field--words">
           <span>3. {copy.words}</span>
@@ -233,7 +351,19 @@ export default function ChatAuditAdministration({
       {showInitialHint && <div className="audit-search-empty"><b>1</b><span>{copy.firstStep}</span></div>}
       {showDateHint && <div className="audit-search-empty"><b>2</b><span>{copy.secondStep}</span></div>}
       {searchReady && searchLoading && conversations.length === 0 && <div className="audit-search-empty"><span>{copy.searching}</span></div>}
-      {searchReady && !searchLoading && !error && conversations.length === 0 && <div className="audit-search-empty"><span>{copy.noDialogs}</span></div>}
+      {searchReady && !searchLoading && !error && conversations.length === 0 && feedPosts.length === 0 && <div className="audit-search-empty"><span>{copy.noDialogs}</span></div>}
+
+      {searchReady && feedPosts.length > 0 && <div className="audit-feed-results">
+        <div className="audit-results-summary"><strong>Публикации в ленте</strong><span>{feedPosts.length}</span></div>
+        <div className="audit-feed-list">{feedPosts.map((post) => {
+          const attachments = getMessageAttachments(post);
+          return <article key={post.id} className="audit-message">
+            <div className="message-meta"><span>{getEmployeeName(post.author || post.authorLogin || employeeLogin)}</span><span>{post.createdAt ? new Date(post.createdAt).toLocaleString(interfaceLocale) : '—'}</span></div>
+            {post.text && <div className="audit-message-text">{post.text}</div>}
+            {attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <AttachmentCard key={`${post.id}-feed-audit-${index}`} cardKey={`${post.id}-feed-audit-${index}`} file={file} isEnglish={isEnglishInterface} />)}</div>}
+          </article>;
+        })}</div>
+      </div>}
 
       {searchReady && conversations.length > 0 && (
         <div className="audit-results">
@@ -274,6 +404,11 @@ export default function ChatAuditAdministration({
           </div>
         </div>
       )}
+      <div className="archive-period-footer">
+        <input ref={archiveInputRef} type="file" accept=".zip,application/zip" hidden onChange={(event) => importPeriodArchive(event.target.files?.[0])} />
+        <button type="button" disabled={periodAction === 'import'} onClick={() => archiveInputRef.current?.click()}>{periodAction === 'import' ? 'Восстанавливаем…' : 'Добавить архив ZIP'}</button>
+        <label><input type="checkbox" checked={periodMode === 'day'} onChange={(event) => { setPeriodMode(event.target.checked ? 'day' : 'month'); setDateRange({ from: '', to: '' }); clearResults(); }} /> Тестовый режим: периоды по дням старше 3 дней</label>
+      </div>
     </section>
   );
 }

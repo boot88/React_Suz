@@ -158,29 +158,43 @@ const buildRecordsArchivePackage = async ({ db, archiveId, selection, archiveRoo
   await fs.mkdir(path.join(stagingDir, 'view'), { recursive: true });
 
   try {
-    const conversationWhere = selection.scope === 'conversation' ? 'WHERE conversation_id = ?' : '';
-    const conversationParams = selection.scope === 'conversation' ? [selection.conversationId] : [];
+    const isPeriod = selection.scope === 'period';
+    const periodParams = [selection.from, selection.to, selection.cutoffAt || '9999-12-31 23:59:59'];
+    const messages = isPeriod ? await queryRows(db, `SELECT id, conversation_id, sender_login,
+      message_json, created_at, updated_at, deleted_at FROM chat_messages
+      WHERE created_at >= CONCAT(?, ' 00:00:00') AND created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY) AND created_at < ?
+      ORDER BY created_at`, periodParams) : [];
+    const periodConversationIds = [...new Set(messages.map((row) => row.conversation_id))];
+    const conversationWhere = selection.scope === 'conversation' ? 'WHERE conversation_id = ?'
+      : (isPeriod ? (periodConversationIds.length ? 'WHERE conversation_id IN (?)' : 'WHERE 1 = 0') : '');
+    const conversationParams = selection.scope === 'conversation' ? [selection.conversationId]
+      : (isPeriod && periodConversationIds.length ? [periodConversationIds] : []);
     const conversations = await queryRows(db, `SELECT * FROM chat_conversations ${conversationWhere} ORDER BY created_at`, conversationParams);
     const conversationIds = conversations.map((row) => row.conversation_id);
-    const messages = conversationIds.length ? await queryRows(db, `SELECT id, conversation_id, sender_login,
+    const selectedMessages = isPeriod ? messages : (conversationIds.length ? await queryRows(db, `SELECT id, conversation_id, sender_login,
       message_json, created_at, updated_at, deleted_at
-      FROM chat_messages WHERE conversation_id IN (?) ORDER BY created_at`, [conversationIds]) : [];
-    const versions = conversationIds.length ? await queryRows(db, `SELECT message_id, conversation_id, version_no,
+      FROM chat_messages WHERE conversation_id IN (?) ORDER BY created_at`, [conversationIds]) : []);
+    const messageIds = selectedMessages.map((row) => row.id);
+    const versions = messageIds.length ? await queryRows(db, `SELECT message_id, conversation_id, version_no,
       action, snapshot_json, snapshot_sha256, actor_login, actor_role, created_at
-      FROM chat_message_versions WHERE conversation_id IN (?) ORDER BY message_id, version_no`, [conversationIds]) : [];
-    const messageFiles = conversationIds.length ? await queryRows(db, 'SELECT * FROM chat_message_files WHERE conversation_id IN (?)', [conversationIds]) : [];
-    const feedPosts = selection.scope === 'all' ? await queryRows(db, 'SELECT * FROM feed_posts ORDER BY created_at') : [];
-    const feedComments = selection.scope === 'all' ? await queryRows(db, 'SELECT * FROM feed_comments ORDER BY created_at') : [];
-    const feedReactions = selection.scope === 'all' ? await queryRows(db, 'SELECT * FROM feed_reactions ORDER BY created_at') : [];
-    const feedPostFiles = selection.scope === 'all' ? await queryRows(db, 'SELECT * FROM feed_post_files') : [];
+      FROM chat_message_versions WHERE message_id IN (?) ORDER BY message_id, version_no`, [messageIds]) : [];
+    const messageFiles = messageIds.length ? await queryRows(db, 'SELECT * FROM chat_message_files WHERE message_id IN (?)', [messageIds]) : [];
+    const feedPosts = isPeriod ? await queryRows(db, `SELECT * FROM feed_posts
+      WHERE created_at >= CONCAT(?, ' 00:00:00') AND created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY) AND created_at < ?
+      ORDER BY created_at`, periodParams)
+      : (selection.scope === 'all' ? await queryRows(db, 'SELECT * FROM feed_posts ORDER BY created_at') : []);
+    const feedPostIds = feedPosts.map((row) => row.id);
+    const feedComments = feedPostIds.length ? await queryRows(db, 'SELECT * FROM feed_comments WHERE post_id IN (?) ORDER BY created_at', [feedPostIds]) : [];
+    const feedReactions = feedPostIds.length ? await queryRows(db, 'SELECT * FROM feed_reactions WHERE post_id IN (?) ORDER BY created_at', [feedPostIds]) : [];
+    const feedPostFiles = feedPostIds.length ? await queryRows(db, 'SELECT * FROM feed_post_files WHERE post_id IN (?)', [feedPostIds]) : [];
     const fileIds = [...new Set([...messageFiles, ...feedPostFiles].map((row) => row.file_id).filter(Boolean))];
     const files = fileIds.length ? await queryRows(db, 'SELECT * FROM chat_files WHERE id IN (?)', [fileIds]) : [];
-    const data = { conversations, messages, versions, messageFiles, files, feedPosts, feedComments, feedReactions, feedPostFiles };
-    const tableRows = { chat_conversations: conversations, chat_messages: messages, chat_message_versions: versions, chat_files: files, chat_message_files: messageFiles, feed_posts: feedPosts, feed_comments: feedComments, feed_reactions: feedReactions, feed_post_files: feedPostFiles };
+    const data = { conversations, messages: selectedMessages, versions, messageFiles, files, feedPosts, feedComments, feedReactions, feedPostFiles };
+    const tableRows = { chat_conversations: conversations, chat_messages: selectedMessages, chat_message_versions: versions, chat_files: files, chat_message_files: messageFiles, feed_posts: feedPosts, feed_comments: feedComments, feed_reactions: feedReactions, feed_post_files: feedPostFiles };
 
     await fs.writeFile(path.join(stagingDir, 'json', 'chats.json'), JSON.stringify({
       conversations,
-      messages: messages.map((row) => ({ ...row, message: parseJson(row.message_json, {}) })),
+      messages: selectedMessages.map((row) => ({ ...row, message: parseJson(row.message_json, {}) })),
       versions: versions.map((row) => ({ ...row, snapshot: parseJson(row.snapshot_json, {}) })),
       fileLinks: messageFiles
     }, null, 2));
@@ -190,6 +204,7 @@ const buildRecordsArchivePackage = async ({ db, archiveId, selection, archiveRoo
       reactions: feedReactions,
       fileLinks: feedPostFiles
     }, null, 2));
+    await fs.writeFile(path.join(stagingDir, 'json', 'files.json'), JSON.stringify({ files, copiedFiles: [] }, null, 2));
     const schemaSections = [];
     for (const table of Object.keys(tableRows)) {
       const [createRows] = await db.query(`SHOW CREATE TABLE \`${table}\``);
@@ -202,13 +217,14 @@ const buildRecordsArchivePackage = async ({ db, archiveId, selection, archiveRoo
     await fs.writeFile(path.join(stagingDir, 'database.sql'), `SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS=0;\n${sqlSections}\nSET FOREIGN_KEY_CHECKS=1;\n`);
     await fs.writeFile(path.join(stagingDir, 'view', 'index.html'), renderHtml(data));
     const copiedFiles = await copyArchiveFiles({ files, uploadsDir, stagingDir });
+    await fs.writeFile(path.join(stagingDir, 'json', 'files.json'), JSON.stringify({ files, copiedFiles }, null, 2));
     const manifest = {
       format: 'react-suz-records-archive', version: 1, archiveId,
       createdAt: new Date().toISOString(), createdBy: actor.login, selection,
       counts: Object.fromEntries(Object.entries(data).map(([key, rows]) => [key, rows.length])),
       files: copiedFiles,
       links: { messageFiles, feedPostFiles },
-      restore: { schemaSql: 'schema.sql', dataSql: 'database.sql', json: ['json/chats.json', 'json/feed.json'], viewer: 'view/index.html' }
+      restore: { schemaSql: 'schema.sql', dataSql: 'database.sql', json: ['json/chats.json', 'json/feed.json', 'json/files.json'], viewer: 'view/index.html' }
     };
     await fs.writeFile(path.join(stagingDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
     await fs.writeFile(path.join(stagingDir, 'README.txt'), [
@@ -231,7 +247,7 @@ const buildRecordsArchivePackage = async ({ db, archiveId, selection, archiveRoo
       `Создал: ${actor.login}`
     ].join('\n'));
 
-    const artifactPaths = ['README.txt', 'schema.sql', 'database.sql', 'manifest.json', 'json/chats.json', 'json/feed.json', 'view/index.html', ...copiedFiles.filter((file) => !file.missing).map((file) => file.archivePath)];
+    const artifactPaths = ['README.txt', 'schema.sql', 'database.sql', 'manifest.json', 'json/chats.json', 'json/feed.json', 'json/files.json', 'view/index.html', ...copiedFiles.filter((file) => !file.missing).map((file) => file.archivePath)];
     const checksums = [];
     for (const relativePath of artifactPaths) checksums.push(`${await sha256File(path.join(stagingDir, relativePath))}  ${relativePath}`);
     await fs.writeFile(path.join(stagingDir, 'checksums.sha256'), `${checksums.join('\n')}\n`);
@@ -258,7 +274,7 @@ const buildRecordsArchivePackage = async ({ db, archiveId, selection, archiveRoo
     await db.execute(
       `UPDATE records_archives SET status = 'completed', storage_path = ?, package_sha256 = ?,
        record_count = ?, file_count = ?, total_bytes = ?, completed_at = NOW(), error_text = ? WHERE id = ?`,
-      [archivePath, archiveSha256, messages.length + feedPosts.length + feedComments.length, files.length, archiveStat.size, warningText, archiveId]
+      [archivePath, archiveSha256, selectedMessages.length + feedPosts.length + feedComments.length, files.length, archiveStat.size, warningText, archiveId]
     );
     await db.execute(
       `INSERT INTO records_audit_log (action, entity_type, entity_id, archive_id, actor_login, actor_role, details_json)

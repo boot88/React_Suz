@@ -22,7 +22,7 @@ import { authFetch } from './utils/authFetch';
 
 function ChatAdministration() {
   const { section } = useParams();
-  return ['audit', 'archive'].includes(section) ? <EmployeeChat adminSection={section} /> : <Navigate to="/chat-tools/audit" replace />;
+  return section === 'audit' ? <EmployeeChat adminSection={section} /> : <Navigate to="/chat-tools/audit" replace />;
 }
 
 function App() {
