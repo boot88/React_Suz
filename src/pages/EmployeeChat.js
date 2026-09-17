@@ -4027,7 +4027,7 @@ const EmployeeChat = ({ adminSection = null }) => {
       </aside>}
 
       <section className="employee-chat-main">
-        {adminSection && <nav className="chat-admin-navigation">{tabs.map(tab => <button key={tab.id} type="button" className={activeTab === tab.id ? 'active' : ''} onClick={() => navigate(`/chat-tools/${tab.id}`)}>{getTabLabel(tab)}</button>)}<button type="button" onClick={() => navigate('/employee')}>{isEnglishInterface ? 'Open chat' : 'Открыть чат'}</button></nav>}
+        {adminSection && <nav className="chat-admin-navigation">{tabs.map(tab => <button key={tab.id} type="button" className={activeTab === tab.id ? 'active' : ''} onClick={() => navigate(`/chat-tools/${tab.id}`)}>{getTabLabel(tab)}</button>)}</nav>}
         {!adminSection && <button type="button" className="mobile-chat-back" onClick={() => { setSelectedEmail(''); setActiveTab('chat'); }}>{isEnglishInterface ? '← Conversations' : '← Диалоги'}</button>}
         {!adminSection && <div className={`chat-connection-state ${connectionState}`} role="status"><span />{isEnglishInterface ? ({ connected: 'Connected', connecting: 'Connecting…', reconnecting: 'Reconnecting…', offline: 'Offline' })[connectionState] : ({ connected: 'На связи', connecting: 'Подключение…', reconnecting: 'Восстанавливаем связь…', offline: 'Нет соединения' })[connectionState]}</div>}
         {activeTab === 'chat' && (
