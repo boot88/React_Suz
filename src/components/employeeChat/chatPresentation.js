@@ -31,7 +31,6 @@ const EMPLOYEE_TABS = [
 const MANAGER_TABS = [
   { id: 'chat', label: 'Чат' },
   { id: 'feed', label: 'Лента' },
-  { id: 'employees', label: 'Сотрудники' },
   { id: 'audit', label: 'Аудит' },
   { id: 'archive', label: 'Архив' }
 ];

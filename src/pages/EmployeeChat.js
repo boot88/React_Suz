@@ -5,7 +5,6 @@ import EmployeeProfileWorkspace from '../components/employeeChat/EmployeeProfile
 import EmployeeRequestsWorkspace from '../components/employeeChat/EmployeeRequestsWorkspace';
 import ChatAuditAdministration from '../components/employeeChat/ChatAuditAdministration';
 import ChatArchiveAdministration from '../components/employeeChat/ChatArchiveAdministration';
-import ChatEmployeeAdministration from '../components/employeeChat/ChatEmployeeAdministration';
 import ChatMessageItem from '../components/employeeChat/ChatMessageItem';
 import ChatIcon from '../components/employeeChat/ChatIcon';
 import ModernMediaViewer from '../components/employeeChat/ModernMediaViewer';
@@ -385,17 +384,6 @@ const EmployeeChat = ({ adminSection = null }) => {
     });
   }, [avatarUrl, user?.username]);
 
-  const [employeeForm, setEmployeeForm] = useState({
-    id: null,
-    login: '',
-    password: '',
-    role: 'employee',
-    full_name: '',
-    department: '',
-    phone: '',
-    room: ''
-  });
-  const [showEmployeePassword, setShowEmployeePassword] = useState(false);
   const currentConversationId = selectedEmail ? getConversationId(user.username, selectedEmail) : null;
   const templateMessages = useMemo(() => [
     ...(isEnglishInterface
@@ -3137,56 +3125,6 @@ const EmployeeChat = ({ adminSection = null }) => {
     }
   };
 
-  const saveEmployee = async (e) => {
-    e.preventDefault();
-    if (!employeeForm.login.trim() || (!employeeForm.id && !employeeForm.password.trim())) {
-      notify('Укажите логин и пароль (для нового сотрудника).', 'Сотрудники');
-      return;
-    }
-
-    const payload = {
-      login: employeeForm.login,
-      password: employeeForm.password,
-      role: employeeForm.role,
-      full_name: employeeForm.full_name,
-      department: employeeForm.department,
-      phone: employeeForm.phone,
-      room: employeeForm.room
-    };
-
-    const isEdit = Boolean(employeeForm.id);
-    const url = isEdit ? `${API_BASE_URL}/auth/employees/${employeeForm.id}` : `${API_BASE_URL}/auth/register`;
-    const method = isEdit ? 'PUT' : 'POST';
-
-    const response = await authFetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      notify(data.message || 'Не удалось сохранить сотрудника', 'Сотрудники');
-      return;
-    }
-
-    await fetchEmployees();
-    setEmployeeForm({ id: null, login: '', password: '', role: 'employee', full_name: '', department: '', phone: '', room: '' });
-    setShowEmployeePassword(false);
-  };
-
-  const deleteEmployee = async (employeeId) => {
-    const confirmed = await confirmAction('Удалить сотрудника? Его учётная запись будет удалена.', 'Удаление сотрудника');
-    if (!confirmed) return;
-    const response = await authFetch(`${API_BASE_URL}/auth/employees/${employeeId}`, { method: 'DELETE' });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      notify(data.message || 'Не удалось удалить сотрудника', 'Сотрудники');
-      return;
-    }
-    await fetchEmployees();
-  };
-
   const activeApplications = useMemo(() => myApplications.filter((item) => item.status !== 'done' && !item.fl), [myApplications]);
   const completedApplications = useMemo(() => myApplications.filter((item) => item.status === 'done' || item.fl), [myApplications]);
   const employeeByLogin = useMemo(() => new Map(directoryEmployees.map(employee => [String(employee.login).toLowerCase(), employee])), [directoryEmployees]);
@@ -3195,7 +3133,7 @@ const EmployeeChat = ({ adminSection = null }) => {
   const typingHint = remoteTypingLogin
     ? `${activeContact?.profile?.full_name || formatVisibleLogin(remoteTypingLogin)} ${t('typing')}…`
     : '';
-  const tabs = adminSection ? MANAGER_TABS.filter(tab => ['employees', 'archive', 'audit'].includes(tab.id)) : (isManager ? MANAGER_TABS.filter(tab => ['chat', 'feed'].includes(tab.id)) : EMPLOYEE_TABS);
+  const tabs = adminSection ? MANAGER_TABS.filter(tab => ['archive', 'audit'].includes(tab.id)) : (isManager ? MANAGER_TABS.filter(tab => ['chat', 'feed'].includes(tab.id)) : EMPLOYEE_TABS);
   const unreadTotal = Object.entries(unreadByEmail).reduce((sum, [email, count]) => sum + ((chatLocalSettings.muted || []).includes(getConversationId(user.username, email)) ? 0 : count), 0);
   const feedReadTimestamp = feedReadAt ? new Date(feedReadAt).getTime() : 0;
   const feedBadge = feedPosts.reduce((count, post) => {
@@ -4194,10 +4132,6 @@ const EmployeeChat = ({ adminSection = null }) => {
 
         {activeTab === 'profile' && (
           <EmployeeProfileWorkspace AuthenticatedAvatar={AuthenticatedAvatar} CHAT_DENSITIES={CHAT_DENSITIES} CHAT_TEXT_SIZES={CHAT_TEXT_SIZES} CHAT_THEMES={CHAT_THEMES} ChatAppearanceSettings={ChatAppearanceSettings} DEFAULT_PROFILE_WEBSITE_LANGUAGE={DEFAULT_PROFILE_WEBSITE_LANGUAGE} PROFILE_LANGUAGE_OPTIONS={PROFILE_LANGUAGE_OPTIONS} avatarInputRef={avatarInputRef} avatarUrl={avatarUrl} changeMyPassword={changeMyPassword} chatLocalSettings={chatLocalSettings} formatVisibleLogin={formatVisibleLogin} getOptionLabel={getOptionLabel} getSafeExternalUrl={getSafeExternalUrl} handleLogout={handleLogout} isAdmin={isAdmin} isEnglishInterface={isEnglishInterface} passwordForm={passwordForm} profileForm={profileForm} profilePreview={profilePreview} profileViewLogin={profileViewLogin} receivedArchivesPanel={!isManager && <section className="profile-received-archives received-archives-panel"><h3>{t('receivedArchives')}</h3><p className="received-archives-hint">{t('receivedArchivesHint')}</p><div className="threads-grid archive-grid"><div className="threads-list">{receivedArchiveLoading && receivedArchives.length === 0 && <div className="empty-chat">{t('loading')}…</div>}{!receivedArchiveLoading && receivedArchives.length === 0 && <div className="empty-chat">{t('receivedArchivesEmpty')}</div>}{receivedArchives.map((archive) => <button key={archive.access_id} type="button" className={`thread-item ${String(receivedArchiveAccessId) === String(archive.access_id) ? 'active' : ''}`} onClick={() => setReceivedArchiveAccessId(String(archive.access_id))}><span className="thread-title">{archive.name}</span><span className="thread-stats">{getParticipantsFromThreadId(archive.scope?.conversationId || '').join(' ↔ ')}</span><span className="thread-last">{t('receivedArchiveExpires')}: {archive.expires_at ? new Date(archive.expires_at).toLocaleString(interfaceLocale) : '—'}</span><span className="thread-last">{t('receivedArchiveGrantedBy')}: {archive.granted_by || '—'}</span></button>)}</div><div className="threads-messages archive-message-viewer">{!receivedArchiveAccessId && <div className="empty-chat">{t('receivedArchiveChoose')}</div>}{receivedArchiveAccessId && receivedArchiveHasMore && <button type="button" className="chat-pagination-button" disabled={receivedArchiveLoading} onClick={() => fetchReceivedArchiveMessages(receivedArchiveAccessId, { append: true })}>{t('loadPreviousMessages')}</button>}{receivedArchiveAccessId && receivedArchiveMessages.map((message) => { const attachments = getMessageAttachments(message); return <article key={message.id} className={`audit-message ${message.deletedAt ? 'deleted' : ''}`}><div className="message-meta"><span>{message.sender}</span><span>{new Date(message.createdAt).toLocaleString(interfaceLocale)}</span></div>{message.deletedAt && <em>{t('deletedMessage')}</em>}{message.text && <div className="archive-original-text">{message.text}</div>}{attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <AttachmentCard key={`${message.id}-received-archive-${index}`} cardKey={`${message.id}-received-archive-${index}`} file={file} variant="archive" isEnglish={isEnglishInterface} />)}</div>}</article>; })}</div></div></section>} removeAvatar={removeAvatar} saveMyProfile={saveMyProfile} setActiveTab={setActiveTab} setPasswordForm={setPasswordForm} setProfileViewLogin={setProfileViewLogin} setSelectedEmail={setSelectedEmail} t={t} toggleDialogToolSetting={toggleDialogToolSetting} toggleFeedToolSetting={toggleFeedToolSetting} updateChatUiSetting={updateChatUiSetting} updateProfileField={updateProfileField} user={user} />
-        )}
-
-        {adminSection && activeTab === 'employees' && isAdmin && (
-          <ChatEmployeeAdministration deleteEmployee={deleteEmployee} directoryEmployees={directoryEmployees} employeeForm={employeeForm} saveEmployee={saveEmployee} setEmployeeForm={setEmployeeForm} setShowEmployeePassword={setShowEmployeePassword} showEmployeePassword={showEmployeePassword} t={t} />
         )}
 
         {adminSection && activeTab === 'archive' && isAdmin && (
