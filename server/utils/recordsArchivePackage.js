@@ -252,7 +252,9 @@ const buildRecordsArchivePackage = async ({ db, archiveId, selection, archiveRoo
     for (const relativePath of artifactPaths) checksums.push(`${await sha256File(path.join(stagingDir, relativePath))}  ${relativePath}`);
     await fs.writeFile(path.join(stagingDir, 'checksums.sha256'), `${checksums.join('\n')}\n`);
     await fs.rm(archivePath, { force: true });
-    await execFileAsync('zip', ['-q', '-r', archivePath, '.'], { cwd: stagingDir, timeout: 60 * 60 * 1000, maxBuffer: 10 * 1024 * 1024 });
+    // ZIP is used only as a portable container. Store entries without
+    // compression so creating a large daily archive does not waste CPU/time.
+    await execFileAsync('zip', ['-q', '-0', '-r', archivePath, '.'], { cwd: stagingDir, timeout: 60 * 60 * 1000, maxBuffer: 10 * 1024 * 1024 });
     const archiveStat = await fs.stat(archivePath);
     const archiveSha256 = await sha256File(archivePath);
     const missingFiles = copiedFiles.filter((file) => file.missing).length;

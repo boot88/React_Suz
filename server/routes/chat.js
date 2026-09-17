@@ -3736,8 +3736,16 @@ const readAuditSearchParams = (req) => {
 };
 
 const getArchiveCutoffSql = (periodMode) => periodMode === 'day'
-  ? 'DATE_SUB(NOW(), INTERVAL 3 DAY)'
+  ? 'DATE_SUB(UTC_DATE(), INTERVAL 3 DAY)'
   : 'DATE_SUB(NOW(), INTERVAL 1 YEAR)';
+
+const getArchiveCutoffDate = (periodMode) => {
+  const cutoff = new Date();
+  cutoff.setUTCHours(0, 0, 0, 0);
+  if (periodMode === 'day') cutoff.setUTCDate(cutoff.getUTCDate() - 3);
+  else cutoff.setUTCFullYear(cutoff.getUTCFullYear() - 1);
+  return cutoff;
+};
 
 const appendAuditMessageSearch = (conditions, params, query, alias = 'messages') => {
   if (!query) return;
@@ -4390,30 +4398,30 @@ const readArchivePeriod = (req) => {
 };
 
 const getPeriodSourceStats = async ({ mode, key, from, to }) => {
-  const cutoffSql = getArchiveCutoffSql(mode);
-  const dateParams = [from, to];
+  const cutoff = getArchiveCutoffDate(mode);
+  const dateParams = [from, to, cutoff];
   const [[messageRows], [postRows], [fileRows]] = await Promise.all([
     db.query(`SELECT COUNT(*) AS count FROM chat_messages
       WHERE created_at >= CONCAT(?, ' 00:00:00')
         AND created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY)
-        AND created_at < ${cutoffSql}`, dateParams),
+        AND created_at < ?`, dateParams),
     db.query(`SELECT COUNT(*) AS count FROM feed_posts
       WHERE created_at >= CONCAT(?, ' 00:00:00')
         AND created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY)
-        AND created_at < ${cutoffSql}`, dateParams),
+        AND created_at < ?`, dateParams),
     db.query(`SELECT COUNT(*) AS file_count, COALESCE(SUM(files.size_bytes), 0) AS source_bytes
       FROM chat_files AS files INNER JOIN (
         SELECT DISTINCT links.file_id FROM chat_message_files AS links
         INNER JOIN chat_messages AS messages ON messages.id = links.message_id
         WHERE messages.created_at >= CONCAT(?, ' 00:00:00')
           AND messages.created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY)
-          AND messages.created_at < ${cutoffSql}
+          AND messages.created_at < ?
         UNION
         SELECT DISTINCT links.file_id FROM feed_post_files AS links
         INNER JOIN feed_posts AS posts ON posts.id = links.post_id
         WHERE posts.created_at >= CONCAT(?, ' 00:00:00')
           AND posts.created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY)
-          AND posts.created_at < ${cutoffSql}
+          AND posts.created_at < ?
       ) AS selected_files ON selected_files.file_id = files.id`, [...dateParams, ...dateParams])
   ]);
   return {
@@ -4431,12 +4439,12 @@ router.get('/records/periods', requireRole('admin'), async (req, res) => {
       return res.status(503).json({ message: 'Поиск документов временно недоступен' });
     }
     const keySql = mode === 'day' ? "DATE_FORMAT(created_at, '%Y-%m-%d')" : "DATE_FORMAT(created_at, '%Y-%m')";
-    const cutoffSql = getArchiveCutoffSql(mode);
+    const cutoff = getArchiveCutoffDate(mode);
     const [[messagePeriods], [postPeriods], [trackedRows]] = await Promise.all([
       db.query(`SELECT ${keySql} AS period_key, MIN(DATE(created_at)) AS from_date, MAX(DATE(created_at)) AS to_date, COUNT(*) AS message_count
-        FROM chat_messages WHERE created_at < ${cutoffSql} GROUP BY period_key`),
+        FROM chat_messages WHERE created_at < ? GROUP BY period_key`, [cutoff]),
       db.query(`SELECT ${keySql} AS period_key, MIN(DATE(created_at)) AS from_date, MAX(DATE(created_at)) AS to_date, COUNT(*) AS post_count
-        FROM feed_posts WHERE created_at < ${cutoffSql} GROUP BY period_key`),
+        FROM feed_posts WHERE created_at < ? GROUP BY period_key`, [cutoff]),
       db.query(`SELECT periods.*, archives.status AS archive_status, archives.completed_at,
           archives.downloaded_at, archives.total_bytes AS archive_bytes
         FROM records_archive_periods AS periods
@@ -4506,9 +4514,7 @@ router.post('/records/periods/:periodKey/archive', requireRole('admin'), async (
     const unchanged = existingRows?.[0]?.status === 'completed'
       && ['messageCount', 'postCount', 'fileCount', 'sourceBytes'].every((name) => Number(previous[name] || 0) === stats[name]);
     if (unchanged) return res.json({ archive: { id: archiveId, status: 'completed', unchanged: true } });
-    const cutoffDate = new Date();
-    if (period.mode === 'day') cutoffDate.setUTCDate(cutoffDate.getUTCDate() - 3);
-    else cutoffDate.setUTCFullYear(cutoffDate.getUTCFullYear() - 1);
+    const cutoffDate = getArchiveCutoffDate(period.mode);
     const cutoffAt = cutoffDate.toISOString();
     const selection = { scope: 'period', periodMode: period.mode, periodKey: period.key, from: period.from, to: period.to, cutoffAt, sourceStats: stats };
     const name = `Переписки за ${period.key}`;
@@ -4551,9 +4557,9 @@ router.post('/records/periods/:periodKey/purge', requireRole('admin'), async (re
     const stats = await getPeriodSourceStats(period);
     connection = await db.getConnection();
     await connection.beginTransaction();
-    const dateParams = [period.from, period.to];
-    const [messageRows] = await connection.query(`SELECT id FROM chat_messages WHERE created_at >= CONCAT(?, ' 00:00:00') AND created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY) AND created_at < ${getArchiveCutoffSql(period.mode)} FOR UPDATE`, dateParams);
-    const [postRows] = await connection.query(`SELECT id FROM feed_posts WHERE created_at >= CONCAT(?, ' 00:00:00') AND created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY) AND created_at < ${getArchiveCutoffSql(period.mode)} FOR UPDATE`, dateParams);
+    const dateParams = [period.from, period.to, getArchiveCutoffDate(period.mode)];
+    const [messageRows] = await connection.query(`SELECT id FROM chat_messages WHERE created_at >= CONCAT(?, ' 00:00:00') AND created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY) AND created_at < ? FOR UPDATE`, dateParams);
+    const [postRows] = await connection.query(`SELECT id FROM feed_posts WHERE created_at >= CONCAT(?, ' 00:00:00') AND created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY) AND created_at < ? FOR UPDATE`, dateParams);
     const messageIds = messageRows.map((row) => row.id); const postIds = postRows.map((row) => row.id);
     const holdConditions = [];
     const holdParams = [];
