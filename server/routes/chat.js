@@ -333,7 +333,7 @@ const searchSqlConversationMessages = async (
   if (!await ensureChatSqlSchema()) return null;
   const normalizedQuery = String(query || '').trim().slice(0, 200);
   const safeLimit = Math.min(50, Math.max(1, Math.floor(Number(limit)) || CHAT_SEARCH_PAGE_SIZE));
-  const params = [conversationId, `%${normalizedQuery.toLowerCase()}%`, `%${normalizedQuery.toLowerCase()}%`];
+  const params = [conversationId, `%${normalizedQuery.toLowerCase()}%`];
   let cursorSql = '';
   const cursor = decodeMessageCursor(before);
   if (cursor) { cursorSql = 'AND (created_at < ? OR (created_at = ? AND id < ?))'; params.push(cursor.at, cursor.at, cursor.id); }
@@ -342,14 +342,11 @@ const searchSqlConversationMessages = async (
      FROM chat_messages
      WHERE conversation_id = ?
        AND deleted_at IS NULL
-       AND (
-         LOWER(CASE
-           WHEN JSON_VALID(message_json)
-           THEN COALESCE(JSON_UNQUOTE(JSON_EXTRACT(message_json, '$.text')), '')
-           ELSE ''
-         END) LIKE ?
-         OR LOWER(message_json) LIKE ?
-       )
+       AND LOWER(CASE
+         WHEN JSON_VALID(message_json)
+         THEN COALESCE(JSON_UNQUOTE(JSON_EXTRACT(message_json, '$.text')), '')
+         ELSE ''
+       END) LIKE ?
        ${cursorSql}
      ORDER BY created_at DESC, id DESC
      LIMIT ${safeLimit}`,
@@ -368,15 +365,12 @@ const countSqlConversationSearchResults = async (conversationId, query = '') => 
      FROM chat_messages
      WHERE conversation_id = ?
        AND deleted_at IS NULL
-       AND (
-         LOWER(CASE
-           WHEN JSON_VALID(message_json)
-           THEN COALESCE(JSON_UNQUOTE(JSON_EXTRACT(message_json, '$.text')), '')
-           ELSE ''
-         END) LIKE ?
-         OR LOWER(message_json) LIKE ?
-       )`,
-    [conversationId, `%${normalizedQuery}%`, `%${normalizedQuery}%`]
+       AND LOWER(CASE
+         WHEN JSON_VALID(message_json)
+         THEN COALESCE(JSON_UNQUOTE(JSON_EXTRACT(message_json, '$.text')), '')
+         ELSE ''
+       END) LIKE ?`,
+    [conversationId, `%${normalizedQuery}%`]
   );
   return Number(rows?.[0]?.total || 0);
 };
@@ -1969,7 +1963,7 @@ const searchSqlFeedPosts = async ({ query = '', limit = 25, cursor = '', comment
   const safeLimit = Math.min(50, Math.max(1, Math.floor(Number(limit)) || 25));
   const cursorValue = decodeFeedCursor(cursor);
   const searchPattern = `%${normalizedQuery}%`;
-  const params = [searchPattern, searchPattern];
+  const params = [searchPattern];
   let cursorSql = '';
   if (cursorValue) {
     cursorSql = ` AND (
@@ -1982,15 +1976,11 @@ const searchSqlFeedPosts = async ({ query = '', limit = 25, cursor = '', comment
     `SELECT posts.post_json
      FROM feed_posts AS posts
      WHERE posts.deleted_at IS NULL
-       AND (
-         LOWER(posts.post_json) LIKE ?
-         OR EXISTS (
-           SELECT 1 FROM feed_comments AS comments
-           WHERE comments.post_id = posts.id
-             AND comments.deleted_at IS NULL
-             AND LOWER(comments.comment_json) LIKE ?
-         )
-       )
+       AND LOWER(CASE
+         WHEN JSON_VALID(posts.post_json)
+         THEN COALESCE(JSON_UNQUOTE(JSON_EXTRACT(posts.post_json, '$.text')), '')
+         ELSE ''
+       END) LIKE ?
        ${cursorSql}
      ORDER BY posts.pinned DESC, posts.created_at DESC, posts.id DESC
      LIMIT ${safeLimit}`,
@@ -2010,16 +2000,12 @@ const countSqlFeedSearchResults = async (query = '') => {
     `SELECT COUNT(*) AS total
      FROM feed_posts AS posts
      WHERE posts.deleted_at IS NULL
-       AND (
-         LOWER(posts.post_json) LIKE ?
-         OR EXISTS (
-           SELECT 1 FROM feed_comments AS comments
-           WHERE comments.post_id = posts.id
-             AND comments.deleted_at IS NULL
-             AND LOWER(comments.comment_json) LIKE ?
-         )
-       )`,
-    [searchPattern, searchPattern]
+       AND LOWER(CASE
+         WHEN JSON_VALID(posts.post_json)
+         THEN COALESCE(JSON_UNQUOTE(JSON_EXTRACT(posts.post_json, '$.text')), '')
+         ELSE ''
+       END) LIKE ?`,
+    [searchPattern]
   );
   return Number(rows?.[0]?.total || 0);
 };

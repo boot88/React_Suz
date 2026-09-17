@@ -3261,13 +3261,23 @@ const EmployeeChat = ({ adminSection = null }) => {
   };
 
   const highlightText = (text = '') => {
-    if (!normalizedDialogSearch) return text;
     const source = String(text || '');
-    const lower = source.toLowerCase();
-    const needle = normalizedDialogSearch.toLowerCase();
-    const index = lower.indexOf(needle);
-    if (index < 0) return source;
-    return <>{source.slice(0, index)}<mark>{source.slice(index, index + needle.length)}</mark>{source.slice(index + needle.length)}</>;
+    const needle = String(dialogSearch || '').trim();
+    if (needle.length < 2) return source;
+    const lowerSource = source.toLocaleLowerCase();
+    const lowerNeedle = needle.toLocaleLowerCase();
+    const parts = [];
+    let cursor = 0;
+    let index = lowerSource.indexOf(lowerNeedle, cursor);
+    while (index >= 0) {
+      if (index > cursor) parts.push(source.slice(cursor, index));
+      parts.push(<mark key={`${index}-${parts.length}`}>{source.slice(index, index + needle.length)}</mark>);
+      cursor = index + needle.length;
+      index = lowerSource.indexOf(lowerNeedle, cursor);
+    }
+    if (!parts.length) return source;
+    if (cursor < source.length) parts.push(source.slice(cursor));
+    return parts;
   };
   const dialogMediaItems = useMemo(() => currentMessages
     .filter((message) => !message.deletedAt)

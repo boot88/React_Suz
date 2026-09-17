@@ -7,6 +7,7 @@ const FeedPostCard = memo(function FeedPostCard({
   post,
   modern = false,
   searchCurrent = false,
+  searchQuery = '',
   onCloseMenu,
   selected,
   menuOpen,
@@ -69,6 +70,25 @@ const FeedPostCard = memo(function FeedPostCard({
   const menuButtonRef = useRef(null);
   const closeMenuRef = useRef(onCloseMenu);
   closeMenuRef.current = onCloseMenu;
+  const highlightSearchText = (text = '') => {
+    const source = String(text || '');
+    const query = String(searchQuery || '').trim();
+    if (query.length < 2) return source;
+    const lowerSource = source.toLocaleLowerCase();
+    const lowerQuery = query.toLocaleLowerCase();
+    const parts = [];
+    let cursor = 0;
+    let index = lowerSource.indexOf(lowerQuery, cursor);
+    while (index >= 0) {
+      if (index > cursor) parts.push(source.slice(cursor, index));
+      parts.push(<mark key={`${index}-${parts.length}`}>{source.slice(index, index + query.length)}</mark>);
+      cursor = index + query.length;
+      index = lowerSource.indexOf(lowerQuery, cursor);
+    }
+    if (!parts.length) return source;
+    if (cursor < source.length) parts.push(source.slice(cursor));
+    return parts;
+  };
   useEffect(() => {
     if (!modern || !menuOpen) return undefined;
     const closeOnEscape = event => {
@@ -144,7 +164,7 @@ const FeedPostCard = memo(function FeedPostCard({
             <button type="button" disabled={mutationPending} onClick={onCancelEdit}>{t('cancel')}</button>
           </div>
         </div>
-      ) : post.text && <p className="employee-feed-post-text">{post.text}</p>}
+      ) : post.text && <p className="employee-feed-post-text">{highlightSearchText(post.text)}</p>}
 
       {attachments.length > 0 && (
         <div className={`employee-feed-media-grid media-count-${Math.min(mediaAttachmentCount, 4)} ${singlePhoto ? 'single-photo' : ''}`}>
@@ -235,7 +255,7 @@ const FeedPostCard = memo(function FeedPostCard({
         </div>
       )}
 
-      <FeedComments
+        <FeedComments
         modern={modern}
         postId={post.id}
         comments={comments}
@@ -258,8 +278,9 @@ const FeedPostCard = memo(function FeedPostCard({
         onDelete={onDeleteComment}
         onToggleExpanded={onToggleComments}
         onDraftChange={onCommentDraftChange}
-        onSubmit={onSubmitComment}
-      />
+          onSubmit={onSubmitComment}
+          highlightText={highlightSearchText}
+        />
     </article>
   );
 });

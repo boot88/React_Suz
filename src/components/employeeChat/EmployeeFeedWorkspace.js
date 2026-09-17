@@ -61,6 +61,7 @@ export default function EmployeeFeedWorkspace({ AttachmentCard, FEED_CATEGORIES,
                     post={post}
                     modern={chatLocalSettings.uiDesign === 'modern'}
                     searchCurrent={searchCurrentPostId === post.id}
+                    searchQuery={feedSearch}
                     selected={selectedFeedPostId === post.id}
                     menuOpen={openFeedMenuId === post.id}
                     mutationPending={postMutationPending}

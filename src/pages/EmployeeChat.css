@@ -3677,6 +3677,14 @@
   color: #78350f;
 }
 
+.employee-feed-post-text mark,
+.employee-feed-comment-body > span mark {
+  padding: 0 2px;
+  border-radius: 4px;
+  background: #fde68a;
+  color: #78350f;
+}
+
 .reply-jump {
   width: 100%;
   border: 0;
