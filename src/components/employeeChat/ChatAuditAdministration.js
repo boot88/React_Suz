@@ -260,8 +260,6 @@ export default function ChatAuditAdministration({
     return () => controller.abort();
   }, [chatAuthHeaders, clearResults, dateRange, employeeLogin, periodMode, sameLogin]);
 
-  const selectedEmployee = useMemo(() => employeeOptions.find((employee) => sameLogin(employee.login, employeeLogin)) || null,
-    [employeeLogin, employeeOptions, sameLogin]);
   const rangeIsValid = isValidDateRange(dateRange);
   const searchReady = Boolean(employeeLogin && rangeIsValid);
 
@@ -408,24 +406,13 @@ export default function ChatAuditAdministration({
 
   return (
     <section className="manager-panel audit-search-panel">
-      <div className="audit-search-heading">
-        <div>
-          <h2>{isEnglishInterface ? 'Document search' : 'Поиск документов'}</h2>
-          <p>{isEnglishInterface
-            ? 'Select an employee and a period first. Message search becomes available after the conversations are loaded.'
-            : 'Сначала выберите период, затем сотрудника из списка участников. После загрузки переписки можно уточнить результат поиском по словам.'}</p>
-        </div>
-        {selectedEmployee && <span>{copy.selected}: <strong>{selectedEmployee.fullName}</strong></span>}
-      </div>
-
       <div className="archive-periods-panel">
         <div className="archive-periods-title">
-          <div><strong>{periodMode === 'day' ? 'Дни старше трёх суток' : 'Доступные периоды'}</strong><span>{periodMode === 'day' ? 'Все диалоги и публикации ленты по дням' : 'Переписка старше одного года'}</span></div>
-          <label className="archive-test-switch"><input type="checkbox" checked={periodMode === 'day'} onChange={(event) => { setPeriodMode(event.target.checked ? 'day' : 'month'); setDateRange({ from: '', to: '' }); clearResults(); }} /><i aria-hidden="true" /><span>Тестовый режим: старше 3 дней</span></label>
+          <div><strong>Доступные периоды</strong><span>{periodMode === 'test' ? 'Тестовые месяцы, включая текущий' : 'Переписка старше одного года'}</span></div>
         </div>
         {periodsLoading && <div className="archive-period-empty">Загружаем периоды…</div>}
-        {!periodsLoading && periods.length === 0 && <div className="archive-period-empty">{periodMode === 'day'
-          ? <>В базе не найдено сообщений или публикаций старше трёх полных суток.{periodSource.totalCount > 0 && <small>Всего записей: {periodSource.totalCount}. Самая ранняя: {periodSource.firstAt ? new Date(periodSource.firstAt).toLocaleString(interfaceLocale) : '—'}. Граница архива: {periodSource.cutoffAt ? new Date(periodSource.cutoffAt).toLocaleString(interfaceLocale) : '—'}.</small>}</>
+        {!periodsLoading && periods.length === 0 && <div className="archive-period-empty">{periodMode === 'test'
+          ? <>В базе не найдено сообщений или публикаций.{periodSource.totalCount > 0 && <small>Всего записей: {periodSource.totalCount}. Самая ранняя: {periodSource.firstAt ? new Date(periodSource.firstAt).toLocaleString(interfaceLocale) : '—'}.</small>}</>
           : 'Подходящих периодов пока нет.'}</div>}
         <div className="archive-period-list">
           {periods.map((period) => {
@@ -433,18 +420,18 @@ export default function ChatAuditAdministration({
             const busy = periodAction.endsWith(`:${period.periodKey}`);
             return <article key={`${period.mode}-${period.periodKey}`} className={`archive-period-card ${deleted ? 'deleted' : ''}`}>
               <button type="button" className="archive-period-select" disabled={deleted} onClick={() => selectPeriod(period)}>
-                <b>{deleted ? '✕ ' : ''}Переписки за {new Date(`${period.from}T12:00:00`).toLocaleDateString(interfaceLocale, periodMode === 'day' ? { day: 'numeric', month: 'long', year: 'numeric' } : { month: 'long', year: 'numeric' })}</b>
+                <b>{deleted ? '✕ ' : ''}Переписки за {new Date(`${period.from}T12:00:00`).toLocaleDateString(interfaceLocale, { month: 'long', year: 'numeric' })}</b>
                 <span>{period.messageCount || 0} сообщений · {period.postCount || 0} публикаций · {period.fileCount || 0} файлов · {formatFileSize(period.sourceBytes || 0)}</span>
                 {deleted && <em>Удалено с диска — добавьте архив для восстановления</em>}
               </button>
               <div className="archive-period-actions">
-                {!deleted && (!period.archiveId || !period.archiveStatus || period.archiveStatus === 'failed') && <button type="button" disabled={busy} onClick={() => createPeriodArchive(period)}>{period.archiveStatus === 'failed' ? 'Повторить создание архива' : (periodMode === 'day' ? 'Создать и сохранить архив дня' : 'Создать и сохранить архив')}</button>}
+                {!deleted && (!period.archiveId || !period.archiveStatus || period.archiveStatus === 'failed') && <button type="button" disabled={busy} onClick={() => createPeriodArchive(period)}>{period.archiveStatus === 'failed' ? 'Повторить создание архива' : 'Создать и сохранить архив'}</button>}
                 {!deleted && period.archiveStatus === 'pending' && <button type="button" disabled>Архив создаётся…</button>}
                 {!deleted && period.archiveStatus === 'completed' && <button type="button" disabled={busy} onClick={async () => {
                   try { const fileHandle = await chooseArchiveTarget(period); await downloadPeriodArchive(period, fileHandle); }
                   catch (pickerError) { if (pickerError?.name !== 'AbortError') setError(pickerError.message || 'Не удалось сохранить архив'); }
                 }}>Сохранить архив</button>}
-                {!deleted && period.archiveStatus === 'completed' && (periodMode === 'day' || period.downloadedAt) && <button type="button" className="danger" disabled={busy} onClick={() => purgePeriod(period)}>Удалить полностью</button>}
+                {!deleted && period.archiveStatus === 'completed' && (periodMode === 'test' || period.downloadedAt) && <button type="button" className="danger" disabled={busy} onClick={() => purgePeriod(period)}>Удалить полностью</button>}
               </div>
             </article>;
           })}
@@ -452,8 +439,12 @@ export default function ChatAuditAdministration({
         <div className="archive-period-footer">
           <input ref={archiveInputRef} type="file" accept=".zip,application/zip" hidden onChange={(event) => importPeriodArchive(event.target.files?.[0])} />
           <button type="button" disabled={periodAction === 'import'} onClick={() => archiveInputRef.current?.click()}>{periodAction === 'import' ? 'Восстанавливаем архив…' : 'Загрузить архив'}</button>
-          <span>{periodMode === 'day' ? 'Восстановить удалённый день из ранее сохранённого архива.' : 'Восстановить удалённый месяц из ранее сохранённого архива.'}</span>
+          <span>Восстановить удалённый месяц из ранее сохранённого архива.</span>
         </div>
+        <details className="audit-search-settings">
+          <summary>Настройки</summary>
+          <label><input type="checkbox" checked={periodMode === 'test'} onChange={(event) => { setPeriodMode(event.target.checked ? 'test' : 'month'); setEmployeeQuery(''); setEmployeeLogin(''); setDateRange({ from: '', to: '' }); clearResults(); }} /> Показывать тестовые месяцы, включая текущий</label>
+        </details>
       </div>
 
       <div className="audit-search-form">

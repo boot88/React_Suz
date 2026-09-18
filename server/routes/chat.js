@@ -3732,18 +3732,18 @@ const readAuditSearchParams = (req) => {
     throw Object.assign(new Error('Укажите начало и конец периода'), { status: 400 });
   }
   if (from > to) throw Object.assign(new Error('Конечная дата не может быть раньше начальной'), { status: 400 });
-  const periodMode = req.query?.periodMode === 'day' ? 'day' : 'month';
+  const periodMode = req.query?.periodMode === 'test' ? 'test' : 'month';
   return { employee, from, to, query, periodMode };
 };
 
-const getArchiveCutoffSql = (periodMode) => periodMode === 'day'
-  ? 'DATE_SUB(UTC_DATE(), INTERVAL 3 DAY)'
+const getArchiveCutoffSql = (periodMode) => periodMode === 'test'
+  ? 'DATE_ADD(UTC_DATE(), INTERVAL 1 DAY)'
   : 'DATE_SUB(NOW(), INTERVAL 1 YEAR)';
 
 const getArchiveCutoffDate = (periodMode) => {
   const cutoff = new Date();
   cutoff.setUTCHours(0, 0, 0, 0);
-  if (periodMode === 'day') cutoff.setUTCDate(cutoff.getUTCDate() - 3);
+  if (periodMode === 'test') cutoff.setUTCDate(cutoff.getUTCDate() + 1);
   else cutoff.setUTCFullYear(cutoff.getUTCFullYear() - 1);
   return cutoff;
 };
@@ -3766,7 +3766,7 @@ router.get('/audit/participants', requireRole('admin'), async (req, res) => {
   try {
     const from = String(req.query?.from || '').trim();
     const to = String(req.query?.to || '').trim();
-    const periodMode = req.query?.periodMode === 'day' ? 'day' : 'month';
+    const periodMode = req.query?.periodMode === 'test' ? 'test' : 'month';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
       return res.status(400).json({ message: 'Сначала выберите корректный период' });
     }
@@ -4421,15 +4421,15 @@ router.post('/records/conversations/:conversationId/purge', requireRole('admin')
 });
 
 const readArchivePeriod = (req) => {
-  const mode = req.query?.mode === 'day' || req.body?.mode === 'day' ? 'day' : 'month';
+  const mode = req.query?.mode === 'test' || req.body?.mode === 'test' ? 'test' : 'month';
   const key = String(req.params?.periodKey || req.body?.periodKey || '').trim();
-  const pattern = mode === 'day' ? /^\d{4}-\d{2}-\d{2}$/ : /^\d{4}-\d{2}$/;
+  const pattern = /^\d{4}-\d{2}$/;
   if (key && !pattern.test(key)) throw Object.assign(new Error('Некорректный период'), { status: 400 });
-  const from = mode === 'day' ? key : `${key}-01`;
+  const from = `${key}-01`;
   const start = key ? new Date(`${from}T00:00:00Z`) : null;
   if (key && Number.isNaN(start.getTime())) throw Object.assign(new Error('Некорректный период'), { status: 400 });
   const end = start ? new Date(start) : null;
-  if (end) mode === 'day' ? end.setUTCDate(end.getUTCDate() + 1) : end.setUTCMonth(end.getUTCMonth() + 1);
+  if (end) end.setUTCMonth(end.getUTCMonth() + 1);
   const to = end ? new Date(end.getTime() - 86400000).toISOString().slice(0, 10) : '';
   return { mode, key, from, to };
 };
@@ -4471,11 +4471,11 @@ const getPeriodSourceStats = async ({ mode, key, from, to }) => {
 
 router.get('/records/periods', requireRole('admin'), async (req, res) => {
   try {
-    const mode = req.query?.mode === 'day' ? 'day' : 'month';
+    const mode = req.query?.mode === 'test' ? 'test' : 'month';
     if (!await ensureChatSqlSchema() || !await ensureFeedSqlSchema() || !await ensureRecordsArchiveSchema(db)) {
       return res.status(503).json({ message: 'Поиск документов временно недоступен' });
     }
-    const keySql = mode === 'day' ? "DATE_FORMAT(created_at, '%Y-%m-%d')" : "DATE_FORMAT(created_at, '%Y-%m')";
+    const keySql = "DATE_FORMAT(created_at, '%Y-%m')";
     const cutoff = getArchiveCutoffDate(mode);
     const [[messagePeriods], [postPeriods], [trackedRows], [sourceRows]] = await Promise.all([
       db.query(`SELECT ${keySql} AS period_key, MIN(DATE(created_at)) AS from_date, MAX(DATE(created_at)) AS to_date, COUNT(*) AS message_count
@@ -4539,7 +4539,7 @@ router.get('/records/periods', requireRole('admin'), async (req, res) => {
     const source = sourceRows?.[0] || {};
     res.json({
       mode,
-      cutoff: mode === 'day' ? '3 days' : '1 year',
+      cutoff: mode === 'test' ? 'current month' : '1 year',
       cutoffAt: cutoff.toISOString(),
       source: { totalCount: Number(source.total_count) || 0, firstAt: source.first_at || null, lastAt: source.last_at || null },
       periods
@@ -4608,10 +4608,10 @@ router.post('/records/periods/:periodKey/purge', requireRole('admin'), async (re
     if (!await ensureChatSqlSchema() || !await ensureFeedSqlSchema() || !await ensureRecordsArchiveSchema(db)) return res.sendStatus(503);
     const archiveId = `period-${period.mode}-${period.key}`;
     const [archiveRows] = await db.execute("SELECT id, status, downloaded_at, storage_path FROM records_archives WHERE id=? AND deleted_at IS NULL LIMIT 1", [archiveId]);
-    if (!archiveRows?.[0] || archiveRows[0].status !== 'completed' || (period.mode !== 'day' && !archiveRows[0].downloaded_at)) {
+    if (!archiveRows?.[0] || archiveRows[0].status !== 'completed' || (period.mode !== 'test' && !archiveRows[0].downloaded_at)) {
       return res.status(409).json({
-        message: period.mode === 'day'
-          ? 'Сначала создайте архив выбранного дня'
+        message: period.mode === 'test'
+          ? 'Сначала создайте архив выбранного месяца'
           : 'Сначала создайте и сохраните готовый архив на внешний носитель'
       });
     }
@@ -4763,7 +4763,8 @@ router.post('/records/periods/import', requireRole('admin'), async (req, res) =>
     if (manifest?.format !== 'react-suz-records-archive' || manifest?.selection?.scope !== 'period') {
       throw Object.assign(new Error('Это не архив периода переписки'), { status: 400 });
     }
-    const period = { mode: manifest.selection.periodMode === 'day' ? 'day' : 'month', key: String(manifest.selection.periodKey || ''), from: manifest.selection.from, to: manifest.selection.to };
+    const importedMode = ['day', 'test'].includes(manifest.selection.periodMode) ? manifest.selection.periodMode : 'month';
+    const period = { mode: importedMode, key: String(manifest.selection.periodKey || ''), from: manifest.selection.from, to: manifest.selection.to };
     if (!(period.mode === 'day' ? /^\d{4}-\d{2}-\d{2}$/.test(period.key) : /^\d{4}-\d{2}$/.test(period.key))) throw Object.assign(new Error('В архиве указан некорректный период'), { status: 400 });
     const chats = JSON.parse(await fs.readFile(path.join(tempRoot, 'json', 'chats.json'), 'utf8'));
     const feed = JSON.parse(await fs.readFile(path.join(tempRoot, 'json', 'feed.json'), 'utf8'));
