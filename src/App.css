@@ -20,6 +20,90 @@
   transition: margin-left 0.3s ease;
 }
 
+.admin-workspace-transition {
+  position: fixed;
+  z-index: 20000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  pointer-events: all;
+  color: #fff;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(74, 144, 226, .30), transparent 34%),
+    linear-gradient(145deg, #07192c 0%, #123c67 55%, #1e5ca1 100%);
+  transform-origin: center;
+}
+
+.admin-workspace-transition.is-covering { animation: admin-workspace-cover .23s cubic-bezier(.2, .75, .2, 1) both; }
+.admin-workspace-transition.is-revealing { animation: admin-workspace-reveal .39s cubic-bezier(.4, 0, .2, 1) both; }
+
+.admin-workspace-transition__content {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  transform: translateY(-2vh);
+}
+
+.admin-workspace-transition__content strong {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+.admin-workspace-transition__mark {
+  position: relative;
+  width: 62px;
+  height: 62px;
+  border: 1px solid rgba(255, 255, 255, .28);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, .10);
+  box-shadow: 0 18px 48px rgba(2, 12, 27, .34);
+  backdrop-filter: blur(10px);
+}
+
+.admin-workspace-transition__mark::before {
+  content: '';
+  position: absolute;
+  inset: 17px;
+  border: 3px solid rgba(255, 255, 255, .30);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: admin-workspace-spin .75s linear infinite;
+}
+
+.admin-workspace-transition__mark i {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #8fc9ff;
+  box-shadow: 0 0 18px rgba(143, 201, 255, .75);
+}
+
+.admin-workspace-transition__mark i:first-child { top: 10px; right: 11px; }
+.admin-workspace-transition__mark i:last-child { bottom: 10px; left: 11px; }
+
+@keyframes admin-workspace-cover {
+  from { opacity: 0; transform: scale(1.025); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes admin-workspace-reveal {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(.985); }
+}
+
+@keyframes admin-workspace-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-workspace-transition,
+  .admin-workspace-transition__mark::before { animation: none !important; }
+}
+
 
 /* Адаптивность для мобильных устройств */
 @media (max-width: 1024px) {

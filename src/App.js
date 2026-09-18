@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useParams, Link } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate, useParams, Link } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import Dashboard from './pages/Dashboard';
 import AddApplication from './pages/AddApplication';
@@ -18,6 +18,7 @@ import Support from './components/Support';
 import Statistics from './pages/StatisticsOverview';
 import { API_BASE_URL } from './utils/apiConfig';
 import { authFetch } from './utils/authFetch';
+import { ADMIN_WORKSPACE_TRANSITION_EVENT, requestAdminWorkspaceTransition } from './utils/adminWorkspaceTransition';
 
 
 function ChatAdministration() {
@@ -38,13 +39,54 @@ function App() {
 function AppWorkspace() {
   const { isAuthenticated, isLoading, user } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [adminLanguage, setAdminLanguage] = useState(() => localStorage.getItem('adminLanguage') || 'ru');
   const [adminTheme, setAdminTheme] = useState(() => localStorage.getItem('adminTheme') || 'light');
+  const [workspaceTransition, setWorkspaceTransition] = useState(null);
+  const workspaceTransitionTimersRef = useRef([]);
+  const currentPathRef = useRef(location.pathname);
+
+  useEffect(() => { currentPathRef.current = location.pathname; }, [location.pathname]);
 
   useEffect(() => {
     localStorage.setItem('adminLanguage', adminLanguage);
     localStorage.setItem('adminTheme', adminTheme);
   }, [adminLanguage, adminTheme]);
+
+  useEffect(() => {
+    const clearTransitionTimers = () => {
+      workspaceTransitionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+      workspaceTransitionTimersRef.current = [];
+    };
+    const handleWorkspaceTransition = (event) => {
+      const to = String(event?.detail?.to || '').trim();
+      if (!to || to === currentPathRef.current) return;
+      clearTransitionTimers();
+      if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+        navigate(to);
+        return;
+      }
+      const toChat = to === '/employee';
+      setWorkspaceTransition({
+        phase: 'covering',
+        direction: toChat ? 'to-chat' : 'to-admin',
+        label: toChat ? 'Открываем чат' : 'Возвращаемся в админку'
+      });
+      workspaceTransitionTimersRef.current.push(window.setTimeout(() => {
+        navigate(to);
+        setWorkspaceTransition((current) => current ? { ...current, phase: 'revealing' } : null);
+      }, 230));
+      workspaceTransitionTimersRef.current.push(window.setTimeout(() => {
+        setWorkspaceTransition(null);
+        workspaceTransitionTimersRef.current = [];
+      }, 620));
+    };
+    window.addEventListener(ADMIN_WORKSPACE_TRANSITION_EVENT, handleWorkspaceTransition);
+    return () => {
+      window.removeEventListener(ADMIN_WORKSPACE_TRANSITION_EVENT, handleWorkspaceTransition);
+      clearTransitionTimers();
+    };
+  }, [navigate]);
 
   if (isLoading) {
     return (
@@ -87,6 +129,14 @@ function AppWorkspace() {
           <Route path="*" element={<Navigate to={isEmployee ? '/employee' : '/'} replace />} />
         </Routes>
       </div>
+      {workspaceTransition && (
+        <div className={`admin-workspace-transition is-${workspaceTransition.phase} ${workspaceTransition.direction}`} role="status" aria-live="polite">
+          <div className="admin-workspace-transition__content">
+            <span className="admin-workspace-transition__mark" aria-hidden="true"><i /><i /></span>
+            <strong>{workspaceTransition.label}</strong>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -258,7 +308,7 @@ function Sidebar({ language }) {
               </Link>
             </li>
             <li className={isActive('/add') ? 'nav-item active' : 'nav-item'}><Link to="/add" className="nav-link"><span className="nav-icon nav-icon--add" aria-hidden="true" /><span className="nav-text">{copy.add}</span></Link></li>
-            <li className={isActive('/employee') ? 'nav-item active' : 'nav-item'}><Link to="/employee" className="nav-link"><span className="nav-icon nav-icon--chat" aria-hidden="true" /><span className="nav-text">{copy.chat}</span>{chatUnreadCount > 0 && <span className="nav-badge">{chatUnreadCount > 99 ? '99+' : chatUnreadCount}</span>}</Link></li>
+            <li className={isActive('/employee') ? 'nav-item active' : 'nav-item'}><Link to="/employee" className="nav-link" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); setIsMobileOpen(false); requestAdminWorkspaceTransition('/employee'); }}><span className="nav-icon nav-icon--chat" aria-hidden="true" /><span className="nav-text">{copy.chat}</span>{chatUnreadCount > 0 && <span className="nav-badge">{chatUnreadCount > 99 ? '99+' : chatUnreadCount}</span>}</Link></li>
             <li className="nav-item"><Link to="/chat-tools/audit" className="nav-link"><span className="nav-icon nav-icon--chat" aria-hidden="true" /><span className="nav-text">{language === 'ru' ? 'Управление чатом' : 'Chat administration'}</span></Link></li>
             <li className="nav-group-title">{copy.analytics}</li>
             <li className={isActive('/statistics') ? 'nav-item active' : 'nav-item'}><Link to="/statistics" className="nav-link"><span className="nav-icon nav-icon--chart" aria-hidden="true" /><span className="nav-text">{copy.statistics}</span></Link></li>

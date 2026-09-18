@@ -13,12 +13,12 @@ import ChatAppearanceSettings from '../components/employeeChat/ChatAppearanceSet
 import useMessageOutbox from '../components/employeeChat/useMessageOutbox';
 import { mergeMessages, compareMessages, isMessageRead } from '../utils/chatMessages';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
 import { readCachedConversation, writeCachedConversation, removeCachedConversation } from '../utils/chatMessageCache';
 import { readCachedFeed, writeCachedFeed } from '../utils/feedCache';
+import { requestAdminWorkspaceTransition } from '../utils/adminWorkspaceTransition';
 
 import { formatApplicationDateTime, getApplicationTiming } from '../utils/applicationTime';
 import ChatComposerForm from '../components/employeeChat/ChatComposerForm';
@@ -63,7 +63,6 @@ const setChatReactionForUser = (message = {}, emoji, login, active) => {
 
 const EmployeeChat = ({ adminSection = null }) => {
   const { user, logout, employeeDirectory, changeServicePassword } = useAuth();
-  const navigate = useNavigate();
   const isManager = user?.role === 'manager' || user?.role === 'admin';
   const baseDisplayName = user?.name || user?.username || 'Сотрудник';
   const isAdmin = user?.serverRole === 'admin' || user?.role === 'admin';
@@ -4000,7 +3999,7 @@ const EmployeeChat = ({ adminSection = null }) => {
             <span>{profileForm.position || user?.position || profileForm.department || t('workingChat')}</span>
           </div>
           <div className="brand-actions">
-            {isAdmin && <button type="button" className="icon-btn admin-panel-return-btn" onClick={() => navigate('/')}>{t('adminPanel')}</button>}
+            {isAdmin && <button type="button" className="icon-btn admin-panel-return-btn" onClick={() => requestAdminWorkspaceTransition('/')}>{t('adminPanel')}</button>}
             <button type="button" className="icon-btn" onClick={() => { setActiveTab('profile'); setProfileViewLogin(''); }}>{t('profile')}</button>
           </div>
         </div>
