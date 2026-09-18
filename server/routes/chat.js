@@ -2534,7 +2534,8 @@ router.get('/files/:fileId/download', async (req, res) => {
     // permits the authorized response to be embedded by the client origin.
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.setHeader('Content-Type', download.mime || 'application/octet-stream');
-    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(download.fileName)}"`);
+    const disposition = req.query?.download === '1' ? 'attachment' : 'inline';
+    res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(download.fileName)}"`);
     res.setHeader(
       'Cache-Control',
       variant === 'thumbnail'
@@ -3761,6 +3762,42 @@ const appendAuditMessageSearch = (conditions, params, query, alias = 'messages')
   params.push(pattern, pattern);
 };
 
+router.get('/audit/participants', requireRole('admin'), async (req, res) => {
+  try {
+    const from = String(req.query?.from || '').trim();
+    const to = String(req.query?.to || '').trim();
+    const periodMode = req.query?.periodMode === 'day' ? 'day' : 'month';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
+      return res.status(400).json({ message: 'Сначала выберите корректный период' });
+    }
+    if (!await ensureChatSqlSchema() || !await ensureFeedSqlSchema()) return res.sendStatus(503);
+    const cutoff = getArchiveCutoffDate(periodMode);
+    const range = [from, to, cutoff];
+    const [rows] = await db.query(`SELECT DISTINCT LOWER(participants.login) AS login,
+        COALESCE(users.full_name, participants.login) AS full_name,
+        COALESCE(users.role, 'employee') AS role,
+        users.position, users.department, users.phone, users.external_phone, users.room
+      FROM (
+        SELECT participant_a AS login FROM chat_messages
+          WHERE created_at >= CONCAT(?, ' 00:00:00') AND created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY) AND created_at < ?
+        UNION
+        SELECT participant_b AS login FROM chat_messages
+          WHERE created_at >= CONCAT(?, ' 00:00:00') AND created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY) AND created_at < ?
+        UNION
+        SELECT author_login AS login FROM feed_posts
+          WHERE created_at >= CONCAT(?, ' 00:00:00') AND created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY) AND created_at < ?
+      ) AS participants
+      LEFT JOIN users ON LOWER(users.login)=LOWER(participants.login)
+      WHERE participants.login IS NOT NULL AND participants.login <> ''
+      ORDER BY full_name, login`, [...range, ...range, ...range]);
+    res.set('Cache-Control', 'no-store');
+    res.json({ participants: rows || [] });
+  } catch (error) {
+    console.error('Chat GET /audit/participants error:', error);
+    res.status(500).json({ message: 'Не удалось получить участников выбранного периода' });
+  }
+});
+
 router.get('/audit/conversations', requireRole('admin'), async (req, res) => {
   try {
     const { employee, from, to, query, periodMode } = readAuditSearchParams(req);
@@ -4446,7 +4483,7 @@ router.get('/records/periods', requireRole('admin'), async (req, res) => {
       db.query(`SELECT ${keySql} AS period_key, MIN(DATE(created_at)) AS from_date, MAX(DATE(created_at)) AS to_date, COUNT(*) AS post_count
         FROM feed_posts WHERE created_at < ? GROUP BY period_key`, [cutoff]),
       db.query(`SELECT periods.*, archives.status AS archive_status, archives.completed_at,
-          archives.downloaded_at, archives.total_bytes AS archive_bytes
+          archives.downloaded_at, archives.total_bytes AS archive_bytes, archives.selection_json AS archive_selection_json
         FROM records_archive_periods AS periods
         LEFT JOIN records_archives AS archives ON archives.id = periods.archive_id
         WHERE periods.period_mode = ?`, [mode]),
@@ -4471,6 +4508,7 @@ router.get('/records/periods', requireRole('admin'), async (req, res) => {
       Object.assign(current, {
         from: String(row.from_date).slice(0, 10), to: String(row.to_date).slice(0, 10), state: row.state,
         archiveId: row.archive_id || '', archiveStatus: row.archive_status || '', archiveBytes: Number(row.archive_bytes) || 0,
+        archiveSelectionJson: row.archive_selection_json || null,
         completedAt: row.completed_at, downloadedAt: row.downloaded_at,
         fileCount: Number(row.file_count) || 0, sourceBytes: Number(row.source_bytes) || 0
       });
@@ -4488,6 +4526,13 @@ router.get('/records/periods', requireRole('admin'), async (req, res) => {
       if (period.state !== 'deleted') {
         const stats = await getPeriodSourceStats({ mode, key: period.periodKey, from: period.from, to: period.to });
         Object.assign(period, stats);
+        const archivedStats = parseSqlJson(period.archiveSelectionJson)?.sourceStats || {};
+        period.needsRefresh = Boolean(period.archiveId && period.archiveStatus === 'completed' && (
+          stats.messageCount > Number(archivedStats.messageCount || 0)
+          || stats.postCount > Number(archivedStats.postCount || 0)
+          || stats.fileCount > Number(archivedStats.fileCount || 0)
+          || stats.sourceBytes > Number(archivedStats.sourceBytes || 0)
+        ));
       }
     }
     res.set('Cache-Control', 'no-store');

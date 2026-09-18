@@ -1577,6 +1577,15 @@ const resolveAttachmentUrl = (url = '') => {
 };
 const getAttachmentUrl = (file = {}) => resolveAttachmentUrl(file.thumbnailUrl || file.previewUrl || file.url || file.dataUrl || '');
 const getOriginalAttachmentUrl = (file = {}) => resolveAttachmentUrl(file.url || file.dataUrl || file.previewUrl || file.thumbnailUrl || '');
+const getDownloadAttachmentUrl = (file = {}) => {
+  const url = getOriginalAttachmentUrl(file);
+  if (!url || url.startsWith('data:') || url.startsWith('blob:')) return url;
+  try {
+    const parsed = new URL(url, window.location.origin);
+    parsed.searchParams.set('download', '1');
+    return /^https?:\/\//i.test(url) ? parsed.toString() : `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch { return url; }
+};
 const getVideoPosterUrl = (file = {}) => {
   const originalSources = new Set([file.url, file.dataUrl].filter(Boolean));
   const posterSource = [file.posterUrl, file.thumbnailUrl, file.previewUrl]
@@ -1734,7 +1743,7 @@ const PlayableVideo = React.memo(function PlayableVideo({ file, className = '', 
   );
 });
 
-const AttachmentCard = React.memo(function AttachmentCard({ file, cardKey, variant = 'message', onOpen, onSelect, onQuickReaction, metaLabel = '', statusLabel = '', isEnglish = false }) {
+const AttachmentCard = React.memo(function AttachmentCard({ file, cardKey, variant = 'message', onOpen, onSelect, onQuickReaction, metaLabel = '', statusLabel = '', isEnglish = false, showActions = false }) {
   const fileName = file?.name || (isEnglish ? 'File' : 'Файл');
   const fileType = String(file?.type || '');
   const isImage = fileType.startsWith('image/');
@@ -1780,6 +1789,7 @@ const AttachmentCard = React.memo(function AttachmentCard({ file, cardKey, varia
             ♡
           </button>
         )}
+        {showActions && <div className="attachment-card-actions audit-attachment-actions"><a href={getDownloadAttachmentUrl(file)} download={fileName}>{isEnglish ? 'Download' : 'Скачать'}</a></div>}
       </div>
     );
   }
@@ -1811,15 +1821,15 @@ const AttachmentCard = React.memo(function AttachmentCard({ file, cardKey, varia
           <b aria-hidden="true">☺</b>
         </button>
       ) : (variant !== 'message' || !isImage) && <small>{fileName} · {formatFileSize(file?.size)}</small>}
-      {variant !== 'message' && (
+      {(variant !== 'message' || showActions) && (
         <div className="attachment-card-actions">
-          <a href={getOriginalAttachmentUrl(file)} download={fileName}>{isEnglish ? 'Download' : 'Скачать'}</a>
+          <a href={getDownloadAttachmentUrl(file)} download={fileName}>{isEnglish ? 'Download' : 'Скачать'}</a>
           <button type="button" onClick={() => openAttachmentInNewTab(file)}>{isEnglish ? 'Open' : 'Открыть'}</button>
         </div>
       )}
-      {variant === 'message' && !isVideo && !isImage && (
+      {variant === 'message' && !showActions && !isVideo && !isImage && (
         <div className="attachment-card-actions">
-          <a href={getOriginalAttachmentUrl(file)} download={fileName}>{isEnglish ? 'Download' : 'Скачать'}</a>
+          <a href={getDownloadAttachmentUrl(file)} download={fileName}>{isEnglish ? 'Download' : 'Скачать'}</a>
           <button type="button" onClick={() => openAttachmentInNewTab(file)}>{isEnglish ? 'Open' : 'Открыть'}</button>
         </div>
       )}
