@@ -4314,7 +4314,7 @@ const EmployeeChat = ({ adminSection = null }) => {
 
 
         {adminSection && activeTab === 'audit' && isAdmin && (
-          <ChatAuditAdministration AttachmentCard={AttachmentCard} chatAuthHeaders={chatAuthHeaders} directoryEmployees={directoryEmployees} formatFileSize={formatFileSize} getMessageAttachments={getMessageAttachments} interfaceLocale={interfaceLocale} isEnglishInterface={isEnglishInterface} sameLogin={sameLogin} t={t} />
+          <ChatAuditAdministration AttachmentCard={AttachmentCard} chatAuthHeaders={chatAuthHeaders} directoryEmployees={directoryEmployees} formatFileSize={formatFileSize} getMessageAttachments={getMessageAttachments} getOriginalAttachmentUrl={getOriginalAttachmentUrl} interfaceLocale={interfaceLocale} isEnglishInterface={isEnglishInterface} isVideoAttachment={isVideoAttachment} sameLogin={sameLogin} t={t} />
         )}
       </section>
 

@@ -1756,6 +1756,36 @@
 .audit-attachment-actions { position: absolute; z-index: 6; left: 8px; bottom: 8px; }
 .audit-attachment-actions a { background: rgba(15, 23, 42, .78); color: #fff; }
 
+.audit-media-viewer {
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(2, 6, 23, .84);
+  backdrop-filter: blur(8px);
+}
+
+.audit-media-viewer-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(1120px, 94vw);
+  height: min(820px, 90vh);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 16px;
+  background: #07111f;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, .5);
+}
+
+.audit-media-viewer-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 15px; color: #fff; background: rgba(255, 255, 255, .06); }
+.audit-media-viewer-header button { width: 36px; height: 36px; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .12); color: #fff; font-size: 26px; cursor: pointer; }
+.audit-media-viewer-stage { min-height: 0; display: grid; place-items: center; padding: 16px; }
+.audit-media-viewer-stage img,
+.audit-media-viewer-stage video { display: block; max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; background: #000; }
+.audit-media-viewer-stage video { width: min(100%, 1000px); }
+
 .archive-period-card {
   display: grid;
   gap: 8px;

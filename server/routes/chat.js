@@ -4698,6 +4698,14 @@ const PERIOD_IMPORT_COLUMNS = {
   feed_post_files: ['post_id', 'file_id']
 };
 
+const normalizePeriodImportValue = (column, value) => {
+  if (value === null || value === undefined || !column.endsWith('_at')) return value;
+  if (value instanceof Date) return value;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) throw Object.assign(new Error(`Некорректная дата в архиве: ${column}`), { status: 400 });
+  return parsed;
+};
+
 const upsertPeriodRows = async (connection, table, rows) => {
   const allowed = PERIOD_IMPORT_COLUMNS[table];
   if (!allowed || !rows?.length) return;
@@ -4707,7 +4715,7 @@ const upsertPeriodRows = async (connection, table, rows) => {
     const updates = columns.map((column) => `\`${column}\`=VALUES(\`${column}\`)`).join(',');
     await connection.execute(
       `INSERT INTO \`${table}\` (${columns.map((column) => `\`${column}\``).join(',')}) VALUES (${columns.map(() => '?').join(',')}) ON DUPLICATE KEY UPDATE ${updates}`,
-      columns.map((column) => row[column])
+      columns.map((column) => normalizePeriodImportValue(column, row[column]))
     );
   }
 };

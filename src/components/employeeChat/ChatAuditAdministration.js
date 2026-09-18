@@ -10,8 +10,10 @@ export default function ChatAuditAdministration({
   directoryEmployees,
   formatFileSize,
   getMessageAttachments,
+  getOriginalAttachmentUrl,
   interfaceLocale,
   isEnglishInterface,
+  isVideoAttachment,
   sameLogin,
   t
 }) {
@@ -57,8 +59,16 @@ export default function ChatAuditAdministration({
   const [periodsLoading, setPeriodsLoading] = useState(false);
   const [periodSource, setPeriodSource] = useState({ totalCount: 0, firstAt: null, lastAt: null, cutoffAt: null });
   const [periodAction, setPeriodAction] = useState('');
+  const [previewFile, setPreviewFile] = useState(null);
   const archiveInputRef = useRef(null);
   const refreshedArchivesRef = useRef(new Set());
+
+  useEffect(() => {
+    if (!previewFile) return undefined;
+    const closeOnEscape = (event) => { if (event.key === 'Escape') setPreviewFile(null); };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [previewFile]);
 
   const loadPeriods = useCallback(async () => {
     setPeriodsLoading(true);
@@ -484,7 +494,7 @@ export default function ChatAuditAdministration({
           return <article key={post.id} className="audit-message">
             <div className="message-meta"><span>{getEmployeeName(post.author || post.authorLogin || employeeLogin)}</span><span>{post.createdAt ? new Date(post.createdAt).toLocaleString(interfaceLocale) : '—'}</span></div>
             {post.text && <div className="audit-message-text">{post.text}</div>}
-            {attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <AttachmentCard key={`${post.id}-feed-audit-${index}`} cardKey={`${post.id}-feed-audit-${index}`} file={file} isEnglish={isEnglishInterface} showActions />)}</div>}
+            {attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <AttachmentCard key={`${post.id}-feed-audit-${index}`} cardKey={`${post.id}-feed-audit-${index}`} file={file} isEnglish={isEnglishInterface} onOpen={() => setPreviewFile(file)} showActions />)}</div>}
           </article>;
         })}</div>
       </div>}
@@ -519,7 +529,7 @@ export default function ChatAuditAdministration({
                     {isDeleted && <em>{t('deletedMessage')}</em>}
                     {message.text && <div className="audit-message-text">{message.text}</div>}
                     {isDeleted && <div className="audit-history">{t('deletedBy')}: {getEmployeeName(message.deletedBy)} · {message.deletedAt ? new Date(message.deletedAt).toLocaleString(interfaceLocale) : '—'}</div>}
-                    {attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <AttachmentCard key={`${message.id}-audit-${index}`} cardKey={`${message.id}-audit-${index}`} file={file} isEnglish={isEnglishInterface} showActions />)}</div>}
+                    {attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <AttachmentCard key={`${message.id}-audit-${index}`} cardKey={`${message.id}-audit-${index}`} file={file} isEnglish={isEnglishInterface} onOpen={() => setPreviewFile(file)} showActions />)}</div>}
                     {Array.isArray(message.audit) && message.audit.length > 0 && <div className="audit-history"><strong>{t('history')}:</strong>{message.audit.slice(-4).map((entry, index) => <span key={`${message.id}-audit-entry-${index}`}>{entry.action || t('change')} · {getEmployeeName(entry.by)} · {entry.at ? new Date(entry.at).toLocaleString(interfaceLocale) : '—'}</span>)}</div>}
                   </article>
                 );
@@ -528,6 +538,16 @@ export default function ChatAuditAdministration({
           </div>
         </div>
       )}
+      {previewFile && <div className="audit-media-viewer" role="dialog" aria-modal="true" aria-label={previewFile.name || 'Просмотр файла'} onClick={() => setPreviewFile(null)}>
+        <div className="audit-media-viewer-panel" onClick={(event) => event.stopPropagation()}>
+          <div className="audit-media-viewer-header"><strong>{previewFile.name || 'Вложение'}</strong><button type="button" onClick={() => setPreviewFile(null)} aria-label="Закрыть">×</button></div>
+          <div className="audit-media-viewer-stage">
+            {isVideoAttachment(previewFile)
+              ? <video key={previewFile.id || previewFile.url} src={getOriginalAttachmentUrl(previewFile)} controls playsInline preload="metadata">Ваш браузер не поддерживает видео.</video>
+              : <img src={getOriginalAttachmentUrl(previewFile)} alt={previewFile.name || 'Фото'} />}
+          </div>
+        </div>
+      </div>}
     </section>
   );
 }
