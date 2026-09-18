@@ -36,7 +36,10 @@
 }
 
 .admin-workspace-transition.is-covering { animation: admin-workspace-cover .23s cubic-bezier(.2, .75, .2, 1) both; }
-.admin-workspace-transition.is-revealing { animation: admin-workspace-reveal .39s cubic-bezier(.4, 0, .2, 1) both; }
+.admin-workspace-transition.is-revealing {
+  pointer-events: none;
+  animation: admin-workspace-reveal .39s cubic-bezier(.4, 0, .2, 1) both;
+}
 
 .admin-workspace-transition__content {
   display: grid;

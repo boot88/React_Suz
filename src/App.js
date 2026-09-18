@@ -45,8 +45,10 @@ function AppWorkspace() {
   const [workspaceTransition, setWorkspaceTransition] = useState(null);
   const workspaceTransitionTimersRef = useRef([]);
   const currentPathRef = useRef(location.pathname);
+  const navigateRef = useRef(navigate);
 
   useEffect(() => { currentPathRef.current = location.pathname; }, [location.pathname]);
+  useEffect(() => { navigateRef.current = navigate; }, [navigate]);
 
   useEffect(() => {
     localStorage.setItem('adminLanguage', adminLanguage);
@@ -63,7 +65,8 @@ function AppWorkspace() {
       if (!to || to === currentPathRef.current) return;
       clearTransitionTimers();
       if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-        navigate(to);
+        setWorkspaceTransition(null);
+        navigateRef.current(to);
         return;
       }
       const toChat = to === '/employee';
@@ -73,7 +76,7 @@ function AppWorkspace() {
         label: toChat ? 'Открываем чат' : 'Возвращаемся в админку'
       });
       workspaceTransitionTimersRef.current.push(window.setTimeout(() => {
-        navigate(to);
+        navigateRef.current(to);
         setWorkspaceTransition((current) => current ? { ...current, phase: 'revealing' } : null);
       }, 230));
       workspaceTransitionTimersRef.current.push(window.setTimeout(() => {
@@ -86,7 +89,7 @@ function AppWorkspace() {
       window.removeEventListener(ADMIN_WORKSPACE_TRANSITION_EVENT, handleWorkspaceTransition);
       clearTransitionTimers();
     };
-  }, [navigate]);
+  }, []);
 
   if (isLoading) {
     return (
