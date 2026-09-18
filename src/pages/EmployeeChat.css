@@ -1785,6 +1785,7 @@
 .audit-media-viewer-stage img,
 .audit-media-viewer-stage video { display: block; max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; background: #000; }
 .audit-media-viewer-stage video { width: min(100%, 1000px); }
+.audit-media-viewer-status { color: #fff; font-weight: 700; text-align: center; }
 
 .archive-period-card {
   display: grid;
@@ -1835,17 +1836,6 @@
 
 .archive-period-footer label { display: inline-flex; align-items: center; gap: 8px; color: var(--chat-muted); font-size: 13px; }
 .archive-period-footer input { width: auto; }
-
-.audit-search-settings {
-  border-top: 1px solid var(--chat-border);
-  padding-top: 9px;
-  color: var(--chat-muted);
-  font-size: 12px;
-}
-
-.audit-search-settings summary { width: max-content; cursor: pointer; font-weight: 800; color: var(--chat-ink); }
-.audit-search-settings label { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
-.audit-search-settings input { width: auto; }
 
 .audit-search-field {
   display: grid;

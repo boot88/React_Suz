@@ -3,6 +3,7 @@ import { API_BASE_URL } from '../../utils/apiConfig';
 import { authFetch } from '../../utils/authFetch';
 
 const isValidDateRange = ({ from, to }) => Boolean(from && to && from <= to);
+const AUDIT_TEST_MODE_SETTING_KEY = 'admin.auditTestMode';
 
 export default function ChatAuditAdministration({
   AttachmentCard,
@@ -54,12 +55,15 @@ export default function ChatAuditAdministration({
   const [searchLoading, setSearchLoading] = useState(false);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [error, setError] = useState('');
-  const [periodMode, setPeriodMode] = useState('month');
+  const [periodMode] = useState(() => localStorage.getItem(AUDIT_TEST_MODE_SETTING_KEY) === 'true' ? 'test' : 'month');
   const [periods, setPeriods] = useState([]);
   const [periodsLoading, setPeriodsLoading] = useState(false);
   const [periodSource, setPeriodSource] = useState({ totalCount: 0, firstAt: null, lastAt: null, cutoffAt: null });
   const [periodAction, setPeriodAction] = useState('');
   const [previewFile, setPreviewFile] = useState(null);
+  const [previewSource, setPreviewSource] = useState('');
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
   const archiveInputRef = useRef(null);
   const refreshedArchivesRef = useRef(new Set());
 
@@ -69,6 +73,47 @@ export default function ChatAuditAdministration({
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [previewFile]);
+
+  useEffect(() => {
+    if (!previewFile) {
+      setPreviewSource('');
+      setPreviewLoading(false);
+      setPreviewError('');
+      return undefined;
+    }
+    const controller = new AbortController();
+    const originalUrl = getOriginalAttachmentUrl(previewFile);
+    let objectUrl = '';
+    setPreviewSource('');
+    setPreviewError('');
+    setPreviewLoading(true);
+    if (!originalUrl) {
+      setPreviewLoading(false);
+      setPreviewError('Файл недоступен для просмотра');
+      return () => controller.abort();
+    }
+    if (originalUrl.startsWith('data:') || originalUrl.startsWith('blob:')) {
+      setPreviewSource(originalUrl);
+      setPreviewLoading(false);
+      return () => controller.abort();
+    }
+    authFetch(originalUrl, { headers: chatAuthHeaders, signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Не удалось загрузить файл для просмотра');
+        const blob = await response.blob();
+        if (!blob.size) throw new Error('Получен пустой файл');
+        objectUrl = URL.createObjectURL(blob);
+        setPreviewSource(objectUrl);
+      })
+      .catch((requestError) => {
+        if (requestError?.name !== 'AbortError') setPreviewError(requestError.message || 'Не удалось открыть файл');
+      })
+      .finally(() => { if (!controller.signal.aborted) setPreviewLoading(false); });
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [chatAuthHeaders, getOriginalAttachmentUrl, previewFile]);
 
   const loadPeriods = useCallback(async () => {
     setPeriodsLoading(true);
@@ -262,6 +307,8 @@ export default function ChatAuditAdministration({
 
   const rangeIsValid = isValidDateRange(dateRange);
   const searchReady = Boolean(employeeLogin && rangeIsValid);
+  const selectedEmployee = useMemo(() => employeeOptions.find((employee) => sameLogin(employee.login, employeeLogin)) || null,
+    [employeeLogin, employeeOptions, sameLogin]);
 
   const handleEmployeeInput = (value) => {
     setEmployeeQuery(value);
@@ -406,6 +453,15 @@ export default function ChatAuditAdministration({
 
   return (
     <section className="manager-panel audit-search-panel">
+      <div className="audit-search-heading">
+        <div>
+          <h2>{isEnglishInterface ? 'Document search' : 'Поиск документов'}</h2>
+          <p>{isEnglishInterface
+            ? 'Select a period and then an employee who participated in conversations during that period. You can narrow the result by words after loading.'
+            : 'Сначала выберите период, затем сотрудника из списка участников. После загрузки переписки можно уточнить результат поиском по словам.'}</p>
+        </div>
+        {selectedEmployee && <span>{copy.selected}: <strong>{selectedEmployee.fullName}</strong></span>}
+      </div>
       <div className="archive-periods-panel">
         <div className="archive-periods-title">
           <div><strong>Доступные периоды</strong><span>{periodMode === 'test' ? 'Тестовые месяцы, включая текущий' : 'Переписка старше одного года'}</span></div>
@@ -441,10 +497,6 @@ export default function ChatAuditAdministration({
           <button type="button" disabled={periodAction === 'import'} onClick={() => archiveInputRef.current?.click()}>{periodAction === 'import' ? 'Восстанавливаем архив…' : 'Загрузить архив'}</button>
           <span>Восстановить удалённый месяц из ранее сохранённого архива.</span>
         </div>
-        <details className="audit-search-settings">
-          <summary>Настройки</summary>
-          <label><input type="checkbox" checked={periodMode === 'test'} onChange={(event) => { setPeriodMode(event.target.checked ? 'test' : 'month'); setEmployeeQuery(''); setEmployeeLogin(''); setDateRange({ from: '', to: '' }); clearResults(); }} /> Показывать тестовые месяцы, включая текущий</label>
-        </details>
       </div>
 
       <div className="audit-search-form">
@@ -533,9 +585,11 @@ export default function ChatAuditAdministration({
         <div className="audit-media-viewer-panel" onClick={(event) => event.stopPropagation()}>
           <div className="audit-media-viewer-header"><strong>{previewFile.name || 'Вложение'}</strong><button type="button" onClick={() => setPreviewFile(null)} aria-label="Закрыть">×</button></div>
           <div className="audit-media-viewer-stage">
-            {isVideoAttachment(previewFile)
-              ? <video key={previewFile.id || previewFile.url} src={getOriginalAttachmentUrl(previewFile)} controls playsInline preload="metadata">Ваш браузер не поддерживает видео.</video>
-              : <img src={getOriginalAttachmentUrl(previewFile)} alt={previewFile.name || 'Фото'} />}
+            {previewLoading && <div className="audit-media-viewer-status">Загружаем файл…</div>}
+            {!previewLoading && previewError && <div className="audit-media-viewer-status" role="alert">{previewError}</div>}
+            {!previewLoading && !previewError && previewSource && (isVideoAttachment(previewFile)
+              ? <video key={previewSource} src={previewSource} controls playsInline preload="metadata">Ваш браузер не поддерживает видео.</video>
+              : <img src={previewSource} alt={previewFile.name || 'Фото'} />)}
           </div>
         </div>
       </div>}
