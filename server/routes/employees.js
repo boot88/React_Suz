@@ -78,7 +78,9 @@ const extractTableRows = (html = '') => {
   for (const rowHtml of rowMatches) {
     const cellMatches = rowHtml.match(/<td[^>]*>[\s\S]*?<\/td>/gi) || [];
     const cells = cellMatches.map(normalizeValue);
-    if (cells.length >= 7 && cells[0] && !/^сотрудники$/i.test(cells[0])) {
+    // В некоторых разделах источника колонка подразделения отсутствует,
+    // поэтому фактическая строка содержит шесть ячеек, а не семь.
+    if (cells.length >= 6 && cells[0] && !/^сотрудники$/i.test(cells[0])) {
       rows.push(cells);
     }
   }
@@ -94,16 +96,22 @@ const pickEmail = (cells) => {
 
 const rowToEmployee = (cells) => {
   const normalizedCells = cells.map(normalizeValue);
+  // Часть представлений справочника добавляет отдельную порядковую колонку.
+  if (/^\d+$/.test(normalizedCells[0] || '') && normalizedCells.length >= 7) {
+    normalizedCells.shift();
+  }
   const email = pickEmail(normalizedCells);
+  const hasDepartmentColumn = normalizedCells.length >= 7;
 
   return {
     full_name: normalizedCells[0] || '',
     position: normalizedCells[1] || '',
-    department: normalizedCells[2] || '',
-    room: normalizedCells[3] || '',
-    external_phone: normalizedCells[4] || '',
-    internal_phone: normalizedCells[5] || '',
-    email: normalizedCells[6] && normalizedCells[6] !== '""' ? normalizedCells[6] : email
+    department: hasDepartmentColumn ? normalizedCells[2] || '' : '',
+    room: normalizedCells[hasDepartmentColumn ? 3 : 2] || '',
+    external_phone: normalizedCells[hasDepartmentColumn ? 4 : 3] || '',
+    internal_phone: normalizedCells[hasDepartmentColumn ? 5 : 4] || '',
+    // Антиспам-текст источника не является адресом электронной почты.
+    email
   };
 };
 
@@ -366,12 +374,42 @@ const ensurePhoneBookData = async () => {
   return { total: stats.activeAfter, synced: true, pages, expectedPages, lastStart };
 };
 
+let automaticDirectoryRefreshPromise = null;
+let automaticDirectoryRefreshDone = false;
+
+// Один раз после запуска сервера перечитываем источник. Это исправляет уже
+// сохранённые неполные строки без дополнительного нажатия кнопки синхронизации.
+const refreshPhoneBookAfterServerStart = async () => {
+  if (automaticDirectoryRefreshDone) return;
+  if (automaticDirectoryRefreshPromise) return automaticDirectoryRefreshPromise;
+
+  automaticDirectoryRefreshPromise = (async () => {
+    const { employees } = await fetchAllPhoneBookEmployees();
+    if (employees.length < MIN_SYNC_EMPLOYEES) {
+      throw new Error(`Из справочника получено слишком мало записей: ${employees.length}`);
+    }
+    await syncEmployees(employees);
+    automaticDirectoryRefreshDone = true;
+  })().finally(() => {
+    automaticDirectoryRefreshPromise = null;
+  });
+
+  return automaticDirectoryRefreshPromise;
+};
+
 // Полный справочник для служебных экранов администратора. Неактивные записи
 // тоже возвращаются: они нужны, чтобы дополнить старые заявки сотрудников,
 // которые уже уволены и отсутствуют в текущем активном списке.
 router.get('/all', requireRole('admin', 'manager'), async (req, res) => {
   try {
     await ensurePhoneBookSchema();
+    try {
+      await refreshPhoneBookAfterServerStart();
+    } catch (refreshError) {
+      // Не блокируем карточки заявок, если внешний сайт временно недоступен:
+      // в этом случае отдаём последнюю сохранённую копию справочника.
+      console.error('Automatic employee directory refresh error:', refreshError);
+    }
     const [employees] = await pool.execute(`
       SELECT id, source_key, full_name, position, department, room,
         internal_phone, external_phone, email, is_active, updated_at
