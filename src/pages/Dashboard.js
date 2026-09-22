@@ -115,11 +115,16 @@ const joinDirectoryValues = (records, fields) => {
       .map((value) => value.trim())
       .filter(Boolean)
       .forEach((value) => {
-        if (!values.some((existing) => existing.toLowerCase() === value.toLowerCase())) values.push(value);
+        const normalized = value.toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ');
+        if (!values.some((existing) => existing.toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ') === normalized)) values.push(value);
       });
   }));
   return values.join('; ');
 };
+
+const getDirectoryValueWithFallback = (activeRecords, historicalRecords, fields) => (
+  joinDirectoryValues(activeRecords, fields) || joinDirectoryValues(historicalRecords, fields)
+);
 
 const mergeEmployeeDirectoryEntries = (items = []) => {
   const groups = new Map();
@@ -131,22 +136,21 @@ const mergeEmployeeDirectoryEntries = (items = []) => {
 
   return [...groups.values()].map((records) => {
     const activeRecords = records.filter((record) => record.is_active == null || Number(record.is_active) === 1);
-    // Активная строка имеет приоритет, но пустые поля дополняются из ранее
-    // сохранённых записей того же сотрудника.
-    const preferredRecords = [...activeRecords, ...records.filter((record) => !activeRecords.includes(record))];
+    const historicalRecords = records.filter((record) => !activeRecords.includes(record));
+    const preferredRecords = activeRecords.length > 0 ? activeRecords : historicalRecords;
     const primary = preferredRecords[0] || records[0] || {};
-    const email = joinDirectoryValues(preferredRecords, ['email'])
+    const email = getDirectoryValueWithFallback(activeRecords, historicalRecords, ['email'])
       || (String(primary.login || '').includes('@') ? primary.login : '');
-    const internalPhone = joinDirectoryValues(preferredRecords, ['internal_phone', 'phone']);
+    const internalPhone = getDirectoryValueWithFallback(activeRecords, historicalRecords, ['internal_phone', 'phone']);
     return {
       ...primary,
-      full_name: joinDirectoryValues(preferredRecords, ['full_name']) || primary.full_name || '',
-      position: joinDirectoryValues(preferredRecords, ['position']),
-      department: joinDirectoryValues(preferredRecords, ['department']),
-      room: joinDirectoryValues(preferredRecords, ['room']),
+      full_name: String(primary.full_name || '').replace(/\s+/g, ' ').trim(),
+      position: getDirectoryValueWithFallback(activeRecords, historicalRecords, ['position']),
+      department: getDirectoryValueWithFallback(activeRecords, historicalRecords, ['department']),
+      room: getDirectoryValueWithFallback(activeRecords, historicalRecords, ['room']),
       internal_phone: internalPhone,
       phone: internalPhone,
-      external_phone: joinDirectoryValues(preferredRecords, ['external_phone']),
+      external_phone: getDirectoryValueWithFallback(activeRecords, historicalRecords, ['external_phone']),
       email,
       is_active: activeRecords.length > 0
     };
