@@ -190,7 +190,141 @@ const normalizeApplication = (app = {}) => {
   work_seconds: app.work_seconds == null ? null : Number(app.work_seconds),
   work_cycles: workCycles,
   sla_paused_seconds: app.sla_paused_seconds == null ? null : Number(app.sla_paused_seconds)
+  };
 };
+
+const normalizeDirectoryPersonValue = (value = '') => String(value)
+  .toLowerCase()
+  .replace(/ё/g, 'е')
+  .replace(/[^а-яa-z0-9]/g, '');
+
+const getDirectoryPersonKeys = (value = '') => {
+  const tokens = String(value)
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/[^а-яa-z]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!tokens.length) return [];
+  const keys = new Set([`full:${tokens.join('')}`, `surname:${tokens[0]}`]);
+  const addShortKey = (surname, names) => {
+    const initials = names.map((part) => part[0]).filter(Boolean).join('');
+    if (surname && initials) keys.add(`short:${surname}:${initials}`);
+  };
+  addShortKey(tokens[0], tokens.slice(1));
+  if (tokens.length >= 3) addShortKey(tokens[tokens.length - 1], tokens.slice(0, -1));
+  return [...keys];
+};
+
+const joinDirectoryFieldValues = (records, fields) => {
+  const values = [];
+  records.forEach((record) => fields.forEach((field) => {
+    String(record?.[field] || '')
+      .split(/\s*;\s*/)
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .forEach((value) => {
+        if (!values.some((existing) => existing.toLowerCase() === value.toLowerCase())) values.push(value);
+      });
+  }));
+  return values.join('; ');
+};
+
+const loadApplicationEmployeeDirectory = async () => {
+  try {
+    const [phoneBookResult, usersResult] = await Promise.all([
+      pool.execute(`
+        SELECT full_name, position, department, room, internal_phone, external_phone,
+          email, is_active, updated_at
+        FROM phone_book
+        WHERE full_name IS NOT NULL AND TRIM(full_name) <> ''
+        ORDER BY is_active DESC, updated_at DESC
+      `).catch((error) => {
+        console.error('Не удалось прочитать phone_book для заявок:', error.message);
+        return [[]];
+      }),
+      pool.execute(`
+        SELECT login, full_name, position, department, room, phone AS internal_phone,
+          external_phone
+        FROM users
+        WHERE full_name IS NOT NULL AND TRIM(full_name) <> ''
+      `).catch((error) => {
+        console.error('Не удалось прочитать users для заявок:', error.message);
+        return [[]];
+      })
+    ]);
+    const phoneBookRows = phoneBookResult[0] || [];
+    const userRows = usersResult[0] || [];
+
+    const groups = new Map();
+    const addRecord = (record, sourceRank) => {
+      const key = normalizeDirectoryPersonValue(record.full_name);
+      if (!key) return;
+      const records = groups.get(key) || [];
+      records.push({ ...record, sourceRank });
+      groups.set(key, records);
+    };
+    phoneBookRows.forEach((record) => addRecord(record, Number(record.is_active) === 1 ? 0 : 2));
+    userRows.forEach((record) => addRecord(record, 1));
+
+    const employees = [...groups.values()].map((records) => {
+      const ordered = [...records].sort((left, right) => left.sourceRank - right.sourceRank);
+      const primary = ordered[0] || {};
+      const internalPhone = joinDirectoryFieldValues(ordered, ['internal_phone']);
+      return {
+        full_name: joinDirectoryFieldValues(ordered, ['full_name']) || primary.full_name || '',
+        position: joinDirectoryFieldValues(ordered, ['position']),
+        department: joinDirectoryFieldValues(ordered, ['department']),
+        room: joinDirectoryFieldValues(ordered, ['room']),
+        internal_phone: internalPhone,
+        phone: internalPhone,
+        external_phone: joinDirectoryFieldValues(ordered, ['external_phone']),
+        email: joinDirectoryFieldValues(ordered, ['email'])
+          || ordered.map((record) => String(record.login || '').trim()).find((login) => login.includes('@'))
+          || '',
+        login: ordered.map((record) => String(record.login || '').trim()).find(Boolean) || '',
+        is_active: ordered.some((record) => record.sourceRank === 0)
+      };
+    });
+
+    const byIdentifier = new Map();
+    const byName = new Map();
+    employees.forEach((employee) => {
+      [employee.login, employee.email].forEach((identifier) => {
+        const key = String(identifier || '').trim().toLowerCase();
+        if (key) byIdentifier.set(key, employee);
+      });
+      getDirectoryPersonKeys(employee.full_name).forEach((key) => {
+        if (!byName.has(key)) {
+          byName.set(key, employee);
+          return;
+        }
+        const existing = byName.get(key);
+        if (existing && normalizeDirectoryPersonValue(existing.full_name) !== normalizeDirectoryPersonValue(employee.full_name)) {
+          byName.set(key, null);
+        }
+      });
+    });
+    return { byIdentifier, byName };
+  } catch (error) {
+    // Заявки должны оставаться доступными даже до первого обновления справочника.
+    console.error('Не удалось прочитать справочник для карточек заявок:', error.message);
+    return { byIdentifier: new Map(), byName: new Map() };
+  }
+};
+
+const enrichApplicationsWithEmployeeDirectory = async (applications = []) => {
+  const { byIdentifier, byName } = await loadApplicationEmployeeDirectory();
+  return applications.map((application) => {
+    const identifier = String(application.employee_login || '').trim().toLowerCase();
+    let employee = byIdentifier.get(identifier) || null;
+    if (!employee) {
+      const key = getDirectoryPersonKeys(application.name).find((candidate) => byName.get(candidate));
+      employee = key ? byName.get(key) : null;
+    }
+    return employee ? { ...application, employee_directory: employee } : application;
+  });
 };
 
 const parseWorkCycles = (value) => {
@@ -381,7 +515,9 @@ const withApplicationTransaction = async (operation) => {
 const getApplicationById = async (id) => {
   await ensureApplicationWorkflowSchema();
   const [rows] = await pool.execute(`SELECT ${APPLICATION_WORKFLOW_COLUMNS} FROM application WHERE \`id\` = ? AND \`deleted_at\` IS NULL`, [id]);
-  return rows?.[0] ? normalizeApplication(rows[0]) : null;
+  if (!rows?.[0]) return null;
+  const [application] = await enrichApplicationsWithEmployeeDirectory([normalizeApplication(rows[0])]);
+  return application || null;
 };
 
 const getApplicationByIdForUpdate = async (executor, id) => {
@@ -534,7 +670,7 @@ app.get('/api/applications/export', requireAuth, requireRole('admin', 'manager')
 
     const [applications] = await pool.execute(applicationsQuery, queryParams);
 
-    const formattedApplications = applications.map(normalizeApplication);
+    const formattedApplications = await enrichApplicationsWithEmployeeDirectory(applications.map(normalizeApplication));
 
     res.json({
       applications: formattedApplications,
@@ -774,7 +910,7 @@ app.get('/api/applications', requireAuth, requireRole('admin', 'manager'), async
     // the filter values parameterized and inject only the safe pagination.
     const [applications] = await pool.execute(applicationsQuery, queryParams);
 
-    const formattedApplications = applications.map(normalizeApplication);
+    const formattedApplications = await enrichApplicationsWithEmployeeDirectory(applications.map(normalizeApplication));
 
     res.json({
       applications: formattedApplications,

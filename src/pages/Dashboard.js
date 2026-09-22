@@ -131,7 +131,9 @@ const mergeEmployeeDirectoryEntries = (items = []) => {
 
   return [...groups.values()].map((records) => {
     const activeRecords = records.filter((record) => record.is_active == null || Number(record.is_active) === 1);
-    const preferredRecords = activeRecords.length > 0 ? activeRecords : records;
+    // Активная строка имеет приоритет, но пустые поля дополняются из ранее
+    // сохранённых записей того же сотрудника.
+    const preferredRecords = [...activeRecords, ...records.filter((record) => !activeRecords.includes(record))];
     const primary = preferredRecords[0] || records[0] || {};
     const email = joinDirectoryValues(preferredRecords, ['email'])
       || (String(primary.login || '').includes('@') ? primary.login : '');
@@ -646,6 +648,14 @@ const Dashboard = () => {
     return () => window.clearInterval(timer);
   }, [selectedApplication]);
 
+  // Фоновое обновление списка также обновляет уже открытую карточку.
+  useEffect(() => {
+    setSelectedApplication((current) => {
+      if (!current) return current;
+      return applications.find((application) => application.id === current.id) || current;
+    });
+  }, [applications]);
+
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
@@ -1084,6 +1094,7 @@ const Dashboard = () => {
     return index;
   }, [employeeDirectory]);
   const getApplicationEmployee = (app = {}) => {
+    if (app.employee_directory?.full_name) return app.employee_directory;
     const identifierMatch = employeesByIdentifier.get(String(app.employee_login || '').trim().toLowerCase());
     if (identifierMatch) return identifierMatch;
     const matchKey = getPersonMatchKeys(app.name).find((key) => employeesByName.get(key));
