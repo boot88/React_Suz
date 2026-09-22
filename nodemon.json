@@ -4,4 +4,3 @@
   "ignore": ["server/data/**", "server/uploads/**"],
   "delay": "500"
 }
-
