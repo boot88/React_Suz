@@ -26,7 +26,7 @@
     "lint": "eslint src/ server/ --ext .js,.jsx",
     "eject": "react-scripts eject",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "server": "nodemon server/server.js",
+    "server": "nodemon --watch server server/server.js",
     "client": "PORT=${CLIENT_PORT:-3000} react-scripts start",
     "migrate:chat-storage": "node server/scripts/migrate-chat-storage.js",
     "migrate:records-archive": "node server/scripts/migrate-records-archive.js",

@@ -1,6 +1,13 @@
 {
   "watch": ["server"],
-  "ext": "js,json",
-  "ignore": ["server/data", "server/uploads"],
-  "delay": "500"
+  "ext": "js,json,mjs,cjs",
+  "ignore": [
+    "src/*",
+    "public/*",
+    "node_modules/*",
+    "package.json",
+    "package-lock.json"
+  ],
+  "delay": "1500"
 }
+
