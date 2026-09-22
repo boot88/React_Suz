@@ -374,42 +374,14 @@ const ensurePhoneBookData = async () => {
   return { total: stats.activeAfter, synced: true, pages, expectedPages, lastStart };
 };
 
-let automaticDirectoryRefreshPromise = null;
-let automaticDirectoryRefreshDone = false;
-
-// Один раз после запуска сервера перечитываем источник. Это исправляет уже
-// сохранённые неполные строки без дополнительного нажатия кнопки синхронизации.
-const refreshPhoneBookAfterServerStart = async () => {
-  if (automaticDirectoryRefreshDone) return;
-  if (automaticDirectoryRefreshPromise) return automaticDirectoryRefreshPromise;
-
-  automaticDirectoryRefreshPromise = (async () => {
-    const { employees } = await fetchAllPhoneBookEmployees();
-    if (employees.length < MIN_SYNC_EMPLOYEES) {
-      throw new Error(`Из справочника получено слишком мало записей: ${employees.length}`);
-    }
-    await syncEmployees(employees);
-    automaticDirectoryRefreshDone = true;
-  })().finally(() => {
-    automaticDirectoryRefreshPromise = null;
-  });
-
-  return automaticDirectoryRefreshPromise;
-};
-
 // Полный справочник для служебных экранов администратора. Неактивные записи
 // тоже возвращаются: они нужны, чтобы дополнить старые заявки сотрудников,
 // которые уже уволены и отсутствуют в текущем активном списке.
+// Внешний источник здесь намеренно не вызывается: карточки заявок всегда
+// читают уже сохранённую локальную копию, обновляемую только из /settings.
 router.get('/all', requireRole('admin', 'manager'), async (req, res) => {
   try {
     await ensurePhoneBookSchema();
-    try {
-      await refreshPhoneBookAfterServerStart();
-    } catch (refreshError) {
-      // Не блокируем карточки заявок, если внешний сайт временно недоступен:
-      // в этом случае отдаём последнюю сохранённую копию справочника.
-      console.error('Automatic employee directory refresh error:', refreshError);
-    }
     const [employees] = await pool.execute(`
       SELECT id, source_key, full_name, position, department, room,
         internal_phone, external_phone, email, is_active, updated_at
