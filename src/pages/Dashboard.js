@@ -29,14 +29,6 @@ const WORKFLOW_FILTERS = [
   { id: 'done', label: 'Выполненные' },
   { id: 'overdue', label: 'Просроченные' }
 ];
-const QUEUE_FILTERS = [
-  { id: 'all', label: 'Все' },
-  { id: 'queue', label: 'Новые', icon: '📥' },
-  { id: 'inwork', label: 'В работе', icon: '🛠️' },
-  { id: 'my', label: 'Мои', icon: '👤' },
-  { id: 'unassigned', label: 'Без исполнителя', icon: '🧭' },
-  { id: 'done', label: 'Выполненные', icon: '✅' },
-];
 const TABLE_STATUS_ORDER = {
   new: 1,
   reopened: 2,
@@ -45,32 +37,11 @@ const TABLE_STATUS_ORDER = {
   waiting_employee_confirmation: 5,
   done: 6
 };
-const DASHBOARD_COLUMNS_KEY = 'dashboard.visibleColumns.v1';
-const DASHBOARD_COMPACT_KEY = 'dashboard.compactMode.v1';
 const SHOW_APPLICATION_ACTION_HISTORY_KEY = 'admin.showApplicationActionHistory';
 const DEFAULT_DASHBOARD_COLUMNS = ['employee', 'request', 'executor', 'created', 'status'];
-const DASHBOARD_COLUMNS = [
-  { id: 'employee', label: 'Сотрудник' },
-  { id: 'request', label: 'Заявка' },
-  { id: 'executor', label: 'Исполнитель' },
-  { id: 'created', label: 'Дата' },
-  { id: 'status', label: 'Статус' }
-];
-const SAVED_DASHBOARD_VIEWS = [
-  { id: 'my', label: 'Мои заявки', filter: 'my', sort: 'date_desc' },
-  { id: 'it', label: 'IT', filter: 'all', sort: 'date_desc', search: 'IT' },
-  { id: 'today', label: 'Сегодня', filter: 'all', sort: 'date_desc', dateRange: 'today' }
-];
-const readVisibleColumns = () => {
-  try {
-    const saved = JSON.parse(localStorage.getItem(DASHBOARD_COLUMNS_KEY) || '[]');
-    const allowed = new Set(DASHBOARD_COLUMNS.map((column) => column.id));
-    const filtered = Array.isArray(saved) ? saved.filter((column) => allowed.has(column)) : [];
-    return filtered.length > 0 ? filtered : DEFAULT_DASHBOARD_COLUMNS;
-  } catch (error) {
-    return DEFAULT_DASHBOARD_COLUMNS;
-  }
-};
+const readDashboardSortMode = () => (
+  localStorage.getItem('dashboard.sortMode') === 'date_asc' ? 'date_asc' : 'date_desc'
+);
 // Три ключевых времени заявки и производные длительности.
 const getApplicationTimes = (app = {}, now = Date.now()) => {
   const timing = getApplicationTiming(app, now);
@@ -244,9 +215,9 @@ const Dashboard = () => {
   const [workflowMessage, setWorkflowMessage] = useState('');
   const [actionBusyId, setActionBusyId] = useState(null);
   const [openActionMenuId, setOpenActionMenuId] = useState(null);
-  const [sortMode, setSortMode] = useState(() => localStorage.getItem('dashboard.sortMode') || 'date_desc');
-  const [visibleColumns, setVisibleColumns] = useState(readVisibleColumns);
-  const [compactMode, setCompactMode] = useState(() => localStorage.getItem(DASHBOARD_COMPACT_KEY) === 'true');
+  const [sortMode, setSortMode] = useState(readDashboardSortMode);
+  const visibleColumns = DEFAULT_DASHBOARD_COLUMNS;
+  const compactMode = false;
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('dashboard.viewMode') || 'timeline');
   const [timelineCardDesign, setTimelineCardDesign] = useState('legacy');
   const [selectedIds, setSelectedIds] = useState([]);
@@ -260,6 +231,7 @@ const Dashboard = () => {
   const [toast, setToast] = useState(null);
   const [dashboardNow, setDashboardNow] = useState(Date.now());
   const applicationsRequestIdRef = useRef(0);
+  const applicationsRequestUrlRef = useRef('');
   const openedApplicationFromQueryRef = useRef('');
 
   const [stats, setStats] = useState({
@@ -384,38 +356,49 @@ const Dashboard = () => {
     }
   };
 
-  const fetchApplications = async ({ silent = false } = {}) => {
+  const fetchApplications = async ({ silent = false, attempt = 0 } = {}) => {
+    let url = `/applications?page=${currentPage}&limit=${limit}`;
+
+    if (searchTerm.trim()) {
+      url += `&search=${encodeURIComponent(searchTerm.trim())}`;
+    }
+
+    if (filter !== 'all') {
+      if (['my', 'unassigned'].includes(filter)) {
+        url += `&queue=${encodeURIComponent(filter)}`;
+        if (filter === 'my') {
+          url += `&assignee=${encodeURIComponent(user?.name || user?.username || '')}`;
+        }
+      } else {
+        url += `&status=${encodeURIComponent(filter)}`;
+      }
+    }
+    url += `&sort=${encodeURIComponent(sortMode)}`;
+    if (dateFilterActive) {
+      if (fromDate) url += `&from=${fromDate}`;
+      if (toDate) url += `&to=${toDate}`;
+    }
+
+    // При входе и восстановлении вкладки браузер может почти одновременно
+    // запустить effect и событие focus. Не создаём второй одинаковый запрос:
+    // его более поздняя ошибка не должна затирать успешный первый ответ.
+    if (applicationsRequestUrlRef.current === url) return false;
+
     const requestId = applicationsRequestIdRef.current + 1;
     applicationsRequestIdRef.current = requestId;
+    applicationsRequestUrlRef.current = url;
     if (!silent) {
       setLoading(true);
     }
     try {
-      let url = `/applications?page=${currentPage}&limit=${limit}`;
-
-      if (searchTerm.trim()) {
-        url += `&search=${encodeURIComponent(searchTerm.trim())}`;
-      }
-
-      if (filter !== 'all') {
-        if (['my', 'unassigned'].includes(filter)) {
-          url += `&queue=${encodeURIComponent(filter)}`;
-          if (filter === 'my') {
-            url += `&assignee=${encodeURIComponent(user?.name || user?.username || '')}`;
-          }
-        } else {
-          url += `&status=${encodeURIComponent(filter)}`;
-        }
-      }
-      url += `&sort=${encodeURIComponent(sortMode)}`;
-      if (dateFilterActive) {
-        if (fromDate) url += `&from=${fromDate}`;
-        if (toDate) url += `&to=${toDate}`;
-      }
 
       const response = await authFetch(`${API_BASE_URL}${url}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Ошибка загрузки заявок');
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const requestError = new Error(data.error || 'Ошибка загрузки заявок');
+        requestError.status = response.status;
+        throw requestError;
+      }
       if (requestId !== applicationsRequestIdRef.current) return false;
 
       const nextStats = data.stats || { total: 0, completed: 0, pending: 0 };
@@ -431,6 +414,13 @@ const Dashboard = () => {
     } catch (error) {
       if (requestId !== applicationsRequestIdRef.current) return false;
       console.error('Ошибка загрузки:', error);
+      const retryable = !error?.status || error.status === 429 || error.status >= 500;
+      if (retryable && attempt < 2) {
+        await new Promise((resolve) => window.setTimeout(resolve, 400 * (attempt + 1)));
+        if (requestId !== applicationsRequestIdRef.current) return false;
+        applicationsRequestUrlRef.current = '';
+        return fetchApplications({ silent, attempt: attempt + 1 });
+      }
       // Убираем блокирующий alert при стартовой загрузке,
       // чтобы интерфейс не показывал всплывающее окно подтверждения.
       if (!silent) {
@@ -442,6 +432,9 @@ const Dashboard = () => {
       // Подтверждение удаления может вызвать фоновую загрузку и отменить
       // предыдущий обычный запрос. В любом случае последний запрос должен
       // снять общий индикатор, иначе экран остаётся на «Загрузка данных…».
+      if (applicationsRequestUrlRef.current === url) {
+        applicationsRequestUrlRef.current = '';
+      }
       if (requestId === applicationsRequestIdRef.current) {
         setLoading(false);
       }
@@ -573,6 +566,7 @@ const Dashboard = () => {
 
   useEffect(() => () => {
     applicationsRequestIdRef.current += 1;
+    applicationsRequestUrlRef.current = '';
   }, []);
 
   useEffect(() => {
@@ -598,8 +592,6 @@ const Dashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, limit, filter, fromDate, toDate, dateFilterActive, searchTerm, sortMode]);
 
-  const formatDateInput = (date) => date.toISOString().slice(0, 10);
-
   const setFilterAndResetPage = (newFilter) => {
     setFilter(newFilter);
     setCurrentPage(1);
@@ -610,31 +602,6 @@ const Dashboard = () => {
   const applyFilters = () => {
     setCurrentPage(1);
     setDateFilterActive(Boolean(fromDate || toDate));
-  };
-
-  const applyQuickDateRange = (range) => {
-    const today = new Date();
-    const start = new Date(today);
-
-    if (range === 'today') {
-      setFromDate(formatDateInput(today));
-      setToDate(formatDateInput(today));
-    }
-
-    if (range === 'week') {
-      start.setDate(today.getDate() - 6);
-      setFromDate(formatDateInput(start));
-      setToDate(formatDateInput(today));
-    }
-
-    if (range === 'month') {
-      start.setDate(today.getDate() - 29);
-      setFromDate(formatDateInput(start));
-      setToDate(formatDateInput(today));
-    }
-
-    setDateFilterActive(true);
-    setCurrentPage(1);
   };
 
   const clearDateFilter = () => {
@@ -657,39 +624,11 @@ const Dashboard = () => {
 
   const isColumnVisible = (columnId) => visibleColumns.includes(columnId);
 
-  const toggleColumn = (columnId) => {
-    setVisibleColumns((current) => {
-      const next = current.includes(columnId)
-        ? current.filter((item) => item !== columnId)
-        : [...current, columnId];
-      const safeNext = next.length > 0 ? next : ['request'];
-      localStorage.setItem(DASHBOARD_COLUMNS_KEY, JSON.stringify(safeNext));
-      return safeNext;
-    });
-  };
-
-  const toggleCompactMode = () => {
-    setCompactMode((current) => {
-      localStorage.setItem(DASHBOARD_COMPACT_KEY, String(!current));
-      return !current;
-    });
-  };
-
-  const applySavedView = (view) => {
-    setFilter(view.filter);
-    setSortMode(view.sort);
-    setSearchTerm(view.search || '');
+  const changeSortMode = (nextSortMode) => {
+    const safeSortMode = nextSortMode === 'date_asc' ? 'date_asc' : 'date_desc';
+    localStorage.setItem('dashboard.sortMode', safeSortMode);
+    setSortMode(safeSortMode);
     setCurrentPage(1);
-    if (view.dateRange === 'today') {
-      const today = new Date().toISOString().split('T')[0];
-      setFromDate(today);
-      setToDate(today);
-      setDateFilterActive(true);
-    } else {
-      setFromDate('');
-      setToDate('');
-      setDateFilterActive(false);
-    }
   };
 
   const activeFilterChips = [
@@ -1113,63 +1052,35 @@ const Dashboard = () => {
         <details className="dashboard-settings">
           <summary>Фильтры и настройки</summary>
           <div className="dashboard-settings-body">
-        <div className="queue-filter-row" aria-label="Очереди заявок">
-          {QUEUE_FILTERS.map((queue) => <button key={queue.id} type="button" className={filter === queue.id ? 'active' : ''} onClick={() => (queue.id === 'all' ? clearFilters() : setFilterAndResetPage(queue.id))}>{queue.label}</button>)}
-        </div>
-        <div className="saved-views-row" aria-label="Сохранённые представления">
-          <strong>Представления:</strong>
-          {SAVED_DASHBOARD_VIEWS.map((view) => (
-            <button key={view.id} type="button" onClick={() => applySavedView(view)}>{view.label}</button>
-          ))}
-        </div>
-        <div className="filters-group period-filter-card">
-          <div className="filter-card-head">
-            <div>
-              <span className="eyebrow">Период заявок</span>
-              <h3>Быстрый фильтр по датам</h3>
-            </div>
-            <button type="button" onClick={clearFilters} className="btn-secondary compact-reset">Сбросить всё</button>
-          </div>
-
-          <div className="date-preset-row">
-            <button type="button" onClick={() => applyQuickDateRange('today')}>Сегодня</button>
-            <button type="button" onClick={() => applyQuickDateRange('week')}>7 дней</button>
-            <button type="button" onClick={() => applyQuickDateRange('month')}>30 дней</button>
-            <details className="custom-date-panel">
-              <summary>Произвольный период</summary>
+            <div className="filters-group period-filter-card">
+              <div className="filter-card-head">
+                <div>
+                  <span className="eyebrow">Период заявок</span>
+                  <h3>Произвольный период</h3>
+                </div>
+                <button type="button" onClick={clearDateFilter} className="btn-secondary compact-reset">Сбросить период</button>
+              </div>
               <div className="date-filters">
                 <div className="filter-group">
-                  <label>От</label>
-                  <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+                  <label htmlFor="dashboard-date-from">От</label>
+                  <input id="dashboard-date-from" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
                 </div>
                 <div className="filter-group">
-                  <label>До</label>
-                  <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+                  <label htmlFor="dashboard-date-to">До</label>
+                  <input id="dashboard-date-to" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+                </div>
+                <div className="filter-group dashboard-sort-order">
+                  <label htmlFor="dashboard-sort-order">Порядок</label>
+                  <select id="dashboard-sort-order" value={sortMode} onChange={(event) => changeSortMode(event.target.value)}>
+                    <option value="date_desc">Сначала новые</option>
+                    <option value="date_asc">Сначала старые</option>
+                  </select>
                 </div>
                 <div className="filter-actions">
-                  <button type="button" onClick={applyFilters} className="btn-primary">Применить</button>
-                  <button type="button" onClick={clearDateFilter} className="btn-secondary">Сбросить период</button>
+                  <button type="button" onClick={applyFilters} className="btn-primary">Применить период</button>
                 </div>
               </div>
-            </details>
-          </div>
-        </div>
-        <div className="dashboard-view-tools">
-          <details className="columns-panel">
-            <summary>Колонки</summary>
-            <div className="columns-panel-body">
-              {DASHBOARD_COLUMNS.map((column) => (
-                <label key={column.id}>
-                  <input type="checkbox" checked={isColumnVisible(column.id)} onChange={() => toggleColumn(column.id)} />
-                  {column.label}
-                </label>
-              ))}
             </div>
-          </details>
-          <button type="button" className={`compact-mode-toggle ${compactMode ? 'active' : ''}`} onClick={toggleCompactMode}>
-            {compactMode ? 'Обычный режим' : 'Компактный режим'}
-          </button>
-        </div>
           </div>
         </details>
       </div>
