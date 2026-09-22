@@ -225,10 +225,22 @@ const joinDirectoryFieldValues = (records, fields) => {
       .map((value) => value.trim())
       .filter(Boolean)
       .forEach((value) => {
-        if (!values.some((existing) => existing.toLowerCase() === value.toLowerCase())) values.push(value);
+        const normalized = value.toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ');
+        if (!values.some((existing) => existing.toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ') === normalized)) values.push(value);
       });
   }));
   return values.join('; ');
+};
+
+const getDirectoryFieldByPriority = (records, fields) => {
+  for (const sourceRank of [0, 1, 2]) {
+    const value = joinDirectoryFieldValues(
+      records.filter((record) => record.sourceRank === sourceRank),
+      fields
+    );
+    if (value) return value;
+  }
+  return '';
 };
 
 const loadApplicationEmployeeDirectory = async () => {
@@ -271,16 +283,16 @@ const loadApplicationEmployeeDirectory = async () => {
     const employees = [...groups.values()].map((records) => {
       const ordered = [...records].sort((left, right) => left.sourceRank - right.sourceRank);
       const primary = ordered[0] || {};
-      const internalPhone = joinDirectoryFieldValues(ordered, ['internal_phone']);
+      const internalPhone = getDirectoryFieldByPriority(ordered, ['internal_phone']);
       return {
-        full_name: joinDirectoryFieldValues(ordered, ['full_name']) || primary.full_name || '',
-        position: joinDirectoryFieldValues(ordered, ['position']),
-        department: joinDirectoryFieldValues(ordered, ['department']),
-        room: joinDirectoryFieldValues(ordered, ['room']),
+        full_name: String(primary.full_name || '').replace(/\s+/g, ' ').trim(),
+        position: getDirectoryFieldByPriority(ordered, ['position']),
+        department: getDirectoryFieldByPriority(ordered, ['department']),
+        room: getDirectoryFieldByPriority(ordered, ['room']),
         internal_phone: internalPhone,
         phone: internalPhone,
-        external_phone: joinDirectoryFieldValues(ordered, ['external_phone']),
-        email: joinDirectoryFieldValues(ordered, ['email'])
+        external_phone: getDirectoryFieldByPriority(ordered, ['external_phone']),
+        email: getDirectoryFieldByPriority(ordered, ['email'])
           || ordered.map((record) => String(record.login || '').trim()).find((login) => login.includes('@'))
           || '',
         login: ordered.map((record) => String(record.login || '').trim()).find(Boolean) || '',
