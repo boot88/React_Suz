@@ -86,6 +86,71 @@ const normalizeEmployeeLookupValue = (value = '') => String(value)
   .replace(/ё/g, 'е')
   .replace(/[^а-яa-z0-9]/g, '');
 
+const getPersonNameTokens = (value = '') => String(value)
+  .toLowerCase()
+  .replace(/ё/g, 'е')
+  .replace(/[^а-яa-z]+/g, ' ')
+  .trim()
+  .split(/\s+/)
+  .filter(Boolean);
+
+const getPersonMatchKeys = (value = '') => {
+  const tokens = getPersonNameTokens(value);
+  if (tokens.length === 0) return [];
+  const keys = new Set([`full:${tokens.join('')}`, `surname:${tokens[0]}`]);
+  const addShortKey = (surname, otherNames) => {
+    const initials = otherNames.map((part) => part[0]).filter(Boolean).join('');
+    if (surname && initials) keys.add(`short:${surname}:${initials}`);
+  };
+  addShortKey(tokens[0], tokens.slice(1));
+  if (tokens.length >= 3) addShortKey(tokens[tokens.length - 1], tokens.slice(0, -1));
+  return [...keys];
+};
+
+const joinDirectoryValues = (records, fields) => {
+  const values = [];
+  records.forEach((record) => fields.forEach((field) => {
+    String(record?.[field] || '')
+      .split(/\s*;\s*/)
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .forEach((value) => {
+        if (!values.some((existing) => existing.toLowerCase() === value.toLowerCase())) values.push(value);
+      });
+  }));
+  return values.join('; ');
+};
+
+const mergeEmployeeDirectoryEntries = (items = []) => {
+  const groups = new Map();
+  (Array.isArray(items) ? items : []).forEach((employee) => {
+    const key = normalizeEmployeeLookupValue(employee?.full_name);
+    if (!key) return;
+    groups.set(key, [...(groups.get(key) || []), employee]);
+  });
+
+  return [...groups.values()].map((records) => {
+    const activeRecords = records.filter((record) => record.is_active == null || Number(record.is_active) === 1);
+    const preferredRecords = activeRecords.length > 0 ? activeRecords : records;
+    const primary = preferredRecords[0] || records[0] || {};
+    const email = joinDirectoryValues(preferredRecords, ['email'])
+      || (String(primary.login || '').includes('@') ? primary.login : '');
+    const internalPhone = joinDirectoryValues(preferredRecords, ['internal_phone', 'phone']);
+    return {
+      ...primary,
+      full_name: joinDirectoryValues(preferredRecords, ['full_name']) || primary.full_name || '',
+      position: joinDirectoryValues(preferredRecords, ['position']),
+      department: joinDirectoryValues(preferredRecords, ['department']),
+      room: joinDirectoryValues(preferredRecords, ['room']),
+      internal_phone: internalPhone,
+      phone: internalPhone,
+      external_phone: joinDirectoryValues(preferredRecords, ['external_phone']),
+      email,
+      is_active: activeRecords.length > 0
+    };
+  });
+};
+
 const getApplicationStatus = (app = {}) => app.status || (app.fl ? 'done' : 'new');
 const isQueueApplication = (app = {}) => ['new', 'reopened'].includes(getApplicationStatus(app));
 const isInWorkApplication = (app = {}) => ['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(getApplicationStatus(app));
@@ -267,10 +332,15 @@ const Dashboard = () => {
     let active = true;
     const loadEmployeeDirectory = async () => {
       try {
-        const response = await authFetch(`${API_BASE_URL}/auth/employees`);
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.message || 'Не удалось загрузить справочник сотрудников');
-        if (active) setEmployeeDirectory(Array.isArray(data.employees) ? data.employees : []);
+        let response = await authFetch(`${API_BASE_URL}/employees/all`);
+        let data = await response.json().catch(() => ({}));
+        // Совместимость при поэтапном обновлении клиента и сервера.
+        if (!response.ok) {
+          response = await authFetch(`${API_BASE_URL}/auth/employees`);
+          data = await response.json().catch(() => ({}));
+        }
+        if (!response.ok) throw new Error(data.message || data.error || 'Не удалось загрузить справочник сотрудников');
+        if (active) setEmployeeDirectory(mergeEmployeeDirectoryEntries(data.employees));
       } catch (error) {
         console.error('Ошибка загрузки справочника для карточек заявок:', error);
       }
@@ -986,13 +1056,39 @@ const Dashboard = () => {
   }, [applications, sortMode]);
 
   const selectedAppTimes = selectedApplication ? getApplicationTimes(selectedApplication, dashboardNow) : null;
-  const employeesByLogin = useMemo(() => new Map(employeeDirectory.map((employee) => [String(employee.login || '').toLowerCase(), employee])), [employeeDirectory]);
-  const employeesByName = useMemo(() => new Map(employeeDirectory.map((employee) => [normalizeEmployeeLookupValue(employee.full_name), employee])), [employeeDirectory]);
-  const getApplicationEmployee = (app = {}) => (
-    employeesByLogin.get(String(app.employee_login || '').toLowerCase())
-    || employeesByName.get(normalizeEmployeeLookupValue(app.name))
-    || null
-  );
+  const employeesByIdentifier = useMemo(() => {
+    const index = new Map();
+    employeeDirectory.forEach((employee) => {
+      [employee.login, employee.email].forEach((identifier) => {
+        const key = String(identifier || '').trim().toLowerCase();
+        if (key) index.set(key, employee);
+      });
+    });
+    return index;
+  }, [employeeDirectory]);
+  const employeesByName = useMemo(() => {
+    const index = new Map();
+    employeeDirectory.forEach((employee) => {
+      getPersonMatchKeys(employee.full_name).forEach((key) => {
+        if (!index.has(key)) {
+          index.set(key, employee);
+          return;
+        }
+        const existing = index.get(key);
+        if (existing && normalizeEmployeeLookupValue(existing.full_name) !== normalizeEmployeeLookupValue(employee.full_name)) {
+          // Не связываем заявку автоматически, если сокращённое ФИО неоднозначно.
+          index.set(key, null);
+        }
+      });
+    });
+    return index;
+  }, [employeeDirectory]);
+  const getApplicationEmployee = (app = {}) => {
+    const identifierMatch = employeesByIdentifier.get(String(app.employee_login || '').trim().toLowerCase());
+    if (identifierMatch) return identifierMatch;
+    const matchKey = getPersonMatchKeys(app.name).find((key) => employeesByName.get(key));
+    return matchKey ? employeesByName.get(matchKey) : null;
+  };
   const selectedEmployee = selectedApplication ? getApplicationEmployee(selectedApplication) : null;
   const selectedWorkCycles = Array.isArray(selectedApplication?.work_cycles) ? selectedApplication.work_cycles : [];
   const selectedCumulativeWorkSeconds = selectedApplication ? getCumulativeWorkSeconds(selectedApplication, dashboardNow) : null;
@@ -1277,8 +1373,8 @@ const Dashboard = () => {
                           </td>
 	                        {isColumnVisible('employee') && <td className="cell-person">
 	                          <strong>{app.name || 'Сотрудник'}</strong>
-	                          {applicationEmployee?.position && <span>{applicationEmployee.position}</span>}
-	                          <span>каб. {applicationEmployee?.room || app.cabinet || '—'} · вн. {applicationEmployee?.phone || app.N_tel || '—'}{applicationEmployee?.external_phone ? ` · внеш. ${applicationEmployee.external_phone}` : ''}</span>
+	                          {(applicationEmployee?.position || applicationEmployee?.department) && <span>{[applicationEmployee.position, applicationEmployee.department].filter(Boolean).join(' · ')}</span>}
+	                          <span>каб. {applicationEmployee?.room || app.cabinet || '—'} · вн. {applicationEmployee?.internal_phone || applicationEmployee?.phone || app.N_tel || '—'}{applicationEmployee?.external_phone ? ` · внеш. ${applicationEmployee.external_phone}` : ''}</span>
 	                        </td>}
 
 	                        {isColumnVisible('request') && <td
@@ -1400,7 +1496,7 @@ const Dashboard = () => {
           <div className="side-panel-head">
             <span>{getStatusLabel(selectedApplication)}</span>
             <h2>Заявка #{selectedApplication.id}</h2>
-            <p>{selectedApplication.name}{selectedEmployee?.position ? ` · ${selectedEmployee.position}` : ''}</p>
+            <p>{[selectedEmployee?.full_name || selectedApplication.name, selectedEmployee?.position, selectedEmployee?.department].filter(Boolean).join(' · ')}</p>
           </div>
           <div className="time-summary-card">
             <strong>{getStatusLabel(selectedApplication)}</strong>
@@ -1426,8 +1522,10 @@ const Dashboard = () => {
             <div><strong>Должность</strong><span>{selectedEmployee?.position || '—'}</span></div>
             <div><strong>Отдел</strong><span>{selectedEmployee?.department || '—'}</span></div>
             <div><strong>Кабинет</strong><span>{selectedEmployee?.room || selectedApplication.cabinet || '—'}</span></div>
-            <div><strong>Внутренний телефон</strong><span>{selectedEmployee?.phone || selectedApplication.N_tel || '—'}</span></div>
+            <div><strong>Внутренний телефон</strong><span>{selectedEmployee?.internal_phone || selectedEmployee?.phone || selectedApplication.N_tel || '—'}</span></div>
             <div><strong>Внешний телефон</strong><span>{selectedEmployee?.external_phone || '—'}</span></div>
+            <div><strong>Email</strong><span>{selectedEmployee?.email || (String(selectedApplication.employee_login || '').includes('@') ? selectedApplication.employee_login : '—')}</span></div>
+            {selectedEmployee && selectedEmployee.is_active === false && <div><strong>Статус справочника</strong><span>Запись неактивна</span></div>}
           </div></div>
           <div className="side-panel-section"><h3>Хронология</h3><div className="side-panel-grid">
             {!isAdministratorCreatedApplication(selectedApplication) && <div><strong>Категория</strong><span>{selectedApplication.category || '—'}</span></div>}

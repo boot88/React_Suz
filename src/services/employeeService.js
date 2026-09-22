@@ -55,13 +55,14 @@ export const getDepartments = async () => {
 // Получение всех сотрудников (опционально)
 export const getAllEmployees = async () => {
   try {
-    const response = await authFetch(`${API_BASE_URL}/employees/search?field=full_name&query=`);
+    const response = await authFetch(`${API_BASE_URL}/employees/all`);
 
     if (!response.ok) {
       throw new Error('Ошибка при получении сотрудников');
     }
 
-    return await response.json();
+    const data = await response.json();
+    return Array.isArray(data?.employees) ? data.employees : [];
   } catch (error) {
     console.error('Error getting employees:', error);
     throw error;

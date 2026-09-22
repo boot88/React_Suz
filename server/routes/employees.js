@@ -366,6 +366,27 @@ const ensurePhoneBookData = async () => {
   return { total: stats.activeAfter, synced: true, pages, expectedPages, lastStart };
 };
 
+// Полный справочник для служебных экранов администратора. Неактивные записи
+// тоже возвращаются: они нужны, чтобы дополнить старые заявки сотрудников,
+// которые уже уволены и отсутствуют в текущем активном списке.
+router.get('/all', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    await ensurePhoneBookSchema();
+    const [employees] = await pool.execute(`
+      SELECT id, source_key, full_name, position, department, room,
+        internal_phone, external_phone, email, is_active, updated_at
+      FROM phone_book
+      WHERE full_name IS NOT NULL AND TRIM(full_name) <> ''
+      ORDER BY is_active DESC, full_name ASC, updated_at DESC
+    `);
+    res.set('Cache-Control', 'no-store');
+    res.json({ employees });
+  } catch (error) {
+    console.error('Employee directory list error:', error);
+    res.status(500).json({ error: 'Не удалось получить справочник сотрудников' });
+  }
+});
+
 // Поиск сотрудников
 router.get('/search', async (req, res) => {
   try {
