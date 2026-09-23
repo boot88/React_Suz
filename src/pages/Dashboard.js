@@ -40,6 +40,7 @@ const TABLE_STATUS_ORDER = {
 const SHOW_APPLICATION_ACTION_HISTORY_KEY = 'admin.showApplicationActionHistory';
 const DASHBOARD_LIMIT_KEY = 'dashboard.pageSize';
 const DASHBOARD_CARD_SIZE_KEY = 'dashboard.timelineCardDesign';
+const DASHBOARD_CARD_SIZE_EVENT = 'dashboard:timeline-card-design-change';
 const DEFAULT_DASHBOARD_COLUMNS = ['employee', 'request', 'executor', 'created', 'status'];
 const DASHBOARD_PAGE_SIZES = [5, 10, 15, 20, 50];
 const readDashboardSortMode = () => (
@@ -649,6 +650,12 @@ const Dashboard = () => {
     return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, limit, filter, fromDate, toDate, dateFilterActive, searchTerm, sortMode]);
+
+  useEffect(() => {
+    const syncTimelineCardDesign = () => setTimelineCardDesign(readDashboardCardDesign());
+    window.addEventListener(DASHBOARD_CARD_SIZE_EVENT, syncTimelineCardDesign);
+    return () => window.removeEventListener(DASHBOARD_CARD_SIZE_EVENT, syncTimelineCardDesign);
+  }, []);
 
   useEffect(() => () => {
     applicationsRequestIdRef.current += 1;
@@ -1355,23 +1362,6 @@ const Dashboard = () => {
                       </div>
                     </section>
                   ))}
-                </div>
-                <div className="timeline-design-control">
-                  <span className={timelineCardDesign === 'legacy' ? 'active' : ''}>Обычные заявки</span>
-                  <label className="timeline-design-toggle">
-                    <input
-                      type="checkbox"
-                      checked={timelineCardDesign === 'modern'}
-                      onChange={(event) => {
-                        const nextDesign = event.target.checked ? 'modern' : 'legacy';
-                        setTimelineCardDesign(nextDesign);
-                        localStorage.setItem(DASHBOARD_CARD_SIZE_KEY, nextDesign);
-                      }}
-                      aria-label="Переключить размер карточек заявок"
-                    />
-                    <span aria-hidden="true"><i /></span>
-                  </label>
-                  <span className={timelineCardDesign === 'modern' ? 'active' : ''}>Большие заявки</span>
                 </div>
               </>
             ) : <div className="table-responsive">

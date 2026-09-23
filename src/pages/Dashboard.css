@@ -1263,52 +1263,6 @@ button:disabled,
   font-size: 11px;
   font-weight: 750;
 }
-.timeline-design-control {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 11px;
-  margin: 18px 0 2px;
-  padding-top: 17px;
-  border-top: 1px solid var(--dash-border);
-  color: #94a3b8;
-  font-size: 12px;
-  font-weight: 800;
-}
-.timeline-design-control > span { transition: color .18s ease; }
-.timeline-design-control > span.active { color: #1d4ed8; }
-.timeline-design-toggle { position: relative; display: inline-flex; cursor: pointer; }
-.timeline-design-toggle input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  clip-path: inset(50%);
-}
-.timeline-design-toggle > span {
-  display: block;
-  width: 44px;
-  height: 24px;
-  padding: 3px;
-  border-radius: 999px;
-  background: #cbd5e1;
-  box-sizing: border-box;
-  transition: background .2s ease;
-}
-.timeline-design-toggle i {
-  display: block;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 2px 6px rgba(15, 23, 42, .2);
-  transition: transform .2s ease;
-}
-.timeline-design-toggle input:checked + span { background: #2563eb; }
-.timeline-design-toggle input:checked + span i { transform: translateX(20px); }
-.timeline-design-toggle input:focus-visible + span { outline: 2px solid #2563eb; outline-offset: 3px; }
 .time-summary-card { padding:14px 16px; border:1px solid #dbe5f0; border-radius:12px; background:linear-gradient(135deg,#eff6ff,#f8fafc); margin-bottom:10px; }
 .time-summary-card > strong { display:block; margin-bottom:6px; color:#172033; }
 .time-summary-card > span { display:flex; flex-wrap:wrap; gap:10px; }
