@@ -38,9 +38,19 @@ const TABLE_STATUS_ORDER = {
   done: 6
 };
 const SHOW_APPLICATION_ACTION_HISTORY_KEY = 'admin.showApplicationActionHistory';
+const DASHBOARD_LIMIT_KEY = 'dashboard.pageSize';
+const DASHBOARD_CARD_SIZE_KEY = 'dashboard.timelineCardDesign';
 const DEFAULT_DASHBOARD_COLUMNS = ['employee', 'request', 'executor', 'created', 'status'];
+const DASHBOARD_PAGE_SIZES = [5, 10, 15, 20, 50];
 const readDashboardSortMode = () => (
   localStorage.getItem('dashboard.sortMode') === 'date_asc' ? 'date_asc' : 'date_desc'
+);
+const readDashboardPageSize = () => {
+  const stored = Number(localStorage.getItem(DASHBOARD_LIMIT_KEY));
+  return DASHBOARD_PAGE_SIZES.includes(stored) ? stored : 10;
+};
+const readDashboardCardDesign = () => (
+  localStorage.getItem(DASHBOARD_CARD_SIZE_KEY) === 'modern' ? 'modern' : 'legacy'
 );
 // Три ключевых времени заявки и производные длительности.
 const getApplicationTimes = (app = {}, now = Date.now()) => {
@@ -267,7 +277,7 @@ const Dashboard = () => {
   const [employeeDirectory, setEmployeeDirectory] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(readDashboardPageSize);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [exportLoading, setExportLoading] = useState(false);
@@ -290,7 +300,7 @@ const Dashboard = () => {
   const visibleColumns = DEFAULT_DASHBOARD_COLUMNS;
   const compactMode = false;
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('dashboard.viewMode') || 'timeline');
-  const [timelineCardDesign, setTimelineCardDesign] = useState('legacy');
+  const [timelineCardDesign, setTimelineCardDesign] = useState(readDashboardCardDesign);
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
   const [bulkExecutor, setBulkExecutor] = useState('');
@@ -663,15 +673,15 @@ const Dashboard = () => {
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
-        fetchApplications();
+        // Сохраняем текущую таблицу на экране: обновление после возврата во
+        // вкладку не должно заменять её индикатором загрузки.
+        fetchApplications({ silent: true });
         fetchGeneralStats();
       }
     };
     document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('focus', onVisible);
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('focus', onVisible);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, limit, filter, fromDate, toDate, dateFilterActive, searchTerm, sortMode]);
@@ -1257,7 +1267,9 @@ const Dashboard = () => {
                 <select
                   value={limit}
                   onChange={(e) => {
-                    setLimit(Number(e.target.value));
+                    const nextLimit = Number(e.target.value);
+                    setLimit(nextLimit);
+                    localStorage.setItem(DASHBOARD_LIMIT_KEY, String(nextLimit));
                     setCurrentPage(1);
                   }}
                 >
@@ -1345,17 +1357,21 @@ const Dashboard = () => {
                   ))}
                 </div>
                 <div className="timeline-design-control">
-                  <span className={timelineCardDesign === 'legacy' ? 'active' : ''}>Старый дизайн</span>
+                  <span className={timelineCardDesign === 'legacy' ? 'active' : ''}>Обычные заявки</span>
                   <label className="timeline-design-toggle">
                     <input
                       type="checkbox"
                       checked={timelineCardDesign === 'modern'}
-                      onChange={(event) => setTimelineCardDesign(event.target.checked ? 'modern' : 'legacy')}
-                      aria-label="Переключить дизайн карточек заявок"
+                      onChange={(event) => {
+                        const nextDesign = event.target.checked ? 'modern' : 'legacy';
+                        setTimelineCardDesign(nextDesign);
+                        localStorage.setItem(DASHBOARD_CARD_SIZE_KEY, nextDesign);
+                      }}
+                      aria-label="Переключить размер карточек заявок"
                     />
                     <span aria-hidden="true"><i /></span>
                   </label>
-                  <span className={timelineCardDesign === 'modern' ? 'active' : ''}>Новый дизайн</span>
+                  <span className={timelineCardDesign === 'modern' ? 'active' : ''}>Большие заявки</span>
                 </div>
               </>
             ) : <div className="table-responsive">

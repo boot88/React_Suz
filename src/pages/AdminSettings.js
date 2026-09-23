@@ -155,11 +155,11 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
         setDirectoryReport({ ...(data.changes || {}), updatedAt: data.updatedAt });
         window.dispatchEvent(new Event('employee-directory-updated'));
       } else {
-        const response = await authFetch(`${API_BASE_URL}/network-map`);
+        const response = await authFetch(`${API_BASE_URL}/network-map/refresh`, { method: 'POST' });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.message);
-        sessionStorage.setItem('network-map-cache', JSON.stringify(data));
-        setMessage('Данные IP-сетки обновлены.');
+        if (!response.ok) throw new Error(data.error || data.message || 'Не удалось обновить IP-сетку');
+        localStorage.setItem('network-map-cache', JSON.stringify(data));
+        setMessage('Данные IP-сетки обновлены и сохранены в SQL.');
       }
     } catch (error) {
       setMessage(error.message || 'Не удалось выполнить обновление.');

@@ -6,6 +6,7 @@ import { authFetch } from '../utils/authFetch';
 const OFFICIAL_SITE_URL = 'http://nioch.nioch.nsc.ru/nioch/';
 const IP_LAST_OCTET_MIN = 1;
 const IP_LAST_OCTET_MAX = 254;
+const NETWORK_MAP_CACHE_KEY = 'network-map-cache';
 
 const ipToNumber = (ip) => ip.split('.').reduce((sum, part) => (sum * 256) + Number(part), 0);
 const getNetworkKey = (ip) => ip.split('.').slice(0, 3).join('.');
@@ -95,8 +96,8 @@ const NetworkMap = () => {
   const [networkSearch, setNetworkSearch] = useState('');
   const [networkFilter, setNetworkFilter] = useState('all');
 
-  const fetchNetworkMap = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) setNetworkLoading(true);
+  const fetchNetworkMap = useCallback(async () => {
+    setNetworkLoading(true);
     setNetworkError('');
 
     try {
@@ -106,7 +107,7 @@ const NetworkMap = () => {
 
       setNetworkZoneText(data.zoneText || '');
       setNetworkUpdatedAt(data.fetchedAt || new Date().toISOString());
-      sessionStorage.setItem('network-map-cache', JSON.stringify({
+      localStorage.setItem(NETWORK_MAP_CACHE_KEY, JSON.stringify({
         zoneText: data.zoneText || '',
         fetchedAt: data.fetchedAt || new Date().toISOString()
       }));
@@ -114,19 +115,19 @@ const NetworkMap = () => {
       console.error('Ошибка загрузки сетки:', err);
       setNetworkError(err.message || 'Не удалось загрузить сетку');
     } finally {
-      if (!silent) setNetworkLoading(false);
+      setNetworkLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    const cached = sessionStorage.getItem('network-map-cache');
+    const cached = localStorage.getItem(NETWORK_MAP_CACHE_KEY);
     if (cached) {
       try {
         const data = JSON.parse(cached);
         setNetworkZoneText(data.zoneText || '');
         setNetworkUpdatedAt(data.fetchedAt || '');
       } catch {
-        // Кэш повреждён — игнорируем и загружаем свежие данные
+        // Кэш повреждён — игнорируем и читаем сохранённый SQL-снимок
       }
     }
     fetchNetworkMap();
@@ -187,14 +188,7 @@ const NetworkMap = () => {
           <option value="free">Только свободные</option>
           <option value="occupied">Только занятые</option>
         </select>
-        <button
-          type="button"
-          className="network-refresh-button"
-          onClick={() => fetchNetworkMap()}
-          disabled={networkLoading}
-        >
-          {networkLoading ? 'Обновление…' : '⟳ Обновить'}
-        </button>
+        <span className="network-snapshot-note">{networkLoading ? 'Загрузка сохранённого снимка…' : 'Обновление выполняется в настройках'}</span>
       </div>
 
       <div className="network-summary-grid">
