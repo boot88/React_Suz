@@ -1,11 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import './EditApplicationsTable.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
 import { useAuth } from '../context/AuthContext';
 
+const SHOW_EDIT_APPLICATION_TABLE_KEY = 'admin.showEditApplicationTable';
+
 function EditApplicationsTable() {
   const { isLoading: authLoading } = useAuth();
+  const { id: applicationId } = useParams();
+  const navigate = useNavigate();
+  const showIntermediateTable = localStorage.getItem(SHOW_EDIT_APPLICATION_TABLE_KEY) === 'true';
+  const directEditingMode = Boolean(applicationId) && !showIntermediateTable;
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -32,6 +39,23 @@ function EditApplicationsTable() {
     setLoading(true);
     setError(null);
     try {
+      if (directEditingMode) {
+        const response = await authFetch(`${API_BASE_URL}/applications/${encodeURIComponent(applicationId)}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.application) {
+          throw new Error(data.error || 'Заявка не найдена');
+        }
+        setApplications([data.application]);
+        setTotalPages(1);
+        setTotalItems(1);
+        setEditing(true);
+        setEditingApp({ ...data.application });
+        setFieldErrors({});
+        setEmployeeHints([]);
+        setSelectedDirectoryName('');
+        setLoading(false);
+        return;
+      }
       const statusQuery = statusFilter !== 'all' ? `&status=${encodeURIComponent(statusFilter)}` : '';
       const response = await authFetch(
         `${API_BASE_URL}/applications?page=${currentPage}&limit=${itemsPerPage}${statusQuery}`
@@ -55,7 +79,7 @@ function EditApplicationsTable() {
       setError('Не удалось загрузить данные. Проверьте подключение к серверу.');
       setLoading(false);
     }
-  }, [authLoading, currentPage, itemsPerPage, statusFilter]);
+  }, [applicationId, authLoading, currentPage, directEditingMode, itemsPerPage, statusFilter]);
 
   useEffect(() => {
     if (!authLoading) fetchApplications();
@@ -272,10 +296,14 @@ function EditApplicationsTable() {
       });
 
       if (response.ok) {
-        await fetchApplications();
-        setEditing(false);
-        setSuccessMessage('Изменения успешно сохранены!');
-        setTimeout(() => setSuccessMessage(''), 3000);
+        if (directEditingMode) {
+          navigate('/');
+        } else {
+          await fetchApplications();
+          setEditing(false);
+          setSuccessMessage('Изменения успешно сохранены!');
+          setTimeout(() => setSuccessMessage(''), 3000);
+        }
       } else {
         const errorText = await response.text();
         console.error('Ошибка сервера:', response.status, errorText);
@@ -288,6 +316,10 @@ function EditApplicationsTable() {
   };
 
   const cancelEditing = () => {
+    if (directEditingMode) {
+      navigate('/');
+      return;
+    }
     setEditing(false);
     setEditingApp({});
     setFieldErrors({});
@@ -467,7 +499,7 @@ function EditApplicationsTable() {
 
   return (
     <div className="edit-container">
-      <div className="edit-header">
+      {!directEditingMode && <div className="edit-header">
         <h2>Редактирование заявок</h2>
         <div className="header-actions">
           <button onClick={fetchApplications} className="refresh-button">
@@ -497,7 +529,7 @@ function EditApplicationsTable() {
             <option value={50}>50 на странице</option>
           </select>
         </div>
-      </div>
+      </div>}
 
       {error && (
         <div className="error-message">
