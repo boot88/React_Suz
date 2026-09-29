@@ -23,7 +23,8 @@ import {
   toApplicationTimestamp
 } from '../utils/applicationTime';
 
-// Одиночные исполнители: в фильтре выбора показываем только их фамилии с галочками.
+// Исполнители: в фильтре показываем фамилию с инициалами, а surname/initials
+// нужны, чтобы разобрать текстовое поле «Исполнитель» у заявки.
 const EXECUTORS = [
   { name: 'Повисок Е.В.', shortName: 'П.Е.', surname: 'Повисок', initials: ['п', 'е'] },
   { name: 'Андреев Р.В.', shortName: 'А.Р.', surname: 'Андреев', initials: ['а', 'р'] },
@@ -75,13 +76,16 @@ const categoryOfPeople = (people = []) => EXECUTOR_CATEGORIES
     category.people.length === people.length && category.people.every((person) => people.includes(person))
   ))?.name || null;
 
-// Галочки складываются по «И»: выбрано несколько фамилий — показываются заявки, где
-// работали все выбранные. Пустой выбор — все заявки.
-const matchExecutors = (value, selected = []) => {
-  if (selected.length === 0) return true;
-  const people = executorsOf(value);
-  return selected.every((person) => people.includes(person));
-};
+// Состав заявки сравниваем с выбором один в один: выбрана одна фамилия — только
+// заявки, где исполнитель работал один; выбраны две — только где работали эти двое.
+const sameSelection = (people = [], selected = []) => (
+  people.length === selected.length && selected.every((person) => people.includes(person))
+);
+
+// Пустой выбор — все заявки, иначе — заявки с точным составом из выбранных фамилий.
+const matchExecutors = (value, selected = []) => (
+  selected.length === 0 || sameSelection(executorsOf(value), selected)
+);
 
 const getDayKey = (app = {}) => {
   const timestamp = toApplicationTimestamp(app.created_at || app.data);
@@ -170,6 +174,7 @@ export default function StatisticsOverview() {
   const [error, setError] = useState('');
   const [period, setPeriod] = useState(String(DEFAULT_RANGE_DAYS));
   const [selectedExecutors, setSelectedExecutors] = useState([]);
+  const [isExecutorMenuOpen, setIsExecutorMenuOpen] = useState(false);
   const [activeDay, setActiveDay] = useState('');
   const [isDraggingChart, setIsDraggingChart] = useState(false);
   const [chartDragDirection, setChartDragDirection] = useState('');
@@ -177,6 +182,7 @@ export default function StatisticsOverview() {
   const chartDragRef = useRef(null);
   const chartAreaRef = useRef(null);
   const tooltipCloseTimerRef = useRef(null);
+  const executorPickerRef = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -235,6 +241,17 @@ export default function StatisticsOverview() {
     periodFiltered.filter((app) => matchExecutors(app.executor, selectedExecutors))
   ), [periodFiltered, selectedExecutors]);
 
+  // Сколько заявок периода каждый исполнитель сделал в одиночку: показываем в меню,
+  // чтобы было видно, сколько заявок даст одиночный выбор.
+  const soloCounts = useMemo(() => {
+    const counts = new Map(EXECUTORS.map(({ name }) => [name, 0]));
+    periodFiltered.forEach((app) => {
+      const people = executorsOf(app.executor);
+      if (people.length === 1 && counts.has(people[0])) counts.set(people[0], counts.get(people[0]) + 1);
+    });
+    return counts;
+  }, [periodFiltered]);
+
   const metrics = useMemo(() => {
     const statusCounts = { queue: 0, work: 0, done: 0 };
     filtered.forEach((app) => { statusCounts[getStatusGroup(app)] += 1; });
@@ -286,13 +303,34 @@ export default function StatisticsOverview() {
 
   useEffect(() => () => window.clearTimeout(tooltipCloseTimerRef.current), []);
 
+  // Выпадающее меню исполнителей закрываем кликом вне него и клавишей Escape.
+  useEffect(() => {
+    if (!isExecutorMenuOpen) return undefined;
+    const closeMenu = () => setIsExecutorMenuOpen(false);
+    const closeMenuOnOutsideClick = (event) => {
+      if (executorPickerRef.current?.contains(event.target)) return;
+      closeMenu();
+    };
+    const closeMenuOnEscape = (event) => {
+      if (event.key === 'Escape') closeMenu();
+    };
+    document.addEventListener('mousedown', closeMenuOnOutsideClick);
+    document.addEventListener('touchstart', closeMenuOnOutsideClick);
+    document.addEventListener('keydown', closeMenuOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeMenuOnOutsideClick);
+      document.removeEventListener('touchstart', closeMenuOnOutsideClick);
+      document.removeEventListener('keydown', closeMenuOnEscape);
+    };
+  }, [isExecutorMenuOpen]);
+
   const statusData = useMemo(() => STATUS_GROUPS
     .map((status) => ({ ...status, value: metrics[status.key] }))
     .filter(({ value }) => value > 0), [metrics]);
 
-  // Сводка: строки — категории, в которых есть все выбранные исполнители.
+  // Сводка: без выбора — все категории, с выбором — только строка точного состава.
   const executorRows = useMemo(() => EXECUTOR_CATEGORIES
-    .filter(({ people }) => selectedExecutors.every((person) => people.includes(person)))
+    .filter(({ people }) => selectedExecutors.length === 0 || sameSelection(people, selectedExecutors))
     .map((executorCategory) => {
       const matching = periodFiltered.filter((app) => categoryOfPeople(executorsOf(app.executor)) === executorCategory.name);
       const counts = { queue: 0, work: 0, done: 0 };
@@ -305,7 +343,7 @@ export default function StatisticsOverview() {
     }), [periodFiltered, selectedExecutors]);
 
   const workload = useMemo(() => executorRows.map((row) => ({
-    name: row.shortName,
+    name: row.group === 'Один исполнитель' ? row.name : row.shortName,
     fullName: row.name,
     value: row.total
   })), [executorRows]);
@@ -389,15 +427,25 @@ export default function StatisticsOverview() {
     navigate(`/?application=${encodeURIComponent(app.id)}`);
   };
 
-  const selectedSurnames = useMemo(() => EXECUTORS
-    .filter(({ name }) => selectedExecutors.includes(name))
-    .map(({ surname }) => surname), [selectedExecutors]);
-  const selectionLabel = selectedSurnames.length ? `Заявки, где работали: ${selectedSurnames.join(', ')}` : '';
+  // Порядок фамилий в подписях берём из списка EXECUTORS, а не из порядка клика по галочкам.
+  const selectedPeople = useMemo(() => EXECUTORS
+    .filter(({ name }) => selectedExecutors.includes(name)), [selectedExecutors]);
+  const selectedNames = selectedPeople.map(({ name }) => name);
+  const selectionLabel = selectedNames.length === 0
+    ? ''
+    : selectedNames.length === 1
+      ? `Заявки, где ${selectedNames[0]} работал один`
+      : `Заявки, где работали только ${selectedNames.join(', ')}`;
+  const selectionHint = selectedNames.length === 0
+    ? 'Показаны все заявки: ни один исполнитель не выбран'
+    : `Показаны ${selectionLabel[0].toLowerCase()}${selectionLabel.slice(1)}`;
+  const pickerLabel = selectedNames.length === 0 ? 'Все исполнители' : selectedNames.join(', ');
 
   const hasFilters = period !== String(DEFAULT_RANGE_DAYS) || selectedExecutors.length > 0;
   const resetFilters = () => {
     setPeriod(String(DEFAULT_RANGE_DAYS));
     setSelectedExecutors([]);
+    setIsExecutorMenuOpen(false);
   };
   const toggleExecutor = (name) => setSelectedExecutors((current) => (
     current.includes(name) ? current.filter((person) => person !== name) : [...current, name]
@@ -416,17 +464,31 @@ export default function StatisticsOverview() {
       <label className="statistics-period">Период<select value={period} onChange={(event) => setPeriod(event.target.value)}>{customPeriod && <option value={period}>Последние {period} дней</option>}{RANGE_PRESETS.map(({ days, optionLabel }) => <option key={days} value={String(days)}>{optionLabel}</option>)}<option value="all">Всё время</option></select></label>
       <fieldset className="statistics-executors">
         <legend>Исполнитель</legend>
-        <div className="statistics-executor-list">
-          {EXECUTORS.map((person) => <label key={person.name} className={`statistics-executor-option ${selectedExecutors.includes(person.name) ? 'is-active' : ''}`} title={person.name}>
-            <input type="checkbox" checked={selectedExecutors.includes(person.name)} onChange={() => toggleExecutor(person.name)} />
-            <span>{person.surname}</span>
-          </label>)}
+        <div className="statistics-executor-picker" ref={executorPickerRef}>
+          <button
+            type="button"
+            className={`statistics-executor-trigger ${isExecutorMenuOpen ? 'is-open' : ''} ${selectedNames.length > 0 ? 'has-selection' : ''}`}
+            aria-haspopup="true"
+            aria-expanded={isExecutorMenuOpen}
+            onClick={() => setIsExecutorMenuOpen((isOpen) => !isOpen)}
+          >
+            <span className="statistics-executor-trigger-label">{pickerLabel}</span>
+            {selectedNames.length > 0 && <span className="statistics-executor-trigger-badge">{selectedNames.length}</span>}
+            <span className="statistics-executor-trigger-caret" aria-hidden="true">▾</span>
+          </button>
+          {isExecutorMenuOpen && <div className="statistics-executor-menu" role="group" aria-label="Выбор исполнителей">
+            <small className="statistics-executor-menu-hint">Показываем заявки только с выбранным составом. Число справа — заявки, сделанные в одиночку</small>
+            {EXECUTORS.map((person) => <label key={person.name} className={`statistics-executor-option ${selectedExecutors.includes(person.name) ? 'is-active' : ''}`} title={person.name}>
+              <input type="checkbox" checked={selectedExecutors.includes(person.name)} onChange={() => toggleExecutor(person.name)} />
+              <span className="statistics-executor-option-name">{person.name}</span>
+              <span className="statistics-executor-option-count">{soloCounts.get(person.name) || 0}</span>
+            </label>)}
+            {selectedNames.length > 0 && <button type="button" className="statistics-executor-menu-reset" onClick={() => setSelectedExecutors([])}>Снять выбор</button>}
+          </div>}
         </div>
       </fieldset>
       {hasFilters && <button type="button" className="statistics-reset" onClick={resetFilters}>Сбросить</button>}
-      <small className="statistics-filters-hint">{selectedExecutors.length > 1
-        ? 'Показаны заявки, где работали все выбранные исполнители'
-        : selectedExecutors.length === 1 ? 'Показаны заявки выбранного исполнителя' : 'Показаны все заявки: ни одна фамилия не выбрана'}</small>
+      <small className="statistics-filters-hint">{selectionHint}</small>
     </section>
 
     {loading && <div className="statistics-state">Загрузка статистики…</div>}
@@ -519,7 +581,7 @@ export default function StatisticsOverview() {
 
         <article className="report-card report-card--wide executor-summary-card">
           <div className="report-card-head">
-            <div><h2>Сводка по исполнителям</h2><p>{selectedSurnames.length ? `Сочетания с участием: ${selectedSurnames.join(', ')}` : 'В статистике учитываются только Повисок Е.В., Андреев Р.В., Польников Д.В. и их сочетания'}</p></div>
+            <div><h2>Сводка по исполнителям</h2><p>{selectionLabel || 'В статистике учитываются только Повисок Е.В., Андреев Р.В., Польников Д.В. и их сочетания'}</p></div>
           </div>
           <div className="statistics-table-wrap">
             <table className="statistics-table">
