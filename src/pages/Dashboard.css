@@ -1426,3 +1426,34 @@ button:disabled,
     padding-inline: 7px;
   }
 }
+
+/* Подсветка заявки, карточка которой сейчас открыта */
+.applications-table tbody tr.application-row--target {
+  background: #fef3c7;
+  box-shadow: inset 4px 0 0 #d97706;
+  outline: 3px solid rgba(217, 119, 6, .2);
+  outline-offset: -3px;
+  animation: dashboard-target-pulse 1.4s ease-in-out 3;
+}
+
+.timeline-request.timeline-request--target {
+  border-color: #d97706;
+  background: #fffbeb;
+  outline: 3px solid rgba(217, 119, 6, .2);
+  outline-offset: 2px;
+  animation: dashboard-target-pulse 1.4s ease-in-out 3;
+}
+
+@keyframes dashboard-target-pulse {
+  0%, 100% { outline-color: rgba(217, 119, 6, .2); }
+  50% { outline-color: rgba(217, 119, 6, .85); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .applications-table tbody tr.application-row--target,
+  .timeline-request.timeline-request--target {
+    animation: none;
+    outline-color: rgba(217, 119, 6, .85);
+  }
+}
+

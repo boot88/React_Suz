@@ -191,6 +191,14 @@ const matchesDashboardFilter = (app = {}, filter = 'all', assignee = '') => {
   return status === filter;
 };
 
+// Раздел списка («Новые» / «В работе» / «Выполненные»), в котором находится заявка.
+const dashboardFilterForApplication = (app = {}) => {
+  const status = getApplicationStatus(app);
+  if (status === 'done') return 'done';
+  if (['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(status)) return 'inwork';
+  return 'queue';
+};
+
 const updateStatsForApplicationTransition = (current = {}, before = {}, after = {}) => {
   const next = { ...current };
   const buckets = {
@@ -315,6 +323,9 @@ const Dashboard = () => {
   const applicationsRequestIdRef = useRef(0);
   const applicationsRequestUrlRef = useRef('');
   const openedApplicationFromQueryRef = useRef('');
+  // ID заявки, к которой нужно прокрутить список (приходят по ссылке из статистики).
+  const [scrollToApplicationId, setScrollToApplicationId] = useState(null);
+  const scrollTargetRef = useRef('');
 
   const [stats, setStats] = useState({
     total: 0,
@@ -588,6 +599,33 @@ const Dashboard = () => {
     }
   };
 
+  // Определяет номер страницы списка, на которой окажется заявка в выбранном
+  // разделе при текущей сортировке. Нужен, чтобы после перехода из статистики
+  // заявка была видна, а не оставалась на другой странице пагинации.
+  const resolveApplicationPage = async (app, targetFilter) => {
+    const pageLimit = Math.min(1000, Math.max(1, Number(limit) || 10));
+    const chunkSize = 1000;
+    let page = 1;
+    let totalPages = 1;
+    do {
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(chunkSize),
+        sort: sortMode
+      });
+      if (targetFilter && targetFilter !== 'all') params.set('status', targetFilter);
+      const response = await authFetch(`${API_BASE_URL}/applications?${params.toString()}`);
+      if (!response.ok) return 1;
+      const data = await response.json().catch(() => ({}));
+      const chunk = data.applications || [];
+      const index = chunk.findIndex((item) => String(item.id) === String(app.id));
+      if (index >= 0) return Math.floor(((page - 1) * chunkSize + index) / pageLimit) + 1;
+      totalPages = Math.max(1, Number(data.totalPages) || 1);
+      page += 1;
+    } while (page <= totalPages);
+    return 1;
+  };
+
   useEffect(() => {
     const applicationId = new URLSearchParams(location.search).get('application');
     if (!applicationId || openedApplicationFromQueryRef.current === applicationId) return undefined;
@@ -600,6 +638,28 @@ const Dashboard = () => {
         if (!response.ok) throw new Error(data.error || 'Не удалось открыть заявку');
         if (!active || !data.application) return;
         openedApplicationFromQueryRef.current = applicationId;
+
+        // Переходим в тот раздел списка, где находится заявка, и на ту страницу,
+        // где она реально отображается. Поиск и период сбрасываем, иначе заявка
+        // может остаться за пределами выборки.
+        const targetFilter = dashboardFilterForApplication(data.application);
+        const targetPage = await resolveApplicationPage(data.application, targetFilter);
+        if (!active) return;
+        const needsReload = filter !== targetFilter
+          || currentPage !== targetPage
+          || Boolean(searchTerm.trim())
+          || dateFilterActive;
+        setSearchTerm('');
+        setFromDate('');
+        setToDate('');
+        setDateFilterActive(false);
+        setFilter(targetFilter);
+        setCurrentPage(targetPage);
+        setScrollToApplicationId(data.application.id);
+        if (needsReload) {
+          setApplications([]);
+          setLoading(true);
+        }
         await openApplicationPanel(data.application);
       } catch (queryError) {
         if (active) showToast(queryError.message || 'Не удалось открыть заявку', 'error');
@@ -612,6 +672,27 @@ const Dashboard = () => {
     // открываем её только при изменении ID в адресной строке.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.search]);
+
+  // Прокручиваем список к заявке, к которой перешли из статистики. Подсветка
+  // здесь не нужна: она привязана к открытой карточке заявки.
+  useEffect(() => {
+    if (scrollToApplicationId == null) return undefined;
+    const scrollTimer = window.setTimeout(() => {
+      if (scrollTargetRef.current === String(scrollToApplicationId)) return;
+      const node = document.querySelector(`[data-application-id="${scrollToApplicationId}"]`);
+      if (!node) return;
+      scrollTargetRef.current = String(scrollToApplicationId);
+      node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 150);
+    const clearTimer = window.setTimeout(() => {
+      scrollTargetRef.current = '';
+      setScrollToApplicationId(null);
+    }, 8000);
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [scrollToApplicationId, applications]);
 
   const closeApplicationPanel = () => {
     setSelectedApplication(null);
@@ -1130,6 +1211,9 @@ const Dashboard = () => {
     ? selectedAppTimes.totalSeconds
     : null;
 
+  // Рыжая подсветка в списке и ленте показывает заявку, карточка которой открыта.
+  const openApplicationId = selectedApplication?.id ?? null;
+
   return (
     <div className="dashboard-container">
       {/* Заголовок */}
@@ -1330,7 +1414,7 @@ const Dashboard = () => {
                             return (
                               <button
                                 type="button"
-                                className={`timeline-request timeline-request--modern timeline-request--${status}`}
+                                className={`timeline-request timeline-request--modern timeline-request--${status}${String(openApplicationId) === String(app.id) ? ' timeline-request--target' : ''}`} data-application-id={app.id}
                                 key={app.id}
                                 onClick={() => openApplicationPanel(app)}
                               >
@@ -1352,7 +1436,7 @@ const Dashboard = () => {
                             );
                           }
                           return (
-                            <button type="button" className="timeline-request" key={app.id} onClick={() => openApplicationPanel(app)}>
+                            <button type="button" className={`timeline-request${String(openApplicationId) === String(app.id) ? ' timeline-request--target' : ''}`} key={app.id} data-application-id={app.id} onClick={() => openApplicationPanel(app)}>
                               <strong className="timeline-title">{app.application || 'Без названия заявки'}</strong>
                               <span className="timeline-contact">{app.name || 'ФИО не указано'} · каб. {app.cabinet || '—'} · тел. {app.N_tel || '—'}</span>
                               <small>#{app.id} · {formatTime(app.created_at || app.data)} · {getStatusLabel(app)}</small>
@@ -1386,7 +1470,7 @@ const Dashboard = () => {
                         return (
 	                      <tr
 	                        key={app.id}
-                        className={`${app.fl ? 'row-completed' : `row-${app.status || 'new'}`} ${selectedApplication?.id === app.id ? 'row-selected' : ''}`}
+                        className={`${app.fl ? 'row-completed' : `row-${app.status || 'new'}`}${String(openApplicationId) === String(app.id) ? ' row-selected application-row--target' : ''}`} data-application-id={app.id}
 	                        onClick={() => openApplicationPanel(app)}
 	                      >
 	                        <td className="select-column" onClick={(event) => event.stopPropagation()}>
