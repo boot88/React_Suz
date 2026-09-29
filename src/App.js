@@ -183,15 +183,19 @@ function AppWorkspace() {
 
 const SIDEBAR_COPY = {
   ru: {
-    product: 'НИОХ Система', descriptor: 'Центр управления', work: 'Работа', requests: 'Заявки', add: 'Новая заявка', chat: 'Чат',
-    analytics: 'Аналитика', statistics: 'Статистика', system: 'Система', settings: 'Настройки', directory: 'Справочник сотрудников',
-    knowledge: 'База знаний', network: 'Диагностика сети', administrator: 'Администратор',
+    product: 'НИОХ Система', descriptor: 'Центр управления', work: 'Работа', requests: 'Заявки', add: 'Новая заявка',
+    communication: 'Общение', chat: 'Чат', chatAdmin: 'Управление чатом',
+    directories: 'Справочники', directory: 'Справочник сотрудников', knowledge: 'База знаний',
+    diagnostics: 'Диагностика', statistics: 'Статистика', network: 'Диагностика сети',
+    administration: 'Администрирование', settings: 'Настройки', administrator: 'Администратор',
     language: 'Язык', appearance: 'Тема', light: 'Светлая', dark: 'Тёмная', logout: 'Выйти', navigation: 'Основная навигация', openMenu: 'Открыть меню'
   },
   en: {
-    product: 'NIOCh System', descriptor: 'Control centre', work: 'Workspace', requests: 'Requests', add: 'New request', chat: 'Chat',
-    analytics: 'Analytics', statistics: 'Statistics', system: 'System', settings: 'Settings', directory: 'Employee directory',
-    knowledge: 'Knowledge base', network: 'Network diagnostics', administrator: 'Administrator',
+    product: 'NIOCh System', descriptor: 'Control centre', work: 'Workspace', requests: 'Requests', add: 'New request',
+    communication: 'Communication', chat: 'Chat', chatAdmin: 'Chat administration',
+    directories: 'Reference data', directory: 'Employee directory', knowledge: 'Knowledge base',
+    diagnostics: 'Diagnostics', statistics: 'Statistics', network: 'Network diagnostics',
+    administration: 'Administration', settings: 'Settings', administrator: 'Administrator',
     language: 'Language', appearance: 'Theme', light: 'Light', dark: 'Dark', logout: 'Sign out', navigation: 'Primary navigation', openMenu: 'Open menu'
   }
 };
@@ -341,15 +345,17 @@ function Sidebar({ language }) {
               </Link>
             </li>
             <li className={isActive('/add') ? 'nav-item active' : 'nav-item'}><Link to="/add" className="nav-link"><span className="nav-icon nav-icon--add" aria-hidden="true" /><span className="nav-text">{copy.add}</span></Link></li>
+            <li className="nav-group-title">{copy.communication}</li>
             <li className={isActive('/employee') ? 'nav-item active' : 'nav-item'}><Link to="/employee" className="nav-link" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); setIsMobileOpen(false); requestAdminWorkspaceTransition('/employee'); }}><span className="nav-icon nav-icon--chat" aria-hidden="true" /><span className="nav-text">{copy.chat}</span>{chatUnreadCount > 0 && <span className="nav-badge">{chatUnreadCount > 99 ? '99+' : chatUnreadCount}</span>}</Link></li>
-            <li className="nav-item"><Link to="/chat-tools/audit" className="nav-link"><span className="nav-icon nav-icon--chat" aria-hidden="true" /><span className="nav-text">{language === 'ru' ? 'Управление чатом' : 'Chat administration'}</span></Link></li>
-            <li className="nav-group-title">{copy.analytics}</li>
-            <li className={isActive('/statistics') ? 'nav-item active' : 'nav-item'}><Link to="/statistics" className="nav-link"><span className="nav-icon nav-icon--chart" aria-hidden="true" /><span className="nav-text">{copy.statistics}</span></Link></li>
-            <li className="nav-group-title">{copy.system}</li>
-            <li className={isActive('/settings') ? 'nav-item active' : 'nav-item'}><Link to="/settings" className="nav-link"><span className="nav-icon nav-icon--settings" aria-hidden="true" /><span className="nav-text">{copy.settings}</span></Link></li>
+            <li className={location.pathname.startsWith('/chat-tools') ? 'nav-item active' : 'nav-item'}><Link to="/chat-tools/audit" className="nav-link"><span className="nav-icon nav-icon--chat" aria-hidden="true" /><span className="nav-text">{copy.chatAdmin}</span></Link></li>
+            <li className="nav-group-title">{copy.directories}</li>
             <li className={isActive('/employee-search') ? 'nav-item active' : 'nav-item'}><Link to="/employee-search" className="nav-link"><span className="nav-icon nav-icon--people" aria-hidden="true" /><span className="nav-text">{copy.directory}</span></Link></li>
             <li className={isActive('/knowledge-base') ? 'nav-item active' : 'nav-item'}><Link to="/knowledge-base" className="nav-link"><span className="nav-icon nav-icon--book" aria-hidden="true" /><span className="nav-text">{copy.knowledge}</span></Link></li>
+            <li className="nav-group-title">{copy.diagnostics}</li>
+            <li className={isActive('/statistics') ? 'nav-item active' : 'nav-item'}><Link to="/statistics" className="nav-link"><span className="nav-icon nav-icon--chart" aria-hidden="true" /><span className="nav-text">{copy.statistics}</span></Link></li>
             <li className={isActive('/network-map') ? 'nav-item active' : 'nav-item'}><Link to="/network-map" className="nav-link"><span className="nav-icon nav-icon--network" aria-hidden="true" /><span className="nav-text">{copy.network}</span></Link></li>
+            <li className="nav-group-title">{copy.administration}</li>
+            <li className={isActive('/settings') ? 'nav-item active' : 'nav-item'}><Link to="/settings" className="nav-link"><span className="nav-icon nav-icon--settings" aria-hidden="true" /><span className="nav-text">{copy.settings}</span></Link></li>
           </ul>
         </nav>
 
