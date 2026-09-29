@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import './NetworkMap.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
+import { getVisibleNetworkRows } from '../utils/networkMapRows';
 
 const OFFICIAL_SITE_URL = 'http://nioch.nioch.nsc.ru/nioch/';
 const IP_LAST_OCTET_MIN = 1;
@@ -88,6 +89,17 @@ const parseNetworkZone = (zoneText = '') => {
   }).sort((a, b) => ipToNumber(`${a.networkKey}.0`) - ipToNumber(`${b.networkKey}.0`));
 };
 
+// Строка таблицы вынесена в memo-компонент: при смене фильтра или поиска
+// перерисовываются только адреса, у которых реально изменились данные.
+const NetworkRow = memo(({ ip, status, host }) => (
+  <tr className={status === 'free' ? 'ip-free' : 'ip-occupied'}>
+    <td>{ip}</td>
+    <td>{status === 'free' ? 'Свободен' : 'Занят'}</td>
+    <td>{host}</td>
+  </tr>
+));
+NetworkRow.displayName = 'NetworkRow';
+
 const NetworkMap = () => {
   const [networkZoneText, setNetworkZoneText] = useState('');
   const [networkLoading, setNetworkLoading] = useState(false);
@@ -95,6 +107,10 @@ const NetworkMap = () => {
   const [networkUpdatedAt, setNetworkUpdatedAt] = useState('');
   const [networkSearch, setNetworkSearch] = useState('');
   const [networkFilter, setNetworkFilter] = useState('all');
+  const [expandedNetworks, setExpandedNetworks] = useState(() => new Set());
+  // Поле поиска остаётся отзывчивым: тяжёлая фильтрация выполняется
+  // в отложенном рендере, а не на каждое нажатие клавиши.
+  const deferredNetworkSearch = useDeferredValue(networkSearch);
 
   const fetchNetworkMap = useCallback(async () => {
     setNetworkLoading(true);
@@ -142,7 +158,7 @@ const NetworkMap = () => {
   }), { networks: 0, occupied: 0, free: 0 }), [networkGroups]);
 
   const filteredNetworkGroups = useMemo(() => {
-    const query = networkSearch.trim().toLowerCase();
+    const query = deferredNetworkSearch.trim().toLowerCase();
 
     return networkGroups.map((network) => {
       const occupiedRows = network.occupied
@@ -160,7 +176,16 @@ const NetworkMap = () => {
 
       return { ...network, rows: [...occupiedRows, ...freeRows].sort((a, b) => ipToNumber(a.ip) - ipToNumber(b.ip)) };
     }).filter((network) => network.rows.length > 0 || (!query && networkFilter === 'all'));
-  }, [networkFilter, networkGroups, networkSearch]);
+  }, [deferredNetworkSearch, networkFilter, networkGroups]);
+
+  const toggleNetworkRows = useCallback((cidr) => {
+    setExpandedNetworks((prev) => {
+      const next = new Set(prev);
+      if (next.has(cidr)) next.delete(cidr);
+      else next.add(cidr);
+      return next;
+    });
+  }, []);
 
   return (
     <div className="network-map-page">
@@ -202,45 +227,68 @@ const NetworkMap = () => {
 
       <div className="network-tables">
         {filteredNetworkGroups.length === 0 && <div className="network-empty">Сетка не найдена по текущему поиску</div>}
-        {filteredNetworkGroups.map((network) => (
-          <article key={network.cidr} className="network-card">
-            <header>
-              <div>
-                <h3>{network.cidr}</h3>
-                <p>{network.section}</p>
+        {filteredNetworkGroups.map((network) => {
+          const { visibleRows, hiddenCount: hiddenRows, canCollapse } = getVisibleNetworkRows(network.rows, {
+            expanded: expandedNetworks.has(network.cidr)
+          });
+
+          return (
+            <article key={network.cidr} className="network-card">
+              <header>
+                <div>
+                  <h3>{network.cidr}</h3>
+                  <p>{network.section}</p>
+                </div>
+                <div className="network-card-stats">
+                  <span className="occupied">Занято: {network.occupied.length}</span>
+                  <span className="free">Свободно: {network.freeIps.length}</span>
+                </div>
+              </header>
+              <div className="free-ranges">
+                <strong>Свободные диапазоны:</strong>
+                <span>{network.freeRanges.slice(0, 8).join(', ') || 'нет'}</span>
+                {network.freeRanges.length > 8 && <em>ещё {network.freeRanges.length - 8}</em>}
               </div>
-              <div className="network-card-stats">
-                <span className="occupied">Занято: {network.occupied.length}</span>
-                <span className="free">Свободно: {network.freeIps.length}</span>
-              </div>
-            </header>
-            <div className="free-ranges">
-              <strong>Свободные диапазоны:</strong>
-              <span>{network.freeRanges.slice(0, 8).join(', ') || 'нет'}</span>
-              {network.freeRanges.length > 8 && <em>ещё {network.freeRanges.length - 8}</em>}
-            </div>
-            <div className="network-table-wrap">
-              <table className="network-table">
-                <thead>
-                  <tr>
-                    <th>IP</th>
-                    <th>Статус</th>
-                    <th>Хост</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {network.rows.map((row) => (
-                    <tr key={`${network.cidr}-${row.ip}-${row.status}`} className={row.status === 'free' ? 'ip-free' : 'ip-occupied'}>
-                      <td>{row.ip}</td>
-                      <td>{row.status === 'free' ? 'Свободен' : 'Занят'}</td>
-                      <td>{row.host}</td>
+              <div className="network-table-wrap">
+                <table className="network-table">
+                  <thead>
+                    <tr>
+                      <th>IP</th>
+                      <th>Статус</th>
+                      <th>Хост</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </article>
-        ))}
+                  </thead>
+                  <tbody>
+                    {visibleRows.map((row) => (
+                      <NetworkRow
+                        key={`${network.cidr}-${row.ip}-${row.status}`}
+                        ip={row.ip}
+                        status={row.status}
+                        host={row.host}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {(hiddenRows > 0 || canCollapse) && (
+                <div className="network-table-footer">
+                  <span className="network-table-note">
+                    {hiddenRows > 0
+                      ? `Показаны первые ${visibleRows.length} из ${network.rows.length} адресов`
+                      : `Показаны все ${network.rows.length} адресов`}
+                  </span>
+                  <button
+                    type="button"
+                    className="network-table-toggle"
+                    onClick={() => toggleNetworkRows(network.cidr)}
+                  >
+                    {canCollapse ? 'Свернуть' : `Показать все (${network.rows.length})`}
+                  </button>
+                </div>
+              )}
+            </article>
+          );
+        })}
       </div>
     </div>
   );
