@@ -23,14 +23,21 @@ import {
   toApplicationTimestamp
 } from '../utils/applicationTime';
 
+// Одиночные исполнители: в фильтре выбора показываем только их фамилии с галочками.
+const EXECUTORS = [
+  { name: 'Повисок Е.В.', shortName: 'П.Е.', surname: 'Повисок', initials: ['п', 'е'] },
+  { name: 'Андреев Р.В.', shortName: 'А.Р.', surname: 'Андреев', initials: ['а', 'р'] },
+  { name: 'Польников Д.В.', shortName: 'П.Д.', surname: 'Польников', initials: ['п', 'д'] }
+];
+
+// Категории заявок по составу исполнителей: одиночные, затем пары и тройка.
+// people — точный состав, по нему считается и фильтр, и сводка.
 const EXECUTOR_CATEGORIES = [
-  { name: 'Повисок Е.В.', shortName: 'П.Е.', group: 'Один исполнитель' },
-  { name: 'Андреев Р.В.', shortName: 'А.Р.', group: 'Один исполнитель' },
-  { name: 'Польников Д.В.', shortName: 'П.Д.', group: 'Один исполнитель' },
-  { name: 'Повисок Е.В. Польников Д.В.', shortName: 'П.Е. + П.Д.', group: 'Пара' },
-  { name: 'Повисок Е.В. Андреев Р.В.', shortName: 'П.Е. + А.Р.', group: 'Пара' },
-  { name: 'Польников Д.В. Андреев Р.В.', shortName: 'П.Д. + А.Р.', group: 'Пара' },
-  { name: 'Повисок Е.В. Польников Д.В. Андреев Р.В.', shortName: 'П.Е. + П.Д. + А.Р.', group: 'Тройка' }
+  ...EXECUTORS.map((person) => ({ ...person, people: [person.name], group: 'Один исполнитель' })),
+  { name: 'Повисок Е.В. Польников Д.В.', shortName: 'П.Е. + П.Д.', group: 'Пара', people: ['Повисок Е.В.', 'Польников Д.В.'] },
+  { name: 'Повисок Е.В. Андреев Р.В.', shortName: 'П.Е. + А.Р.', group: 'Пара', people: ['Повисок Е.В.', 'Андреев Р.В.'] },
+  { name: 'Польников Д.В. Андреев Р.В.', shortName: 'П.Д. + А.Р.', group: 'Пара', people: ['Польников Д.В.', 'Андреев Р.В.'] },
+  { name: 'Повисок Е.В. Польников Д.В. Андреев Р.В.', shortName: 'П.Е. + П.Д. + А.Р.', group: 'Тройка', people: ['Повисок Е.В.', 'Польников Д.В.', 'Андреев Р.В.'] }
 ];
 
 const STATUS_GROUPS = [
@@ -52,19 +59,28 @@ const hasInitials = (value, surnameInitial, nameInitial) => {
   return pattern.test(value);
 };
 
-const executorCategoryOf = (value = '') => {
+// Кто из наших исполнителей указан в заявке: фамилия целиком или инициалы.
+const executorsOf = (value = '') => {
   const executor = String(value).toLocaleLowerCase('ru-RU');
-  const selected = [
-    (executor.includes('повисок') || hasInitials(executor, 'п', 'е')) && 'Повисок Е.В.',
-    (executor.includes('андреев') || hasInitials(executor, 'а', 'р')) && 'Андреев Р.В.',
-    (executor.includes('польников') || hasInitials(executor, 'п', 'д')) && 'Польников Д.В.'
-  ].filter(Boolean);
+  return EXECUTORS
+    .filter(({ surname, initials }) => (
+      executor.includes(surname.toLocaleLowerCase('ru-RU')) || hasInitials(executor, initials[0], initials[1])
+    ))
+    .map(({ name }) => name);
+};
 
-  if (selected.length === 0) return null;
-  return EXECUTOR_CATEGORIES.find(({ name }) => {
-    const peopleInCategory = ['Повисок Е.В.', 'Андреев Р.В.', 'Польников Д.В.'].filter((person) => name.includes(person));
-    return peopleInCategory.length === selected.length && selected.every((person) => peopleInCategory.includes(person));
-  })?.name || null;
+// Категория заявки по точному составу исполнителей; null — состав не из наших категорий.
+const categoryOfPeople = (people = []) => EXECUTOR_CATEGORIES
+  .find((category) => (
+    category.people.length === people.length && category.people.every((person) => people.includes(person))
+  ))?.name || null;
+
+// Галочки складываются по «И»: выбрано несколько фамилий — показываются заявки, где
+// работали все выбранные. Пустой выбор — все заявки.
+const matchExecutors = (value, selected = []) => {
+  if (selected.length === 0) return true;
+  const people = executorsOf(value);
+  return selected.every((person) => people.includes(person));
 };
 
 const getDayKey = (app = {}) => {
@@ -86,16 +102,19 @@ const shiftDayKey = (dayKey, days) => {
 
 const getApplicationTitle = (app = {}) => app.application || app.name || 'Без названия заявки';
 
+// Минимальная выборка — неделя: суточной статистики в отчёте нет.
+const MIN_RANGE_DAYS = 7;
+// По умолчанию показываем заявки за последние три месяца.
+const DEFAULT_RANGE_DAYS = 90;
 const RANGE_PRESETS = [
-  { days: 1, label: '1 день' },
-  { days: 7, label: '7 дней' },
-  { days: 30, label: '1 месяц' },
-  { days: 90, label: '3 месяца' },
-  { days: 180, label: '6 месяцев' }
+  { days: 7, label: '7 дней', optionLabel: 'Последние 7 дней' },
+  { days: 30, label: '1 месяц', optionLabel: 'Последние 30 дней' },
+  { days: 90, label: '3 месяца', optionLabel: 'Последние 3 месяца' },
+  { days: 180, label: '6 месяцев', optionLabel: 'Последние 6 месяцев' }
 ];
 
 const snapRangeDays = (days, availableDays) => {
-  const safeDays = Math.max(1, Math.min(availableDays, Math.round(days)));
+  const safeDays = Math.max(MIN_RANGE_DAYS, Math.min(availableDays, Math.round(days)));
   const candidates = [...RANGE_PRESETS.map(({ days: value }) => value), availableDays]
     .filter((value) => value <= availableDays);
   const nearest = candidates.reduce((best, value) => (
@@ -149,9 +168,8 @@ export default function StatisticsOverview() {
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [period, setPeriod] = useState('30');
-  const [executor, setExecutor] = useState('all');
-  const [category, setCategory] = useState('all');
+  const [period, setPeriod] = useState(String(DEFAULT_RANGE_DAYS));
+  const [selectedExecutors, setSelectedExecutors] = useState([]);
   const [activeDay, setActiveDay] = useState('');
   const [isDraggingChart, setIsDraggingChart] = useState(false);
   const [chartDragDirection, setChartDragDirection] = useState('');
@@ -183,11 +201,6 @@ export default function StatisticsOverview() {
     return () => { active = false; };
   }, []);
 
-  const categories = useMemo(() => (
-    [...new Set(applications.map((app) => app.category).filter(Boolean))]
-      .sort((a, b) => a.localeCompare(b, 'ru'))
-  ), [applications]);
-
   const availableRangeDays = useMemo(() => {
     const timestamps = applications
       .map((app) => toApplicationTimestamp(app.created_at || app.data))
@@ -210,18 +223,17 @@ export default function StatisticsOverview() {
     });
   }, [applications]);
 
-  const periodAndCategoryFiltered = useMemo(() => {
+  const periodFiltered = useMemo(() => {
     const threshold = period === 'all' ? null : Date.now() - Number(period) * 86400000;
     return applications.filter((app) => {
       const createdAt = toApplicationTimestamp(app.created_at || app.data);
-      const inPeriod = !threshold || (createdAt && createdAt >= threshold);
-      return inPeriod && (category === 'all' || app.category === category);
+      return !threshold || (createdAt && createdAt >= threshold);
     });
-  }, [applications, period, category]);
+  }, [applications, period]);
 
   const filtered = useMemo(() => (
-    periodAndCategoryFiltered.filter((app) => executor === 'all' || executorCategoryOf(app.executor) === executor)
-  ), [periodAndCategoryFiltered, executor]);
+    periodFiltered.filter((app) => matchExecutors(app.executor, selectedExecutors))
+  ), [periodFiltered, selectedExecutors]);
 
   const metrics = useMemo(() => {
     const statusCounts = { queue: 0, work: 0, done: 0 };
@@ -278,13 +290,11 @@ export default function StatisticsOverview() {
     .map((status) => ({ ...status, value: metrics[status.key] }))
     .filter(({ value }) => value > 0), [metrics]);
 
-  const executorRows = useMemo(() => {
-    const visibleCategories = executor === 'all'
-      ? EXECUTOR_CATEGORIES
-      : EXECUTOR_CATEGORIES.filter(({ name }) => name === executor);
-
-    return visibleCategories.map((executorCategory) => {
-      const matching = periodAndCategoryFiltered.filter((app) => executorCategoryOf(app.executor) === executorCategory.name);
+  // Сводка: строки — категории, в которых есть все выбранные исполнители.
+  const executorRows = useMemo(() => EXECUTOR_CATEGORIES
+    .filter(({ people }) => selectedExecutors.every((person) => people.includes(person)))
+    .map((executorCategory) => {
+      const matching = periodFiltered.filter((app) => categoryOfPeople(executorsOf(app.executor)) === executorCategory.name);
       const counts = { queue: 0, work: 0, done: 0 };
       matching.forEach((app) => { counts[getStatusGroup(app)] += 1; });
       return {
@@ -292,8 +302,7 @@ export default function StatisticsOverview() {
         ...counts,
         total: matching.length
       };
-    });
-  }, [periodAndCategoryFiltered, executor]);
+    }), [periodFiltered, selectedExecutors]);
 
   const workload = useMemo(() => executorRows.map((row) => ({
     name: row.shortName,
@@ -380,12 +389,19 @@ export default function StatisticsOverview() {
     navigate(`/?application=${encodeURIComponent(app.id)}`);
   };
 
-  const hasFilters = period !== '30' || executor !== 'all' || category !== 'all';
+  const selectedSurnames = useMemo(() => EXECUTORS
+    .filter(({ name }) => selectedExecutors.includes(name))
+    .map(({ surname }) => surname), [selectedExecutors]);
+  const selectionLabel = selectedSurnames.length ? `Заявки, где работали: ${selectedSurnames.join(', ')}` : '';
+
+  const hasFilters = period !== String(DEFAULT_RANGE_DAYS) || selectedExecutors.length > 0;
   const resetFilters = () => {
-    setPeriod('30');
-    setExecutor('all');
-    setCategory('all');
+    setPeriod(String(DEFAULT_RANGE_DAYS));
+    setSelectedExecutors([]);
   };
+  const toggleExecutor = (name) => setSelectedExecutors((current) => (
+    current.includes(name) ? current.filter((person) => person !== name) : [...current, name]
+  ));
 
   return <main className="statistics-overview">
     <header className="statistics-head">
@@ -397,10 +413,20 @@ export default function StatisticsOverview() {
     </header>
 
     <section className="statistics-filters" aria-label="Фильтры статистики">
-      <label>Период<select value={period} onChange={(event) => setPeriod(event.target.value)}>{customPeriod && <option value={period}>Последние {period} дней</option>}<option value="1">Последний день</option><option value="7">Последние 7 дней</option><option value="30">Последние 30 дней</option><option value="90">Последние 3 месяца</option><option value="180">Последние 6 месяцев</option><option value="all">Всё время</option></select></label>
-      <label>Исполнитель<select value={executor} onChange={(event) => setExecutor(event.target.value)}><option value="all">Все исполнители</option>{EXECUTOR_CATEGORIES.map(({ name }) => <option key={name} value={name}>{name}</option>)}</select></label>
-      <label>Категория<select value={category} onChange={(event) => setCategory(event.target.value)}><option value="all">Все категории</option>{categories.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+      <label className="statistics-period">Период<select value={period} onChange={(event) => setPeriod(event.target.value)}>{customPeriod && <option value={period}>Последние {period} дней</option>}{RANGE_PRESETS.map(({ days, optionLabel }) => <option key={days} value={String(days)}>{optionLabel}</option>)}<option value="all">Всё время</option></select></label>
+      <fieldset className="statistics-executors">
+        <legend>Исполнитель</legend>
+        <div className="statistics-executor-list">
+          {EXECUTORS.map((person) => <label key={person.name} className={`statistics-executor-option ${selectedExecutors.includes(person.name) ? 'is-active' : ''}`} title={person.name}>
+            <input type="checkbox" checked={selectedExecutors.includes(person.name)} onChange={() => toggleExecutor(person.name)} />
+            <span>{person.surname}</span>
+          </label>)}
+        </div>
+      </fieldset>
       {hasFilters && <button type="button" className="statistics-reset" onClick={resetFilters}>Сбросить</button>}
+      <small className="statistics-filters-hint">{selectedExecutors.length > 1
+        ? 'Показаны заявки, где работали все выбранные исполнители'
+        : selectedExecutors.length === 1 ? 'Показаны заявки выбранного исполнителя' : 'Показаны все заявки: ни одна фамилия не выбрана'}</small>
     </section>
 
     {loading && <div className="statistics-state">Загрузка статистики…</div>}
@@ -482,7 +508,7 @@ export default function StatisticsOverview() {
         </article>
 
         <article className="report-card">
-          <div className="report-card-head"><div><h2>Нагрузка по исполнителям</h2><p>Одиночные, затем пары и тройка</p></div></div>
+          <div className="report-card-head"><div><h2>Нагрузка по исполнителям</h2><p>{selectionLabel || 'Одиночные, затем пары и тройка'}</p></div></div>
           <div className="chart-box chart-box--workload"><ResponsiveContainer><BarChart data={workload} layout="vertical" margin={{ top: 4, right: 20, left: 0, bottom: 4 }}><CartesianGrid strokeDasharray="3 3" horizontal={false} /><XAxis type="number" allowDecimals={false} /><YAxis type="category" dataKey="name" width={106} tick={{ fontSize: 12 }} /><Tooltip formatter={(value) => [value, 'Заявки']} labelFormatter={(label, payload) => payload?.[0]?.payload?.fullName || label} /><Bar dataKey="value" name="Заявки" fill="#4f86a7" radius={[0, 5, 5, 0]} /></BarChart></ResponsiveContainer></div>
         </article>
 
@@ -493,7 +519,7 @@ export default function StatisticsOverview() {
 
         <article className="report-card report-card--wide executor-summary-card">
           <div className="report-card-head">
-            <div><h2>Сводка по исполнителям</h2><p>В статистике учитываются только Повисок Е.В., Андреев Р.В., Польников Д.В. и их сочетания</p></div>
+            <div><h2>Сводка по исполнителям</h2><p>{selectedSurnames.length ? `Сочетания с участием: ${selectedSurnames.join(', ')}` : 'В статистике учитываются только Повисок Е.В., Андреев Р.В., Польников Д.В. и их сочетания'}</p></div>
           </div>
           <div className="statistics-table-wrap">
             <table className="statistics-table">
