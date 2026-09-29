@@ -121,42 +121,42 @@
   white-space: nowrap;
 }
 
+/* Приветствие при первом входе: «Добро пожаловать, Евгений! Сегодня вторник, 15 сент.»
+   Одна строка без переноса, надпись держится в верхней части экрана (не по центру). */
 .chat-welcome-notice {
   position: fixed;
   inset: 0;
   z-index: 80;
   display: grid;
-  place-items: center;
+  place-items: start center;
+  /* Отступ сверху: заметно выше середины экрана, но не липнет к краю. */
+  padding: clamp(56px, 13vh, 150px) 16px 0;
   pointer-events: none;
-  animation: chat-welcome-fade 1.8s ease both;
+  /* Длительность анимации = WELCOME_NOTICE_DURATION_MS (3 с) из src/utils/welcomeGreeting.js. */
+  animation: chat-welcome-fade 3s ease both;
 }
 
 .chat-welcome-notice span {
-  max-width: min(440px, calc(100vw - 48px));
-  display: grid;
-  gap: 8px;
-  padding: 24px 30px;
+  display: block;
+  max-width: 100%;
+  padding: 16px 28px;
   border: 1px solid color-mix(in srgb, var(--chat-accent) 38%, var(--chat-border));
   border-radius: 22px;
   background: linear-gradient(135deg, color-mix(in srgb, var(--chat-surface) 96%, var(--chat-accent) 4%), color-mix(in srgb, var(--chat-surface) 90%, var(--chat-accent-2) 10%));
   box-shadow: 0 22px 56px rgba(20, 31, 44, .22);
   color: var(--chat-ink);
-  font-size: clamp(25px, 3vw, 36px);
+  font-size: clamp(14px, 1.7vw, 22px);
   font-weight: 850;
-  letter-spacing: -.025em;
+  letter-spacing: -.02em;
+  line-height: 1.25;
   text-align: center;
+  white-space: nowrap;
 }
 
-.chat-welcome-notice small {
-  color: var(--chat-muted);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: .14em;
-  text-transform: uppercase;
-}
-
-.chat-welcome-notice strong {
-  font: inherit;
+/* На узких экранах одна строка физически не влезает — разрешаем перенос,
+   чтобы текст не выходил за рамку. */
+@media (max-width: 560px) {
+  .chat-welcome-notice span { white-space: normal; }
 }
 
 @keyframes chat-welcome-fade {

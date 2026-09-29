@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, createContext, useContext } f
 import { AUTH_STATE_KEY, LOCAL_EMPLOYEES_KEY } from '../config/authConfig';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
+import { clearWelcomeGreeting } from '../utils/welcomeGreeting';
 
 const AuthContext = createContext();
 const AUTH_SESSION_TIMEOUT_MS = 15 * 60 * 1000;
@@ -175,49 +176,13 @@ export const AuthProvider = ({ children }) => {
     if (!response.ok) throw new Error(data.message || 'Не удалось сменить пароль');
   };
 
-  const registerEmployee = async (email, profile = {}) => {
-    const normalizedEmail = email.trim().toLowerCase();
-    const password = String(profile.password || '');
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      throw new Error('Введите корректный email');
-    }
-
-    if (password.length < 8) {
-      throw new Error('Пароль должен содержать минимум 8 символов');
-    }
-
-    const response = await authFetch(`${API_BASE_URL}/auth/register`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        login: normalizedEmail,
-        full_name: profile.fullName?.trim() || normalizedEmail,
-        department: profile.department || null,
-        phone: profile.internalPhone || null,
-        room: profile.room || null,
-        password,
-        role: profile.role === 'manager' ? 'manager' : 'employee'
-      })
-    });
-
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(data.message || 'Ошибка регистрации');
-    }
-
-    return {
-      email: normalizedEmail
-    };
-  };
-
   const verifyEmployeeEmail = () => true;
 
   const logout = useCallback((options = {}) => {
     if (options.reason !== 'expired') authFetch(`${API_BASE_URL}/auth/logout`, { method: 'POST', keepalive: true }).catch(() => {});
     if (user?.username) {
+      // Приветствие при входе показываем заново при следующем входе в систему.
+      clearWelcomeGreeting(user.username);
       if (user?.role === 'employee') {
         const nextEmployees = upsertEmployeeOnlineStatus(user.username, false);
         mergeEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
@@ -457,7 +422,6 @@ export const AuthProvider = ({ children }) => {
         isLoading,
         login,
         logout,
-        registerEmployee,
         changeServicePassword,
         verifyEmployeeEmail,
         employeeDirectory

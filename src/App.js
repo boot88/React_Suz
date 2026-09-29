@@ -5,7 +5,6 @@ import Dashboard from './pages/Dashboard';
 import AddApplication from './pages/AddApplication';
 import EditApplication from './pages/EditApplicationsTable';
 import Login from './pages/Login';
-import Register from './pages/Register';
 import EmployeeSearch from './pages/EmployeeSearch';
 import KnowledgeBase from './pages/KnowledgeBase';
 import NetworkMap from './pages/NetworkMap';
@@ -19,11 +18,49 @@ import Statistics from './pages/StatisticsOverview';
 import { API_BASE_URL } from './utils/apiConfig';
 import { authFetch } from './utils/authFetch';
 import { ADMIN_WORKSPACE_TRANSITION_EVENT, requestAdminWorkspaceTransition } from './utils/adminWorkspaceTransition';
+import { WELCOME_NOTICE_DURATION_MS, buildWelcomeGreeting, hasSeenWelcomeGreeting, markWelcomeGreetingSeen } from './utils/welcomeGreeting';
 
 
 function ChatAdministration() {
   const { section } = useParams();
   return section === 'audit' ? <EmployeeChat adminSection={section} /> : <Navigate to="/chat-tools/audit" replace />;
+}
+
+// Разделы чата в админке: «Управление чатом» и сам чат не считаются входом в админку,
+// поэтому приветствие там не показываем.
+const ADMIN_GREETING_EXCLUDED_PATHS = ['/chat-tools'];
+
+// Приветствие при первом входе: «Добро пожаловать, Евгений! Сегодня вторник, 15 сент.»
+// Админ видит его при первом входе в админку, сотрудник — при входе в чат (EmployeeChat).
+function AdminWelcomeNotice({ language }) {
+  const { user } = useAuth();
+  const { pathname } = useLocation();
+  const [notice, setNotice] = useState(null);
+  const isExcludedPath = ADMIN_GREETING_EXCLUDED_PATHS.some((path) => pathname.startsWith(path));
+
+  useEffect(() => {
+    if (!user?.username || isExcludedPath) return undefined;
+    if (hasSeenWelcomeGreeting(user.username)) return undefined;
+
+    markWelcomeGreetingSeen(user.username);
+    setNotice(buildWelcomeGreeting(user.name || user.username, language === 'en'));
+    return undefined;
+  }, [isExcludedPath, language, user?.name, user?.username]);
+
+  // Приветствие исчезает само через несколько секунд.
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timer = window.setTimeout(() => setNotice(null), WELCOME_NOTICE_DURATION_MS);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  if (!notice) return null;
+
+  return (
+    <div className="admin-welcome-notice" role="status" aria-live="polite">
+      <span>{notice}</span>
+    </div>
+  );
 }
 
 function App() {
@@ -111,10 +148,10 @@ function AppWorkspace() {
       {showAdminShell && <Sidebar language={adminLanguage} />}
       <div className={`app-content ${showAdminShell ? 'app-content--with-sidebar admin-shell-content' : ''}`}>
         {showAdminShell && <AdminTextTranslator language={adminLanguage} />}
+        {showAdminShell && <AdminWelcomeNotice language={adminLanguage} />}
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/admin" element={<Login mode="admin" />} />
-          <Route path="/register" element={<AdminRoute><Register /></AdminRoute>} />
 
           <Route path="/employee" element={<ProtectedRoute><EmployeeChat /></ProtectedRoute>} />
           <Route path="/chat-tools/:section" element={<AdminRoute><ChatAdministration /></AdminRoute>} />
@@ -148,13 +185,13 @@ const SIDEBAR_COPY = {
   ru: {
     product: 'НИОХ Система', descriptor: 'Центр управления', work: 'Работа', requests: 'Заявки', add: 'Новая заявка', chat: 'Чат',
     analytics: 'Аналитика', statistics: 'Статистика', system: 'Система', settings: 'Настройки', directory: 'Справочник сотрудников',
-    access: 'Управление доступом', knowledge: 'База знаний', network: 'Диагностика сети', administrator: 'Администратор',
+    knowledge: 'База знаний', network: 'Диагностика сети', administrator: 'Администратор',
     language: 'Язык', appearance: 'Тема', light: 'Светлая', dark: 'Тёмная', logout: 'Выйти', navigation: 'Основная навигация', openMenu: 'Открыть меню'
   },
   en: {
     product: 'NIOCh System', descriptor: 'Control centre', work: 'Workspace', requests: 'Requests', add: 'New request', chat: 'Chat',
     analytics: 'Analytics', statistics: 'Statistics', system: 'System', settings: 'Settings', directory: 'Employee directory',
-    access: 'Access management', knowledge: 'Knowledge base', network: 'Network diagnostics', administrator: 'Administrator',
+    knowledge: 'Knowledge base', network: 'Network diagnostics', administrator: 'Administrator',
     language: 'Language', appearance: 'Theme', light: 'Light', dark: 'Dark', logout: 'Sign out', navigation: 'Primary navigation', openMenu: 'Open menu'
   }
 };
@@ -173,17 +210,10 @@ function Sidebar({ language }) {
     }
   });
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
-  const [accessManagementVisible, setAccessManagementVisible] = useState(() => localStorage.getItem('admin.showAccessManagement') === 'true');
   // Ответы на подсчёт непрочитанных могут приходить не в том же порядке,
   // в котором были отправлены запросы. Храним версию, чтобы старый ответ
   // не вернул индикатор после того, как диалог уже был прочитан.
   const chatUnreadRequestVersionRef = useRef(0);
-
-  useEffect(() => {
-    const syncAccessManagementVisibility = () => setAccessManagementVisible(localStorage.getItem('admin.showAccessManagement') === 'true');
-    window.addEventListener('admin:access-management-visibility', syncAccessManagementVisibility);
-    return () => window.removeEventListener('admin:access-management-visibility', syncAccessManagementVisibility);
-  }, []);
 
   useEffect(() => {
     const handleResize = () => {
@@ -318,7 +348,6 @@ function Sidebar({ language }) {
             <li className="nav-group-title">{copy.system}</li>
             <li className={isActive('/settings') ? 'nav-item active' : 'nav-item'}><Link to="/settings" className="nav-link"><span className="nav-icon nav-icon--settings" aria-hidden="true" /><span className="nav-text">{copy.settings}</span></Link></li>
             <li className={isActive('/employee-search') ? 'nav-item active' : 'nav-item'}><Link to="/employee-search" className="nav-link"><span className="nav-icon nav-icon--people" aria-hidden="true" /><span className="nav-text">{copy.directory}</span></Link></li>
-            {accessManagementVisible && <li className={isActive('/register') ? 'nav-item active' : 'nav-item'}><Link to="/register" className="nav-link"><span className="nav-icon nav-icon--account" aria-hidden="true" /><span className="nav-text">{copy.access}</span></Link></li>}
             <li className={isActive('/knowledge-base') ? 'nav-item active' : 'nav-item'}><Link to="/knowledge-base" className="nav-link"><span className="nav-icon nav-icon--book" aria-hidden="true" /><span className="nav-text">{copy.knowledge}</span></Link></li>
             <li className={isActive('/network-map') ? 'nav-item active' : 'nav-item'}><Link to="/network-map" className="nav-link"><span className="nav-icon nav-icon--network" aria-hidden="true" /><span className="nav-text">{copy.network}</span></Link></li>
           </ul>
@@ -344,7 +373,7 @@ function Sidebar({ language }) {
 
 const ADMIN_TRANSLATIONS = {
   'Заявки': 'Requests', 'Новая заявка': 'New request', 'Статистика': 'Statistics', 'Настройки': 'Settings',
-  'Справочник сотрудников': 'Employee directory', 'Управление доступом': 'Access management', 'База знаний': 'Knowledge base',
+  'Справочник сотрудников': 'Employee directory', 'База знаний': 'Knowledge base',
   'Диагностика сети': 'Network diagnostics', 'Поиск сотрудников': 'Employee search', 'Поиск': 'Search', 'Очистить': 'Clear',
   'Добавить новую заявку': 'Add a new request', 'Создание новой заявки в системе': 'Create a new request in the system',
   'Основная информация': 'Main information', 'Описание заявки': 'Request description', 'Статус заявки': 'Request status',

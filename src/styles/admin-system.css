@@ -78,6 +78,50 @@
     var(--admin-bg-soft);
 }
 
+/* Приветствие при первом входе в админку: «Добро пожаловать, Евгений! Сегодня вторник, 15 сент.»
+   Надпись идёт одной строкой без переноса и держится в верхней части экрана (не по центру). */
+.admin-welcome-notice {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: start center;
+  /* Отступ сверху: заметно выше середины экрана, но не липнет к краю. */
+  padding: clamp(56px, 13vh, 150px) 16px 0;
+  pointer-events: none;
+  /* Длительность анимации = WELCOME_NOTICE_DURATION_MS (3 с) из src/utils/welcomeGreeting.js. */
+  animation: admin-welcome-fade 3s ease both;
+}
+
+.admin-welcome-notice span {
+  display: block;
+  max-width: 100%;
+  padding: 16px 28px;
+  border: 1px solid var(--admin-border-strong);
+  border-radius: 18px;
+  background: var(--admin-surface-raised);
+  box-shadow: 0 22px 56px rgba(10, 24, 31, .22);
+  color: var(--admin-ink);
+  font-size: clamp(14px, 1.5vw, 22px);
+  font-weight: 850;
+  letter-spacing: -.02em;
+  line-height: 1.25;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* На узких экранах одна строка физически не влезает — разрешаем перенос,
+   чтобы текст не выходил за рамку. */
+@media (max-width: 560px) {
+  .admin-welcome-notice span { white-space: normal; }
+}
+
+@keyframes admin-welcome-fade {
+  0% { opacity: 0; transform: translateY(8px) scale(.98); }
+  16%, 72% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-6px) scale(.99); }
+}
+
 .admin-workspace .app-content--with-sidebar {
   width: calc(100% - 264px);
   margin-left: 264px;
@@ -725,4 +769,6 @@
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
+  /* Без анимации приветствие должно просто исчезнуть по таймеру, а не «промотаться» до конца. */
+  .admin-welcome-notice { animation: none !important; }
 }

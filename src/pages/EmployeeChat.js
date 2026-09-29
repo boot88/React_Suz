@@ -19,6 +19,7 @@ import { authFetch } from '../utils/authFetch';
 import { readCachedConversation, writeCachedConversation, removeCachedConversation } from '../utils/chatMessageCache';
 import { readCachedFeed, writeCachedFeed } from '../utils/feedCache';
 import { requestAdminWorkspaceTransition } from '../utils/adminWorkspaceTransition';
+import { WELCOME_NOTICE_DURATION_MS, buildWelcomeGreeting, hasSeenWelcomeGreeting, markWelcomeGreetingSeen } from '../utils/welcomeGreeting';
 
 import { formatApplicationDateTime, getApplicationTiming } from '../utils/applicationTime';
 import ChatComposerForm from '../components/employeeChat/ChatComposerForm';
@@ -32,7 +33,7 @@ import AuthenticatedAvatar from '../components/employeeChat/AuthenticatedAvatar'
 import './EmployeeChat.css';
 import './EmployeeChatModern.css';
 
-import { MANAGER_TEMPLATE_MESSAGES, EMPLOYEE_TEMPLATE_MESSAGES, MANAGER_TEMPLATE_MESSAGES_EN, EMPLOYEE_TEMPLATE_MESSAGES_EN, REACTION_EMOJIS, QUICK_EMOJIS, MAX_ATTACHMENT_SIZE_MB, MAX_ATTACHMENT_SIZE, CHAT_MESSAGES_PAGE_SIZE, FEED_POSTS_PAGE_SIZE, FEED_COMMENTS_PAGE_SIZE, EMPLOYEE_TABS, MANAGER_TABS, REQUEST_CATEGORIES, REQUEST_PRIORITIES, DEFAULT_PROFILE_WEBSITE_LANGUAGE, PROFILE_LANGUAGE_OPTIONS, RUSSIAN_LABELS, ENGLISH_LABELS, ENGLISH_TAB_LABELS, ENGLISH_CONTACT_FILTER_LABELS, translateRuntimeText, FEED_CATEGORIES, ENGLISH_FEED_CATEGORY_LABELS, ENGLISH_REQUEST_CATEGORY_LABELS, ENGLISH_REQUEST_PRIORITY_LABELS, CHAT_FILTERS, CONTACT_FILTERS, CHAT_MEDIA_TABS, CHAT_THEMES, CHAT_DENSITIES, CHAT_TEXT_SIZES, formatEnglishProfileLogin, getWebsiteByLanguage, getConversationId, getParticipantsFromThreadId, getAvatarKey, getGreetingKey, createMessageId, readReadState, saveReadState, getReadTimestamp, getReadMessageId, readChatLocalSettings, saveChatLocalSettings, readPendingMessages, savePendingMessages, getMessageAttachments, getMessageMediaAttachments, extractLinks, getSafeExternalUrl, getLinkPreview, readFeedReadAt, saveFeedReadAt, readCustomTemplates, saveCustomTemplates, getFeedItemTimestamp, getFeedLatestTimestamp, getForwardedMessageText, readDirectoryCache, saveDirectoryCache, readProfileDraft, getProfileValue, saveProfileDraft, processAvatar, sleep, isNetworkFailure, getFriendlyNetworkMessage, readApiJson, fetchJsonWithRetry, createAttachmentThumbnailDataUrl, nudgeVideoToFirstFrame, normalizeText, formatDateLabel, getDateKey, isVideoAttachment, formatFileSize, getFileIcon, dataUrlToBlob, openAttachmentInNewTab, formatFeedLogin, getFeedAttachments, getFeedPostsSignature, getVisibleFeedPosts, sortFeedPosts, setFeedReactionForUser, sameLogin, readSavedFeedDraft, saveFeedDraft, clearSavedFeedDraft, readHiddenFeedPosts, saveHiddenFeedPosts, isImageAttachment, isMediaAttachment, resolveAttachmentUrl, getAttachmentUrl, getOriginalAttachmentUrl, getVideoPosterUrl, getPostShareUrl, isPostAuthor, collectThreadFileIds, collectFeedFileIds, prefetchMediaTokens, canManageFeedPost, VideoPosterFrame, AttachmentCard, FeedMediaCard, getApplicationStatusMeta } from '../components/employeeChat/chatPresentation';
+import { MANAGER_TEMPLATE_MESSAGES, EMPLOYEE_TEMPLATE_MESSAGES, MANAGER_TEMPLATE_MESSAGES_EN, EMPLOYEE_TEMPLATE_MESSAGES_EN, REACTION_EMOJIS, QUICK_EMOJIS, MAX_ATTACHMENT_SIZE_MB, MAX_ATTACHMENT_SIZE, CHAT_MESSAGES_PAGE_SIZE, FEED_POSTS_PAGE_SIZE, FEED_COMMENTS_PAGE_SIZE, EMPLOYEE_TABS, MANAGER_TABS, REQUEST_CATEGORIES, REQUEST_PRIORITIES, DEFAULT_PROFILE_WEBSITE_LANGUAGE, PROFILE_LANGUAGE_OPTIONS, RUSSIAN_LABELS, ENGLISH_LABELS, ENGLISH_TAB_LABELS, ENGLISH_CONTACT_FILTER_LABELS, translateRuntimeText, FEED_CATEGORIES, ENGLISH_FEED_CATEGORY_LABELS, ENGLISH_REQUEST_CATEGORY_LABELS, ENGLISH_REQUEST_PRIORITY_LABELS, CHAT_FILTERS, CONTACT_FILTERS, CHAT_MEDIA_TABS, CHAT_THEMES, CHAT_DENSITIES, CHAT_TEXT_SIZES, formatEnglishProfileLogin, getWebsiteByLanguage, getConversationId, getParticipantsFromThreadId, getAvatarKey, createMessageId, readReadState, saveReadState, getReadTimestamp, getReadMessageId, readChatLocalSettings, saveChatLocalSettings, readPendingMessages, savePendingMessages, getMessageAttachments, getMessageMediaAttachments, extractLinks, getSafeExternalUrl, getLinkPreview, readFeedReadAt, saveFeedReadAt, readCustomTemplates, saveCustomTemplates, getFeedItemTimestamp, getFeedLatestTimestamp, getForwardedMessageText, readDirectoryCache, saveDirectoryCache, readProfileDraft, getProfileValue, saveProfileDraft, processAvatar, sleep, isNetworkFailure, getFriendlyNetworkMessage, readApiJson, fetchJsonWithRetry, createAttachmentThumbnailDataUrl, nudgeVideoToFirstFrame, normalizeText, formatDateLabel, getDateKey, isVideoAttachment, formatFileSize, getFileIcon, dataUrlToBlob, openAttachmentInNewTab, formatFeedLogin, getFeedAttachments, getFeedPostsSignature, getVisibleFeedPosts, sortFeedPosts, setFeedReactionForUser, sameLogin, readSavedFeedDraft, saveFeedDraft, clearSavedFeedDraft, readHiddenFeedPosts, saveHiddenFeedPosts, isImageAttachment, isMediaAttachment, resolveAttachmentUrl, getAttachmentUrl, getOriginalAttachmentUrl, getVideoPosterUrl, getPostShareUrl, isPostAuthor, collectThreadFileIds, collectFeedFileIds, prefetchMediaTokens, canManageFeedPost, VideoPosterFrame, AttachmentCard, FeedMediaCard, getApplicationStatusMeta } from '../components/employeeChat/chatPresentation';
 
 const sameViewerFile = (left, right) => left === right || Boolean(left && right && (
   (left.id && right.id && String(left.id) === String(right.id))
@@ -195,7 +196,7 @@ const EmployeeChat = ({ adminSection = null }) => {
   const [directoryEmployees, setDirectoryEmployees] = useState(() => readDirectoryCache());
   const [isDirectoryLoaded, setIsDirectoryLoaded] = useState(() => readDirectoryCache().length > 0);
   const [avatarUrl, setAvatarUrl] = useState('');
-  const [welcomeNotice, setWelcomeNotice] = useState('');
+  const [welcomeNotice, setWelcomeNotice] = useState(null);
   const [avatarViewerOpen, setAvatarViewerOpen] = useState(false);
   const [profileViewLogin, setProfileViewLogin] = useState('');
   const [profilePreview, setProfilePreview] = useState(null);
@@ -519,19 +520,24 @@ const EmployeeChat = ({ adminSection = null }) => {
     if (cachedAvatar) {
       setAvatarUrl(cachedAvatar);
     }
-    const hasSeenGreeting = sessionStorage.getItem(getGreetingKey(user.username)) === '1';
-    if (hasSeenGreeting) return undefined;
+    // Приветствие при первом входе показываем только сотруднику — в чате.
+    // У админа ни чат, ни «Управление чатом» приветствие не показывают: он видит его в админке.
+    if (isAdmin) return undefined;
+    if (hasSeenWelcomeGreeting(user.username)) return undefined;
 
-    setWelcomeNotice(baseDisplayName);
-    sessionStorage.setItem(getGreetingKey(user.username), '1');
-    const timer = setTimeout(() => setWelcomeNotice(''), 3200);
+    markWelcomeGreetingSeen(user.username);
+    setWelcomeNotice(buildWelcomeGreeting(baseDisplayName, isEnglishInterface));
+    return undefined;
+  }, [baseDisplayName, isAdmin, isEnglishInterface, user?.username]);
+
+  // Приветствие исчезает само через несколько секунд.
+  useEffect(() => {
+    if (!welcomeNotice) return undefined;
+    const timer = setTimeout(() => setWelcomeNotice(null), WELCOME_NOTICE_DURATION_MS);
     return () => clearTimeout(timer);
-  }, [baseDisplayName, isEnglishInterface, user?.username]);
+  }, [welcomeNotice]);
 
   const handleLogout = () => {
-    if (user?.username) {
-      sessionStorage.removeItem(getGreetingKey(user.username));
-    }
     logout();
   };
 
@@ -3976,10 +3982,7 @@ const EmployeeChat = ({ adminSection = null }) => {
       {isDraggingFiles && <div className="drop-zone-overlay"><strong>📎 {t('dropFiles')}</strong><span>{t('dropFilesHint')}</span></div>}
       {welcomeNotice && (
         <div className="chat-welcome-notice" role="status">
-          <span>
-            <small>{isEnglishInterface ? 'Welcome back' : 'С возвращением'}</small>
-            <strong>{welcomeNotice}</strong>
-          </span>
+          <span>{welcomeNotice}</span>
         </div>
       )}
       <input ref={avatarInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={handleAvatarUpload} hidden />
