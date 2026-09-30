@@ -26,7 +26,10 @@ const issueSession = async (user) => {
   const identity = verifyAccessToken(token);
   await db.execute('INSERT INTO auth_sessions (token_hash, user_id, credential_stamp, expires_at) VALUES (?, ?, ?, ?)',
     [digest(token), user.id, credentialStamp(user), new Date(identity.expiresAt)]);
-  await db.execute('DELETE FROM auth_sessions WHERE expires_at < NOW()').catch(() => {});
+  // Срок сравнивается с отметкой времени, рассчитанной драйвером, а не с SQL
+  // NOW(): пул настроен на timezone 'Z', поэтому NOW() (локальное время сервера
+  // БД) сдвигал срок жизни сессии и завершал её раньше 24 часов.
+  await db.execute('DELETE FROM auth_sessions WHERE expires_at < ?', [new Date()]).catch(() => {});
   return token;
 };
 
@@ -36,7 +39,7 @@ const resolveSession = async (token) => {
   await ensureSessions();
   const [rows] = await db.execute(`SELECT u.id, u.login, u.role, u.password, s.credential_stamp
     FROM auth_sessions s JOIN users u ON u.id = s.user_id
-    WHERE s.token_hash = ? AND s.expires_at > NOW() LIMIT 1`, [digest(token)]);
+    WHERE s.token_hash = ? AND s.expires_at > ? LIMIT 1`, [digest(token), new Date()]);
   const user = rows[0];
   if (!user || user.credential_stamp !== credentialStamp(user)) return null;
   return { ...identity, login: String(user.login).toLowerCase(), role: user.role };

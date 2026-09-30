@@ -160,7 +160,15 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
       if (kind === 'directory') {
         const data = await syncEmployees();
         const createdAccounts = Number(data.accounts?.created || 0);
-        setMessage(`Справочник и учётные записи обновлены. Активных сотрудников: ${data.accounts?.total || data.activeAfter || 0}.${createdAccounts ? ` Новых аккаунтов: ${createdAccounts}; начальный пароль — 12345.` : ''}`);
+        const deactivatedCount = Number(data.changes?.deactivated?.count || 0);
+        const skippedRemovals = Number(data.accounts?.skippedRemovals || 0);
+        const summary = [
+          `Справочник и учётные записи обновлены. Активных сотрудников: ${data.accounts?.total || data.activeAfter || 0}.`
+        ];
+        if (deactivatedCount) summary.push(`Снято с учёта: ${deactivatedCount} — проверьте отчёт ниже.`);
+        if (createdAccounts) summary.push(`Новых аккаунтов: ${createdAccounts}; начальный пароль — 12345.`);
+        if (skippedRemovals) summary.push(`Удаление ${skippedRemovals} аккаунтов пропущено: справочник загружен неполностью.`);
+        setMessage(summary.join(' '));
         setDirectoryReport({ ...(data.changes || {}), updatedAt: data.updatedAt });
         window.dispatchEvent(new Event('employee-directory-updated'));
       } else {

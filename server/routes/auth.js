@@ -199,64 +199,11 @@ const ensureManagerAccount = async () => {
   return managerAccountPromise;
 };
 
-const normalizePersonName = (value = '') => String(value)
-  .toLowerCase()
-  .replace(/ё/g, 'е')
-  .replace(/[^а-яa-z]/g, '');
-
-const getNameParts = (fullName = '') => String(fullName)
-  .replace(/\./g, ' ')
-  .trim()
-  .split(/\s+/)
-  .filter(Boolean);
-
-const getShortPersonName = (fullName = '') => {
-  const [lastName = '', firstName = '', middleName = ''] = getNameParts(fullName);
-  const initials = [firstName, middleName].filter(Boolean).map((part) => `${part[0].toUpperCase()}.`).join('');
-  return `${lastName}${initials ? ` ${initials}` : ''}`;
-};
-
-const joinUniqueValues = (values = []) => [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))].join(', ');
-
-const createBaseLoginFromName = (fullName = '') => getShortPersonName(fullName)
-  .toLowerCase()
-  .replace(/ё/g, 'е')
-  .replace(/\s+/g, ' ')
-  .trim()
-  .replace(/\.$/, '');
-
-// Совпадение «короткого» имени администратора («Повисок Е.В.») с полным ФИО
-// из справочника («Повисок Евгений Вячеславович»): фамилия совпадает, а
-// каждую инициал в коротком имени сравниваем с началом соответствующей части.
-const matchesAdminShortName = (fullName = '', adminName = '') => {
-  const personParts = getNameParts(fullName).map((part) => part.toLowerCase());
-  const adminParts = getNameParts(adminName).map((part) => part.replace(/\./g, '').toLowerCase());
-  if (!personParts.length || !adminParts.length) return false;
-  if (adminParts[0] !== personParts[0]) return false;
-  if (adminParts.length === 1) return true;
-  return adminParts.slice(1).every((initial, index) => {
-    const personPart = personParts[index + 1];
-    return Boolean(personPart) && personPart[0] === initial[0];
-  });
-};
-
-const isConfiguredAdminName = (fullName = '') => (
-  ADMIN_FULL_NAMES.some((adminName) => (
-    normalizePersonName(adminName) === normalizePersonName(fullName)
-    || matchesAdminShortName(fullName, adminName)
-  ))
-);
-
-const createUniqueLogin = (baseLogin, usedLogins) => {
-  let login = baseLogin || `employee${usedLogins.size + 1}`;
-  let counter = 2;
-  while (usedLogins.has(login)) {
-    login = `${baseLogin}-${counter}`;
-    counter += 1;
-  }
-  usedLogins.add(login);
-  return login;
-};
+const {
+  getShortPersonName,
+  isServiceDirectoryAccount,
+  planProvisionedUsers
+} = require('../utils/directoryUsers');
 
 const AVATAR_MIME_TYPES = new Map([
   ['image/jpeg', 'jpg'],
@@ -293,7 +240,10 @@ const sanitizeProfilePreferences = (preferences = {}) => {
   return result;
 };
 
-const provisionUsersFromPhoneBook = async () => {
+const PROVISION_MAX_DELETION_RATIO = Number(process.env.PROVISION_MAX_DELETION_RATIO || 0.05);
+const PROVISION_MIN_USERS = Number(process.env.PROVISION_MIN_USERS || 50);
+
+const provisionUsersFromPhoneBook = async ({ actingLogin = '' } = {}) => {
   await ensureUsersSchema();
 
   const [phoneRows] = await db.execute(
@@ -303,68 +253,36 @@ const provisionUsersFromPhoneBook = async () => {
      ORDER BY full_name`
   );
 
-  const usedLogins = new Set();
-  const desiredUsers = [];
+  const [existingRows] = await db.execute(
+    'SELECT id, login, password, role, full_name, provisioned_from_directory FROM users'
+  );
+  const [sessionRows] = await db.execute(
+    `SELECT DISTINCT u.login AS login
+       FROM auth_sessions s JOIN users u ON u.id = s.user_id
+      WHERE s.expires_at > ?`,
+    [new Date()]
+  );
 
-  const employeesByName = new Map();
-  phoneRows.forEach((employee) => {
-    const key = normalizePersonName(employee.full_name);
-    if (!key) return;
-    const current = employeesByName.get(key) || { ...employee, departments: [], positions: [], rooms: [], phones: [], externalPhones: [] };
-    current.departments.push(employee.department);
-    current.positions.push(employee.position);
-    current.rooms.push(employee.room);
-    current.phones.push(employee.internal_phone);
-    current.externalPhones.push(employee.external_phone);
-    employeesByName.set(key, current);
+  const { desiredUsers, deletedLogins, skippedDeletions, reusedLogins } = planProvisionedUsers({
+    phoneRows,
+    existingUsers: existingRows,
+    adminNames: ADMIN_FULL_NAMES,
+    actingLogin,
+    activeSessionLogins: sessionRows.map((row) => row.login),
+    maxDeletionRatio: PROVISION_MAX_DELETION_RATIO,
+    minUsers: PROVISION_MIN_USERS
   });
 
-  [...employeesByName.values()].forEach((employee) => {
-    const baseLogin = createBaseLoginFromName(employee.full_name || employee.email || '');
-    const login = createUniqueLogin(baseLogin, usedLogins);
-    const isAdmin = isConfiguredAdminName(employee.full_name);
-    const departments = joinUniqueValues(employee.departments);
-    const positions = joinUniqueValues(employee.positions);
-
-    desiredUsers.push({
-      login,
-      role: isAdmin ? 'admin' : 'employee',
-      full_name: employee.full_name,
-      department: departments || null,
-      position: positions || null,
-      phone: joinUniqueValues(employee.phones) || null,
-      external_phone: joinUniqueValues(employee.externalPhones) || null,
-      room: joinUniqueValues(employee.rooms) || null
-    });
-  });
-
-  for (const adminName of ADMIN_FULL_NAMES) {
-    if (desiredUsers.some((item) => (
-      normalizePersonName(item.full_name) === normalizePersonName(adminName)
-      || matchesAdminShortName(item.full_name, adminName)
-    ))) continue;
-    const login = createUniqueLogin(createBaseLoginFromName(adminName), usedLogins);
-    desiredUsers.push({
-      login,
-      role: 'admin',
-      full_name: adminName,
-      department: null,
-      position: null,
-      phone: null,
-      external_phone: null,
-      room: null
-    });
+  if (skippedDeletions.length) {
+    console.warn(`Provisioning: пропущено удаление ${skippedDeletions.length} аккаунтов — справочник неполный или партия слишком большая`);
   }
 
-  const desiredLogins = desiredUsers.map((item) => item.login);
-  const [existingRows] = await db.execute('SELECT login, password FROM users');
   const existingByLogin = new Map(existingRows.map((item) => [normalizeLogin(item.login), item]));
   let newAccountPasswordHash = '';
 
-  const [removedUsers] = await db.execute(
-    'DELETE FROM users WHERE provisioned_from_directory = 1 AND login NOT IN (?)',
-    [desiredLogins.length ? desiredLogins : ['__none__']]
-  );
+  if (deletedLogins.length) {
+    await db.execute('DELETE FROM users WHERE login IN (?)', [deletedLogins]);
+  }
 
   for (const user of desiredUsers) {
     const existingUser = existingByLogin.get(normalizeLogin(user.login));
@@ -398,7 +316,9 @@ const provisionUsersFromPhoneBook = async () => {
     total: desiredUsers.length,
     created: desiredUsers.filter((item) => !existingByLogin.has(normalizeLogin(item.login))).length,
     updated: desiredUsers.filter((item) => existingByLogin.has(normalizeLogin(item.login))).length,
-    removed: Number(removedUsers?.affectedRows || 0),
+    removed: deletedLogins.length,
+    skippedRemovals: skippedDeletions.length,
+    reusedLogins,
     employees: desiredUsers.filter((item) => item.role === 'employee').length,
     admins: desiredUsers.filter((item) => item.role === 'admin').length,
     adminLogins: desiredUsers.filter((item) => item.role === 'admin').map((item) => ({ login: item.login, full_name: item.full_name }))
@@ -741,7 +661,7 @@ const mapUser = (user) => ({
 
 router.post('/provision-from-phone-book', requireAuth, requireRole('admin'), async (req, res) => {
   try {
-    const stats = await provisionUsersFromPhoneBook();
+    const stats = await provisionUsersFromPhoneBook({ actingLogin: req.auth?.login || '' });
     res.json({ message: 'Пользователи синхронизированы со справочником сотрудников', ...stats });
   } catch (error) {
     console.error('Provision users error:', error);
@@ -769,15 +689,23 @@ router.get('/login-suggestions', async (req, res) => {
       [like, like]
     );
 
-    res.json({
-      suggestions: users.map((user) => ({
+    // Служебный аккаунт автоматического администратора («Администратор»)
+    // в списке выбора не показываем: на входе выбирают людей из справочника,
+    // а техническую запись при необходимости вводят логином вручную.
+    const suggestions = users
+      .filter((user) => !isServiceDirectoryAccount(user, {
+        serviceLogin: MANAGER_LOGIN,
+        serviceName: MANAGER_NAME
+      }))
+      .map((user) => ({
         id: user.id,
         login: user.login,
         role: user.role,
         full_name: user.full_name,
         display_name: getShortPersonName(user.full_name || user.login)
-      }))
-    });
+      }));
+
+    res.json({ suggestions });
   } catch (error) {
     console.error('Login suggestions error:', error);
     res.status(error.status || 500).json({
@@ -787,7 +715,7 @@ router.get('/login-suggestions', async (req, res) => {
 });
 
 
-const ensureUsersProvisionedFromPhoneBook = async () => {
+const ensureUsersProvisionedFromPhoneBook = async ({ actingLogin = '' } = {}) => {
   await ensureUsersSchema();
   const [rows] = await db.execute('SELECT COUNT(*) AS total FROM users');
   if (Number(rows?.[0]?.total || 0) > 0) {
@@ -795,7 +723,7 @@ const ensureUsersProvisionedFromPhoneBook = async () => {
     return null;
   }
   await employeeRoutes.ensurePhoneBookData();
-  const result = await provisionUsersFromPhoneBook();
+  const result = await provisionUsersFromPhoneBook({ actingLogin });
   await ensureManagerAccount();
   return result;
 };
@@ -1281,7 +1209,7 @@ router.post('/login', async (req, res) => {
     }
 
     try {
-      await ensureUsersProvisionedFromPhoneBook();
+      await ensureUsersProvisionedFromPhoneBook({ actingLogin: normalizedLogin });
     } catch (error) {
       console.error('Initial user provisioning error:', error);
       return res.status(error.status || 503).json({ message: error.message || 'Не удалось подготовить список учётных записей' });

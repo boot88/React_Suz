@@ -3,166 +3,16 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const { requireRole } = require('../middleware/auth');
+const {
+  PHONE_BOOK_URL,
+  MIN_SYNC_EMPLOYEES,
+  normalizeValue,
+  createEmployeeIdentity,
+  fetchAllPhoneBookEmployees,
+  assertDirectorySnapshot
+} = require('../utils/employeeDirectory');
 
-const PHONE_BOOK_URL = process.env.PHONE_BOOK_URL || 'http://web3.nioch.nsc.ru/nioch/index.php/ru/kontakty/telefonnyj-spravochnik';
-const MIN_SYNC_EMPLOYEES = Number(process.env.EMPLOYEE_SYNC_MIN_ROWS || 50);
-const PHONE_BOOK_PAGE_SIZE = Number(process.env.PHONE_BOOK_PAGE_SIZE || 20);
-const PHONE_BOOK_MAX_PAGES = Number(process.env.PHONE_BOOK_MAX_PAGES || 25);
 const SYNC_CHANGE_PREVIEW_LIMIT = Number(process.env.EMPLOYEE_SYNC_CHANGE_PREVIEW_LIMIT || 1000);
-
-const decodeHtmlEntities = (value = '') => String(value)
-  .replace(/&nbsp;/gi, ' ')
-  .replace(/&amp;/gi, '&')
-  .replace(/&quot;/gi, '"')
-  .replace(/&#39;/gi, "'")
-  .replace(/&lt;/gi, '<')
-  .replace(/&gt;/gi, '>')
-  .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
-
-const cleanText = (value = '') => decodeHtmlEntities(String(value)
-  .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-  .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-  .replace(/<br\s*\/?\s*>/gi, ' ')
-  .replace(/<[^>]+>/g, ' '))
-  .replace(/\s+/g, ' ')
-  .trim();
-
-const normalizeValue = (value = '') => cleanText(value).replace(/^[-–—]+$/, '').trim();
-
-const normalizeSourceKeyPart = (value = '') => normalizeValue(value).toLowerCase().replace(/\s+/g, ' ');
-
-const createEmployeeIdentity = (employee) => [
-  employee.full_name || '',
-  employee.department || ''
-].map(normalizeSourceKeyPart).filter(Boolean).join('|');
-
-const createSourceKey = (employee) => createEmployeeIdentity(employee) || [
-  employee.full_name || '',
-  employee.room || '',
-  employee.internal_phone || '',
-  employee.external_phone || '',
-  employee.email || ''
-].map(normalizeSourceKeyPart).filter(Boolean).join('|');
-
-const buildPhoneBookPageUrl = (start = 0) => {
-  const pageUrl = new URL(PHONE_BOOK_URL);
-  if (start > 0) pageUrl.searchParams.set('start', String(start));
-  return pageUrl.toString();
-};
-
-const fetchPhoneBookHtml = async (start = 0) => {
-  const pageUrl = buildPhoneBookPageUrl(start);
-  const response = await fetch(pageUrl, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 EmployeeDirectorySync/1.0',
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      Referer: 'http://web3.nioch.nsc.ru/'
-    }
-  });
-
-  if (!response.ok) {
-    throw new Error(`Источник справочника вернул HTTP ${response.status} для ${pageUrl}`);
-  }
-
-  return response.text();
-};
-
-const extractTableRows = (html = '') => {
-  const tableMatch = String(html).match(/<table[^>]*id=['"]cardnList['"][^>]*>[\s\S]*?<\/table>/i);
-  const tableHtml = tableMatch ? tableMatch[0] : String(html);
-  const bodyMatch = tableHtml.match(/<tbody[^>]*>[\s\S]*?<\/tbody>/i);
-  const rowsHtml = bodyMatch ? bodyMatch[0] : tableHtml;
-  const rows = [];
-  const rowMatches = rowsHtml.match(/<tr[^>]*>[\s\S]*?<\/tr>/gi) || [];
-
-  for (const rowHtml of rowMatches) {
-    const cellMatches = rowHtml.match(/<td[^>]*>[\s\S]*?<\/td>/gi) || [];
-    const cells = cellMatches.map(normalizeValue);
-    // В некоторых разделах источника колонка подразделения отсутствует,
-    // поэтому фактическая строка содержит шесть ячеек, а не семь.
-    if (cells.length >= 6 && cells[0] && !/^сотрудники$/i.test(cells[0])) {
-      rows.push(cells);
-    }
-  }
-
-  return rows;
-};
-
-const pickEmail = (cells) => {
-  const joined = cells.join(' ');
-  const email = joined.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
-  return email ? email[0] : '';
-};
-
-const rowToEmployee = (cells) => {
-  const normalizedCells = cells.map(normalizeValue);
-  // Часть представлений справочника добавляет отдельную порядковую колонку.
-  if (/^\d+$/.test(normalizedCells[0] || '') && normalizedCells.length >= 7) {
-    normalizedCells.shift();
-  }
-  const email = pickEmail(normalizedCells);
-  const hasDepartmentColumn = normalizedCells.length >= 7;
-
-  return {
-    full_name: normalizedCells[0] || '',
-    position: normalizedCells[1] || '',
-    department: hasDepartmentColumn ? normalizedCells[2] || '' : '',
-    room: normalizedCells[hasDepartmentColumn ? 3 : 2] || '',
-    external_phone: normalizedCells[hasDepartmentColumn ? 4 : 3] || '',
-    internal_phone: normalizedCells[hasDepartmentColumn ? 5 : 4] || '',
-    // Антиспам-текст источника не является адресом электронной почты.
-    email
-  };
-};
-
-const parsePhoneBookEmployees = (html = '') => {
-  const rows = extractTableRows(html);
-  const employees = [];
-  const seen = new Set();
-
-  for (const row of rows) {
-    const employee = rowToEmployee(row);
-    employee.source_key = createSourceKey(employee);
-
-    if (!employee.full_name || !employee.source_key || seen.has(employee.source_key)) continue;
-    seen.add(employee.source_key);
-    employees.push(employee);
-  }
-
-  return employees;
-};
-
-
-const fetchAllPhoneBookEmployees = async () => {
-  const employees = [];
-  const seen = new Set();
-  const pages = [];
-
-  for (let page = 0; page < PHONE_BOOK_MAX_PAGES; page += 1) {
-    const start = page * PHONE_BOOK_PAGE_SIZE;
-    const html = await fetchPhoneBookHtml(start);
-    const pageEmployees = parsePhoneBookEmployees(html);
-    let addedFromPage = 0;
-
-    for (const employee of pageEmployees) {
-      if (seen.has(employee.source_key)) continue;
-      seen.add(employee.source_key);
-      employees.push(employee);
-      addedFromPage += 1;
-    }
-
-    pages.push({ start, parsed: pageEmployees.length, added: addedFromPage });
-
-    if (pageEmployees.length === 0) break;
-  }
-
-  return {
-    employees,
-    pages,
-    expectedPages: PHONE_BOOK_MAX_PAGES,
-    lastStart: pages[pages.length - 1]?.start || 0
-  };
-};
 
 const ensurePhoneBookSchema = async () => {
   await pool.execute(`
@@ -271,6 +121,9 @@ const syncEmployees = async (employees) => {
 
     const [activeRows] = await connection.execute('SELECT * FROM phone_book WHERE is_active = 1');
     previousActive = activeRows.length;
+    // Неполный снимок источника нельзя применять: иначе отсутствующие в нём
+    // сотрудники будут помечены уволенными, а их аккаунты удалены.
+    assertDirectorySnapshot({ incomingCount: employees.length, currentActiveCount: previousActive });
     const activeBySourceKey = new Map();
     const activeByIdentity = new Map();
 
@@ -363,7 +216,12 @@ const ensurePhoneBookData = async () => {
   const total = Number(rows?.[0]?.total || 0);
   if (total > 0) return { total, synced: false };
 
-  const { employees, pages, expectedPages, lastStart } = await fetchAllPhoneBookEmployees();
+  const { employees, pages, expectedPages, lastStart, sweeps, stable, failedStarts } = await fetchAllPhoneBookEmployees();
+  if (failedStarts.length) {
+    const error = new Error(`Не удалось загрузить страницы справочника: ${failedStarts.map((item) => item.start).join(', ')}`);
+    error.status = 503;
+    throw error;
+  }
   if (employees.length < MIN_SYNC_EMPLOYEES) {
     const error = new Error(`Из справочника получено слишком мало записей: ${employees.length}`);
     error.status = 503;
@@ -371,7 +229,7 @@ const ensurePhoneBookData = async () => {
   }
 
   const stats = await syncEmployees(employees);
-  return { total: stats.activeAfter, synced: true, pages, expectedPages, lastStart };
+  return { total: stats.activeAfter, synced: true, pages, expectedPages, lastStart, sweeps, stable };
 };
 
 // Полный справочник для служебных экранов администратора. Неактивные записи
@@ -444,7 +302,19 @@ router.post('/sync', requireRole('admin'), async (req, res) => {
   try {
     await ensurePhoneBookSchema();
 
-    const { employees, pages, expectedPages, lastStart } = await fetchAllPhoneBookEmployees();
+    const snapshot = await fetchAllPhoneBookEmployees();
+    const { employees, pages, expectedPages, lastStart, sweeps, stable, failedStarts } = snapshot;
+
+    if (failedStarts.length) {
+      return res.status(503).json({
+        error: `Не удалось загрузить страницы справочника: ${failedStarts.map((item) => item.start).join(', ')}. Обновление отменено, данные не изменялись.`,
+        sourceUrl: PHONE_BOOK_URL,
+        pages,
+        expectedPages,
+        lastStart,
+        failedStarts
+      });
+    }
 
     if (employees.length < MIN_SYNC_EMPLOYEES) {
       return res.status(422).json({
@@ -466,11 +336,17 @@ router.post('/sync', requireRole('admin'), async (req, res) => {
       pages,
       expectedPages,
       lastStart,
+      sweeps,
+      stable,
       ...stats
     });
   } catch (error) {
     console.error('Employee sync error:', error);
-    res.status(500).json({ error: error.message || 'Ошибка обновления справочника сотрудников' });
+    res.status(error.status || 500).json({
+      error: error.message || 'Ошибка обновления справочника сотрудников',
+      parsed: error.parsed,
+      activeBefore: error.activeBefore
+    });
   }
 });
 
