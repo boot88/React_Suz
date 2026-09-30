@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const db = require('../config/database');
+const uploadSettings = require('../utils/uploadSettingsStore');
 const {
   createMediaToken,
   MEDIA_TOKEN_TTL_MS
@@ -67,7 +68,6 @@ const backupDir = path.join(dataDir, 'backups');
 const uploadsDir = path.join(__dirname, '..', 'uploads');
 const recordsArchiveDir = path.join(dataDir, 'records-archives');
 const MAX_BACKUPS_PER_FILE = 30;
-const MAX_UPLOAD_SIZE = 50 * 1024 * 1024;
 const MAX_MULTIPART_OVERHEAD = 3 * 1024 * 1024;
 const CHAT_SQL_PAGE_SIZE = 50;
 const CHAT_SEARCH_PAGE_SIZE = 50;
@@ -758,14 +758,17 @@ const hasAllowedMagicBytes = (buffer, mime = '', ext = '') => {
 const writeChunk = async (stream, chunk) => {
   if (!chunk?.length || stream.write(chunk)) return;
   await new Promise((resolve, reject) => {
-    stream.once('drain', resolve);
-    stream.once('error', reject);
+    const cleanup = () => { stream.removeListener('drain', onDrain); stream.removeListener('error', onError); };
+    const onDrain = () => { cleanup(); resolve(); };
+    const onError = (error) => { cleanup(); reject(error); };
+    stream.once('drain', onDrain);
+    stream.once('error', onError);
   });
 };
 
 // A small streaming multipart reader.  It keeps only headers, form fields and a
 // boundary tail in memory; the actual file is written directly to a temporary file.
-const readMultipartFileStream = async (req, boundary, tempPath) => {
+const readMultipartFileStream = async (req, boundary, tempPath, maxUploadSize) => {
   const delimiter = Buffer.from(`--${boundary}`);
   const bodyDelimiter = Buffer.from(`\r\n--${boundary}`);
   const fields = {};
@@ -797,7 +800,7 @@ const readMultipartFileStream = async (req, boundary, tempPath) => {
     if (!current) fail('Некорректные данные загрузки');
     if (current.file) {
       current.size += chunk.length;
-      if (current.size > MAX_UPLOAD_SIZE) fail(`Файл должен быть не больше ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)} МБ`, 413);
+      if (current.size > maxUploadSize) fail(`Файл должен быть не больше ${Math.round(maxUploadSize / 1024 / 1024)} МБ`, 413);
       current.hash.update(chunk);
       if (current.head.length < 512) current.head = Buffer.concat([current.head, chunk]).subarray(0, 512);
       await writeChunk(current.stream, chunk);
@@ -861,15 +864,19 @@ const readMultipartFileStream = async (req, boundary, tempPath) => {
       if (state === 'done') return;
     }
   };
-  for await (const chunk of req) {
-    total += chunk.length;
-    if (total > MAX_UPLOAD_SIZE + MAX_MULTIPART_OVERHEAD) fail(`Файл должен быть не больше ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)} МБ`, 413);
-    buffer = Buffer.concat([buffer, Buffer.from(chunk)]);
+  try {
+    for await (const chunk of req) {
+      total += chunk.length;
+      if (total > maxUploadSize + MAX_MULTIPART_OVERHEAD) fail(`Файл должен быть не больше ${Math.round(maxUploadSize / 1024 / 1024)} МБ`, 413);
+      buffer = Buffer.concat([buffer, Buffer.from(chunk)]);
+      await process();
+    }
     await process();
+    if (state !== 'done' || !filePart) fail('Файл не передан');
+    return { fields, filePart };
+  } finally {
+    if (current?.stream && !current.stream.closed) current.stream.destroy();
   }
-  await process();
-  if (state !== 'done' || !filePart) fail('Файл не передан');
-  return { fields, filePart };
 };
 
 const scanUploadedFile = async (filePath) => {
@@ -886,6 +893,7 @@ const scanUploadedFile = async (filePath) => {
 };
 
 const saveMultipartUpload = async (req) => {
+  const maxUploadSize = (await uploadSettings.getLimitMb()) * 1024 * 1024;
   const boundary = getMultipartBoundary(req.headers['content-type']);
   if (!boundary) { const error = new Error('Неверный формат multipart/form-data'); error.status = 400; throw error; }
   const tempDir = path.join(uploadsDir, 'tmp');
@@ -895,7 +903,7 @@ const saveMultipartUpload = async (req) => {
   const createdFilePaths = [tempPath];
   let uploadSaved = false;
   try {
-    const { fields, filePart } = await readMultipartFileStream(req, boundary, tempPath);
+    const { fields, filePart } = await readMultipartFileStream(req, boundary, tempPath, maxUploadSize);
     const safeScope = ALLOWED_UPLOAD_SCOPES.has(fields.scope) ? fields.scope : 'chat';
     let mime = filePart.type || fields.type || 'application/octet-stream';
     if (mime === 'application/octet-stream') {
@@ -908,8 +916,8 @@ const saveMultipartUpload = async (req) => {
     if (!ALLOWED_UPLOAD_TYPES.test(mime) || DANGEROUS_EXTENSIONS.has(ext) || !hasAllowedMagicBytes(filePart.head, mime, ext)) {
       const error = new Error('Этот тип файла запрещён'); error.status = 400; throw error;
     }
-    if (Number(fields.size || filePart.size) > MAX_UPLOAD_SIZE || filePart.size > MAX_UPLOAD_SIZE) {
-      const error = new Error(`Файл должен быть не больше ${Math.round(MAX_UPLOAD_SIZE / 1024 / 1024)} МБ`); error.status = 413; throw error;
+    if (Number(fields.size || filePart.size) > maxUploadSize || filePart.size > maxUploadSize) {
+      const error = new Error(`Файл должен быть не больше ${Math.round(maxUploadSize / 1024 / 1024)} МБ`); error.status = 413; throw error;
     }
     try { await scanUploadedFile(tempPath); } catch (error) {
       await fs.mkdir(quarantineDir, { recursive: true });
@@ -1019,7 +1027,8 @@ const materializeLegacyAttachment = async (attachment = {}, scope = 'chat') => {
   const parsed = getDataUrlPayload(inlineSource);
   if (!parsed) return { attachment: stripInlinePayloads(attachment), changed: true };
   const fileData = Buffer.from(parsed.payload, 'base64');
-  if (!fileData.length || fileData.length > MAX_UPLOAD_SIZE) {
+  const maxUploadSize = (await uploadSettings.getLimitMb()) * 1024 * 1024;
+  if (!fileData.length || fileData.length > maxUploadSize) {
     return { attachment: stripInlinePayloads(attachment), changed: true };
   }
 
@@ -5179,6 +5188,7 @@ router.get('/records/archives/:archiveId/download', async (req, res) => {
 router.runChatStorageMigration = migrateArchiveToMysql;
 router.replayMessageJournal = replayMessageJournal;
 router.repairStoredRecordFileLinks = repairStoredRecordFileLinks;
+router.readMultipartFileStream = readMultipartFileStream;
 router.resetAfterAdminRestore = () => {
   cachedThreads = null;
   streamEventBuffer.length = 0;

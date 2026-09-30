@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 
 const GROUPS = {
+  configuration: { title: 'Настройки сервера', tables: ['app_settings'] },
   applications: { title: 'Заявки', tables: ['application', 'application_events', 'application_views'] },
   knowledge: { title: 'База знаний с фотографиями', tables: ['knowledge_base'] },
   accounts: { title: 'Учётные записи и профили', tables: ['users', 'employee_profiles'], roots: ['uploads/profile'], files: ['data/managerNotifications.json'] },

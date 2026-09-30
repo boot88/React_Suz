@@ -89,6 +89,7 @@ app.use(express.json({ limit: '25mb' })); // Лимит для JSON-base64 из�
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 app.use('/api/employees', requireAuth, employeeRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/settings', require('./routes/appSettings'));
 app.use('/api/chat', chatRoutes);
 app.use('/api/network-map', requireAuth, networkMapRoutes);
 app.use('/api/knowledge-base', requireAuth, knowledgeBaseRoutes);

@@ -135,7 +135,7 @@ const encodePackage = async (backup) => {
 const decodeUpload = async (bytes, key, group) => {
   if (!Buffer.isBuffer(bytes) || !bytes.length) throw fail('Выберите непустой файл');
   let backup;
-  if (['applications', 'knowledge', 'other'].includes(key)) {
+  if (['applications', 'knowledge', 'other', 'configuration'].includes(key)) {
     backup = { group: key, sql: bytes.toString('utf8'), files: [] };
   } else {
     let decoded;
@@ -191,7 +191,7 @@ const restore = async (backup, key, group, options = {}) => {
     const recovery = await capture(key, connection);
     const recoveryDir = options.recoveryDir || path.join(serverRoot, 'data', 'admin-restore-recovery');
     await fs.mkdir(recoveryDir, { recursive: true });
-    const sqlOnly = ['applications', 'knowledge', 'other'].includes(key);
+    const sqlOnly = ['applications', 'knowledge', 'other', 'configuration'].includes(key);
     const recoveryName = `${Date.now()}-${key}${sqlOnly ? '.sql' : '.suz.gz'}`;
     await fs.writeFile(path.join(recoveryDir, recoveryName), sqlOnly ? Buffer.from(recovery.sql) : await encodePackage(recovery), { flag: 'wx', mode: 0o600 });
     stage = await fs.mkdtemp(path.join(recoveryDir, 'restore-'));
@@ -271,7 +271,7 @@ const restore = async (backup, key, group, options = {}) => {
 
 router.use(requireAuth, requireRole('admin'));
 router.get('/recovery/:name', async (req, res) => {
-  if (!/^\d+-(applications|knowledge|accounts|communication|other|all)\.(sql|suz\.gz)$/.test(req.params.name)) return res.status(400).json({ message: 'Некорректное имя копии' });
+  if (!/^\d+-(applications|knowledge|accounts|communication|other|all|configuration)\.(sql|suz\.gz)$/.test(req.params.name)) return res.status(400).json({ message: 'Некорректное имя копии' });
   const file = path.join(serverRoot, 'data', 'admin-restore-recovery', req.params.name);
   res.setHeader('Cache-Control', 'no-store');
   res.download(file, req.params.name, (error) => {
@@ -281,14 +281,14 @@ router.get('/recovery/:name', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const names = await inventory();
-    res.json(Object.entries(getGroups(names)).map(([key, group]) => ({ key, title: group.title, tables: group.tables.filter((name) => names.includes(name)), extension: ['applications', 'knowledge', 'other'].includes(key) ? '.sql' : '.suz.gz' })));
+    res.json(Object.entries(getGroups(names)).map(([key, group]) => ({ key, title: group.title, tables: group.tables.filter((name) => names.includes(name)), extension: ['applications', 'knowledge', 'other', 'configuration'].includes(key) ? '.sql' : '.suz.gz' })));
   } catch (error) { res.status(error.status || 500).json({ message: error.message }); }
 });
 router.get('/:group/export', async (req, res) => {
   try {
     const key = req.params.group;
     const backup = await exclusive(() => capture(key));
-    const sqlOnly = ['applications', 'knowledge', 'other'].includes(key);
+    const sqlOnly = ['applications', 'knowledge', 'other', 'configuration'].includes(key);
     const bytes = sqlOnly ? Buffer.from(backup.sql) : await encodePackage(backup);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Content-Disposition', `attachment; filename="react-suz-${key}-${new Date().toISOString().slice(0, 10)}${sqlOnly ? '.sql' : '.suz.gz'}"`);

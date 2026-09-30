@@ -3,6 +3,7 @@ import { syncEmployees } from '../services/employeeService';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
 import AdminBackups from '../components/AdminBackups';
+import ChatUploadSettings from '../components/ChatUploadSettings';
 import './AdminSettings.css';
 
 const EMPLOYEE_DETAIL_FIELDS = [
@@ -192,6 +193,8 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
         <h1>Служебные обновления</h1>
         <span>Редкие операции вынесены из рабочих экранов.</span>
       </header>
+
+      <ChatUploadSettings />
 
       <AdminBackups onSettingsRestored={() => {
         setApplicationActionHistoryVisible(localStorage.getItem('admin.showApplicationActionHistory') === 'true');
