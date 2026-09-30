@@ -1,3 +1,4 @@
+import { getUserPreferences } from '../utils/userPreferences';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
@@ -8,8 +9,6 @@ import loginSpectrumLines from '../assets/login-spectrum-lines.png';
 import { API_BASE_URL } from '../utils/apiConfig';
 
 
-const LOGIN_LANGUAGE_KEY = 'loginLanguage';
-const LOGIN_DESIGN_KEY = 'loginDesign';
 const LOGIN_LABELS = {
   en: {
     back: '← back', adminEntry: 'administrator login', adminChip: 'Control panel', title: 'Login', subtitle: 'Enter login and password',
@@ -61,8 +60,10 @@ const Login = ({ mode = 'employee' }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const isAdminMode = mode === 'admin';
-  const [language, setLanguage] = useState(() => localStorage.getItem(LOGIN_LANGUAGE_KEY) || 'en');
-  const [design, setDesign] = useState(() => localStorage.getItem(LOGIN_DESIGN_KEY) || 'current');
+  const [language, setLanguage] = useState('en');
+  const [design, setDesign] = useState('service');
+  const [languageChanged, setLanguageChanged] = useState(false);
+  const [designChanged, setDesignChanged] = useState(false);
   const isServiceDesign = design === 'service';
   const serviceLabels = SERVICE_LOGIN_LABELS[language] || SERVICE_LOGIN_LABELS.en;
   const t = useCallback(
@@ -70,11 +71,11 @@ const Login = ({ mode = 'employee' }) => {
     [language]
   );
   const changeLanguage = (nextLanguage) => {
-    localStorage.setItem(LOGIN_LANGUAGE_KEY, nextLanguage);
+    setLanguageChanged(true);
     setLanguage(nextLanguage);
   };
   const changeDesign = (nextDesign) => {
-    localStorage.setItem(LOGIN_DESIGN_KEY, nextDesign);
+    setDesignChanged(true);
     setDesign(nextDesign);
   };
 
@@ -163,6 +164,9 @@ const Login = ({ mode = 'employee' }) => {
   }, []);
 
   const applyLoginSuggestion = (suggestion) => {
+    const saved = getUserPreferences(suggestion.login);
+    if (!languageChanged) setLanguage(saved.uiLanguage);
+    if (!designChanged) setDesign(saved.loginDesign);
     setSelectedLogin(suggestion.login || '');
     setFormData((prev) => ({ ...prev, username: formatSuggestionName(suggestion.display_name || suggestion.full_name || suggestion.login || prev.username) }));
     setSuggestionsOpen(false);
@@ -195,7 +199,7 @@ const Login = ({ mode = 'employee' }) => {
     setIsSubmitting(true);
 
     try {
-      const loggedInUser = await login(username, formData.password, { scope: isAdminMode ? 'admin' : 'employee' });
+      const loggedInUser = await login(username, formData.password, { scope: isAdminMode ? 'admin' : 'employee', language: languageChanged ? language : undefined, design: designChanged ? design : undefined });
       const isAdminUser = loggedInUser.role === 'admin';
       const isEmployeeUser = loggedInUser.role === 'employee' || loggedInUser.role === 'manager';
 

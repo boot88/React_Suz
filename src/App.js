@@ -1,3 +1,4 @@
+import { userSettingsStorage, PREFERENCES_EVENT, flushPreferenceSync } from './utils/userPreferences';
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate, useParams, Link } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
@@ -77,8 +78,8 @@ function AppWorkspace() {
   const { isAuthenticated, isLoading, user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const [adminLanguage, setAdminLanguage] = useState(() => localStorage.getItem('adminLanguage') || 'ru');
-  const [adminTheme, setAdminTheme] = useState(() => localStorage.getItem('adminTheme') || 'light');
+  const [adminLanguage, setAdminLanguage] = useState(() => userSettingsStorage.getItem('adminLanguage') || 'en');
+  const [adminTheme, setAdminTheme] = useState(() => userSettingsStorage.getItem('adminTheme') || 'light');
   const [workspaceTransition, setWorkspaceTransition] = useState(null);
   const workspaceTransitionTimersRef = useRef([]);
   const currentPathRef = useRef(location.pathname);
@@ -87,10 +88,19 @@ function AppWorkspace() {
   useEffect(() => { currentPathRef.current = location.pathname; }, [location.pathname]);
   useEffect(() => { navigateRef.current = navigate; }, [navigate]);
 
+  const [preferenceSyncError, setPreferenceSyncError] = useState('');
   useEffect(() => {
-    localStorage.setItem('adminLanguage', adminLanguage);
-    localStorage.setItem('adminTheme', adminTheme);
-  }, [adminLanguage, adminTheme]);
+    const sync = (event) => {
+      if (event?.detail?.login && event.detail.login !== String(user?.username || '').toLowerCase()) return;
+      setAdminLanguage(userSettingsStorage.getItem('adminLanguage') || 'en');
+      setAdminTheme(userSettingsStorage.getItem('adminTheme') || 'light');
+      setPreferenceSyncError(event?.detail?.error || '');
+    };
+    sync();
+    window.addEventListener(PREFERENCES_EVENT, sync);
+    window.addEventListener('storage', sync);
+    return () => { window.removeEventListener(PREFERENCES_EVENT, sync); window.removeEventListener('storage', sync); };
+  }, [user?.username]);
 
   useEffect(() => {
     const clearTransitionTimers = () => {
@@ -147,6 +157,7 @@ function AppWorkspace() {
     <div className={`app-container ${showAdminShell ? `admin-workspace admin-theme-${adminTheme}` : ''}`} data-admin-language={adminLanguage}>
       {showAdminShell && <Sidebar language={adminLanguage} />}
       <div className={`app-content ${showAdminShell ? 'app-content--with-sidebar admin-shell-content' : ''}`}>
+        {isAuthenticated && preferenceSyncError && <div role="alert" className="settings-sync-error">{preferenceSyncError} <button type="button" onClick={flushPreferenceSync}>Повторить сохранение</button></div>}
         {showAdminShell && <AdminTextTranslator language={adminLanguage} />}
         {showAdminShell && <AdminWelcomeNotice language={adminLanguage} />}
         <Routes>
@@ -162,7 +173,7 @@ function AppWorkspace() {
           <Route path="/employee-search" element={<AdminRoute><EmployeeSearch /></AdminRoute>} />
           <Route path="/knowledge-base" element={<AdminRoute><KnowledgeBase /></AdminRoute>} />
           <Route path="/network-map" element={<AdminRoute><NetworkMap /></AdminRoute>} />
-          <Route path="/settings" element={<AdminRoute><AdminSettings language={adminLanguage} theme={adminTheme} onLanguageChange={setAdminLanguage} onThemeChange={setAdminTheme} /></AdminRoute>} />
+          <Route path="/settings" element={<AdminRoute><AdminSettings language={adminLanguage} theme={adminTheme} onLanguageChange={(value) => userSettingsStorage.setItem('adminLanguage', value)} onThemeChange={(value) => userSettingsStorage.setItem('adminTheme', value)} /></AdminRoute>} />
           <Route path="/statistics" element={<AdminRoute><Statistics /></AdminRoute>} />
 
           <Route path="/support" element={<Support />} />

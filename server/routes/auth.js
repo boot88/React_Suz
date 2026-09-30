@@ -112,14 +112,17 @@ const PROFILE_PREFERENCE_BOOLEAN_KEYS = new Set([
   'showConversationMenu',
   'showFeedCategorySelect',
   'showFeedFilters',
-  'enterToSend'
+  'enterToSend', 'showApplicationActionHistory', 'showEditApplicationTable', 'auditTestMode'
 ]);
 const PROFILE_PREFERENCE_ENUMS = {
   uiDesign: new Set(['classic', 'modern']),
   uiLanguage: new Set(['ru', 'en']),
   uiTheme: new Set(['light', 'dark']),
   uiDensity: new Set(['compact', 'regular', 'comfortable']),
-  uiTextSize: new Set(['small', 'medium', 'large'])
+  uiTextSize: new Set(['small', 'medium', 'large']),
+  loginDesign: new Set(['current', 'new', 'service']), adminTheme: new Set(['light', 'dark']),
+  requestCardDesign: new Set(['modern', 'legacy']), requestViewMode: new Set(['table', 'timeline']),
+  requestSortMode: new Set(['date_asc', 'date_desc']), requestPageSize: new Set(['5', '10', '15', '20', '50'])
 };
 const ADMIN_FULL_NAMES = [
   'Повисок Е.В.',
@@ -1051,7 +1054,7 @@ router.put('/profile/preferences', requireAuth, async (req, res) => {
     const safePreferences = sanitizeProfilePreferences(preferences);
     const savedProfile = await mutateProfile(normalizedLogin, (currentProfile) => ({
       ...currentProfile,
-      preferences: safePreferences,
+      preferences: { ...sanitizeProfilePreferences(currentProfile.preferences), ...safePreferences },
       updatedAt: new Date().toISOString()
     }));
     res.json({
@@ -1243,11 +1246,17 @@ router.post('/login', async (req, res) => {
       await db.execute('UPDATE users SET password = ? WHERE id = ?', [user.password, user.id]);
     }
 
-    const profile = await readProfileByLogin(user.login);
+    let profile = await readProfileByLogin(user.login);
+    const loginPreferences = sanitizeProfilePreferences({
+      ...(req.body?.language === 'ru' || req.body?.language === 'en' ? { uiLanguage: req.body.language } : {}),
+      ...(['current', 'new', 'service'].includes(req.body?.design) ? { loginDesign: req.body.design } : {})
+    });
+    if (Object.keys(loginPreferences).length) profile = await mutateProfile(user.login, (current) => ({ ...current, preferences: { ...sanitizeProfilePreferences(current.preferences), ...loginPreferences } }));
 
     res.json({
       message: 'Вход успешен',
       token: await issueSession(user),
+      preferences: sanitizeProfilePreferences(profile.preferences),
       user: {
         ...mapUser(user),
         position: profile.position || user.position || ''

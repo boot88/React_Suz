@@ -1,3 +1,4 @@
+import { userSettingsStorage } from '../utils/userPreferences';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import './EditApplicationsTable.css';
@@ -11,7 +12,7 @@ function EditApplicationsTable() {
   const { isLoading: authLoading } = useAuth();
   const { id: applicationId } = useParams();
   const navigate = useNavigate();
-  const showIntermediateTable = localStorage.getItem(SHOW_EDIT_APPLICATION_TABLE_KEY) === 'true';
+  const showIntermediateTable = userSettingsStorage.getItem(SHOW_EDIT_APPLICATION_TABLE_KEY) === 'true';
   const directEditingMode = Boolean(applicationId) && !showIntermediateTable;
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);

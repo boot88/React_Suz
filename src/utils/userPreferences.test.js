@@ -1,0 +1,61 @@
+import { authFetch } from './authFetch';
+import { DEFAULT_PREFERENCES, configurePreferenceSync, flushPreferenceSync, getChatPreferences, getUserPreferences, initializeUserPreferences, stopPreferenceSync, updateUserPreferences, userSettingsStorage } from './userPreferences';
+jest.mock('./authFetch', () => ({ authFetch: jest.fn() }));
+const useAccount = (login) => localStorage.setItem('authState', JSON.stringify({ user: { username: login } }));
+beforeEach(() => { localStorage.clear(); authFetch.mockReset(); jest.useFakeTimers(); });
+afterEach(() => { stopPreferenceSync(); jest.useRealTimers(); });
+
+test('new accounts have the requested defaults and ignore another user’s global browser settings', () => {
+  localStorage.setItem('adminLanguage', 'ru'); localStorage.setItem('adminTheme', 'dark'); localStorage.setItem('loginDesign', 'current');
+  useAccount('new-employee'); initializeUserPreferences('new-employee');
+  expect(getUserPreferences()).toMatchObject({ loginDesign: 'service', uiLanguage: 'en', uiDesign: 'modern', uiTheme: 'light', uiDensity: 'regular', uiTextSize: 'medium', requestCardDesign: 'modern', adminTheme: 'light', showEditApplicationTable: false, showApplicationActionHistory: false, auditTestMode: false });
+  expect(userSettingsStorage.getItem('adminLanguage')).toBe('en');
+});
+
+test('two accounts keep independent settings and language is shared by chat, login and admin', () => {
+  useAccount('alice'); initializeUserPreferences('alice');
+  userSettingsStorage.setItem('adminLanguage', 'ru'); userSettingsStorage.setItem('dashboard.timelineCardDesign', 'legacy');
+  updateUserPreferences('alice', { uiTheme: 'dark', uiDesign: 'classic' });
+  expect(getChatPreferences('alice').uiLanguage).toBe('ru'); expect(userSettingsStorage.getItem('loginLanguage')).toBe('ru');
+  useAccount('bob'); initializeUserPreferences('bob');
+  expect(getUserPreferences()).toEqual(DEFAULT_PREFERENCES);
+  updateUserPreferences('bob', { uiLanguage: 'ru', uiTextSize: 'large' });
+  expect(userSettingsStorage.getItem('adminLanguage')).toBe('ru');
+  useAccount('ALICE');
+  expect(getUserPreferences()).toMatchObject({ uiLanguage: 'ru', uiDesign: 'classic', uiTheme: 'dark', requestCardDesign: 'legacy', uiTextSize: 'medium' });
+});
+
+test('settings restore from SQL on a fresh computer and explicit login language wins over an old unsent language', () => {
+  initializeUserPreferences('alice', { uiLanguage: 'ru', uiTheme: 'dark', requestCardDesign: 'legacy' });
+  updateUserPreferences('alice', { uiLanguage: 'en', uiDensity: 'compact' });
+  initializeUserPreferences('alice', { uiLanguage: 'ru', uiTheme: 'dark' }, { uiLanguage: 'ru' });
+  expect(getUserPreferences('alice')).toMatchObject({ uiLanguage: 'ru', uiDensity: 'compact' });
+  expect(JSON.parse(localStorage.getItem('user.preferences.pending.alice'))).toEqual({ uiDensity: 'compact' });
+  localStorage.clear(); initializeUserPreferences('alice', { uiLanguage: 'ru', uiTheme: 'dark', requestCardDesign: 'legacy' });
+  expect(getUserPreferences('alice')).toMatchObject({ uiLanguage: 'ru', uiTheme: 'dark', requestCardDesign: 'legacy' });
+});
+
+test('in-flight saves use the owning token and preserve newer pending changes across an account switch', async () => {
+  let finishAlice;
+  authFetch.mockImplementationOnce(() => new Promise((resolve) => { finishAlice = resolve; })).mockResolvedValue({ ok: true });
+  initializeUserPreferences('alice'); configurePreferenceSync('alice', 'alice-token');
+  updateUserPreferences('alice', { uiLanguage: 'ru' }); const first = flushPreferenceSync();
+  updateUserPreferences('alice', { uiLanguage: 'en', uiTheme: 'dark' });
+  initializeUserPreferences('bob'); configurePreferenceSync('bob', 'bob-token'); updateUserPreferences('bob', { uiLanguage: 'ru' });
+  await flushPreferenceSync(); finishAlice({ ok: true }); await first;
+  expect(authFetch.mock.calls[0][1].headers.Authorization).toBe('Bearer alice-token');
+  expect(authFetch.mock.calls[1][1].headers.Authorization).toBe('Bearer bob-token');
+  expect(JSON.parse(localStorage.getItem('user.preferences.pending.alice'))).toEqual({ uiLanguage: 'en', uiTheme: 'dark' });
+  configurePreferenceSync('alice', 'alice-new-token'); await flushPreferenceSync();
+  expect(JSON.parse(authFetch.mock.calls[2][1].body).preferences).toEqual({ uiLanguage: 'en', uiTheme: 'dark' });
+});
+
+test('a network failure keeps personal pending settings for retry at the next login', async () => {
+  authFetch.mockRejectedValueOnce(new Error('Network error')).mockResolvedValue({ ok: true });
+  initializeUserPreferences('alice'); configurePreferenceSync('alice', 'token');
+  updateUserPreferences('alice', { requestCardDesign: 'legacy' }); await flushPreferenceSync(); stopPreferenceSync();
+  initializeUserPreferences('alice', { requestCardDesign: 'modern' });
+  expect(getUserPreferences('alice').requestCardDesign).toBe('legacy');
+  configurePreferenceSync('alice', 'new-token'); await flushPreferenceSync();
+  expect(JSON.parse(localStorage.getItem('user.preferences.pending.alice'))).toEqual({});
+});

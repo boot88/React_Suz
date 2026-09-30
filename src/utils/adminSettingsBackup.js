@@ -1,3 +1,4 @@
+import { userSettingsStorage } from './userPreferences';
 export const SETTING_VALUES = {
   adminLanguage: ['ru', 'en'], adminTheme: ['light', 'dark'],
   'admin.showApplicationActionHistory': ['true', 'false'],
@@ -10,12 +11,12 @@ export const SETTING_VALUES = {
   loginLanguage: ['ru', 'en'], loginDesign: ['current', 'new', 'service']
 };
 
-export const exportBrowserSettings = (storage = localStorage) => ({
+export const exportBrowserSettings = (storage = userSettingsStorage) => ({
   format: 'React_Suz browser settings', version: 1,
   settings: Object.fromEntries(Object.keys(SETTING_VALUES).map((key) => [key, storage.getItem(key)]))
 });
 
-export const importBrowserSettings = (backup, storage = localStorage) => {
+export const importBrowserSettings = (backup, storage = userSettingsStorage) => {
   if (backup?.format !== 'React_Suz browser settings' || backup.version !== 1 || !backup.settings || typeof backup.settings !== 'object' || Array.isArray(backup.settings)) throw new Error('Выберите файл настроек, созданный в React_Suz');
   for (const [key, value] of Object.entries(backup.settings)) {
     if (!Object.prototype.hasOwnProperty.call(SETTING_VALUES, key) || (value !== null && !SETTING_VALUES[key].includes(value))) throw new Error(`Некорректная настройка: ${key}`);

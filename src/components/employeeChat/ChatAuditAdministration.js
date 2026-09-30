@@ -1,3 +1,4 @@
+import { userSettingsStorage } from '../../utils/userPreferences';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_BASE_URL } from '../../utils/apiConfig';
 import { authFetch } from '../../utils/authFetch';
@@ -55,7 +56,7 @@ export default function ChatAuditAdministration({
   const [searchLoading, setSearchLoading] = useState(false);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [error, setError] = useState('');
-  const [periodMode] = useState(() => localStorage.getItem(AUDIT_TEST_MODE_SETTING_KEY) === 'true' ? 'test' : 'month');
+  const [periodMode] = useState(() => userSettingsStorage.getItem(AUDIT_TEST_MODE_SETTING_KEY) === 'true' ? 'test' : 'month');
   const [periods, setPeriods] = useState([]);
   const [periodsLoading, setPeriodsLoading] = useState(false);
   const [periodSource, setPeriodSource] = useState({ totalCount: 0, firstAt: null, lastAt: null, cutoffAt: null });

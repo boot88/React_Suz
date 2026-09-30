@@ -1,3 +1,4 @@
+import { userSettingsStorage } from '../utils/userPreferences';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import './Dashboard.css';
@@ -44,14 +45,14 @@ const DASHBOARD_CARD_SIZE_EVENT = 'dashboard:timeline-card-design-change';
 const DEFAULT_DASHBOARD_COLUMNS = ['employee', 'request', 'executor', 'created', 'status'];
 const DASHBOARD_PAGE_SIZES = [5, 10, 15, 20, 50];
 const readDashboardSortMode = () => (
-  localStorage.getItem('dashboard.sortMode') === 'date_asc' ? 'date_asc' : 'date_desc'
+  userSettingsStorage.getItem('dashboard.sortMode') === 'date_asc' ? 'date_asc' : 'date_desc'
 );
 const readDashboardPageSize = () => {
-  const stored = Number(localStorage.getItem(DASHBOARD_LIMIT_KEY));
+  const stored = Number(userSettingsStorage.getItem(DASHBOARD_LIMIT_KEY));
   return DASHBOARD_PAGE_SIZES.includes(stored) ? stored : 10;
 };
 const readDashboardCardDesign = () => (
-  localStorage.getItem(DASHBOARD_CARD_SIZE_KEY) === 'modern' ? 'modern' : 'legacy'
+  userSettingsStorage.getItem(DASHBOARD_CARD_SIZE_KEY) === 'modern' ? 'modern' : 'legacy'
 );
 // Три ключевых времени заявки и производные длительности.
 const getApplicationTimes = (app = {}, now = Date.now()) => {
@@ -308,7 +309,7 @@ const Dashboard = () => {
   const [sortMode, setSortMode] = useState(readDashboardSortMode);
   const visibleColumns = DEFAULT_DASHBOARD_COLUMNS;
   const compactMode = false;
-  const [viewMode, setViewMode] = useState(() => localStorage.getItem('dashboard.viewMode') || 'timeline');
+  const [viewMode, setViewMode] = useState(() => userSettingsStorage.getItem('dashboard.viewMode') || 'timeline');
   const [timelineCardDesign, setTimelineCardDesign] = useState(readDashboardCardDesign);
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
@@ -316,7 +317,7 @@ const Dashboard = () => {
   const [selectedApplication, setSelectedApplication] = useState(null);
   const [applicationEvents, setApplicationEvents] = useState([]);
   const [eventsLoading, setEventsLoading] = useState(false);
-  const [showApplicationActionHistory, setShowApplicationActionHistory] = useState(() => localStorage.getItem(SHOW_APPLICATION_ACTION_HISTORY_KEY) === 'true');
+  const [showApplicationActionHistory, setShowApplicationActionHistory] = useState(() => userSettingsStorage.getItem(SHOW_APPLICATION_ACTION_HISTORY_KEY) === 'true');
   const [workflowModal, setWorkflowModal] = useState(null);
   const [toast, setToast] = useState(null);
   const [dashboardNow, setDashboardNow] = useState(Date.now());
@@ -345,7 +346,7 @@ const Dashboard = () => {
 
   useEffect(() => {
     const syncApplicationActionHistoryVisibility = () => {
-      const visible = localStorage.getItem(SHOW_APPLICATION_ACTION_HISTORY_KEY) === 'true';
+      const visible = userSettingsStorage.getItem(SHOW_APPLICATION_ACTION_HISTORY_KEY) === 'true';
       setShowApplicationActionHistory(visible);
       if (!visible) {
         setApplicationEvents([]);
@@ -808,7 +809,7 @@ const Dashboard = () => {
 
   const changeSortMode = (nextSortMode) => {
     const safeSortMode = nextSortMode === 'date_asc' ? 'date_asc' : 'date_desc';
-    localStorage.setItem('dashboard.sortMode', safeSortMode);
+    userSettingsStorage.setItem('dashboard.sortMode', safeSortMode);
     setSortMode(safeSortMode);
     setCurrentPage(1);
   };
@@ -1337,7 +1338,7 @@ const Dashboard = () => {
                     type="button"
                     aria-pressed={viewMode === 'table'}
                     className={viewMode === 'table' ? 'active' : ''}
-                    onClick={() => { setViewMode('table'); localStorage.setItem('dashboard.viewMode', 'table'); }}
+                    onClick={() => { setViewMode('table'); userSettingsStorage.setItem('dashboard.viewMode', 'table'); }}
                   >
                     <span className="view-switch-icon view-switch-icon--table" aria-hidden="true"><i /><i /><i /><i /></span>
                     <span>Таблица</span>
@@ -1346,7 +1347,7 @@ const Dashboard = () => {
                     type="button"
                     aria-pressed={viewMode === 'timeline'}
                     className={viewMode === 'timeline' ? 'active' : ''}
-                    onClick={() => { setViewMode('timeline'); localStorage.setItem('dashboard.viewMode', 'timeline'); }}
+                    onClick={() => { setViewMode('timeline'); userSettingsStorage.setItem('dashboard.viewMode', 'timeline'); }}
                   >
                     <span className="view-switch-icon view-switch-icon--time" aria-hidden="true"><i /><i /><i /></span>
                     <span>По времени</span>
@@ -1360,7 +1361,7 @@ const Dashboard = () => {
                   onChange={(e) => {
                     const nextLimit = Number(e.target.value);
                     setLimit(nextLimit);
-                    localStorage.setItem(DASHBOARD_LIMIT_KEY, String(nextLimit));
+                    userSettingsStorage.setItem(DASHBOARD_LIMIT_KEY, String(nextLimit));
                     setCurrentPage(1);
                   }}
                 >

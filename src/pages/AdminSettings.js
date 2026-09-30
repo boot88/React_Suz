@@ -1,3 +1,4 @@
+import { userSettingsStorage } from '../utils/userPreferences';
 import React, { useState } from 'react';
 import { syncEmployees } from '../services/employeeService';
 import { API_BASE_URL } from '../utils/apiConfig';
@@ -127,30 +128,30 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
   const [directoryReport, setDirectoryReport] = useState(null);
-  const [applicationActionHistoryVisible, setApplicationActionHistoryVisible] = useState(() => localStorage.getItem('admin.showApplicationActionHistory') === 'true');
-  const [auditTestModeEnabled, setAuditTestModeEnabled] = useState(() => localStorage.getItem(AUDIT_TEST_MODE_SETTING_KEY) === 'true');
-  const [largeRequestsEnabled, setLargeRequestsEnabled] = useState(() => localStorage.getItem(DASHBOARD_CARD_SIZE_KEY) === 'modern');
-  const [editApplicationTableVisible, setEditApplicationTableVisible] = useState(() => localStorage.getItem(SHOW_EDIT_APPLICATION_TABLE_KEY) === 'true');
+  const [applicationActionHistoryVisible, setApplicationActionHistoryVisible] = useState(() => userSettingsStorage.getItem('admin.showApplicationActionHistory') === 'true');
+  const [auditTestModeEnabled, setAuditTestModeEnabled] = useState(() => userSettingsStorage.getItem(AUDIT_TEST_MODE_SETTING_KEY) === 'true');
+  const [largeRequestsEnabled, setLargeRequestsEnabled] = useState(() => userSettingsStorage.getItem(DASHBOARD_CARD_SIZE_KEY) === 'modern');
+  const [editApplicationTableVisible, setEditApplicationTableVisible] = useState(() => userSettingsStorage.getItem(SHOW_EDIT_APPLICATION_TABLE_KEY) === 'true');
   const toggleApplicationActionHistory = () => {
     const nextValue = !applicationActionHistoryVisible;
-    localStorage.setItem('admin.showApplicationActionHistory', String(nextValue));
+    userSettingsStorage.setItem('admin.showApplicationActionHistory', String(nextValue));
     setApplicationActionHistoryVisible(nextValue);
     window.dispatchEvent(new Event('admin:application-action-history-visibility'));
   };
   const toggleAuditTestMode = () => {
     const nextValue = !auditTestModeEnabled;
-    localStorage.setItem(AUDIT_TEST_MODE_SETTING_KEY, String(nextValue));
+    userSettingsStorage.setItem(AUDIT_TEST_MODE_SETTING_KEY, String(nextValue));
     setAuditTestModeEnabled(nextValue);
   };
   const toggleLargeRequests = () => {
     const nextValue = !largeRequestsEnabled;
-    localStorage.setItem(DASHBOARD_CARD_SIZE_KEY, nextValue ? 'modern' : 'legacy');
+    userSettingsStorage.setItem(DASHBOARD_CARD_SIZE_KEY, nextValue ? 'modern' : 'legacy');
     setLargeRequestsEnabled(nextValue);
     window.dispatchEvent(new Event(DASHBOARD_CARD_SIZE_EVENT));
   };
   const toggleEditApplicationTable = () => {
     const nextValue = !editApplicationTableVisible;
-    localStorage.setItem(SHOW_EDIT_APPLICATION_TABLE_KEY, String(nextValue));
+    userSettingsStorage.setItem(SHOW_EDIT_APPLICATION_TABLE_KEY, String(nextValue));
     setEditApplicationTableVisible(nextValue);
   };
   const run = async (kind) => {
@@ -197,12 +198,12 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
       <ChatUploadSettings />
 
       <AdminBackups onSettingsRestored={() => {
-        setApplicationActionHistoryVisible(localStorage.getItem('admin.showApplicationActionHistory') === 'true');
-        setAuditTestModeEnabled(localStorage.getItem(AUDIT_TEST_MODE_SETTING_KEY) === 'true');
-        setLargeRequestsEnabled(localStorage.getItem(DASHBOARD_CARD_SIZE_KEY) === 'modern');
-        setEditApplicationTableVisible(localStorage.getItem(SHOW_EDIT_APPLICATION_TABLE_KEY) === 'true');
-        onLanguageChange(localStorage.getItem('adminLanguage') || 'ru');
-        onThemeChange(localStorage.getItem('adminTheme') || 'light');
+        setApplicationActionHistoryVisible(userSettingsStorage.getItem('admin.showApplicationActionHistory') === 'true');
+        setAuditTestModeEnabled(userSettingsStorage.getItem(AUDIT_TEST_MODE_SETTING_KEY) === 'true');
+        setLargeRequestsEnabled(userSettingsStorage.getItem(DASHBOARD_CARD_SIZE_KEY) === 'modern');
+        setEditApplicationTableVisible(userSettingsStorage.getItem(SHOW_EDIT_APPLICATION_TABLE_KEY) === 'true');
+        onLanguageChange(userSettingsStorage.getItem('adminLanguage') || 'en');
+        onThemeChange(userSettingsStorage.getItem('adminTheme') || 'light');
         window.dispatchEvent(new Event(DASHBOARD_CARD_SIZE_EVENT));
         window.dispatchEvent(new Event('admin:application-action-history-visibility'));
       }} />

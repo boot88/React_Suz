@@ -659,3 +659,4 @@ body {
   color: #64748b;
   font-size: 14px;
 }
+.settings-sync-error { padding: 12px 16px; background: #fff4d6; color: #654b0b; border-radius: 8px; margin-bottom: 12px; }

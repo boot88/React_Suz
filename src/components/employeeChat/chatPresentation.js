@@ -1,10 +1,10 @@
+import { getChatPreferences, updateUserPreferences } from '../../utils/userPreferences';
 import React, { useEffect, useState } from 'react';
 import { API_BASE_URL } from '../../utils/apiConfig';
 import { authFetch, withAccessToken } from '../../utils/authFetch';
 import { ensureMediaTokens, getFileIdFromUrl } from '../../utils/mediaTokenCache';
 
 const CHAT_READ_STATE_KEY = 'chatReadState';
-const CHAT_LOCAL_SETTINGS_KEY = 'chatLocalSettings';
 const CHAT_PENDING_MESSAGES_KEY = 'chatPendingMessages';
 const FEED_READ_STATE_KEY = 'employeeFeedReadState';
 const FEED_DRAFT_KEY = 'employeeFeedDraft';
@@ -34,10 +34,7 @@ const MANAGER_TABS = [
 const REQUEST_CATEGORIES = ['Техника', 'Сеть', 'ПО', 'Доступы', 'Другое'];
 const REQUEST_PRIORITIES = ['Обычный', 'Важный', 'Срочный'];
 
-const PROFILE_WEBSITE_BY_LANGUAGE = {
-  en: 'http://web3.nioch.nsc.ru/nioch/index.php/en/',
-  ru: 'http://web3.nioch.nsc.ru/nioch/index.php/ru/'
-};
+
 const DEFAULT_PROFILE_WEBSITE_LANGUAGE = 'en';
 const PROFILE_LANGUAGE_OPTIONS = [
   { value: 'en', label: 'English' },
@@ -971,7 +968,7 @@ const formatEnglishProfileLogin = (value = '') => {
   return initials ? `${surnameLatin} ${initials}` : surnameLatin;
 };
 
-const getWebsiteByLanguage = (language = DEFAULT_PROFILE_WEBSITE_LANGUAGE) => PROFILE_WEBSITE_BY_LANGUAGE[language] || PROFILE_WEBSITE_BY_LANGUAGE[DEFAULT_PROFILE_WEBSITE_LANGUAGE];
+const getWebsiteByLanguage = () => 'https://web3.nioch.nsc.ru/nioch/index.php/ru/';
 
 const getConversationId = (a, b) => [a.toLowerCase(), b.toLowerCase()].sort().join('::');
 const getParticipantsFromThreadId = (threadId = '') => threadId.split('::').filter(Boolean);
@@ -1016,44 +1013,8 @@ const getReadMessageId = (value) => (
   value && typeof value === 'object' ? String(value.lastReadMessageId || '') : ''
 );
 
-const readChatLocalSettings = (username = 'guest') => {
-  try {
-    const all = JSON.parse(localStorage.getItem(CHAT_LOCAL_SETTINGS_KEY) || '{}');
-    return {
-      archived: [],
-      hidden: [],
-      pinned: [],
-      muted: [],
-      favorites: [],
-      uiDesign: 'classic',
-      uiLanguage: 'ru',
-      uiTheme: 'light',
-      uiDensity: 'regular',
-      uiTextSize: 'medium',
-      showChatTemplates: false,
-      showExtraMessageActions: false,
-      showDialogMediaPanel: false,
-      showDialogFilters: false,
-      showDialogDateJump: false,
-      showConversationMenu: false,
-      showFeedCategorySelect: false,
-      showFeedFilters: false,
-      ...(all?.[username] || {})
-    };
-  } catch {
-    return { archived: [], hidden: [], pinned: [], muted: [], favorites: [], uiTheme: 'light', uiDensity: 'regular', uiTextSize: 'medium', showChatTemplates: false, showExtraMessageActions: false, showDialogMediaPanel: false, showDialogFilters: false, showDialogDateJump: false, showConversationMenu: false, showFeedCategorySelect: false, showFeedFilters: false };
-  }
-};
-
-const saveChatLocalSettings = (username = 'guest', settings = {}) => {
-  try {
-    const all = JSON.parse(localStorage.getItem(CHAT_LOCAL_SETTINGS_KEY) || '{}');
-    all[username] = settings;
-    localStorage.setItem(CHAT_LOCAL_SETTINGS_KEY, JSON.stringify(all));
-  } catch {
-    // noop
-  }
-};
+const readChatLocalSettings = (username = 'guest') => getChatPreferences(username);
+const saveChatLocalSettings = (username = 'guest', settings = {}) => updateUserPreferences(username, settings);
 
 const readPendingMessages = (username = 'guest') => {
   try {

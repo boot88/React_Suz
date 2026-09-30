@@ -7564,3 +7564,5 @@
   background: rgba(154, 59, 48, .15);
   color: #f1a49a;
 }
+.profile-website-link { display: grid; gap: 8px; align-content: start; }
+.profile-website-link a { color: var(--chat-accent, #2563eb); font-weight: 600; }

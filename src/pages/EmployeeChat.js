@@ -1,3 +1,4 @@
+import { PREFERENCES_EVENT } from '../utils/userPreferences';
 import useChatDraftStorage, { readChatDrafts, saveChatDrafts } from '../components/employeeChat/useChatDraftStorage';
 import VirtualMessageList from '../components/employeeChat/VirtualMessageList';
 import EmployeeFeedWorkspace from '../components/employeeChat/EmployeeFeedWorkspace';
@@ -124,6 +125,11 @@ const EmployeeChat = ({ adminSection = null }) => {
   const chatDraftsRef = useRef(chatDrafts);
   const skipDraftSaveRef = useRef(false);
   const [chatLocalSettings, setChatLocalSettings] = useState(() => readChatLocalSettings(user?.username || 'guest'));
+  useEffect(() => {
+    const sync = (event) => { if (!event?.detail?.login || event.detail.login === String(user?.username || '').toLowerCase()) setChatLocalSettings(readChatLocalSettings(user?.username || 'guest')); };
+    window.addEventListener(PREFERENCES_EVENT, sync); window.addEventListener('storage', sync);
+    return () => { window.removeEventListener(PREFERENCES_EVENT, sync); window.removeEventListener('storage', sync); };
+  }, [user?.username]);
   const [selectedMessageIds, setSelectedMessageIds] = useState([]);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [inlineEditMessageId, setInlineEditMessageId] = useState('');
@@ -217,7 +223,7 @@ const EmployeeChat = ({ adminSection = null }) => {
     website: getWebsiteByLanguage(),
     statusText: ''
   });
-  const isEnglishInterface = (chatLocalSettings.uiLanguage || 'ru') === 'en';
+  const isEnglishInterface = (chatLocalSettings.uiLanguage || 'en') === 'en';
   const interfaceLocale = isEnglishInterface ? 'en-US' : 'ru-RU';
   const t = useCallback((key) => (isEnglishInterface ? ENGLISH_LABELS[key] : RUSSIAN_LABELS[key]) || key, [isEnglishInterface]);
   const getTabLabel = useCallback((tab) => (isEnglishInterface ? ENGLISH_TAB_LABELS[tab.id] : tab.label) || tab.label, [isEnglishInterface]);
@@ -270,8 +276,6 @@ const EmployeeChat = ({ adminSection = null }) => {
   const typingActiveConversationRef = useRef('');
   const uploadControllersRef = useRef(new Map());
   const seenStreamEventIdsRef = useRef(new Set());
-  const settingsSyncTimerRef = useRef(null);
-  const settingsRevisionRef = useRef(0);
   const fetchThreadsRef = useRef(null);
 
   const openModal = useCallback((config) => new Promise((resolve) => {
@@ -298,32 +302,6 @@ const EmployeeChat = ({ adminSection = null }) => {
   useEffect(() => {
     notifyRef.current = notify;
   }, [notify]);
-
-  const queueChatSettingsSync = useCallback((settings) => {
-    const login = user?.username;
-    if (!login) return;
-    if (settingsSyncTimerRef.current) clearTimeout(settingsSyncTimerRef.current);
-    settingsSyncTimerRef.current = setTimeout(async () => {
-      try {
-        const response = await authFetch(`${API_BASE_URL}/auth/profile/preferences`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ preferences: settings }),
-          keepalive: true
-        });
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(data.message || 'Не удалось синхронизировать настройки');
-        }
-      } catch (error) {
-        console.error('Chat settings sync error:', error);
-      }
-    }, 350);
-  }, [user?.username]);
-
-  useEffect(() => () => {
-    if (settingsSyncTimerRef.current) clearTimeout(settingsSyncTimerRef.current);
-  }, []);
 
   useEffect(() => () => {
     uploadControllersRef.current.forEach((controller) => controller.abort());
@@ -547,7 +525,6 @@ const EmployeeChat = ({ adminSection = null }) => {
   };
 
   const loadProfile = useCallback(async (login, mode = 'form') => {
-    const settingsRevision = settingsRevisionRef.current;
     const response = await authFetch(`${API_BASE_URL}/auth/profile?login=${encodeURIComponent(login)}`);
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -570,7 +547,7 @@ const EmployeeChat = ({ adminSection = null }) => {
       position: getProfileValue(profile, cachedProfile, 'position'),
       bio: getProfileValue(profile, cachedProfile, 'bio'),
       websiteLanguage: getProfileValue(profile, cachedProfile, 'websiteLanguage', 'website_language') || DEFAULT_PROFILE_WEBSITE_LANGUAGE,
-      website: getProfileValue(profile, cachedProfile, 'website') || getWebsiteByLanguage(getProfileValue(profile, cachedProfile, 'websiteLanguage', 'website_language') || DEFAULT_PROFILE_WEBSITE_LANGUAGE),
+      website: getWebsiteByLanguage(),
       statusText: getProfileValue(profile, cachedProfile, 'statusText', 'status_text'),
       // A profile request may have started before a new avatar was uploaded.
       // Do not let that stale empty response erase the freshly saved photo.
@@ -584,20 +561,6 @@ const EmployeeChat = ({ adminSection = null }) => {
     if (!mergedProfile.room) mergedProfile.room = directoryProfile.room || directoryProfile.cabinet || '';
     if (!mergedProfile.position) mergedProfile.position = directoryProfile.position || '';
     if (mode === 'form') {
-      const serverPreferences = profile.preferences && typeof profile.preferences === 'object'
-        ? profile.preferences
-        : null;
-      if (settingsRevision === settingsRevisionRef.current && serverPreferences && Object.keys(serverPreferences).length > 0) {
-        const syncedSettings = {
-          ...readChatLocalSettings(login),
-          ...serverPreferences
-        };
-        setChatLocalSettings(syncedSettings);
-        saveChatLocalSettings(login, syncedSettings);
-      } else if (settingsRevision === settingsRevisionRef.current && serverPreferences) {
-        queueChatSettingsSync(readChatLocalSettings(login));
-      }
-
       const shouldHydrateForm = !profileDirtyRef.current || profileLoadedForRef.current !== login;
 
       if (shouldHydrateForm) {
@@ -625,7 +588,7 @@ const EmployeeChat = ({ adminSection = null }) => {
     }
 
     setProfilePreview({ ...mergedProfile, login: profile.login || login });
-  }, [queueChatSettingsSync, user.username]);
+  }, [user.username]);
 
   const fetchThreads = useCallback(async () => {
     try {
@@ -2619,14 +2582,11 @@ const EmployeeChat = ({ adminSection = null }) => {
 
 
   const updateChatLocalSettings = useCallback((updater) => {
-    settingsRevisionRef.current += 1;
-    setChatLocalSettings((prev) => {
-      const next = updater(prev);
-      saveChatLocalSettings(user?.username || 'guest', next);
-      queueChatSettingsSync(next);
-      return next;
-    });
-  }, [queueChatSettingsSync, user?.username]);
+    const login = user?.username || 'guest';
+    const next = updater(readChatLocalSettings(login));
+    saveChatLocalSettings(login, next);
+    setChatLocalSettings(next);
+  }, [user?.username]);
 
   const toggleLocalListValue = useCallback((key, value) => {
     updateChatLocalSettings((prev) => {
@@ -3984,7 +3944,7 @@ const EmployeeChat = ({ adminSection = null }) => {
 
   return (
     <div
-      className={`employee-chat-layout design-${chatLocalSettings.uiDesign || 'classic'} ${adminSection ? 'chat-administration' : ''} ${activeTab === 'chat' && selectedEmail ? 'mobile-dialog-open' : ''} ${activeTab !== 'chat' ? 'mobile-section-open' : ''} theme-${chatLocalSettings.uiTheme || 'light'} density-${chatLocalSettings.uiDensity || 'regular'} text-${chatLocalSettings.uiTextSize || 'medium'} ${isDraggingFiles ? 'dragging-files' : ''}`}
+      className={`employee-chat-layout design-${chatLocalSettings.uiDesign || 'modern'} ${adminSection ? 'chat-administration' : ''} ${activeTab === 'chat' && selectedEmail ? 'mobile-dialog-open' : ''} ${activeTab !== 'chat' ? 'mobile-section-open' : ''} theme-${chatLocalSettings.uiTheme || 'light'} density-${chatLocalSettings.uiDensity || 'regular'} text-${chatLocalSettings.uiTextSize || 'medium'} ${isDraggingFiles ? 'dragging-files' : ''}`}
       onDrop={handleAttachmentDrop}
       onDragOver={handleDragOver}
       onDragEnter={handleDragOver}

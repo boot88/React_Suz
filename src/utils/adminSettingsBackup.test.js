@@ -6,12 +6,12 @@ test('browser settings round trip excludes passwords, auth tokens and cached ext
   localStorage.setItem('adminTheme', 'dark');
   localStorage.setItem('authState', '{"token":"private"}');
   localStorage.setItem('network-map-cache', 'external');
-  const backup = exportBrowserSettings();
+  const backup = exportBrowserSettings(localStorage);
   expect(backup.settings.adminTheme).toBe('dark');
   expect(backup.settings.authState).toBeUndefined();
   expect(backup.settings['network-map-cache']).toBeUndefined();
   localStorage.setItem('adminTheme', 'light');
-  importBrowserSettings(backup);
+  importBrowserSettings(backup, localStorage);
   expect(localStorage.getItem('adminTheme')).toBe('dark');
   expect(localStorage.getItem('authState')).toBe('{"token":"private"}');
 });

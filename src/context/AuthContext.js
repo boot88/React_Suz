@@ -3,6 +3,7 @@ import { AUTH_STATE_KEY, LOCAL_EMPLOYEES_KEY } from '../config/authConfig';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
 import { clearWelcomeGreeting } from '../utils/welcomeGreeting';
+import { initializeUserPreferences, configurePreferenceSync, stopPreferenceSync, flushPreferenceSync } from '../utils/userPreferences';
 
 const AuthContext = createContext();
 const AUTH_SESSION_TIMEOUT_MS = 15 * 60 * 1000;
@@ -126,7 +127,7 @@ export const AuthProvider = ({ children }) => {
       },
       body: JSON.stringify({
         login: loginValue,
-        password
+        password, language: options.language, design: options.design
       })
     });
 
@@ -158,9 +159,11 @@ export const AuthProvider = ({ children }) => {
     const nextEmployees = upsertEmployeeOnlineStatus(employeeUser.username, true);
     mergeEmployeeDirectory(nextEmployees.filter((item) => item.isVerified));
 
+    initializeUserPreferences(employeeUser.username, data.preferences || {}, { ...(options.language ? { uiLanguage: options.language } : {}), ...(options.design ? { loginDesign: options.design } : {}) });
+    persistAuthState(employeeUser);
+    configurePreferenceSync(employeeUser.username, employeeUser.accessToken);
     setIsAuthenticated(true);
     setUser(employeeUser);
-    persistAuthState(employeeUser);
     await pushPresenceToServer({ login: employeeUser.username, isOnline: true, role: employeeUser.role || 'employee' });
     return employeeUser;
   };
@@ -178,7 +181,8 @@ export const AuthProvider = ({ children }) => {
 
   const verifyEmployeeEmail = () => true;
 
-  const logout = useCallback((options = {}) => {
+  const logout = useCallback(async (options = {}) => {
+    if (options.reason !== 'expired') await flushPreferenceSync();
     if (options.reason !== 'expired') authFetch(`${API_BASE_URL}/auth/logout`, { method: 'POST', keepalive: true }).catch(() => {});
     if (user?.username) {
       // Приветствие при входе показываем заново при следующем входе в систему.
@@ -194,6 +198,7 @@ export const AuthProvider = ({ children }) => {
       }
     }
 
+    stopPreferenceSync();
     clearSessionTimer();
     setIsAuthenticated(false);
     setUser(null);
@@ -275,24 +280,30 @@ export const AuthProvider = ({ children }) => {
   }, [mergeEmployeeDirectory]);
 
   useEffect(() => {
-    try {
-      localStorage.removeItem('serviceAccountPasswords');
-      const savedState = JSON.parse(localStorage.getItem(AUTH_STATE_KEY) || 'null');
-      if (savedState?.isAuthenticated && savedState?.user?.accessToken) {
-        const expiresAt = Number(savedState.expiresAt || 0);
-        if (expiresAt > Date.now()) {
-          setIsAuthenticated(true);
-          setUser(savedState.user);
-        } else {
-          localStorage.removeItem(AUTH_STATE_KEY);
-        }
-      }
-    } catch (error) {
-      console.error('Ошибка при чтении состояния авторизации:', error);
-      localStorage.removeItem(AUTH_STATE_KEY);
-    } finally {
-      setIsLoading(false);
-    }
+    let cancelled = false;
+    const restore = async () => {
+      try {
+        localStorage.removeItem('serviceAccountPasswords');
+        const savedState = JSON.parse(localStorage.getItem(AUTH_STATE_KEY) || 'null');
+        if (savedState?.isAuthenticated && savedState?.user?.accessToken && Number(savedState.expiresAt || 0) > Date.now()) {
+          const savedUser = savedState.user;
+          let preferences = {};
+          try {
+            const response = await authFetch(`${API_BASE_URL}/auth/profile?login=${encodeURIComponent(savedUser.username)}`, { headers: { Authorization: `Bearer ${savedUser.accessToken}` } });
+            if (response.ok) preferences = (await response.json()).profile?.preferences || {};
+          } catch { /* Personal cache remains available during a network outage. */ }
+          if (cancelled) return;
+          initializeUserPreferences(savedUser.username, preferences);
+          configurePreferenceSync(savedUser.username, savedUser.accessToken);
+          setIsAuthenticated(true); setUser(savedUser);
+        } else localStorage.removeItem(AUTH_STATE_KEY);
+      } catch (error) {
+        console.error('Ошибка при чтении состояния авторизации:', error);
+        localStorage.removeItem(AUTH_STATE_KEY);
+      } finally { if (!cancelled) setIsLoading(false); }
+    };
+    restore();
+    return () => { cancelled = true; stopPreferenceSync(); };
   }, []);
 
   useEffect(() => {
@@ -344,6 +355,13 @@ export const AuthProvider = ({ children }) => {
 
     const handleStorage = (event) => {
       if (event.key !== AUTH_STATE_KEY) return;
+      const savedState = readSavedState();
+      if (savedState?.user?.accessToken && (savedState.user.username !== user.username || savedState.user.accessToken !== user.accessToken)) {
+        // A login in another tab changes the shared session. Reload before
+        // showing or saving preferences under the previous user's identity.
+        stopPreferenceSync(); setIsLoading(true); window.location.reload();
+        return;
+      }
       validateOrLogout();
     };
 
