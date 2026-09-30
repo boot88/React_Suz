@@ -1,3 +1,4 @@
+import { translateAdminText } from '../../utils/adminTranslation';
 import { userSettingsStorage } from '../../utils/userPreferences';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_BASE_URL } from '../../utils/apiConfig';
@@ -19,6 +20,7 @@ export default function ChatAuditAdministration({
   sameLogin,
   t
 }) {
+  const auditText = useCallback((value) => translateAdminText(value, isEnglishInterface ? 'en' : 'ru'), [isEnglishInterface]);
   const copy = useMemo(() => (isEnglishInterface ? {
     employee: 'Employee surname', employeePlaceholder: 'Start typing a surname', from: 'From', to: 'To',
     words: 'Words in messages', wordsPlaceholder: 'Narrow the result by words',
@@ -174,8 +176,8 @@ export default function ChatAuditAdministration({
   const chooseArchiveTarget = async (period) => {
     if (typeof window.showSaveFilePicker !== 'function') return null;
     return window.showSaveFilePicker({
-      suggestedName: `Переписки-${period.periodKey}.zip`,
-      types: [{ description: 'Архив переписки', accept: { 'application/zip': ['.zip'] } }]
+      suggestedName: `${isEnglishInterface ? 'Conversations' : 'Переписки'}-${period.periodKey}.zip`,
+      types: [{ description: auditText('Архив переписки'), accept: { 'application/zip': ['.zip'] } }]
     });
   };
 
@@ -225,7 +227,7 @@ export default function ChatAuditAdministration({
       } else {
         const anchor = document.createElement('a');
         anchor.href = downloadUrl;
-        anchor.download = `Переписки-${period.periodKey}.zip`; document.body.appendChild(anchor); anchor.click(); anchor.remove();
+        anchor.download = `${isEnglishInterface ? 'Conversations' : 'Переписки'}-${period.periodKey}.zip`; document.body.appendChild(anchor); anchor.click(); anchor.remove();
       }
       window.setTimeout(loadPeriods, 500);
     } catch (requestError) { setError(requestError.message || 'Не удалось скачать архив'); }
@@ -233,12 +235,15 @@ export default function ChatAuditAdministration({
   };
 
   const purgePeriod = async (period) => {
-    const confirmation = window.prompt(`Будут удалены переписки, публикации и файлы за ${period.periodKey}. Введите УДАЛИТЬ`);
-    if (confirmation !== 'УДАЛИТЬ') return;
+    const confirmationWord = isEnglishInterface ? 'DELETE' : 'УДАЛИТЬ';
+    const confirmation = window.prompt(isEnglishInterface
+      ? `Conversations, posts and files for ${period.periodKey} will be deleted. Type DELETE`
+      : `Будут удалены переписки, публикации и файлы за ${period.periodKey}. Введите УДАЛИТЬ`);
+    if (confirmation !== confirmationWord) return;
     setPeriodAction(`purge:${period.periodKey}`); setError('');
     try {
       const response = await authFetch(`${API_BASE_URL}/chat/records/periods/${encodeURIComponent(period.periodKey)}/purge?mode=${periodMode}`, {
-        method: 'POST', headers: { ...chatAuthHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: periodMode, confirmation })
+        method: 'POST', headers: { ...chatAuthHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: periodMode, confirmation: 'УДАЛИТЬ' })
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Не удалось удалить период');
@@ -360,8 +365,8 @@ export default function ChatAuditAdministration({
         authFetch(`${API_BASE_URL}/chat/audit/feed?${params.toString()}`, { headers: chatAuthHeaders, signal })
       ]);
       const [data, feedData] = await Promise.all([response.json().catch(() => ({})), feedResponse.json().catch(() => ({}))]);
-      if (!response.ok) throw new Error(data.message || copy.searchFailed);
-      if (!feedResponse.ok) throw new Error(feedData.message || copy.searchFailed);
+      if (!response.ok) throw new Error(data.message || 'Не удалось найти переписку сотрудника');
+      if (!feedResponse.ok) throw new Error(feedData.message || 'Не удалось найти переписку сотрудника');
       const nextConversations = Array.isArray(data?.conversations) ? data.conversations : [];
       setFeedPosts(Array.isArray(feedData?.posts) ? feedData.posts : []);
       setConversations(nextConversations);
@@ -377,7 +382,7 @@ export default function ChatAuditAdministration({
       }
     } catch (requestError) {
       if (requestError?.name !== 'AbortError') {
-        setError(requestError.message || copy.searchFailed);
+        setError(requestError.message || 'Не удалось найти переписку сотрудника');
         setConversations([]);
         setFeedPosts([]);
         setSelectedConversationId('');
@@ -386,7 +391,7 @@ export default function ChatAuditAdministration({
     } finally {
       if (!signal?.aborted) setSearchLoading(false);
     }
-  }, [chatAuthHeaders, copy.searchFailed, dateRange.from, dateRange.to, employeeLogin, periodMode, searchReady, wordSearch]);
+  }, [chatAuthHeaders, dateRange.from, dateRange.to, employeeLogin, periodMode, searchReady, wordSearch]);
 
   const fetchMessages = useCallback(async (conversationId, { append = false, signal } = {}) => {
     if (!conversationId || !searchReady) return;
@@ -402,7 +407,7 @@ export default function ChatAuditAdministration({
         { headers: chatAuthHeaders, signal }
       );
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || copy.conversationFailed);
+      if (!response.ok) throw new Error(data.message || 'Не удалось открыть переписку');
       const nextMessages = Array.isArray(data?.messages) ? data.messages : [];
       setMessages((current) => append
         ? [...new Map([...nextMessages, ...current].map((message) => [message.id, message])).values()]
@@ -411,13 +416,13 @@ export default function ChatAuditAdministration({
       setMessagesHaveMore(Boolean(data?.hasMore));
     } catch (requestError) {
       if (requestError?.name !== 'AbortError') {
-        setError(requestError.message || copy.conversationFailed);
+        setError(requestError.message || 'Не удалось открыть переписку');
         if (!append) setMessages([]);
       }
     } finally {
       if (!signal?.aborted) setMessagesLoading(false);
     }
-  }, [chatAuthHeaders, copy.conversationFailed, dateRange.from, dateRange.to, employeeLogin, messagesBefore, periodMode, searchReady, wordSearch]);
+  }, [chatAuthHeaders, dateRange.from, dateRange.to, employeeLogin, messagesBefore, periodMode, searchReady, wordSearch]);
 
   useEffect(() => {
     if (!employeeLogin || !dateRange.from || !dateRange.to) {
@@ -426,7 +431,7 @@ export default function ChatAuditAdministration({
     }
     if (!rangeIsValid) {
       clearResults();
-      setError(copy.invalidRange);
+      setError('Конечная дата не может быть раньше начальной.');
       return undefined;
     }
     const controller = new AbortController();
@@ -435,7 +440,7 @@ export default function ChatAuditAdministration({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [clearResults, copy.invalidRange, dateRange.from, dateRange.to, employeeLogin, fetchConversations, rangeIsValid, wordSearch]);
+  }, [clearResults, dateRange.from, dateRange.to, employeeLogin, fetchConversations, rangeIsValid, wordSearch]);
 
   useEffect(() => {
     setMessages([]);
@@ -456,47 +461,47 @@ export default function ChatAuditAdministration({
     <section className="manager-panel audit-search-panel">
       <div className="audit-search-heading">
         <div>
-          <h2>{isEnglishInterface ? 'Document search' : 'Поиск документов'}</h2>
+          <h2>{isEnglishInterface ? 'Document search' : auditText('Поиск документов')}</h2>
           <p>{isEnglishInterface
             ? 'Select a period and then an employee who participated in conversations during that period. You can narrow the result by words after loading.'
-            : 'Сначала выберите период, затем сотрудника из списка участников. После загрузки переписки можно уточнить результат поиском по словам.'}</p>
+            : auditText('Сначала выберите период, затем сотрудника из списка участников. После загрузки переписки можно уточнить результат поиском по словам.')}</p>
         </div>
         {selectedEmployee && <span>{copy.selected}: <strong>{selectedEmployee.fullName}</strong></span>}
       </div>
       <div className="archive-periods-panel">
         <div className="archive-periods-title">
-          <div><strong>Доступные периоды</strong><span>{periodMode === 'test' ? 'Тестовые месяцы, включая текущий' : 'Переписка старше одного года'}</span></div>
+          <div><strong>{auditText("Доступные периоды")}</strong><span>{periodMode === 'test' ? auditText('Тестовые месяцы, включая текущий') : auditText('Переписка старше одного года')}</span></div>
         </div>
-        {periodsLoading && <div className="archive-period-empty">Загружаем периоды…</div>}
+        {periodsLoading && <div className="archive-period-empty">{auditText("Загружаем периоды…")}</div>}
         {!periodsLoading && periods.length === 0 && <div className="archive-period-empty">{periodMode === 'test'
-          ? <>В базе не найдено сообщений или публикаций.{periodSource.totalCount > 0 && <small>Всего записей: {periodSource.totalCount}. Самая ранняя: {periodSource.firstAt ? new Date(periodSource.firstAt).toLocaleString(interfaceLocale) : '—'}.</small>}</>
-          : 'Подходящих периодов пока нет.'}</div>}
+          ? <>{auditText("В базе не найдено сообщений или публикаций.")}{periodSource.totalCount > 0 && <small>{auditText("Всего записей: ")}{periodSource.totalCount}{auditText(". Самая ранняя: ")}{periodSource.firstAt ? new Date(periodSource.firstAt).toLocaleString(interfaceLocale) : '—'}.</small>}</>
+          : auditText('Подходящих периодов пока нет.')}</div>}
         <div className="archive-period-list">
           {periods.map((period) => {
             const deleted = period.state === 'deleted';
             const busy = periodAction.endsWith(`:${period.periodKey}`);
             return <article key={`${period.mode}-${period.periodKey}`} className={`archive-period-card ${deleted ? 'deleted' : ''}`}>
               <button type="button" className="archive-period-select" disabled={deleted} onClick={() => selectPeriod(period)}>
-                <b>{deleted ? '✕ ' : ''}Переписки за {new Date(`${period.from}T12:00:00`).toLocaleDateString(interfaceLocale, { month: 'long', year: 'numeric' })}</b>
-                <span>{period.messageCount || 0} сообщений · {period.postCount || 0} публикаций · {period.fileCount || 0} файлов · {formatFileSize(period.sourceBytes || 0)}</span>
-                {deleted && <em>Удалено с диска — добавьте архив для восстановления</em>}
+                <b>{deleted ? '✕ ' : ''}{auditText("Переписки за ")}{new Date(`${period.from}T12:00:00`).toLocaleDateString(interfaceLocale, { month: 'long', year: 'numeric' })}</b>
+                <span>{period.messageCount || 0}{auditText(" сообщений · ")}{period.postCount || 0}{auditText(" публикаций · ")}{period.fileCount || 0}{auditText(" файлов · ")}{formatFileSize(period.sourceBytes || 0)}</span>
+                {deleted && <em>{auditText("Удалено с диска — добавьте архив для восстановления")}</em>}
               </button>
               <div className="archive-period-actions">
-                {!deleted && (!period.archiveId || !period.archiveStatus || period.archiveStatus === 'failed') && <button type="button" disabled={busy} onClick={() => createPeriodArchive(period)}>{period.archiveStatus === 'failed' ? 'Повторить создание архива' : 'Создать и сохранить архив'}</button>}
-                {!deleted && period.archiveStatus === 'pending' && <button type="button" disabled>Архив создаётся…</button>}
+                {!deleted && (!period.archiveId || !period.archiveStatus || period.archiveStatus === 'failed') && <button type="button" disabled={busy} onClick={() => createPeriodArchive(period)}>{period.archiveStatus === 'failed' ? auditText('Повторить создание архива') : auditText('Создать и сохранить архив')}</button>}
+                {!deleted && period.archiveStatus === 'pending' && <button type="button" disabled>{auditText("Архив создаётся…")}</button>}
                 {!deleted && period.archiveStatus === 'completed' && <button type="button" disabled={busy} onClick={async () => {
                   try { const fileHandle = await chooseArchiveTarget(period); await downloadPeriodArchive(period, fileHandle); }
                   catch (pickerError) { if (pickerError?.name !== 'AbortError') setError(pickerError.message || 'Не удалось сохранить архив'); }
-                }}>Сохранить архив</button>}
-                {!deleted && period.archiveStatus === 'completed' && (periodMode === 'test' || period.downloadedAt) && <button type="button" className="danger" disabled={busy} onClick={() => purgePeriod(period)}>Удалить полностью</button>}
+                }}>{auditText("Сохранить архив")}</button>}
+                {!deleted && period.archiveStatus === 'completed' && (periodMode === 'test' || period.downloadedAt) && <button type="button" className="danger" disabled={busy} onClick={() => purgePeriod(period)}>{auditText("Удалить полностью")}</button>}
               </div>
             </article>;
           })}
         </div>
         <div className="archive-period-footer">
           <input ref={archiveInputRef} type="file" accept=".zip,application/zip" hidden onChange={(event) => importPeriodArchive(event.target.files?.[0])} />
-          <button type="button" disabled={periodAction === 'import'} onClick={() => archiveInputRef.current?.click()}>{periodAction === 'import' ? 'Восстанавливаем архив…' : 'Загрузить архив'}</button>
-          <span>Восстановить удалённый месяц из ранее сохранённого архива.</span>
+          <button type="button" disabled={periodAction === 'import'} onClick={() => archiveInputRef.current?.click()}>{periodAction === 'import' ? auditText('Восстанавливаем архив…') : auditText('Загрузить архив')}</button>
+          <span>{auditText("Восстановить удалённый месяц из ранее сохранённого архива.")}</span>
         </div>
       </div>
 
@@ -511,12 +516,12 @@ export default function ChatAuditAdministration({
         </label>
         <div className="audit-search-field audit-search-field--employee">
           <span>2. {copy.employee}{rangeIsValid ? ` · ${employeeOptions.length}` : ''}</span>
-          <input type="text" list="audit-employee-options" value={employeeQuery} onChange={(event) => handleEmployeeInput(event.target.value)} placeholder={participantsLoading ? 'Загружаем участников…' : (rangeIsValid ? copy.employeePlaceholder : 'Сначала выберите период')} autoComplete="off" disabled={!rangeIsValid || participantsLoading} />
+          <input type="text" list="audit-employee-options" value={employeeQuery} onChange={(event) => handleEmployeeInput(event.target.value)} placeholder={participantsLoading ? auditText('Загружаем участников…') : (rangeIsValid ? copy.employeePlaceholder : auditText('Сначала выберите период'))} autoComplete="off" disabled={!rangeIsValid || participantsLoading} />
           <datalist id="audit-employee-options">
-            {employeeOptions.map((employee) => <option key={employee.login} value={employee.optionLabel}>{[employee.role === 'admin' ? 'Администратор' : '', employee.department || employee.login].filter(Boolean).join(' · ')}</option>)}
+            {employeeOptions.map((employee) => <option key={employee.login} value={employee.optionLabel}>{[employee.role === 'admin' ? auditText('Администратор') : '', employee.department || employee.login].filter(Boolean).join(' · ')}</option>)}
           </datalist>
           {rangeIsValid && !participantsLoading && !employeeLogin && visibleEmployeeOptions.length > 0 && <div className="audit-participant-options">
-            {visibleEmployeeOptions.map((employee) => <button type="button" key={employee.login} onClick={() => selectEmployee(employee)}><b>{employee.fullName}</b><small>{employee.role === 'admin' ? 'Администратор' : (employee.department || employee.login)}</small></button>)}
+            {visibleEmployeeOptions.map((employee) => <button type="button" key={employee.login} onClick={() => selectEmployee(employee)}><b>{employee.fullName}</b><small>{employee.role === 'admin' ? auditText('Администратор') : (employee.department || employee.login)}</small></button>)}
           </div>}
         </div>
         <label className="audit-search-field audit-search-field--words">
@@ -525,14 +530,14 @@ export default function ChatAuditAdministration({
         </label>
       </div>
 
-      {error && <div className="audit-search-error" role="alert">{error}</div>}
-      {showPeriodHint && <div className="audit-search-empty"><b>1</b><span>Выберите день или месяц сверху либо укажите даты вручную.</span></div>}
-      {showEmployeeHint && <div className="audit-search-empty"><b>2</b><span>{participantsLoading ? 'Загружаем сотрудников выбранного периода…' : `Выберите сотрудника из списка участников периода (${employeeOptions.length}).`}</span></div>}
+      {error && <div className="audit-search-error" role="alert">{auditText(error)}</div>}
+      {showPeriodHint && <div className="audit-search-empty"><b>1</b><span>{auditText("Выберите день или месяц сверху либо укажите даты вручную.")}</span></div>}
+      {showEmployeeHint && <div className="audit-search-empty"><b>2</b><span>{participantsLoading ? auditText('Загружаем сотрудников выбранного периода…') : auditText(`Выберите сотрудника из списка участников периода (${employeeOptions.length}).`)}</span></div>}
       {searchReady && searchLoading && conversations.length === 0 && <div className="audit-search-empty"><span>{copy.searching}</span></div>}
       {searchReady && !searchLoading && !error && conversations.length === 0 && feedPosts.length === 0 && <div className="audit-search-empty"><span>{copy.noDialogs}</span></div>}
 
       {searchReady && feedPosts.length > 0 && <div className="audit-feed-results">
-        <div className="audit-results-summary"><strong>Публикации в ленте</strong><span>{feedPosts.length}</span></div>
+        <div className="audit-results-summary"><strong>{auditText("Публикации в ленте")}</strong><span>{feedPosts.length}</span></div>
         <div className="audit-feed-list">{feedPosts.map((post) => {
           const attachments = getMessageAttachments(post);
           return <article key={post.id} className="audit-message">
@@ -582,15 +587,15 @@ export default function ChatAuditAdministration({
           </div>
         </div>
       )}
-      {previewFile && <div className="audit-media-viewer" role="dialog" aria-modal="true" aria-label={previewFile.name || 'Просмотр файла'} onClick={() => setPreviewFile(null)}>
+      {previewFile && <div className="audit-media-viewer" role="dialog" aria-modal="true" aria-label={previewFile.name || auditText('Просмотр файла')} onClick={() => setPreviewFile(null)}>
         <div className="audit-media-viewer-panel" onClick={(event) => event.stopPropagation()}>
-          <div className="audit-media-viewer-header"><strong>{previewFile.name || 'Вложение'}</strong><button type="button" onClick={() => setPreviewFile(null)} aria-label="Закрыть">×</button></div>
+          <div className="audit-media-viewer-header"><strong>{previewFile.name || auditText('Вложение')}</strong><button type="button" onClick={() => setPreviewFile(null)} aria-label={auditText("Закрыть")}>×</button></div>
           <div className="audit-media-viewer-stage">
-            {previewLoading && <div className="audit-media-viewer-status">Загружаем файл…</div>}
-            {!previewLoading && previewError && <div className="audit-media-viewer-status" role="alert">{previewError}</div>}
+            {previewLoading && <div className="audit-media-viewer-status">{auditText("Загружаем файл…")}</div>}
+            {!previewLoading && previewError && <div className="audit-media-viewer-status" role="alert">{auditText(previewError)}</div>}
             {!previewLoading && !previewError && previewSource && (isVideoAttachment(previewFile)
-              ? <video key={previewSource} src={previewSource} controls playsInline preload="metadata">Ваш браузер не поддерживает видео.</video>
-              : <img src={previewSource} alt={previewFile.name || 'Фото'} />)}
+              ? <video key={previewSource} src={previewSource} controls playsInline preload="metadata">{auditText("Ваш браузер не поддерживает видео.")}</video>
+              : <img src={previewSource} alt={previewFile.name || auditText('Фото')} />)}
           </div>
         </div>
       </div>}

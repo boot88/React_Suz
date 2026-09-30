@@ -21,6 +21,8 @@ export const useAdminTranslation = () => {
 // Match complete UI messages. Captured names, file names and search queries
 // are preserved; there are no global replacements in user-entered content.
 const MESSAGE_TRANSLATIONS = [
+  [/^Архив повреждён: (.+)$/, (_, file) => `Archive corrupted: ${file}`],
+  [/^Выберите сотрудника из списка участников периода \((\d+)\)\.$/, (_, count) => `Select an employee from the period's participant list (${count}).`],
   [/^Некорректная настройка: (.+)$/, (_, key) => `Invalid setting: ${key}`],
   [/^Резервирование символической ссылки запрещено: (.+)$/, (_, file) => `Backing up a symbolic link is not allowed: ${file}`],
   [/^Для надёжной копии таблица (.+) должна использовать InnoDB$/, (_, table) => `Table ${table} must use InnoDB for a reliable backup`],

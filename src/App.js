@@ -87,7 +87,7 @@ function AppWorkspace() {
   const navigateRef = useRef(navigate);
 
   useEffect(() => {
-    if (isAuthenticated && (user?.role === 'admin' || user?.serverRole === 'admin') && location.pathname !== '/employee' && !location.pathname.startsWith('/chat-tools')) document.documentElement.lang = adminLanguage;
+    if (isAuthenticated && (user?.role === 'admin' || user?.serverRole === 'admin') && location.pathname !== '/employee') document.documentElement.lang = adminLanguage;
   }, [adminLanguage, isAuthenticated, location.pathname, user?.role, user?.serverRole]);
 
   useEffect(() => { currentPathRef.current = location.pathname; }, [location.pathname]);
@@ -163,7 +163,6 @@ function AppWorkspace() {
       {showAdminShell && <Sidebar language={adminLanguage} />}
       <div className={`app-content ${showAdminShell ? 'app-content--with-sidebar admin-shell-content' : ''}`}>
         {isAuthenticated && preferenceSyncError && <div role="alert" className="settings-sync-error">{t(preferenceSyncError, adminLanguage)} <button type="button" onClick={flushPreferenceSync}>{t('Повторить сохранение', adminLanguage)}</button></div>}
-        {showAdminShell && location.pathname.startsWith('/chat-tools') && <AdminTextTranslator language={adminLanguage} />}
         {showAdminShell && <AdminWelcomeNotice language={adminLanguage} />}
         <Routes>
           <Route path="/login" element={<Login />} />
@@ -394,182 +393,6 @@ function Sidebar({ language }) {
   );
 }
 
-const ADMIN_TRANSLATIONS = {
-  'Заявки': 'Requests', 'Новая заявка': 'New request', 'Статистика': 'Statistics', 'Настройки': 'Settings',
-  'Справочник сотрудников': 'Employee directory', 'База знаний': 'Knowledge base',
-  'Диагностика сети': 'Network diagnostics', 'Поиск сотрудников': 'Employee search', 'Поиск': 'Search', 'Очистить': 'Clear',
-  'Добавить новую заявку': 'Add a new request', 'Создание новой заявки в системе': 'Create a new request in the system',
-  'Основная информация': 'Main information', 'Описание заявки': 'Request description', 'Статус заявки': 'Request status',
-  'Сохранить': 'Save', 'Сохраняем…': 'Saving…', 'Отмена': 'Cancel', 'Удалить': 'Delete', 'Редактировать': 'Edit',
-  'Обновить': 'Refresh', 'Загрузка...': 'Loading…', 'Загрузка…': 'Loading…', 'Ошибка': 'Error', 'Готово': 'Done',
-  'Фильтры': 'Filters', 'Фильтры и настройки': 'Filters and settings', 'Показать фильтры': 'Show filters', 'Скрыть фильтры': 'Hide filters',
-  'Обычные заявки': 'Standard requests', 'Большие заявки': 'Large requests', 'На странице': 'Per page', 'Вид': 'View',
-  'Вид заявок': 'Request view', 'Вид — Новые заявки.': 'View — New requests.',
-  'Редактирование заявок': 'Request editing', 'Показывать промежуточную таблицу выбора перед открытием заявки.': 'Show the selection table before opening a request.',
-  'Таблица выбора показывается': 'Selection table is shown', 'Заявка открывается сразу': 'Request opens directly',
-  'Все': 'All', 'Новые': 'New', 'В работе': 'In progress', 'Просроченные': 'Overdue', 'Завершённые': 'Completed',
-  'Дата': 'Date', 'Сотрудник': 'Employee', 'Кабинет': 'Office', 'Телефон': 'Phone', 'Исполнитель': 'Assignee',
-  'Заявка': 'Request', 'Статус': 'Status', 'Приоритет': 'Priority', 'Действия': 'Actions', 'Категория': 'Category',
-  'Открыть': 'Open', 'Закрыть': 'Close', 'Назначить': 'Assign', 'Взять в работу': 'Start work', 'Хронология': 'Timeline',
-  'Экспорт': 'Export', 'Представления': 'Views', 'Очередь': 'Queue', 'Настройка колонок': 'Column settings',
-  'Нет данных': 'No data', 'Ничего не найдено': 'Nothing found', 'Заявки не найдены': 'No requests found',
-  'Новая учётная запись': 'New account', 'Создать учётную запись': 'Create account', 'Логин': 'Login', 'Пароль': 'Password',
-  'Имя': 'First name', 'Фамилия': 'Last name', 'Отчество': 'Middle name', 'Роль': 'Role', 'Должность': 'Position',
-  'Электронная почта': 'Email', 'Повторите пароль': 'Repeat password', 'Показать пароль': 'Show password',
-  'Статьи': 'Articles', 'Добавить новую статью': 'Add a new article', 'Название': 'Title', 'Решение': 'Solution',
-  'Добавить статью': 'Add article', 'Изменить': 'Edit', 'Загрузить изображения': 'Upload images',
-  'Сетка / маска сети': 'Network / subnet mask', 'Свободные и занятые IP-адреса': 'Available and occupied IP addresses',
-  'Обновление выполняется в настройках': 'Refresh from Settings', 'Загрузка сохранённого снимка…': 'Loading saved snapshot…',
-  'Сеть': 'Network', 'IP-адрес': 'IP address', 'Устройство': 'Device', 'Свободен': 'Available', 'Занят': 'Occupied',
-  'Служебные обновления': 'Service updates', 'Редкие операции вынесены из рабочих экранов.': 'Infrequent operations are kept outside everyday workflows.',
-  'Обновить справочник': 'Refresh directory', 'Обновить IP-сетку': 'Refresh IP grid',
-  'Показывать в карточке заявки блок «История действий».': 'Show the “Action history” section in the request card.',
-  'История показывается': 'History is shown', 'История скрыта': 'History is hidden',
-  'Аналитика заявок': 'Request analytics', 'Объём обращений, текущие состояния и нагрузка исполнителей': 'Request volume, current states and assignee workload', 'Период': 'Period',
-  'За 7 дней': 'Last 7 days', 'За 30 дней': 'Last 30 days', 'За 90 дней': 'Last 90 days',
-  'Последние 7 дней': 'Last 7 days', 'Последние 30 дней': 'Last 30 days', 'Последние 90 дней': 'Last 90 days',
-  'Последний день': 'Last day', 'Последние 3 месяца': 'Last 3 months', 'Последние 6 месяцев': 'Last 6 months',
-  '1 день': '1 day', '7 дней': '7 days', '1 месяц': '1 month', '3 месяца': '3 months', '6 месяцев': '6 months',
-  'Всё время': 'All time', 'Все исполнители': 'All assignees', 'Все категории': 'All categories',
-  'Всего заявок': 'Total requests', 'Открыто сейчас': 'Open now', 'Среднее время решения': 'Average resolution time',
-  'Новые и повторные': 'New and reopened', 'ожидают начала работы': 'waiting to be started',
-  'в выбранном периоде': 'in the selected period', 'включая ожидание подтверждения': 'including confirmation wait',
-  'Выполненные': 'Completed', 'Динамика заявок': 'Request trend', 'Нагрузка по исполнителям': 'Assignee workload',
-  'Количество обращений по дням': 'Requests by day', 'Одиночные, затем пары и тройка': 'Individuals, then pairs and the trio',
-  'Наведите на точку, чтобы увидеть заявки. Нажмите название — откроется карточка.': 'Hover over a point to see requests. Select a title to open its details.',
-  'Зажмите график и ведите влево — больше времени, вправо — подробнее': 'Drag the chart left for a wider period or right for more detail',
-  'Расширяем период': 'Widening the period', 'Приближаем период': 'Zooming in', 'Ведите влево или вправо': 'Drag left or right',
-  'Статусы заявок': 'Request statuses', 'Текущее распределение выбранной выборки': 'Current distribution of the selected set',
-  'Сводка по исполнителям': 'Assignee summary', 'Тип': 'Type', 'Всего': 'Total', 'Среднее до закрытия': 'Average time to close',
-  'Один исполнитель': 'Individual', 'Пара': 'Pair', 'Тройка': 'Trio', 'Сбросить': 'Reset',
-  'В статистике учитываются только Повисок Е.В., Андреев Р.В., Польников Д.В. и их сочетания': 'Statistics include only Povisok E.V., Andreev R.V., Polnikov D.V. and their combinations',
-  'За выбранный период заявок нет': 'No requests in the selected period', 'Нет данных для распределения': 'No distribution data',
-  'нет заявок в выборке': 'no requests in the selected set', 'от выборки': 'of the selected set',
-  'Карточка заявки': 'Request details', 'Комментарий сотруднику': 'Comment for employee', 'Что сделано': 'Work completed',
-  'Подтвердить': 'Confirm', 'Закрыть выбранные': 'Close selected', 'Выйти': 'Sign out'
-};
-
-const translateAdminText = (value) => {
-  const normalized = String(value || '').trim();
-  if (!normalized) return value;
-  if (ADMIN_TRANSLATIONS[normalized]) return String(value).replace(normalized, ADMIN_TRANSLATIONS[normalized]);
-  return String(value)
-    .replace(/Заявка #(\d+)/g, 'Request #$1')
-    .replace(/Найдено:\s*(\d+)/g, 'Found: $1')
-    .replace(/Занято:\s*(\d+)/g, 'Occupied: $1')
-    .replace(/Свободно:\s*(\d+)/g, 'Available: $1')
-    .replace(/Страница\s*(\d+)\s*из\s*(\d+)/g, 'Page $1 of $2');
-};
-
-function AdminTextTranslator({ language }) {
-  // Храним «оригиналы» ТОЛЬКО для узлов/атрибутов, которые мы реально
-  // перевели в английский. Это критично: нельзя кешировать любой текст —
-  // динамические значения (числа, счётчики) перерисовываются React, и
-  // «восстановление» устаревшего оригинала сбрасывало их в ноль.
-  const originalsRef = useRef(new WeakMap());
-  const elementOriginalsRef = useRef(new WeakMap());
-
-  useEffect(() => {
-    const root = document.querySelector('.admin-shell-content');
-    if (!root) return undefined;
-
-    const translateTextNode = (node) => {
-      const current = node.textContent || '';
-      const translated = translateAdminText(current);
-      if (translated === current) return;
-      if (!originalsRef.current.has(node)) {
-        originalsRef.current.set(node, current);
-      }
-      if (node.textContent !== translated) node.textContent = translated;
-    };
-
-    const restoreTextNode = (node) => {
-      const original = originalsRef.current.get(node);
-      if (original === undefined || !node.isConnected) return;
-      if (node.textContent !== original) node.textContent = original;
-      originalsRef.current.delete(node);
-    };
-
-    const textPass = () => {
-      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-      let node = walker.nextNode();
-      while (node) {
-        const parent = node.parentElement;
-        const skipped = !parent || ['SCRIPT', 'STYLE'].includes(parent.tagName) || Boolean(parent.closest('[data-no-translate]'));
-        if (!skipped) {
-          if (language === 'en') {
-            translateTextNode(node);
-          } else if (originalsRef.current.has(node)) {
-            restoreTextNode(node);
-          }
-        }
-        node = walker.nextNode();
-      }
-    };
-
-    const attributePass = () => {
-      const attributes = ['placeholder', 'title', 'aria-label'];
-      root.querySelectorAll('[placeholder], [title], [aria-label]').forEach((element) => {
-        attributes.forEach((attribute) => {
-          if (!element.hasAttribute(attribute)) return;
-          const current = element.getAttribute(attribute);
-          const translated = translateAdminText(current);
-          if (language === 'en') {
-            if (translated === current) return;
-            if (!elementOriginalsRef.current.has(element)) {
-              elementOriginalsRef.current.set(element, {});
-            }
-            const saved = elementOriginalsRef.current.get(element);
-            if (!(attribute in saved)) saved[attribute] = current;
-            if (element.getAttribute(attribute) !== translated) element.setAttribute(attribute, translated);
-          } else {
-            const saved = elementOriginalsRef.current.get(element);
-            if (saved && attribute in saved) {
-              const original = saved[attribute];
-              if (element.getAttribute(attribute) !== original) element.setAttribute(attribute, original);
-              delete saved[attribute];
-              if (Object.keys(saved).length === 0) elementOriginalsRef.current.delete(element);
-            }
-          }
-        });
-      });
-    };
-
-    const applyTranslations = () => {
-      textPass();
-      attributePass();
-      document.documentElement.lang = language;
-    };
-
-    applyTranslations();
-    const observer = new MutationObserver(() => window.requestAnimationFrame(applyTranslations));
-    observer.observe(root, { childList: true, subtree: true });
-    return () => {
-      observer.disconnect();
-      // Откатываем наши правки при смене языка/размонтировании.
-      if (language === 'en') {
-        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-        let node = walker.nextNode();
-        while (node) {
-          if (originalsRef.current.has(node)) restoreTextNode(node);
-          node = walker.nextNode();
-        }
-        root.querySelectorAll('[placeholder], [title], [aria-label]').forEach((element) => {
-          const saved = elementOriginalsRef.current.get(element);
-          if (!saved) return;
-          ['placeholder', 'title', 'aria-label'].forEach((attribute) => {
-            if (attribute in saved) element.setAttribute(attribute, saved[attribute]);
-          });
-          elementOriginalsRef.current.delete(element);
-        });
-      }
-      originalsRef.current = new WeakMap();
-      elementOriginalsRef.current = new WeakMap();
-    };
-  }, [language]);
-
-  return null;
-}
 
 function ProtectedRoute({ children, loginPath = '/login' }) {
   const { isAuthenticated, isLoading } = useAuth();
