@@ -10,6 +10,8 @@ import ChatIcon from '../components/employeeChat/ChatIcon';
 import ModernMediaViewer from '../components/employeeChat/ModernMediaViewer';
 import useStableMessageProps from '../components/employeeChat/useStableMessageProps';
 import ChatAppearanceSettings from '../components/employeeChat/ChatAppearanceSettings';
+import AdminBroadcastWorkspace from '../components/employeeChat/AdminBroadcastWorkspace';
+import { useLocation } from 'react-router-dom';
 import useMessageOutbox from '../components/employeeChat/useMessageOutbox';
 import { mergeMessages, compareMessages, isMessageRead } from '../utils/chatMessages';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -64,6 +66,7 @@ const setChatReactionForUser = (message = {}, emoji, login, active) => {
 };
 
 const EmployeeChat = ({ adminSection = null }) => {
+  const location = useLocation();
   const { user, logout, employeeDirectory, changeServicePassword } = useAuth();
   const isManager = user?.role === 'manager' || user?.role === 'admin';
   const baseDisplayName = user?.name || user?.username || 'Сотрудник';
@@ -128,6 +131,7 @@ const EmployeeChat = ({ adminSection = null }) => {
   const [pinnedMessageIndex, setPinnedMessageIndex] = useState(0);
   const [activeTab, setActiveTab] = useState(adminSection || 'chat');
   useEffect(() => { if (adminSection) setActiveTab(adminSection); }, [adminSection]);
+  useEffect(() => { if (isAdmin && !adminSection && new URLSearchParams(location.search).get('broadcast') === '1') setActiveTab('broadcast'); }, [location.search, isAdmin, adminSection]);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const isSendingMessage = false;
   const [isPublishingFeed, setIsPublishingFeed] = useState(false);
@@ -4015,6 +4019,7 @@ const EmployeeChat = ({ adminSection = null }) => {
         </div>
 
         <nav className="employee-chat-tabs" aria-label={t('chatSections')}>
+          {isAdmin && <button type="button" className={activeTab === 'broadcast' ? 'active' : ''} onClick={() => setActiveTab('broadcast')}>{isEnglishInterface ? 'Broadcast' : 'Рассылка'}</button>}
           {tabs.map((tab) => {
             const badge = tab.id === 'chat' ? unreadTotal : tab.id === 'feed' ? feedBadge : tab.id === 'request' ? requestBadge : 0;
             return (
@@ -4307,6 +4312,8 @@ const EmployeeChat = ({ adminSection = null }) => {
         {activeTab === 'request' && !isManager && (
           <EmployeeRequestsWorkspace REQUEST_CATEGORIES={REQUEST_CATEGORIES} REQUEST_PRIORITIES={REQUEST_PRIORITIES} RequestTimerMetrics={RequestTimerMetrics} activeApplications={activeApplications} applicationsError={applicationsError} applicationsLoading={applicationsLoading} completedApplications={completedApplications} confirmApplicationDone={confirmApplicationDone} fetchMyApplications={fetchMyApplications} formatApplicationDateTime={formatApplicationDateTime} getApplicationStatusMeta={getApplicationStatusMeta} getApplicationTiming={getApplicationTiming} getRequestCategoryLabel={getRequestCategoryLabel} getRequestPriorityLabel={getRequestPriorityLabel} interfaceLocale={interfaceLocale} isEnglishInterface={isEnglishInterface} localizeRuntimeText={localizeRuntimeText} reopenApplication={reopenApplication} requestCategory={requestCategory} requestPriority={requestPriority} requestStatus={requestStatus} requestText={requestText} setRequestCategory={setRequestCategory} setRequestPriority={setRequestPriority} setRequestText={setRequestText} submitRequest={submitRequest} t={t} />
         )}
+
+        {activeTab === 'broadcast' && isAdmin && <AdminBroadcastWorkspace login={user.username} uploadFile={uploadAttachmentFile} confirmAction={confirmAction} isEnglish={isEnglishInterface} onSent={() => fetchThreadsRef.current?.()} />}
 
         {activeTab === 'feed' && (
           <EmployeeFeedWorkspace AttachmentCard={AttachmentCard} FEED_CATEGORIES={FEED_CATEGORIES} FEED_POSTS_PAGE_SIZE={FEED_POSTS_PAGE_SIZE} FeedComposer={FeedComposer} FeedMediaCard={FeedMediaCard} FeedPostCard={FeedPostCard} REACTION_EMOJIS={REACTION_EMOJIS} addCommentToPost={addCommentToPost} addFeedPost={addFeedPost} avatarUrl={avatarUrl} canManageFeedPost={canManageFeedPost} chatLocalSettings={chatLocalSettings} commentDrafts={commentDrafts} commentSort={commentSort} copyFeedPostLink={copyFeedPostLink} deleteFeedComment={deleteFeedComment} deleteFeedPost={deleteFeedPost} directoryEmployees={directoryEmployees} editingFeedPostId={editingFeedPostId} editingFeedText={editingFeedText} expandedCommentPosts={expandedCommentPosts} feedAttachments={feedAttachments} feedCategory={feedCategory} feedDraft={feedDraft} feedError={feedError} feedHasMore={feedHasMore} feedListRef={feedListRef} feedLoading={feedLoading} feedLoadingMore={feedLoadingMore} feedReactionExpanded={feedReactionExpanded} feedRefreshing={feedRefreshing} feedSearch={feedSearch} feedSearchHasMore={feedSearchHasMore} feedSearchIndex={feedSearchIndex} feedSearchLoading={feedSearchLoading} feedSearchResults={feedSearchResults} feedSearchTotal={feedSearchTotal} fetchFeed={fetchFeed} formatFeedLogin={formatFeedLogin} formatFileSize={formatFileSize} getAttachmentUrl={getAttachmentUrl} getEmployeeAvatar={getEmployeeAvatar} getFeedAttachments={getFeedAttachments} getFeedCategoryLabel={getFeedCategoryLabel} getFileIcon={getFileIcon} getOriginalAttachmentUrl={getOriginalAttachmentUrl} getVideoPosterUrl={getVideoPosterUrl} hiddenFeedPostsCount={hiddenFeedPostsCount} hideFeedPost={hideFeedPost} interfaceLocale={interfaceLocale} isAdmin={isAdmin} isEnglishInterface={isEnglishInterface} isFeedPostPending={isFeedPostPending} isImageAttachment={isImageAttachment} isManager={isManager} isMediaAttachment={isMediaAttachment} isPublishingFeed={isPublishingFeed} isVideoAttachment={isVideoAttachment} loadFeedComments={loadFeedComments} loadMoreFeedPosts={loadMoreFeedPosts} localizeRuntimeText={localizeRuntimeText} nudgeVideoToFirstFrame={nudgeVideoToFirstFrame} onFeedFileChange={onFeedFileChange} onNextFeedSearchResult={showNextFeedSearchResult} onPreviousFeedSearchResult={showPreviousFeedSearchResult} openEmployeeProfile={openEmployeeProfile} openFeedMediaViewer={openFeedMediaViewer} openFeedMenuId={openFeedMenuId} paginatedRegularFeedPosts={paginatedRegularFeedPosts} pendingFeedActions={pendingFeedActions} pinnedFeedPosts={pinnedFeedPosts} profileForm={profileForm} quoteFeedPost={quoteFeedPost} regularFeedPosts={regularFeedPosts} removeFeedAttachment={removeFeedAttachment} sameLogin={sameLogin} saveFeedPostEdit={saveFeedPostEdit} searchCurrentPostId={activeFeedSearchResult?.id || ''} selectedFeedPostId={selectedFeedPostId} setCommentDrafts={setCommentDrafts} setEditingFeedPostId={setEditingFeedPostId} setEditingFeedText={setEditingFeedText} setExpandedCommentPosts={setExpandedCommentPosts} setFeedCategory={setFeedCategory} setFeedDraft={setFeedDraft} setFeedReactionExpanded={setFeedReactionExpanded} setFeedSearch={setFeedSearch} setMediaViewer={setMediaViewer} setOpenFeedMenuId={setOpenFeedMenuId} setSelectedFeedPostId={setSelectedFeedPostId} setVisibleFeedPostCount={setVisibleFeedPostCount} shareFeedPostToChat={shareFeedPostToChat} sortComments={sortComments} startEditFeedPost={startEditFeedPost} t={t} toggleFeedPinned={toggleFeedPinned} toggleFeedReaction={toggleFeedReaction} user={user} visibleFeedPosts={visibleFeedPosts} />

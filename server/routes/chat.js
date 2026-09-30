@@ -8,6 +8,7 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 const db = require('../config/database');
 const uploadSettings = require('../utils/uploadSettingsStore');
+const { createBroadcastStore } = require('../utils/chatBroadcasts');
 const { getUploadMime, getDownloadHeaders } = require('../utils/chatFileTypes');
 const {
   createMediaToken,
@@ -186,9 +187,9 @@ const parseSqlMessage = (value) => {
   try { return JSON.parse(value); } catch { return null; }
 };
 
-const writeSqlMessage = async (conversationId, message = {}, { insertOnly = false, expectedSerializedMessage = null } = {}) => {
+const writeSqlMessage = async (conversationId, message = {}, { insertOnly = false, expectedSerializedMessage = null, database = db } = {}) => {
   if (!await ensureChatSqlSchema()) return false;
-  const [owners] = await db.execute('SELECT conversation_id, sender_login FROM chat_messages WHERE id = ?', [message.id]);
+  const [owners] = await database.execute('SELECT conversation_id, sender_login FROM chat_messages WHERE id = ?', [message.id]);
   if (owners.length && (owners[0].conversation_id !== conversationId || !isSameLogin(owners[0].sender_login, message.sender))) {
     throw Object.assign(new Error('Идентификатор сообщения уже занят'), { status: 409 });
   }
@@ -198,12 +199,12 @@ const writeSqlMessage = async (conversationId, message = {}, { insertOnly = fals
   const params = [message.id, conversationId, message.sender || null, JSON.stringify(message), createdAt, updatedAt, deletedAt];
 
   if (expectedSerializedMessage !== null) {
-    const [updated] = await db.execute(`UPDATE chat_messages SET message_json = ?, updated_at = ?, deleted_at = ?
+    const [updated] = await database.execute(`UPDATE chat_messages SET message_json = ?, updated_at = ?, deleted_at = ?
       WHERE id = ? AND conversation_id = ? AND sender_login = ? AND BINARY message_json = BINARY ?`,
       [JSON.stringify(message), updatedAt, deletedAt, message.id, conversationId, message.sender, expectedSerializedMessage]);
     if (!updated.affectedRows) throw Object.assign(new Error('Сообщение уже изменилось. Обновите диалог и повторите действие.'), { status: 409 });
   } else {
-    await db.execute(
+    await database.execute(
     `INSERT INTO chat_messages (id, conversation_id, sender_login, message_json, created_at, updated_at, deleted_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE ${insertOnly ? 'id = id' : `
@@ -213,7 +214,7 @@ const writeSqlMessage = async (conversationId, message = {}, { insertOnly = fals
     params
   );
   }
-  const [savedOwner] = await db.execute('SELECT conversation_id, sender_login, message_json FROM chat_messages WHERE id = ?', [message.id]);
+  const [savedOwner] = await database.execute('SELECT conversation_id, sender_login, message_json FROM chat_messages WHERE id = ?', [message.id]);
   if (savedOwner[0]?.conversation_id !== conversationId || !isSameLogin(savedOwner[0]?.sender_login, message.sender)) throw Object.assign(new Error('Идентификатор сообщения уже занят'), { status: 409 });
   if (insertOnly) message = parseSqlMessage(savedOwner[0].message_json);
   const [participantA = '', participantB = ''] = String(conversationId || '')
@@ -224,15 +225,15 @@ const writeSqlMessage = async (conversationId, message = {}, { insertOnly = fals
   // message must not sever the historical message -> file relationship.
   const fileIds = getMessageAttachmentFileIds(message);
   if (fileIds.length && participantA && participantB) {
-    await db.query(
+    await database.query(
       `INSERT IGNORE INTO chat_message_files
        (message_id, file_id, conversation_id, participant_a, participant_b)
        VALUES ?`,
       [fileIds.map((fileId) => [message.id, fileId, conversationId, participantA, participantB])]
     );
-    await markFilesRetained(fileIds);
+    await markFilesRetained(fileIds, database);
   }
-  await indexMessageForRecordsArchive(db, conversationId, message);
+  await indexMessageForRecordsArchive(database, conversationId, message);
   return true;
 };
 
@@ -461,6 +462,7 @@ const writeSqlReadState = async (conversationId, login, messageId) => {
     [conversationId, login, messageId, readAt]
   );
   const [stored] = await db.execute('SELECT last_read_message_id, last_read_at FROM chat_read_state WHERE conversation_id = ? AND user_login = ?', [conversationId, login]);
+  await broadcastStore.recordRead(login, conversationId).catch((error) => console.warn('Broadcast read status unavailable:', error.message));
   return { conversationId, login, lastReadMessageId: stored[0].last_read_message_id, lastReadAt: new Date(stored[0].last_read_at).toISOString() };
 };
 
@@ -648,10 +650,10 @@ const ensureChatFilesSqlSchema = async () => {
   return chatFilesSqlCheckPromise;
 };
 
-const markFilesRetained = async (fileIds = []) => {
+const markFilesRetained = async (fileIds = [], database = db) => {
   const uniqueFileIds = [...new Set((Array.isArray(fileIds) ? fileIds : []).filter(Boolean))];
   if (!uniqueFileIds.length || !await ensureChatFilesSqlSchema()) return 0;
-  const [result] = await db.query(
+  const [result] = await database.query(
     `UPDATE chat_files
      SET claimed_at = COALESCE(claimed_at, NOW()),
          retention_state = 'retained',
@@ -3014,6 +3016,28 @@ router.post('/feed/posts/:postId/pin', requireRole('admin', 'manager'), async (r
   }
 });
 
+const broadcastStore = createBroadcastStore({
+  db,
+  deliver: async (connection, conversationId, message) => {
+    if (!await writeSqlMessage(conversationId, message, { insertOnly: true, database: connection })) throw Object.assign(new Error('Хранилище сообщений недоступно'), { status: 503 });
+    const [rows] = await connection.execute('SELECT message_json FROM chat_messages WHERE id = ? AND conversation_id = ?', [message.id, conversationId]);
+    if (!rows[0]) throw new Error('Broadcast message was not persisted');
+    return parseSqlMessage(rows[0].message_json);
+  },
+  onDelivered: (conversationId, message) => {
+    backupMessageToArchive(conversationId, message);
+    broadcastThreadEvent('message-created', conversationId, { item: sanitizeMessageForResponse(message) });
+  }
+});
+router.use('/broadcasts', requireRole('admin'), require('./chatBroadcasts')({
+  store: broadcastStore,
+  ready: async () => {
+    if (!await ensureChatSqlSchema() || !await ensureChatFilesSqlSchema()) throw Object.assign(new Error('Хранилище чата временно недоступно'), { status: 503 });
+  },
+  prepare: (req) => validateClientAttachments(req, { attachments: req.body?.attachments || [] }),
+  actor: getAuthenticatedActor
+}));
+
 router.get('/threads/unread-count', async (req, res) => {
   try {
     const login = getRequestLogin(req);
@@ -3049,6 +3073,7 @@ router.post('/threads/read-all', async (req, res) => {
          updated_at = CURRENT_TIMESTAMP`,
       [login, login, login]
     );
+    await broadcastStore.recordRead(login).catch((error) => console.warn('Broadcast read status unavailable:', error.message));
     res.json({ message: 'Все диалоги отмечены прочитанными' });
   } catch (error) {
     console.error('Chat POST /threads/read-all error:', error);

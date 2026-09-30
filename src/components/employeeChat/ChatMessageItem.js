@@ -80,6 +80,7 @@ const ChatMessageItem = memo(function ChatMessageItem({ item, messageListRef, At
                             if (!isDeleted) openSelectedMessageMenu(message.id, event);
                           }}
                         >
+                          {!isDeleted && message.broadcast?.id && <div className="message-broadcast-label">{isEnglishInterface ? 'Broadcast' : 'Рассылка'}</div>}
                           {!isDeleted && messageSenderLogin && (
                             <button type="button" className="message-author-link" onClick={(event) => openEmployeeProfile(messageSenderLogin, event)}>
                               <span className="feed-avatar comment-avatar"><AuthenticatedAvatar src={messageSenderAvatar} alt={messageSenderName} fallback={<span>{String(messageSenderName || messageSenderLogin || '?').slice(0, 1).toUpperCase()}</span>} /></span>

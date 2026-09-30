@@ -106,7 +106,7 @@ function AppWorkspace() {
         navigateRef.current(to);
         return;
       }
-      const toChat = to === '/employee';
+      const toChat = to.split('?')[0] === '/employee';
       setWorkspaceTransition({
         phase: 'covering',
         direction: toChat ? 'to-chat' : 'to-admin',
@@ -184,7 +184,7 @@ function AppWorkspace() {
 const SIDEBAR_COPY = {
   ru: {
     product: 'НИОХ Система', descriptor: 'Центр управления', work: 'Работа', requests: 'Заявки', add: 'Новая заявка',
-    communication: 'Общение', chat: 'Чат', chatAdmin: 'Управление чатом',
+    communication: 'Общение', chat: 'Чат', broadcast: 'Рассылка сотрудникам', chatAdmin: 'Управление чатом',
     directories: 'Справочники', directory: 'Справочник сотрудников', knowledge: 'База знаний',
     diagnostics: 'Диагностика', statistics: 'Статистика', network: 'Диагностика сети',
     administration: 'Администрирование', settings: 'Настройки', administrator: 'Администратор',
@@ -192,7 +192,7 @@ const SIDEBAR_COPY = {
   },
   en: {
     product: 'NIOCh System', descriptor: 'Control centre', work: 'Workspace', requests: 'Requests', add: 'New request',
-    communication: 'Communication', chat: 'Chat', chatAdmin: 'Chat administration',
+    communication: 'Communication', chat: 'Chat', broadcast: 'Employee broadcast', chatAdmin: 'Chat administration',
     directories: 'Reference data', directory: 'Employee directory', knowledge: 'Knowledge base',
     diagnostics: 'Diagnostics', statistics: 'Statistics', network: 'Network diagnostics',
     administration: 'Administration', settings: 'Settings', administrator: 'Administrator',
@@ -347,6 +347,7 @@ function Sidebar({ language }) {
             <li className={isActive('/add') ? 'nav-item active' : 'nav-item'}><Link to="/add" className="nav-link"><span className="nav-icon nav-icon--add" aria-hidden="true" /><span className="nav-text">{copy.add}</span></Link></li>
             <li className="nav-group-title">{copy.communication}</li>
             <li className={isActive('/employee') ? 'nav-item active' : 'nav-item'}><Link to="/employee" className="nav-link" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); setIsMobileOpen(false); requestAdminWorkspaceTransition('/employee'); }}><span className="nav-icon nav-icon--chat" aria-hidden="true" /><span className="nav-text">{copy.chat}</span>{chatUnreadCount > 0 && <span className="nav-badge">{chatUnreadCount > 99 ? '99+' : chatUnreadCount}</span>}</Link></li>
+            <li className="nav-item"><Link to="/employee?broadcast=1" className="nav-link" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); setIsMobileOpen(false); requestAdminWorkspaceTransition('/employee?broadcast=1'); }}><span className="nav-icon nav-icon--chat" aria-hidden="true" /><span className="nav-text">{copy.broadcast}</span></Link></li>
             <li className={location.pathname.startsWith('/chat-tools') ? 'nav-item active' : 'nav-item'}><Link to="/chat-tools/audit" className="nav-link"><span className="nav-icon nav-icon--chat" aria-hidden="true" /><span className="nav-text">{copy.chatAdmin}</span></Link></li>
             <li className="nav-group-title">{copy.directories}</li>
             <li className={isActive('/employee-search') ? 'nav-item active' : 'nav-item'}><Link to="/employee-search" className="nav-link"><span className="nav-icon nav-icon--people" aria-hidden="true" /><span className="nav-text">{copy.directory}</span></Link></li>
