@@ -34,3 +34,32 @@ test('SQL saves use the authenticated account and merge partial admin/chat prefe
   assert.equal(profiles.alice.preferences.uiLanguage, 'ru');
   assert.equal(profiles.alice.preferences.unexpected, undefined);
 });
+
+const welcomeHandler = router.stack.find((layer) => layer.route?.path === '/welcome').route.stack.at(-1).handle;
+const visit = async (login) => {
+  const res = { set() {}, status(code) { this.code = code; return this; }, json(body) { this.body = body; } };
+  await welcomeHandler({ auth: { login }, body: { login: 'bob' } }, res);
+  assert.notEqual(res.code, 500);
+  return res.body;
+};
+
+test('daily greeting is persisted per authenticated account, across sessions and concurrent visits', async () => {
+  const { getWelcomeDay } = require('./welcomeVisit');
+  const day = getWelcomeDay();
+  profiles.alice.lastWelcomeDay = '2000-01-01';
+  delete profiles.bob.lastWelcomeDay;
+  const visits = await Promise.all([visit('alice'), visit('alice')]);
+  assert.deepEqual(visits.map((item) => item.returning), [false, true]);
+  assert.equal(profiles.alice.lastWelcomeDay, day);
+  assert.equal((await visit('bob')).returning, false);
+  assert.equal((await visit('alice')).returning, true);
+  assert.equal(profiles.alice.bio, 'Сохранить анкету');
+  profiles.alice.lastWelcomeDay = '2000-01-01';
+  assert.equal((await visit('alice')).returning, false);
+});
+
+test('daily greeting changes day at midnight in Novosibirsk, regardless of server timezone', () => {
+  const { getWelcomeDay } = require('./welcomeVisit');
+  assert.equal(getWelcomeDay(new Date('2026-09-30T16:59:59Z')), '2026-09-30');
+  assert.equal(getWelcomeDay(new Date('2026-09-30T17:00:00Z')), '2026-10-01');
+});

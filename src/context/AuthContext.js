@@ -162,6 +162,7 @@ export const AuthProvider = ({ children }) => {
     initializeUserPreferences(employeeUser.username, data.preferences || {}, { ...(options.language ? { uiLanguage: options.language } : {}), ...(options.design ? { loginDesign: options.design } : {}) });
     persistAuthState(employeeUser);
     configurePreferenceSync(employeeUser.username, employeeUser.accessToken);
+    clearWelcomeGreeting(employeeUser.username);
     setIsAuthenticated(true);
     setUser(employeeUser);
     await pushPresenceToServer({ login: employeeUser.username, isOnline: true, role: employeeUser.role || 'employee' });

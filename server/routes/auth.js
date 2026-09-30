@@ -5,6 +5,7 @@ const fs = require('fs/promises');
 const path = require('path');
 const router = express.Router();
 const db = require('../config/database');
+const { getWelcomeDay } = require('../utils/welcomeVisit');
 const employeeRoutes = require('./employees');
 const { isMysqlDatabase } = require('../utils/chatState');
 const {
@@ -1187,6 +1188,24 @@ router.get('/session', requireAuth, (req, res) => res.sendStatus(204));
 router.post('/logout', requireAuth, async (req, res) => {
   try { await revokeSession(req.authToken); res.sendStatus(204); }
   catch { res.status(503).json({ message: 'Не удалось завершить сессию' }); }
+});
+
+// Claim the daily greeting only when the authenticated user opens chat/admin.
+// The profile write queue also serializes simultaneous visits from two tabs.
+router.post('/welcome', requireAuth, async (req, res) => {
+  try {
+    res.set('Cache-Control', 'no-store');
+    const now = new Date();
+    const day = getWelcomeDay(now);
+    let returning = false;
+    await mutateProfile(req.auth.login, (current) => {
+      returning = current.lastWelcomeDay === day;
+      return { ...current, lastWelcomeDay: day };
+    });
+    res.json({ returning, date: now.toISOString() });
+  } catch (error) {
+    res.status(error.status || 500).json({ message: 'Не удалось получить приветствие' });
+  }
 });
 
 router.post('/login', async (req, res) => {

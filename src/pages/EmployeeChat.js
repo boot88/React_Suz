@@ -23,7 +23,7 @@ import { fetchChatUploadLimitMb } from '../utils/chatUploadLimit';
 import { readCachedConversation, writeCachedConversation, removeCachedConversation } from '../utils/chatMessageCache';
 import { readCachedFeed, writeCachedFeed } from '../utils/feedCache';
 import { requestAdminWorkspaceTransition } from '../utils/adminWorkspaceTransition';
-import { WELCOME_NOTICE_DURATION_MS, buildWelcomeGreeting, hasSeenWelcomeGreeting, markWelcomeGreetingSeen } from '../utils/welcomeGreeting';
+import { WELCOME_NOTICE_DURATION_MS, requestWelcomeGreeting, hasSeenWelcomeGreeting, markWelcomeGreetingSeen } from '../utils/welcomeGreeting';
 
 import { formatApplicationDateTime, getApplicationTiming } from '../utils/applicationTime';
 import ChatComposerForm from '../components/employeeChat/ChatComposerForm';
@@ -503,15 +503,13 @@ const EmployeeChat = ({ adminSection = null }) => {
     if (cachedAvatar) {
       setAvatarUrl(cachedAvatar);
     }
-    // Приветствие при первом входе показываем только сотруднику — в чате.
-    // У админа ни чат, ни «Управление чатом» приветствие не показывают: он видит его в админке.
-    if (isAdmin) return undefined;
+    // Общий маркер сеанса не повторяет приветствие при переходе из админки.
     if (hasSeenWelcomeGreeting(user.username)) return undefined;
 
     markWelcomeGreetingSeen(user.username);
-    setWelcomeNotice(buildWelcomeGreeting(baseDisplayName, isEnglishInterface));
+    requestWelcomeGreeting({ ...user, name: baseDisplayName }, isEnglishInterface).then(setWelcomeNotice);
     return undefined;
-  }, [baseDisplayName, isAdmin, isEnglishInterface, user?.username]);
+  }, [baseDisplayName, isEnglishInterface, user]);
 
   // Приветствие исчезает само через несколько секунд.
   useEffect(() => {

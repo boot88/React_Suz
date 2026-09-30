@@ -101,3 +101,28 @@ test('приветствие показывается один раз за се�
 test('ключ показа приветствия не зависит от регистра логина', () => {
   expect(getWelcomeGreetingKey('Evgeny')).toBe(getWelcomeGreetingKey(' evgeny '));
 });
+
+test('повторный вход за день приветствует по имени на выбранном языке', () => {
+  expect(buildWelcomeGreeting('Повисок Евгений Вячеславович', false, TUESDAY_SEPTEMBER_15, true))
+    .toBe('С возвращением, Евгений');
+  expect(buildWelcomeGreeting('Evgeny Petrov', true, TUESDAY_SEPTEMBER_15, true))
+    .toBe('Welcome back, Evgeny');
+});
+
+test('дата первого приветствия учитывает полночь Новосибирска', () => {
+  expect(buildWelcomeGreeting('Евгений', false, new Date('2026-09-30T17:00:00Z')))
+    .toBe('Добро пожаловать, Евгений! Сегодня четверг, 1 окт.');
+});
+
+test('сохранённый сеанс снова показывает обычное приветствие в новом дне', () => {
+  jest.useFakeTimers();
+  try {
+    jest.setSystemTime(new Date('2026-09-30T16:59:59Z'));
+    markWelcomeGreetingSeen('alice');
+    expect(hasSeenWelcomeGreeting('alice')).toBe(true);
+    jest.setSystemTime(new Date('2026-09-30T17:00:00Z'));
+    expect(hasSeenWelcomeGreeting('alice')).toBe(false);
+  } finally {
+    jest.useRealTimers();
+  }
+});

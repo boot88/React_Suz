@@ -19,7 +19,7 @@ import Statistics from './pages/StatisticsOverview';
 import { API_BASE_URL } from './utils/apiConfig';
 import { authFetch } from './utils/authFetch';
 import { ADMIN_WORKSPACE_TRANSITION_EVENT, requestAdminWorkspaceTransition } from './utils/adminWorkspaceTransition';
-import { WELCOME_NOTICE_DURATION_MS, buildWelcomeGreeting, hasSeenWelcomeGreeting, markWelcomeGreetingSeen } from './utils/welcomeGreeting';
+import { WELCOME_NOTICE_DURATION_MS, requestWelcomeGreeting, hasSeenWelcomeGreeting, markWelcomeGreetingSeen } from './utils/welcomeGreeting';
 
 
 function ChatAdministration() {
@@ -44,9 +44,9 @@ function AdminWelcomeNotice({ language }) {
     if (hasSeenWelcomeGreeting(user.username)) return undefined;
 
     markWelcomeGreetingSeen(user.username);
-    setNotice(buildWelcomeGreeting(user.name || user.username, language === 'en'));
+    requestWelcomeGreeting(user, language === 'en').then(setNotice);
     return undefined;
-  }, [isExcludedPath, language, user?.name, user?.username]);
+  }, [isExcludedPath, language, user]);
 
   // Приветствие исчезает само через несколько секунд.
   useEffect(() => {
