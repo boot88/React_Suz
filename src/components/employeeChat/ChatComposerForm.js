@@ -79,7 +79,6 @@ const ChatComposerForm = memo(function ChatComposerForm({
           type="file"
           hidden
           multiple
-          accept="image/png,image/jpeg,image/webp,image/gif,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z"
           onChange={onAttachmentChange}
         />
       </label>

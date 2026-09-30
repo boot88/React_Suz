@@ -8,6 +8,7 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 const db = require('../config/database');
 const uploadSettings = require('../utils/uploadSettingsStore');
+const { getUploadMime, getDownloadHeaders } = require('../utils/chatFileTypes');
 const {
   createMediaToken,
   MEDIA_TOKEN_TTL_MS
@@ -75,8 +76,6 @@ const FEED_SQL_PAGE_SIZE = 30;
 const STREAM_EVENT_BUFFER_SIZE = 500;
 const ORPHAN_UPLOAD_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const ALLOWED_UPLOAD_SCOPES = new Set(['chat', 'feed']);
-const ALLOWED_UPLOAD_TYPES = /^(image\/|video\/|application\/pdf$|text\/plain$|application\/msword$|application\/vnd\.openxmlformats-officedocument|application\/vnd\.ms-excel$|application\/zip$|application\/x-rar-compressed$|application\/vnd.rar$|application\/x-7z-compressed$)/i;
-const DANGEROUS_EXTENSIONS = new Set(['.exe', '.bat', '.cmd', '.com', '.scr', '.js', '.mjs', '.sh', '.ps1', '.vbs', '.jar']);
 const execFileAsync = promisify(execFile);
 
 let cachedThreads = null;
@@ -741,20 +740,6 @@ const parseContentDisposition = (value = '') => {
   return result;
 };
 
-const hasAllowedMagicBytes = (buffer, mime = '', ext = '') => {
-  const safeMime = String(mime).toLowerCase();
-  const head = buffer.slice(0, 12);
-  if (ext === '.rar') return head.slice(0, 6).equals(Buffer.from([0x52, 0x61, 0x72, 0x21, 0x1a, 0x07]));
-  if (ext === '.7z') return head.slice(0, 6).equals(Buffer.from([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]));
-  if (safeMime === 'image/png') return head.slice(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
-  if (safeMime === 'image/jpeg' || safeMime === 'image/jpg') return head.slice(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]));
-  if (safeMime === 'image/gif') return head.slice(0, 4).toString('ascii') === 'GIF8';
-  if (safeMime === 'application/pdf') return head.slice(0, 4).toString('ascii') === '%PDF';
-  if (safeMime === 'text/plain') return buffer.slice(0, 512).indexOf(0) === -1;
-  if (['.zip', '.docx', '.xlsx'].includes(ext)) return head.slice(0, 2).toString('ascii') === 'PK';
-  return true;
-};
-
 const writeChunk = async (stream, chunk) => {
   if (!chunk?.length || stream.write(chunk)) return;
   await new Promise((resolve, reject) => {
@@ -905,17 +890,8 @@ const saveMultipartUpload = async (req) => {
   try {
     const { fields, filePart } = await readMultipartFileStream(req, boundary, tempPath, maxUploadSize);
     const safeScope = ALLOWED_UPLOAD_SCOPES.has(fields.scope) ? fields.scope : 'chat';
-    let mime = filePart.type || fields.type || 'application/octet-stream';
-    if (mime === 'application/octet-stream') {
-      const extension = path.extname(fields.name || filePart.filename || '').toLowerCase();
-      mime = ({ '.rar': 'application/vnd.rar', '.7z': 'application/x-7z-compressed' })[extension] || mime;
-    }
     const safeOriginalName = sanitizeFileName(fields.name || filePart.filename || 'file');
-    const ext = path.extname(safeOriginalName).toLowerCase();
-    if (['image/svg+xml', 'text/html', 'application/xhtml+xml'].includes(mime.toLowerCase()) || ['.svg', '.html', '.htm'].includes(ext)) throw Object.assign(new Error('Этот тип файла запрещён'), { status: 400 });
-    if (!ALLOWED_UPLOAD_TYPES.test(mime) || DANGEROUS_EXTENSIONS.has(ext) || !hasAllowedMagicBytes(filePart.head, mime, ext)) {
-      const error = new Error('Этот тип файла запрещён'); error.status = 400; throw error;
-    }
+    const mime = getUploadMime(safeOriginalName, filePart.type || fields.type, filePart.head);
     if (Number(fields.size || filePart.size) > maxUploadSize || filePart.size > maxUploadSize) {
       const error = new Error(`Файл должен быть не больше ${Math.round(maxUploadSize / 1024 / 1024)} МБ`); error.status = 413; throw error;
     }
@@ -2542,8 +2518,9 @@ router.get('/files/:fileId/download', async (req, res) => {
     // response. Authentication above still protects the file; this header only
     // permits the authorized response to be embedded by the client origin.
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    res.setHeader('Content-Type', download.mime || 'application/octet-stream');
-    const disposition = req.query?.download === '1' ? 'attachment' : 'inline';
+    const { type, disposition } = getDownloadHeaders(download.mime, req.query?.download === '1');
+    res.setHeader('Content-Type', type);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(download.fileName)}"`);
     res.setHeader(
       'Cache-Control',

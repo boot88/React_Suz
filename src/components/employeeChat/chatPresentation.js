@@ -1429,6 +1429,7 @@ const formatFileSize = (size = 0) => {
 const getFileIcon = (type = '') => {
   if (type.startsWith('image/')) return '🖼️';
   if (type.startsWith('video/')) return '🎬';
+  if (type.startsWith('audio/')) return '🎵';
   if (type.includes('pdf')) return '📕';
   if (type.includes('word')) return '📘';
   if (type.includes('excel') || type.includes('sheet')) return '📗';

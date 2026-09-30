@@ -103,7 +103,6 @@ const FeedComposer = memo(function FeedComposer({
               type="file"
               multiple
               hidden
-              accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.7z"
               onChange={onFileChange}
             />
           </label>
