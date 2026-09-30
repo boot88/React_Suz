@@ -1,3 +1,4 @@
+import { translateAdminText as t, useAdminTranslation, getAdminLocale } from '../utils/adminTranslation';
 import { userSettingsStorage } from '../utils/userPreferences';
 import React, { useState } from 'react';
 import { syncEmployees } from '../services/employeeService';
@@ -33,7 +34,7 @@ const EmployeeDetails = ({ employee = {} }) => (
   <dl className="directory-person-details">
     {EMPLOYEE_DETAIL_FIELDS.map(([field, label]) => (
       <div key={field}>
-        <dt>{label}</dt>
+        <dt>{t(label)}</dt>
         <dd>{employee[field] || '—'}</dd>
       </div>
     ))}
@@ -44,9 +45,9 @@ const DirectoryReportGroup = ({ title, count = 0, items = [], tone, renderItem }
   if (!count) return null;
   return (
     <section className={`directory-report-group directory-report-group--${tone}`}>
-      <h3>{title} <span>{count}</span></h3>
-      <div className="directory-report-list">{items.map(renderItem)}</div>
-      {count > items.length && <p className="directory-report-more">Показано {items.length} из {count} записей.</p>}
+      <h3>{t(title)} <span>{t(count)}</span></h3>
+      <div className="directory-report-list">{t(items.map(renderItem))}</div>
+      {count > items.length && <p className="directory-report-more">{t("Показано ")}{items.length}{t(" из ")}{t(count)}{t(" записей.")}</p>}
     </section>
   );
 };
@@ -61,12 +62,12 @@ const DirectorySyncReport = ({ report }) => {
   return (
     <div className="directory-sync-report" aria-live="polite">
       <div className="directory-report-heading">
-        <div><span>Последнее обновление</span><h2>Изменения сотрудников</h2></div>
-        {report.updatedAt && <time>{new Date(report.updatedAt).toLocaleString('ru-RU')}</time>}
+        <div><span>{t("Последнее обновление")}</span><h2>{t("Изменения сотрудников")}</h2></div>
+        {report.updatedAt && <time>{t(new Date(report.updatedAt).toLocaleString(getAdminLocale()))}</time>}
       </div>
-      {!totalChanges && <p className="directory-report-empty">Изменений нет. Данные сотрудников уже актуальны.</p>}
+      {!totalChanges && <p className="directory-report-empty">{t("Изменений нет. Данные сотрудников уже актуальны.")}</p>}
       <DirectoryReportGroup
-        title="Новые сотрудники"
+        title={t("Новые сотрудники")}
         tone="hired"
         count={inserted.count}
         items={inserted.items || []}
@@ -74,15 +75,15 @@ const DirectorySyncReport = ({ report }) => {
           const female = isFemaleEmployee(employee.full_name);
           return (
             <article key={employee.source_key || `${employee.full_name}-${index}`}>
-              <strong>{female ? 'Принята на работу новая сотрудница' : 'Принят на работу новый сотрудник'}</strong>
-              <h4>{employee.full_name || 'ФИО не указано'}</h4>
+              <strong>{t(female ? 'Принята на работу новая сотрудница' : 'Принят на работу новый сотрудник')}</strong>
+              <h4>{employee.full_name || t('ФИО не указано')}</h4>
               <EmployeeDetails employee={employee} />
             </article>
           );
         }}
       />
       <DirectoryReportGroup
-        title="Переводы и изменения"
+        title={t("Переводы и изменения")}
         tone="changed"
         count={updated.count}
         items={updated.items || []}
@@ -90,15 +91,15 @@ const DirectorySyncReport = ({ report }) => {
           const employee = item.after || item.before || {};
           return (
             <article key={employee.source_key || `${employee.full_name}-${index}`}>
-              <strong>Перевели / изменили данные</strong>
-              <h4>{employee.full_name || 'ФИО не указано'}</h4>
+              <strong>{t("Перевели / изменили данные")}</strong>
+              <h4>{employee.full_name || t('ФИО не указано')}</h4>
               <div className="directory-field-changes">
                 {(item.changes || []).map((change) => (
                   <div key={change.field}>
-                    <b>{change.label}</b>
-                    <span><small>Было</small>{change.oldValue || '—'}</span>
+                    <b>{t(change.label)}</b>
+                    <span><small>{t("Было")}</small>{change.oldValue || '—'}</span>
                     <i aria-hidden="true">→</i>
-                    <span><small>Стало</small>{change.newValue || '—'}</span>
+                    <span><small>{t("Стало")}</small>{change.newValue || '—'}</span>
                   </div>
                 ))}
               </div>
@@ -108,14 +109,14 @@ const DirectorySyncReport = ({ report }) => {
         }}
       />
       <DirectoryReportGroup
-        title="Уволенные сотрудники"
+        title={t("Уволенные сотрудники")}
         tone="fired"
         count={deactivated.count}
         items={deactivated.items || []}
         renderItem={(employee, index) => (
           <article key={employee.source_key || `${employee.full_name}-${index}`}>
-            <strong>{isFemaleEmployee(employee.full_name) ? 'Уволена' : 'Уволен'}</strong>
-            <h4>{employee.full_name || 'ФИО не указано'}</h4>
+            <strong>{isFemaleEmployee(employee.full_name) ? t('Уволена') : t('Уволен')}</strong>
+            <h4>{employee.full_name || t('ФИО не указано')}</h4>
             <EmployeeDetails employee={employee} />
           </article>
         )}
@@ -125,6 +126,7 @@ const DirectorySyncReport = ({ report }) => {
 };
 
 export default function AdminSettings({ language, theme, onLanguageChange, onThemeChange }) {
+  const t = useAdminTranslation();
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
   const [directoryReport, setDirectoryReport] = useState(null);
@@ -155,7 +157,7 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
     setEditApplicationTableVisible(nextValue);
   };
   const run = async (kind) => {
-    if (!window.confirm(kind === 'directory' ? 'Обновить справочник сотрудников? Изменения будут сохранены.' : 'Обновить данные IP-сетки?')) return;
+    if (!window.confirm(t(kind === 'directory' ? 'Обновить справочник сотрудников? Изменения будут сохранены.' : 'Обновить данные IP-сетки?'))) return;
     setBusy(kind);
     setMessage('');
     if (kind === 'directory') setDirectoryReport(null);
@@ -171,7 +173,7 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
         if (deactivatedCount) summary.push(`Снято с учёта: ${deactivatedCount} — проверьте отчёт ниже.`);
         if (createdAccounts) summary.push(`Новых аккаунтов: ${createdAccounts}; начальный пароль — 12345.`);
         if (skippedRemovals) summary.push(`Удаление ${skippedRemovals} аккаунтов пропущено: справочник загружен неполностью.`);
-        setMessage(summary.join(' '));
+        setMessage(summary);
         setDirectoryReport({ ...(data.changes || {}), updatedAt: data.updatedAt });
         window.dispatchEvent(new Event('employee-directory-updated'));
       } else {
@@ -190,9 +192,9 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
   return (
     <main className="admin-settings">
       <header>
-        <p>Настройки</p>
-        <h1>Служебные обновления</h1>
-        <span>Редкие операции вынесены из рабочих экранов.</span>
+        <p>{t("Настройки")}</p>
+        <h1>{t("Служебные обновления")}</h1>
+        <span>{t("Редкие операции вынесены из рабочих экранов.")}</span>
       </header>
 
       <ChatUploadSettings />
@@ -209,74 +211,74 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
       }} />
 
       <section className="settings-group">
-        <h2 className="settings-group-title">Заявки</h2>
+        <h2 className="settings-group-title">{t("Заявки")}</h2>
         <div className="settings-group-grid">
           <article>
-            <h2>Вид заявок</h2>
-            <p>Вид — Новые заявки.</p>
+            <h2>{t("Вид заявок")}</h2>
+            <p>{t("Вид — Новые заявки.")}</p>
             <label className="settings-toggle">
               <input type="checkbox" checked={largeRequestsEnabled} onChange={toggleLargeRequests} />
               <span aria-hidden="true" />
-              <b>{largeRequestsEnabled ? 'Большие заявки включены' : 'Обычные заявки'}</b>
+              <b>{t(largeRequestsEnabled ? 'Большие заявки включены' : 'Обычные заявки')}</b>
             </label>
           </article>
           <article>
-            <h2>Редактирование заявок</h2>
-            <p>Показывать промежуточную таблицу выбора перед открытием заявки.</p>
+            <h2>{t("Редактирование заявок")}</h2>
+            <p>{t("Показывать промежуточную таблицу выбора перед открытием заявки.")}</p>
             <label className="settings-toggle">
               <input type="checkbox" checked={editApplicationTableVisible} onChange={toggleEditApplicationTable} />
               <span aria-hidden="true" />
-              <b>{editApplicationTableVisible ? 'Таблица выбора показывается' : 'Заявка открывается сразу'}</b>
+              <b>{t(editApplicationTableVisible ? 'Таблица выбора показывается' : 'Заявка открывается сразу')}</b>
             </label>
           </article>
           <article>
-            <h2>Карточка заявки</h2>
-            <p>Показывать в карточке заявки блок «История действий».</p>
+            <h2>{t("Карточка заявки")}</h2>
+            <p>{t("Показывать в карточке заявки блок «История действий».")}</p>
             <label className="settings-toggle">
               <input type="checkbox" checked={applicationActionHistoryVisible} onChange={toggleApplicationActionHistory} />
               <span aria-hidden="true" />
-              <b>{applicationActionHistoryVisible ? 'История показывается' : 'История скрыта'}</b>
+              <b>{t(applicationActionHistoryVisible ? 'История показывается' : 'История скрыта')}</b>
             </label>
           </article>
         </div>
       </section>
 
       <section className="settings-group">
-        <h2 className="settings-group-title">Обновление данных</h2>
+        <h2 className="settings-group-title">{t("Обновление данных")}</h2>
         <div className="settings-group-grid">
           <article>
-            <h2>Справочник сотрудников</h2>
-            <p>Загружает актуальные записи из источника и обновляет локальный справочник.</p>
-            <button onClick={() => run('directory')} disabled={!!busy}>{busy === 'directory' ? 'Обновляем…' : 'Обновить справочник'}</button>
+            <h2>{t("Справочник сотрудников")}</h2>
+            <p>{t("Загружает актуальные записи из источника и обновляет локальный справочник.")}</p>
+            <button onClick={() => run('directory')} disabled={!!busy}>{t(busy === 'directory' ? 'Обновляем…' : 'Обновить справочник')}</button>
           </article>
           <article>
-            <h2>Диагностика сети</h2>
-            <p>Обновляет сохранённый снимок IP-адресов. Экран диагностики работает с этим снимком.</p>
-            <button onClick={() => run('network')} disabled={!!busy}>{busy === 'network' ? 'Обновляем…' : 'Обновить IP-сетку'}</button>
+            <h2>{t("Диагностика сети")}</h2>
+            <p>{t("Обновляет сохранённый снимок IP-адресов. Экран диагностики работает с этим снимком.")}</p>
+            <button onClick={() => run('network')} disabled={!!busy}>{t(busy === 'network' ? 'Обновляем…' : 'Обновить IP-сетку')}</button>
           </article>
         </div>
-        {message && <div className="settings-message">{message}</div>}
+        {message && <div className="settings-message">{Array.isArray(message) ? message.map((part) => t(part)).join(' ') : t(message)}</div>}
         <DirectorySyncReport report={directoryReport} />
       </section>
 
       <section className="settings-group">
-        <h2 className="settings-group-title">Интерфейс</h2>
+        <h2 className="settings-group-title">{t("Интерфейс")}</h2>
         <div className="settings-group-grid">
           <article>
-            <h2>Оформление</h2>
-            <p>Язык и тема применяются ко всей админ-панели.</p>
+            <h2>{t("Оформление")}</h2>
+            <p>{t("Язык и тема применяются ко всей админ-панели.")}</p>
             <div className="settings-choice">
-              <span>Язык</span>
-              <div className="settings-segmented" role="group" aria-label="Язык">
+              <span>{t("Язык")}</span>
+              <div className="settings-segmented" role="group" aria-label={t("Язык")}>
                 <button type="button" className={language === 'ru' ? 'active' : ''} onClick={() => onLanguageChange('ru')}>RU</button>
                 <button type="button" className={language === 'en' ? 'active' : ''} onClick={() => onLanguageChange('en')}>EN</button>
               </div>
             </div>
             <div className="settings-choice">
-              <span>Тема</span>
-              <div className="settings-segmented" role="group" aria-label="Тема">
-                <button type="button" className={theme === 'light' ? 'active' : ''} onClick={() => onThemeChange('light')}>Светлая</button>
-                <button type="button" className={theme === 'dark' ? 'active' : ''} onClick={() => onThemeChange('dark')}>Тёмная</button>
+              <span>{t("Тема")}</span>
+              <div className="settings-segmented" role="group" aria-label={t("Тема")}>
+                <button type="button" className={theme === 'light' ? 'active' : ''} onClick={() => onThemeChange('light')}>{t("Светлая")}</button>
+                <button type="button" className={theme === 'dark' ? 'active' : ''} onClick={() => onThemeChange('dark')}>{t("Тёмная")}</button>
               </div>
             </div>
           </article>
@@ -284,15 +286,15 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
       </section>
 
       <section className="settings-group">
-        <h2 className="settings-group-title">Поиск документов</h2>
+        <h2 className="settings-group-title">{t("Поиск документов")}</h2>
         <div className="settings-group-grid">
           <article>
-            <h2>Тестовый режим</h2>
-            <p>Тестовый режим показывает переписку по месяцам, включая текущий. Обычный режим показывает периоды старше года.</p>
+            <h2>{t("Тестовый режим")}</h2>
+            <p>{t("Тестовый режим показывает переписку по месяцам, включая текущий. Обычный режим показывает периоды старше года.")}</p>
             <label className="settings-toggle">
               <input type="checkbox" checked={auditTestModeEnabled} onChange={toggleAuditTestMode} />
               <span aria-hidden="true" />
-              <b>{auditTestModeEnabled ? 'Тестовый режим включён' : 'Тестовый режим выключен'}</b>
+              <b>{t(auditTestModeEnabled ? 'Тестовый режим включён' : 'Тестовый режим выключен')}</b>
             </label>
           </article>
         </div>

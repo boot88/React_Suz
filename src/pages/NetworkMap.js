@@ -1,3 +1,4 @@
+import { useAdminTranslation, getAdminLocale } from '../utils/adminTranslation';
 import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import './NetworkMap.css';
 import { API_BASE_URL } from '../utils/apiConfig';
@@ -91,16 +92,20 @@ const parseNetworkZone = (zoneText = '') => {
 
 // Строка таблицы вынесена в memo-компонент: при смене фильтра или поиска
 // перерисовываются только адреса, у которых реально изменились данные.
-const NetworkRow = memo(({ ip, status, host }) => (
+const NetworkRow = memo(({ ip, status, host }) => {
+  const t = useAdminTranslation();
+  return (
   <tr className={status === 'free' ? 'ip-free' : 'ip-occupied'}>
     <td>{ip}</td>
-    <td>{status === 'free' ? 'Свободен' : 'Занят'}</td>
+    <td>{t(status === 'free' ? 'Свободен' : 'Занят')}</td>
     <td>{host}</td>
   </tr>
-));
+);
+});
 NetworkRow.displayName = 'NetworkRow';
 
 const NetworkMap = () => {
+  const t = useAdminTranslation();
   const [networkZoneText, setNetworkZoneText] = useState('');
   const [networkLoading, setNetworkLoading] = useState(false);
   const [networkError, setNetworkError] = useState('');
@@ -191,42 +196,42 @@ const NetworkMap = () => {
     <div className="network-map-page">
       <div className="network-page-header">
         <div>
-          <span className="network-eyebrow">Сетка / маска сети</span>
-          <h1>Свободные и занятые IP-адреса</h1>
+          <span className="network-eyebrow">{t("Сетка / маска сети")}</span>
+          <h1>{t("Свободные и занятые IP-адреса")}</h1>
         </div>
       </div>
 
       <div className="network-resource-link">
-        <span>Полезная ссылка для справочной информации</span>
-        <a href={OFFICIAL_SITE_URL} target="_blank" rel="noopener noreferrer">Открыть сайт</a>
+        <span>{t("Полезная ссылка для справочной информации")}</span>
+        <a href={OFFICIAL_SITE_URL} target="_blank" rel="noopener noreferrer">{t("Открыть сайт")}</a>
       </div>
 
       <div className="network-toolbar">
         <input
           type="text"
-          placeholder="Поиск: IP, хост, подсеть, раздел..."
+          placeholder={t("Поиск: IP, хост, подсеть, раздел...")}
           value={networkSearch}
           onChange={(e) => setNetworkSearch(e.target.value)}
         />
         <select value={networkFilter} onChange={(e) => setNetworkFilter(e.target.value)}>
-          <option value="all">Все адреса</option>
-          <option value="free">Только свободные</option>
-          <option value="occupied">Только занятые</option>
+          <option value="all">{t("Все адреса")}</option>
+          <option value="free">{t("Только свободные")}</option>
+          <option value="occupied">{t("Только занятые")}</option>
         </select>
-        <span className="network-snapshot-note">{networkLoading ? 'Загрузка сохранённого снимка…' : 'Обновление выполняется в настройках'}</span>
+        <span className="network-snapshot-note">{t(networkLoading ? 'Загрузка сохранённого снимка…' : 'Обновление выполняется в настройках')}</span>
       </div>
 
       <div className="network-summary-grid">
-        <div><strong>{networkStats.networks}</strong><span>подсетей /24</span></div>
-        <div><strong>{networkStats.occupied}</strong><span>занятых IP</span></div>
-        <div><strong>{networkStats.free}</strong><span>свободных IP</span></div>
-        <div><strong>{networkUpdatedAt ? new Date(networkUpdatedAt).toLocaleString('ru-RU') : '—'}</strong><span>последнее обновление</span></div>
+        <div><strong>{networkStats.networks}</strong><span>{t("подсетей /24")}</span></div>
+        <div><strong>{networkStats.occupied}</strong><span>{t("занятых IP")}</span></div>
+        <div><strong>{networkStats.free}</strong><span>{t("свободных IP")}</span></div>
+        <div><strong>{t(networkUpdatedAt ? new Date(networkUpdatedAt).toLocaleString(getAdminLocale()) : '—')}</strong><span>{t("последнее обновление")}</span></div>
       </div>
 
-      {networkError && <div className="network-error">{networkError}</div>}
+      {networkError && <div className="network-error">{t(networkError)}</div>}
 
       <div className="network-tables">
-        {filteredNetworkGroups.length === 0 && <div className="network-empty">Сетка не найдена по текущему поиску</div>}
+        {filteredNetworkGroups.length === 0 && <div className="network-empty">{t("Сетка не найдена по текущему поиску")}</div>}
         {filteredNetworkGroups.map((network) => {
           const { visibleRows, hiddenCount: hiddenRows, canCollapse } = getVisibleNetworkRows(network.rows, {
             expanded: expandedNetworks.has(network.cidr)
@@ -237,25 +242,25 @@ const NetworkMap = () => {
               <header>
                 <div>
                   <h3>{network.cidr}</h3>
-                  <p>{network.section}</p>
+                  <p>{t(network.section)}</p>
                 </div>
                 <div className="network-card-stats">
-                  <span className="occupied">Занято: {network.occupied.length}</span>
-                  <span className="free">Свободно: {network.freeIps.length}</span>
+                  <span className="occupied">{t("Занято: ")}{network.occupied.length}</span>
+                  <span className="free">{t("Свободно: ")}{network.freeIps.length}</span>
                 </div>
               </header>
               <div className="free-ranges">
-                <strong>Свободные диапазоны:</strong>
-                <span>{network.freeRanges.slice(0, 8).join(', ') || 'нет'}</span>
-                {network.freeRanges.length > 8 && <em>ещё {network.freeRanges.length - 8}</em>}
+                <strong>{t("Свободные диапазоны:")}</strong>
+                <span>{t(network.freeRanges.slice(0, 8).join(', ') || 'нет')}</span>
+                {network.freeRanges.length > 8 && <em>{t("ещё ")}{network.freeRanges.length - 8}</em>}
               </div>
               <div className="network-table-wrap">
                 <table className="network-table">
                   <thead>
                     <tr>
                       <th>IP</th>
-                      <th>Статус</th>
-                      <th>Хост</th>
+                      <th>{t("Статус")}</th>
+                      <th>{t("Хост")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -273,16 +278,16 @@ const NetworkMap = () => {
               {(hiddenRows > 0 || canCollapse) && (
                 <div className="network-table-footer">
                   <span className="network-table-note">
-                    {hiddenRows > 0
+                    {t(hiddenRows > 0
                       ? `Показаны первые ${visibleRows.length} из ${network.rows.length} адресов`
-                      : `Показаны все ${network.rows.length} адресов`}
+                      : `Показаны все ${network.rows.length} адресов`)}
                   </span>
                   <button
                     type="button"
                     className="network-table-toggle"
                     onClick={() => toggleNetworkRows(network.cidr)}
                   >
-                    {canCollapse ? 'Свернуть' : `Показать все (${network.rows.length})`}
+                    {t(canCollapse ? 'Свернуть' : `Показать все (${network.rows.length})`)}
                   </button>
                 </div>
               )}

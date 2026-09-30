@@ -1,3 +1,4 @@
+import { useAdminTranslation, getAdminLocale } from '../utils/adminTranslation';
 import { userSettingsStorage } from '../utils/userPreferences';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -280,6 +281,7 @@ const getSlaState = (app = {}) => {
 };
 
 const Dashboard = () => {
+  const t = useAdminTranslation();
   const { user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -415,7 +417,7 @@ const Dashboard = () => {
         return;
       }
 
-      const date = new Date().toLocaleDateString('ru-RU').replace(/\./g, '-');
+      const date = new Date().toLocaleDateString(getAdminLocale()).replace(/\./g, '-');
       const fileName = searchTerm
         ? `заявки_поиск_${searchTerm}_${date}.xlsx`
         : `все_заявки_${date}.xlsx`;
@@ -848,7 +850,7 @@ const Dashboard = () => {
 
   const formatTime = (dateString) => {
     if (!dateString) return '—';
-    return new Date(dateString).toLocaleTimeString('ru-RU', { timeZone: APPLICATION_TIME_ZONE,
+    return new Date(dateString).toLocaleTimeString(getAdminLocale(), { timeZone: APPLICATION_TIME_ZONE,
       hour: '2-digit',
       minute: '2-digit'
     });
@@ -857,14 +859,14 @@ const Dashboard = () => {
   const isDateOnlyValue = (dateString) => typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateString.trim());
   const formatCreatedAt = (dateString) => {
     if (!dateString) return 'Ручная подача · дата —';
-    if (formatApplicationDateTime(dateString) === '—') return 'Ручная подача · дата —';
+    if (formatApplicationDateTime(dateString, getAdminLocale()) === '—') return 'Ручная подача · дата —';
     const dateFormat = {
       day: '2-digit',
       month: '2-digit',
       year: '2-digit'
     };
-    if (isDateOnlyValue(dateString)) return new Date(`${dateString}T00:00:00Z`).toLocaleDateString('ru-RU', { ...dateFormat, timeZone: APPLICATION_TIME_ZONE });
-    return formatApplicationDateTime(dateString);
+    if (isDateOnlyValue(dateString)) return new Date(`${dateString}T00:00:00Z`).toLocaleDateString(getAdminLocale(), { ...dateFormat, timeZone: APPLICATION_TIME_ZONE });
+    return formatApplicationDateTime(dateString, getAdminLocale());
   };
 
   const getApplicationSourceLabel = (app = {}) => {
@@ -893,7 +895,7 @@ const Dashboard = () => {
   const getStatusLabel = (app) => {
     const status = app.status || (app.fl ? 'done' : 'new');
     const meta = STATUS_META[status] || STATUS_META.new;
-    return <span className={`status-badge status-${status}`}><span className="status-icon">{meta.icon}</span>{meta.label}</span>;
+    return <span className={`status-badge status-${status}`}><span className="status-icon">{t(meta.icon)}</span>{t(meta.label)}</span>;
   };
 
   const getPrimaryTableAction = (app = {}) => {
@@ -910,7 +912,7 @@ const Dashboard = () => {
 
   const deleteSelectedApplication = async () => {
     const app = selectedApplication;
-    if (!app || !window.confirm(`Удалить заявку #${app.id}? Она исчезнет из рабочего списка.`)) return;
+    if (!app || !window.confirm(t(`Удалить заявку #${app.id}? Она исчезнет из рабочего списка.`))) return;
 
     setActionBusyId(app.id);
     try {
@@ -1084,7 +1086,7 @@ const Dashboard = () => {
           onClick={goToFirstPage}
           disabled={currentPage === 1}
           className="pagination-btn"
-          title="Первая страница"
+          title={t("Первая страница")}
         >
           ««
         </button>
@@ -1093,7 +1095,7 @@ const Dashboard = () => {
           onClick={goToPrevPage}
           disabled={currentPage === 1}
           className="pagination-btn"
-          title="Предыдущая страница"
+          title={t("Предыдущая страница")}
         >
           «
         </button>
@@ -1104,7 +1106,7 @@ const Dashboard = () => {
             onClick={() => goToPage(page)}
             className={`pagination-btn ${currentPage === page ? 'active' : ''}`}
           >
-            {page}
+            {t(page)}
           </button>
         ))}
 
@@ -1112,7 +1114,7 @@ const Dashboard = () => {
           onClick={goToNextPage}
           disabled={currentPage === totalPages}
           className="pagination-btn"
-          title="Следующая страница"
+          title={t("Следующая страница")}
         >
           »
         </button>
@@ -1121,13 +1123,12 @@ const Dashboard = () => {
           onClick={goToLastPage}
           disabled={currentPage === totalPages}
           className="pagination-btn"
-          title="Последняя страница"
+          title={t("Последняя страница")}
         >
           »»
         </button>
 
-        <span className="pagination-info">
-          Страница {currentPage} из {totalPages}
+        <span className="pagination-info">{t("Страница ")}{t(currentPage)}{t(" из ")}{t(totalPages)}
         </span>
       </div>
     );
@@ -1219,25 +1220,21 @@ const Dashboard = () => {
     <div className="dashboard-container">
       {/* Заголовок */}
       <div className="dashboard-header">
-        <div><h1>Заявки</h1><p className="dashboard-subtitle">Очередь, сроки и действия по обращениям</p></div>
+        <div><h1>{t("Заявки")}</h1><p className="dashboard-subtitle">{t("Очередь, сроки и действия по обращениям")}</p></div>
         <div className="header-tools">
-          <div className="table-search table-search--header"><input type="text" value={searchTerm} onChange={(e) => handleSearch(e.target.value)} placeholder="Поиск по заявкам" className="search-input" aria-label="Поиск по заявкам" />{searchTerm && <button type="button" onClick={clearSearch} className="clear-search" title="Очистить поиск">×</button>}</div>
+          <div className="table-search table-search--header"><input type="text" value={searchTerm} onChange={(e) => handleSearch(e.target.value)} placeholder={t("Поиск по заявкам")} className="search-input" aria-label={t("Поиск по заявкам")} />{searchTerm && <button type="button" onClick={clearSearch} className="clear-search" title={t("Очистить поиск")}>×</button>}</div>
         <button
           onClick={exportToExcel}
           disabled={exportLoading || stats.total === 0}
           className="export-btn"
-          title="Экспортировать данные в Excel"
+          title={t("Экспортировать данные в Excel")}
         >
           {exportLoading ? (
             <>
-              <span className="button-spinner"></span>
-              Экспорт...
-            </>
+              <span className="button-spinner"></span>{t("Экспорт...")}</>
           ) : (
             <>
-              <span className="export-icon">📥</span>
-              Экспорт в Excel
-            </>
+              <span className="export-icon">📥</span>{t("Экспорт в Excel")}</>
           )}
         </button>
         </div>
@@ -1251,46 +1248,46 @@ const Dashboard = () => {
             className={`stat-card ${card.tone === 'danger' ? 'stat-danger' : ''} ${filter === card.id ? 'stat-active' : ''}`}
             onClick={() => (card.id === 'all' ? clearFilters() : setFilterAndResetPage(card.id))}
           >
-            <span className="stat-label">{card.label}</span>
+            <span className="stat-label">{t(card.label)}</span>
             <div className="stat-number">{card.value}</div>
-            <small>{card.hint}</small>
+            <small>{t(card.hint)}</small>
           </div>
         ))}
       </div>
 
-      {workflowMessage && <div className="workflow-message">{workflowMessage}</div>}
+      {workflowMessage && <div className="workflow-message">{t(workflowMessage)}</div>}
 
       {/* Фильтры */}
       <div className="filters-section filters-section-compact">
         <details className="dashboard-settings">
-          <summary>Фильтры и настройки</summary>
+          <summary>{t("Фильтры и настройки")}</summary>
           <div className="dashboard-settings-body">
             <div className="filters-group period-filter-card">
               <div className="filter-card-head">
                 <div>
-                  <span className="eyebrow">Период заявок</span>
-                  <h3>Произвольный период</h3>
+                  <span className="eyebrow">{t("Период заявок")}</span>
+                  <h3>{t("Произвольный период")}</h3>
                 </div>
-                <button type="button" onClick={clearDateFilter} className="btn-secondary compact-reset">Сбросить период</button>
+                <button type="button" onClick={clearDateFilter} className="btn-secondary compact-reset">{t("Сбросить период")}</button>
               </div>
               <div className="date-filters">
                 <div className="filter-group">
-                  <label htmlFor="dashboard-date-from">От</label>
+                  <label htmlFor="dashboard-date-from">{t("От")}</label>
                   <input id="dashboard-date-from" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
                 </div>
                 <div className="filter-group">
-                  <label htmlFor="dashboard-date-to">До</label>
+                  <label htmlFor="dashboard-date-to">{t("До")}</label>
                   <input id="dashboard-date-to" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
                 </div>
                 <div className="filter-group dashboard-sort-order">
-                  <label htmlFor="dashboard-sort-order">Порядок</label>
+                  <label htmlFor="dashboard-sort-order">{t("Порядок")}</label>
                   <select id="dashboard-sort-order" value={sortMode} onChange={(event) => changeSortMode(event.target.value)}>
-                    <option value="date_desc">Сначала новые</option>
-                    <option value="date_asc">Сначала старые</option>
+                    <option value="date_desc">{t("Сначала новые")}</option>
+                    <option value="date_asc">{t("Сначала старые")}</option>
                   </select>
                 </div>
                 <div className="filter-actions">
-                  <button type="button" onClick={applyFilters} className="btn-primary">Применить период</button>
+                  <button type="button" onClick={applyFilters} className="btn-primary">{t("Применить период")}</button>
                 </div>
               </div>
             </div>
@@ -1300,11 +1297,11 @@ const Dashboard = () => {
 
       {activeFilterChips.length > 0 && (
         <div className="active-filter-chips">
-          <strong>Активные фильтры:</strong>
+          <strong>{t("Активные фильтры:")}</strong>
           {activeFilterChips.map((chip) => (
-            <button key={chip.key} type="button" onClick={chip.onRemove}>{chip.label} ×</button>
+            <button key={chip.key} type="button" onClick={chip.onRemove}>{t(chip.label)} ×</button>
           ))}
-          <button type="button" className="clear-all-chip" onClick={clearFilters}>Сбросить всё</button>
+          <button type="button" className="clear-all-chip" onClick={clearFilters}>{t("Сбросить всё")}</button>
         </div>
       )}
 
@@ -1312,7 +1309,7 @@ const Dashboard = () => {
       {loading ? (
         <div className="loading-spinner">
           <div className="spinner"></div>
-          <p>Загрузка данных...</p>
+          <p>{t("Загрузка данных...")}</p>
         </div>
       ) : (
         <>
@@ -1320,19 +1317,17 @@ const Dashboard = () => {
           <div className="table-header table-header-modern">
             <div>
               <h3>
-                <span className="science-icon">📋</span>
-                Список заявок
-                {displayedApplications.length > 0 && (
+                <span className="science-icon">📋</span>{t("Список заявок")}{displayedApplications.length > 0 && (
                   <span className="table-count">
-                    ({displayedApplications.length} из {filteredStats.total})
+                    ({displayedApplications.length}{t(" из ")}{filteredStats.total})
                   </span>
                 )}
               </h3>
-              <p>Поиск работает по заявке, кабинету, сотруднику, телефону и исполнителю.</p>
+              <p>{t("Поиск работает по заявке, кабинету, сотруднику, телефону и исполнителю.")}</p>
             </div>
             <div className="table-tools">
-              <div className="view-switch view-switch--workspace" role="group" aria-label="Вид заявок">
-                <span className="view-switch-label">Вид</span>
+              <div className="view-switch view-switch--workspace" role="group" aria-label={t("Вид заявок")}>
+                <span className="view-switch-label">{t("Вид")}</span>
                 <div className="view-switch-options">
                   <button
                     type="button"
@@ -1341,7 +1336,7 @@ const Dashboard = () => {
                     onClick={() => { setViewMode('table'); userSettingsStorage.setItem('dashboard.viewMode', 'table'); }}
                   >
                     <span className="view-switch-icon view-switch-icon--table" aria-hidden="true"><i /><i /><i /><i /></span>
-                    <span>Таблица</span>
+                    <span>{t("Таблица")}</span>
                   </button>
                   <button
                     type="button"
@@ -1350,12 +1345,12 @@ const Dashboard = () => {
                     onClick={() => { setViewMode('timeline'); userSettingsStorage.setItem('dashboard.viewMode', 'timeline'); }}
                   >
                     <span className="view-switch-icon view-switch-icon--time" aria-hidden="true"><i /><i /><i /></span>
-                    <span>По времени</span>
+                    <span>{t("По времени")}</span>
                   </button>
                 </div>
               </div>
               <label className="page-size-control">
-                <span>На странице</span>
+                <span>{t("На странице")}</span>
                 <select
                   value={limit}
                   onChange={(e) => {
@@ -1378,21 +1373,21 @@ const Dashboard = () => {
           <div className="table-container">
             {selectedIds.length > 0 && (
               <div className="bulk-actions-bar">
-                <strong>Выбрано: {selectedIds.length}</strong>
-                <button type="button" onClick={() => setBulkAssignOpen(true)} disabled={actionBusyId === 'bulk'}>Назначить исполнителя</button>
-                <button type="button" onClick={runBulkClose} disabled={actionBusyId === 'bulk'}>Закрыть</button>
-                <button type="button" onClick={exportSelectedApplications}>Экспортировать выбранные</button>
-                <button type="button" onClick={() => setSelectedIds([])}>Снять выбор</button>
+                <strong>{t("Выбрано: ")}{selectedIds.length}</strong>
+                <button type="button" onClick={() => setBulkAssignOpen(true)} disabled={actionBusyId === 'bulk'}>{t("Назначить исполнителя")}</button>
+                <button type="button" onClick={runBulkClose} disabled={actionBusyId === 'bulk'}>{t("Закрыть")}</button>
+                <button type="button" onClick={exportSelectedApplications}>{t("Экспортировать выбранные")}</button>
+                <button type="button" onClick={() => setSelectedIds([])}>{t("Снять выбор")}</button>
                 {bulkAssignOpen && (
                   <div className="bulk-assign-box">
                     <input
                       type="text"
                       value={bulkExecutor}
                       onChange={(event) => setBulkExecutor(event.target.value)}
-                      placeholder="Исполнитель"
+                      placeholder={t("Исполнитель")}
                     />
-                    <button type="button" onClick={runBulkAssign} disabled={!bulkExecutor.trim() || actionBusyId === 'bulk'}>Назначить</button>
-                    <button type="button" onClick={() => setBulkAssignOpen(false)}>Отмена</button>
+                    <button type="button" onClick={runBulkAssign} disabled={!bulkExecutor.trim() || actionBusyId === 'bulk'}>{t("Назначить")}</button>
+                    <button type="button" onClick={() => setBulkAssignOpen(false)}>{t("Отмена")}</button>
                   </div>
                 )}
               </div>
@@ -1401,12 +1396,12 @@ const Dashboard = () => {
               <>
                 <div className={`request-timeline request-timeline--${timelineCardDesign}`}>
                   {Object.entries(displayedApplications.reduce((groups, app) => {
-                    const key = new Date(app.created_at || app.data).toLocaleDateString('ru-RU', { timeZone: APPLICATION_TIME_ZONE });
+                    const key = new Date(app.created_at || app.data).toLocaleDateString(getAdminLocale(), { timeZone: APPLICATION_TIME_ZONE });
                     (groups[key] ||= []).push(app);
                     return groups;
                   }, {})).map(([date, apps]) => (
                     <section className="timeline-day" key={date}>
-                      <h4>{date}</h4>
+                      <h4>{t(date)}</h4>
                       <div className="timeline-row">
                         {apps.sort((a, b) => new Date(a.created_at || a.data) - new Date(b.created_at || b.data)).map((app) => {
                           const status = getApplicationStatus(app);
@@ -1420,27 +1415,27 @@ const Dashboard = () => {
                                 onClick={() => openApplicationPanel(app)}
                               >
                                 <span className="timeline-modern-head">
-                                  <time>{formatTime(app.created_at || app.data)}</time>
+                                  <time>{t(formatTime(app.created_at || app.data))}</time>
                                   <span className={`timeline-modern-status timeline-modern-status--${status}`}>
                                     <i aria-hidden="true" />
-                                    {statusMeta.label}
+                                    {t(statusMeta.label)}
                                   </span>
                                 </span>
-                                <strong className="timeline-title">{app.application || 'Без названия заявки'}</strong>
+                                <strong className="timeline-title">{app.application || t('Без названия заявки')}</strong>
                                 <span className="timeline-modern-details">
-                                  <span className="timeline-cabinet">Каб. {app.cabinet || '—'}</span>
-                                  <span className="timeline-person">{app.name || 'ФИО не указано'}</span>
-                                  <span className="timeline-phone">Тел. {app.N_tel || '—'}</span>
+                                  <span className="timeline-cabinet">{t("Каб. ")}{app.cabinet || '—'}</span>
+                                  <span className="timeline-person">{app.name || t('ФИО не указано')}</span>
+                                  <span className="timeline-phone">{t("Тел. ")}{app.N_tel || '—'}</span>
                                 </span>
-                                <small className="timeline-request-id">Заявка #{app.id}</small>
+                                <small className="timeline-request-id">{t("Заявка #")}{app.id}</small>
                               </button>
                             );
                           }
                           return (
                             <button type="button" className={`timeline-request${String(openApplicationId) === String(app.id) ? ' timeline-request--target' : ''}`} key={app.id} data-application-id={app.id} onClick={() => openApplicationPanel(app)}>
-                              <strong className="timeline-title">{app.application || 'Без названия заявки'}</strong>
-                              <span className="timeline-contact">{app.name || 'ФИО не указано'} · каб. {app.cabinet || '—'} · тел. {app.N_tel || '—'}</span>
-                              <small>#{app.id} · {formatTime(app.created_at || app.data)} · {getStatusLabel(app)}</small>
+                              <strong className="timeline-title">{app.application || t('Без названия заявки')}</strong>
+                              <span className="timeline-contact">{app.name || t('ФИО не указано')}{t(" · каб. ")}{app.cabinet || '—'}{t(" · тел. ")}{app.N_tel || '—'}</span>
+                              <small>#{app.id} · {t(formatTime(app.created_at || app.data))} · {t(getStatusLabel(app))}</small>
                             </button>
                           );
                         })}
@@ -1453,13 +1448,13 @@ const Dashboard = () => {
               <table className={`applications-table ${compactMode ? 'applications-table-compact' : ''}`}>
                 <thead>
                   <tr>
-                    <th className="select-column"><input type="checkbox" checked={displayedApplications.length > 0 && displayedApplications.every((app) => selectedIds.includes(app.id))} onChange={toggleSelectAllVisible} aria-label="Выбрать все заявки на странице" /></th>
-                    {isColumnVisible('employee') && <th>Сотрудник</th>}
-                    {isColumnVisible('request') && <th>Заявка</th>}
-                    {isColumnVisible('executor') && <th>Исполнитель</th>}
-                    {isColumnVisible('created') && <th>Дата</th>}
-                    {isColumnVisible('status') && <th>Статус</th>}
-                    {isColumnVisible('actions') && <th>Действия</th>}
+                    <th className="select-column"><input type="checkbox" checked={displayedApplications.length > 0 && displayedApplications.every((app) => selectedIds.includes(app.id))} onChange={toggleSelectAllVisible} aria-label={t("Выбрать все заявки на странице")} /></th>
+                    {isColumnVisible('employee') && <th>{t("Сотрудник")}</th>}
+                    {isColumnVisible('request') && <th>{t("Заявка")}</th>}
+                    {isColumnVisible('executor') && <th>{t("Исполнитель")}</th>}
+                    {isColumnVisible('created') && <th>{t("Дата")}</th>}
+                    {isColumnVisible('status') && <th>{t("Статус")}</th>}
+                    {isColumnVisible('actions') && <th>{t("Действия")}</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -1475,12 +1470,12 @@ const Dashboard = () => {
 	                        onClick={() => openApplicationPanel(app)}
 	                      >
 	                        <td className="select-column" onClick={(event) => event.stopPropagation()}>
-                            <input type="checkbox" checked={selectedIds.includes(app.id)} onChange={(event) => toggleSelectApplication(event, app.id)} aria-label={`Выбрать заявку ${app.id}`} />
+                            <input type="checkbox" checked={selectedIds.includes(app.id)} onChange={(event) => toggleSelectApplication(event, app.id)} aria-label={t(`Выбрать заявку ${app.id}`)} />
                           </td>
 	                        {isColumnVisible('employee') && <td className="cell-person">
-	                          <strong>{app.name || 'Сотрудник'}</strong>
+	                          <strong>{app.name || t('Сотрудник')}</strong>
 	                          {(applicationEmployee?.position || applicationEmployee?.department) && <span>{[applicationEmployee.position, applicationEmployee.department].filter(Boolean).join(' · ')}</span>}
-	                          <span>каб. {applicationEmployee?.room || app.cabinet || '—'} · вн. {applicationEmployee?.internal_phone || applicationEmployee?.phone || app.N_tel || '—'}{applicationEmployee?.external_phone ? ` · внеш. ${applicationEmployee.external_phone}` : ''}</span>
+	                          <span>{t("каб. ")}{applicationEmployee?.room || app.cabinet || '—'}{t(" · вн. ")}{applicationEmployee?.internal_phone || applicationEmployee?.phone || app.N_tel || '—'}{applicationEmployee?.external_phone ? t(` · внеш. ${applicationEmployee.external_phone}`) : ''}</span>
 	                        </td>}
 
 	                        {isColumnVisible('request') && <td
@@ -1492,11 +1487,11 @@ const Dashboard = () => {
                              }}
                         >
                           <div className="application-summary">
-                            <strong>#{app.id || '—'} · {app.application || 'Без описания'}</strong>
+                            <strong>#{t(app.id || '—')} · {app.application || t('Без описания')}</strong>
                             <div className="application-badges">
-                              {!isAdministratorCreatedApplication(app) && <span className="meta-badge category-badge">{getCategoryLabel(app.category)}</span>}
-                              {!isAdministratorCreatedApplication(app) && <span className={`meta-badge priority-badge priority-${getPriorityClass(app.priority)}`}>{getPriorityLabel(app.priority)}</span>}
-                              <span className="meta-badge source-badge">{getApplicationSourceLabel(app)}</span>
+                              {!isAdministratorCreatedApplication(app) && <span className="meta-badge category-badge">{t(getCategoryLabel(app.category))}</span>}
+                              {!isAdministratorCreatedApplication(app) && <span className={`meta-badge priority-badge priority-${getPriorityClass(app.priority)}`}>{t(getPriorityLabel(app.priority))}</span>}
+                              <span className="meta-badge source-badge">{t(getApplicationSourceLabel(app))}</span>
 	                            </div>
 	                          </div>
 	                        </td>}
@@ -1531,14 +1526,14 @@ const Dashboard = () => {
                               })}
                             </>
                           ) : (
-                            'Не назначен'
+                            t('Не назначен')
                           )}
                         </td>}
 
                         {isColumnVisible('created') && <td className="cell-date cell-created">
-                          <strong>{new Date(app.created_at || app.data).toLocaleDateString('ru-RU', { timeZone: APPLICATION_TIME_ZONE })}</strong>
+                          <strong>{t(new Date(app.created_at || app.data).toLocaleDateString(getAdminLocale(), { timeZone: APPLICATION_TIME_ZONE }))}</strong>
                         </td>}
-                        {isColumnVisible('status') && <td>{getStatusLabel(app)}</td>}
+                        {isColumnVisible('status') && <td>{t(getStatusLabel(app))}</td>}
                         {isColumnVisible('actions') && <td className="cell-actions">
                           <div className="workflow-actions workflow-actions-compact">
                             <button
@@ -1547,13 +1542,13 @@ const Dashboard = () => {
                               disabled={actionBusyId === app.id}
                               onClick={(event) => runTableAction(event, app, () => primaryAction.action())}
                             >
-                              {actionBusyId === app.id ? '...' : primaryAction.label}
+                              {t(actionBusyId === app.id ? '...' : primaryAction.label)}
                             </button>
                             <div className="row-action-menu-wrap">
                               <button
                                 type="button"
                                 className="row-action-menu-toggle"
-                                aria-label="Дополнительные действия"
+                                aria-label={t("Дополнительные действия")}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   setOpenActionMenuId(openActionMenuId === app.id ? null : app.id);
@@ -1563,9 +1558,9 @@ const Dashboard = () => {
                               </button>
                               {openActionMenuId === app.id && (
                                 <div className="row-action-menu" onClick={(event) => event.stopPropagation()}>
-                                  <button type="button" onClick={(event) => runTableAction(event, app, openApplicationPanel)}>Открыть карточку</button>
-                                  {app.employee_login && <a href={getOpenChatHref(app)}>Открыть чат</a>}
-                                  {isEmployeeCreatedApplication(app) && ['new', 'reopened'].includes(status) && <button type="button" onClick={(event) => runTableAction(event, app, openAcceptModal)}>Взять в работу</button>}
+                                  <button type="button" onClick={(event) => runTableAction(event, app, openApplicationPanel)}>{t("Открыть карточку")}</button>
+                                  {app.employee_login && <a href={getOpenChatHref(app)}>{t("Открыть чат")}</a>}
+                                  {isEmployeeCreatedApplication(app) && ['new', 'reopened'].includes(status) && <button type="button" onClick={(event) => runTableAction(event, app, openAcceptModal)}>{t("Взять в работу")}</button>}
                                 </div>
                               )}
                             </div>
@@ -1578,9 +1573,9 @@ const Dashboard = () => {
 	                    <tr>
 		                      <td colSpan={visibleColumns.length + 1} className="no-data">
                         <span className="science-icon">🔍</span>
-                        {searchTerm
+                        {t(searchTerm
                           ? `Не найдено заявок по запросу "${searchTerm}"`
-                          : 'Нет заявок по данному фильтру'
+                          : 'Нет заявок по данному фильтру')
                         }
                       </td>
                     </tr>
@@ -1597,50 +1592,50 @@ const Dashboard = () => {
 
 
       {selectedApplication && (
-        <aside className="application-side-panel" aria-label="Карточка заявки">
+        <aside className="application-side-panel" aria-label={t("Карточка заявки")}>
           <button type="button" className="side-panel-close" onClick={closeApplicationPanel}>×</button>
           <div className="side-panel-head">
-            <span>{getStatusLabel(selectedApplication)}</span>
-            <h2>Заявка #{selectedApplication.id}</h2>
+            <span>{t(getStatusLabel(selectedApplication))}</span>
+            <h2>{t("Заявка #")}{selectedApplication.id}</h2>
             <p>{[selectedEmployee?.full_name || selectedApplication.name, selectedEmployee?.position, selectedEmployee?.department].filter(Boolean).join(' · ')}</p>
           </div>
           <div className="time-summary-card">
-            <strong>{getStatusLabel(selectedApplication)}</strong>
+            <strong>{t(getStatusLabel(selectedApplication))}</strong>
             {selectedAppTimes && (
               <span>
-                {!isAdministratorCreatedApplication(selectedApplication) && selectedCumulativeWorkSeconds != null && <em>Всего в работе: {formatApplicationDuration(selectedCumulativeWorkSeconds)}</em>}
-                {isAdministratorCreatedApplication(selectedApplication) && !selectedApplication.fl && selectedAppTimes.workSeconds != null && <em>В работе: {formatApplicationDuration(selectedAppTimes.workSeconds)}</em>}
-                {selectedAppTimes.closedAt && selectedClosureSeconds != null && <em>Подали → полностью закрыли: {formatApplicationDuration(selectedClosureSeconds)}</em>}
+                {!isAdministratorCreatedApplication(selectedApplication) && selectedCumulativeWorkSeconds != null && <em>{t("Всего в работе: ")}{t(formatApplicationDuration(selectedCumulativeWorkSeconds))}</em>}
+                {isAdministratorCreatedApplication(selectedApplication) && !selectedApplication.fl && selectedAppTimes.workSeconds != null && <em>{t("В работе: ")}{t(formatApplicationDuration(selectedAppTimes.workSeconds))}</em>}
+                {selectedAppTimes.closedAt && selectedClosureSeconds != null && <em>{t("Подали → полностью закрыли: ")}{t(formatApplicationDuration(selectedClosureSeconds))}</em>}
               </span>
             )}
           </div>
           <div className="next-action-card">
-            <span>Следующее действие</span>
-            <strong>{getNextAction(selectedApplication)}</strong>
-            <p>{getStatusDescription(selectedApplication)}</p>
+            <span>{t("Следующее действие")}</span>
+            <strong>{t(getNextAction(selectedApplication))}</strong>
+            <p>{t(getStatusDescription(selectedApplication))}</p>
           </div>
           <div className="side-panel-section">
-            <h3>Описание</h3>
+            <h3>{t("Описание")}</h3>
             <p>{selectedApplication.application}</p>
           </div>
-          <div className="side-panel-section"><h3>Сотрудник</h3><div className="side-panel-grid">
-            <div><strong>ФИО</strong><span>{selectedEmployee?.full_name || selectedApplication.name || '—'}</span></div>
-            <div><strong>Должность</strong><span>{selectedEmployee?.position || '—'}</span></div>
-            <div><strong>Отдел</strong><span>{selectedEmployee?.department || '—'}</span></div>
-            <div><strong>Кабинет</strong><span>{selectedEmployee?.room || selectedApplication.cabinet || '—'}</span></div>
-            <div><strong>Внутренний телефон</strong><span>{selectedEmployee?.internal_phone || selectedEmployee?.phone || selectedApplication.N_tel || '—'}</span></div>
-            <div><strong>Внешний телефон</strong><span>{selectedEmployee?.external_phone || '—'}</span></div>
+          <div className="side-panel-section"><h3>{t("Сотрудник")}</h3><div className="side-panel-grid">
+            <div><strong>{t("ФИО")}</strong><span>{selectedEmployee?.full_name || selectedApplication.name || '—'}</span></div>
+            <div><strong>{t("Должность")}</strong><span>{selectedEmployee?.position || '—'}</span></div>
+            <div><strong>{t("Отдел")}</strong><span>{selectedEmployee?.department || '—'}</span></div>
+            <div><strong>{t("Кабинет")}</strong><span>{selectedEmployee?.room || selectedApplication.cabinet || '—'}</span></div>
+            <div><strong>{t("Внутренний телефон")}</strong><span>{selectedEmployee?.internal_phone || selectedEmployee?.phone || selectedApplication.N_tel || '—'}</span></div>
+            <div><strong>{t("Внешний телефон")}</strong><span>{selectedEmployee?.external_phone || '—'}</span></div>
             <div><strong>Email</strong><span>{selectedEmployee?.email || (String(selectedApplication.employee_login || '').includes('@') ? selectedApplication.employee_login : '—')}</span></div>
-            {selectedEmployee && selectedEmployee.is_active === false && <div><strong>Статус справочника</strong><span>Запись неактивна</span></div>}
+            {selectedEmployee && selectedEmployee.is_active === false && <div><strong>{t("Статус справочника")}</strong><span>{t("Запись неактивна")}</span></div>}
           </div></div>
-          <div className="side-panel-section"><h3>Хронология</h3><div className="side-panel-grid">
-            {!isAdministratorCreatedApplication(selectedApplication) && <div><strong>Категория</strong><span>{selectedApplication.category || '—'}</span></div>}
-            {!isAdministratorCreatedApplication(selectedApplication) && <div><strong>Приоритет</strong><span>{selectedApplication.priority || 'Обычный'}</span></div>}
-            <div><strong>Источник</strong><span>{getApplicationSourceLabel(selectedApplication)}</span></div>
-            <div><strong>Исполнитель</strong><span>{isAdministratorCreatedApplication(selectedApplication) ? (selectedApplication.executor || '—') : (selectedApplication.executor || selectedApplication.accepted_by || 'Не назначен')}</span></div>
-            <div><strong>Подана</strong><span>{formatCreatedAt(selectedApplication.created_at || selectedApplication.data)}</span></div>
-            {selectedWorkCycles.length === 0 && !isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.takenAt ? <div><strong>Взята в работу</strong><span>{formatCreatedAt(selectedAppTimes.takenAt)}</span></div> : null}
-            {selectedWorkCycles.length === 0 && !isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.waitSeconds != null && <div><strong>Подача → взятие</strong><span>{formatApplicationDuration(selectedAppTimes.waitSeconds)}</span></div>}
+          <div className="side-panel-section"><h3>{t("Хронология")}</h3><div className="side-panel-grid">
+            {!isAdministratorCreatedApplication(selectedApplication) && <div><strong>{t("Категория")}</strong><span>{t(selectedApplication.category || '—')}</span></div>}
+            {!isAdministratorCreatedApplication(selectedApplication) && <div><strong>{t("Приоритет")}</strong><span>{t(selectedApplication.priority || 'Обычный')}</span></div>}
+            <div><strong>{t("Источник")}</strong><span>{t(getApplicationSourceLabel(selectedApplication))}</span></div>
+            <div><strong>{t("Исполнитель")}</strong><span>{t(isAdministratorCreatedApplication(selectedApplication) ? (selectedApplication.executor || '—') : (selectedApplication.executor || selectedApplication.accepted_by || 'Не назначен'))}</span></div>
+            <div><strong>{t("Подана")}</strong><span>{t(formatCreatedAt(selectedApplication.created_at || selectedApplication.data))}</span></div>
+            {selectedWorkCycles.length === 0 && !isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.takenAt ? <div><strong>{t("Взята в работу")}</strong><span>{t(formatCreatedAt(selectedAppTimes.takenAt))}</span></div> : null}
+            {selectedWorkCycles.length === 0 && !isAdministratorCreatedApplication(selectedApplication) && selectedAppTimes?.waitSeconds != null && <div><strong>{t("Подача → взятие")}</strong><span>{t(formatApplicationDuration(selectedAppTimes.waitSeconds))}</span></div>}
             {selectedWorkCycles.map((cycle, index) => {
               const takenAt = cycle.taken_at || cycle.started_at;
               const previousCycle = selectedWorkCycles[index - 1];
@@ -1648,45 +1643,45 @@ const Dashboard = () => {
                 ? selectedAppTimes?.waitSeconds
                 : secondsBetweenValues(previousCycle?.closed_at, takenAt);
               return <React.Fragment key={`${cycle.started_at}-${cycle.closed_at || 'active'}-${index}`}>
-                <div><strong>{index === 0 ? 'Взята в работу' : 'Взята повторно в работу'}</strong><span>{formatCreatedAt(takenAt)}</span></div>
-                {!isAdministratorCreatedApplication(selectedApplication) && waitingSeconds != null && <div><strong>Подача → взятие</strong><span>{formatApplicationDuration(waitingSeconds)}</span></div>}
-                {cycle.closed_at && !(selectedApplication.fl && index === selectedWorkCycles.length - 1) && <div><strong>Переоткрыта</strong><span>{formatCreatedAt(cycle.closed_at)}</span></div>}
+                <div><strong>{t(index === 0 ? 'Взята в работу' : 'Взята повторно в работу')}</strong><span>{t(formatCreatedAt(takenAt))}</span></div>
+                {!isAdministratorCreatedApplication(selectedApplication) && waitingSeconds != null && <div><strong>{t("Подача → взятие")}</strong><span>{t(formatApplicationDuration(waitingSeconds))}</span></div>}
+                {cycle.closed_at && !(selectedApplication.fl && index === selectedWorkCycles.length - 1) && <div><strong>{t("Переоткрыта")}</strong><span>{t(formatCreatedAt(cycle.closed_at))}</span></div>}
               </React.Fragment>;
             })}
-            {selectedAppTimes?.closedAt && <div><strong>Закрыта</strong><span>{formatCreatedAt(selectedAppTimes.closedAt)}</span></div>}
-            {selectedAppTimes?.closedAt && selectedClosureSeconds != null && <div><strong>Подали → полностью закрыли</strong><span>{formatApplicationDuration(selectedClosureSeconds)}</span></div>}
+            {selectedAppTimes?.closedAt && <div><strong>{t("Закрыта")}</strong><span>{t(formatCreatedAt(selectedAppTimes.closedAt))}</span></div>}
+            {selectedAppTimes?.closedAt && selectedClosureSeconds != null && <div><strong>{t("Подали → полностью закрыли")}</strong><span>{t(formatApplicationDuration(selectedClosureSeconds))}</span></div>}
           </div></div>
           {selectedApplication.admin_comment && (
             <div className="side-panel-section">
-              <h3>Комментарий администратора</h3>
+              <h3>{t("Комментарий администратора")}</h3>
               <p>{selectedApplication.admin_comment}</p>
             </div>
           )}
           <div className="side-panel-section">
-            <h3>Что сделано</h3>
-            <p>{selectedApplication.process || 'Пока не заполнено.'}</p>
+            <h3>{t("Что сделано")}</h3>
+            <p>{selectedApplication.process || t('Пока не заполнено.')}</p>
           </div>
           {selectedApplication.employee_comment && (
             <div className="side-panel-section">
-              <h3>Комментарий сотрудника</h3>
+              <h3>{t("Комментарий сотрудника")}</h3>
               <p>{selectedApplication.employee_comment}</p>
             </div>
           )}
           <div className="side-panel-actions">
-            {isEmployeeCreatedApplication(selectedApplication) && ['new', 'reopened'].includes(selectedApplication.status || 'new') && <button type="button" onClick={() => openAcceptModal(selectedApplication)}>Взять в работу</button>}
-            {selectedApplication.employee_login && <a href={getOpenChatHref(selectedApplication)}>Открыть чат</a>}
-            <a href={`/edit/${selectedApplication.id}`}>Редактировать заявку</a>
-            <button type="button" className="side-panel-delete" onClick={deleteSelectedApplication} disabled={actionBusyId === selectedApplication.id}>{actionBusyId === selectedApplication.id ? 'Удаляем…' : 'Удалить заявку'}</button>
+            {isEmployeeCreatedApplication(selectedApplication) && ['new', 'reopened'].includes(selectedApplication.status || 'new') && <button type="button" onClick={() => openAcceptModal(selectedApplication)}>{t("Взять в работу")}</button>}
+            {selectedApplication.employee_login && <a href={getOpenChatHref(selectedApplication)}>{t("Открыть чат")}</a>}
+            <a href={`/edit/${selectedApplication.id}`}>{t("Редактировать заявку")}</a>
+            <button type="button" className="side-panel-delete" onClick={deleteSelectedApplication} disabled={actionBusyId === selectedApplication.id}>{t(actionBusyId === selectedApplication.id ? 'Удаляем…' : 'Удалить заявку')}</button>
           </div>
           {showApplicationActionHistory && <div className="side-panel-section">
-            <h3>История действий</h3>
-            {eventsLoading && <p>Загружаем историю…</p>}
-            {!eventsLoading && applicationEvents.length === 0 && <p>История пока пустая.</p>}
+            <h3>{t("История действий")}</h3>
+            {eventsLoading && <p>{t("Загружаем историю…")}</p>}
+            {!eventsLoading && applicationEvents.length === 0 && <p>{t("История пока пустая.")}</p>}
             <div className="event-list">
               {applicationEvents.map((event) => (
                 <div key={event.id} className="event-item">
-                  <strong>{event.event_type}</strong>
-                  <span>{event.actor_login || '—'} · {event.created_at ? formatApplicationDateTime(event.created_at) : '—'}</span>
+                  <strong>{t(event.event_type)}</strong>
+                  <span>{event.actor_login || '—'} · {t(event.created_at ? formatApplicationDateTime(event.created_at, getAdminLocale()) : '—')}</span>
                   {event.comment && <p>{event.comment}</p>}
                 </div>
               ))}
@@ -1698,29 +1693,29 @@ const Dashboard = () => {
       {workflowModal && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setWorkflowModal(null)}>
           <form className="workflow-modal" onSubmit={submitWorkflowModal} onMouseDown={(event) => event.stopPropagation()}>
-            <h2>{workflowModal.type === 'accept' ? 'Взять заявку в работу' : workflowModal.type === 'bulk-close' ? 'Подтвердить массовое закрытие' : 'Что сделано'}</h2>
+            <h2>{t(workflowModal.type === 'accept' ? 'Взять заявку в работу' : workflowModal.type === 'bulk-close' ? 'Подтвердить массовое закрытие' : 'Что сделано')}</h2>
             {workflowModal.type === 'accept' ? (
               <>
-                <label>Исполнитель<input value={workflowModal.values.executor} onChange={(event) => updateWorkflowModalValue('executor', event.target.value)} required /></label>
-                <label>Подойдут через, минут<input type="number" min="1" value={workflowModal.values.eta_minutes} onChange={(event) => updateWorkflowModalValue('eta_minutes', event.target.value)} required /></label>
-                <label>Комментарий сотруднику<textarea rows={4} value={workflowModal.values.admin_comment} onChange={(event) => updateWorkflowModalValue('admin_comment', event.target.value)} /></label>
+                <label>{t("Исполнитель")}<input value={workflowModal.values.executor} onChange={(event) => updateWorkflowModalValue('executor', event.target.value)} required /></label>
+                <label>{t("Подойдут через, минут")}<input type="number" min="1" value={workflowModal.values.eta_minutes} onChange={(event) => updateWorkflowModalValue('eta_minutes', event.target.value)} required /></label>
+                <label>{t("Комментарий сотруднику")}<textarea rows={4} value={workflowModal.values.admin_comment} onChange={(event) => updateWorkflowModalValue('admin_comment', event.target.value)} /></label>
               </>
             ) : workflowModal.type === 'bulk-close' ? (
               <>
-                <p className="bulk-close-warning">Будут закрыты заявки, по которым исполнитель завершил работу.</p>
-                <ul className="bulk-close-list">{workflowModal.apps.map((app) => <li key={app.id}>#{app.id} — {app.application || 'Без описания'}</li>)}</ul>
-                {workflowModal.blocked?.length > 0 && <p className="bulk-close-warning">Не будут закрыты: {workflowModal.blocked.length} заявок с другим статусом.</p>}
-                <label>Причина массового закрытия<textarea rows={4} value={workflowModal.values.reason} onChange={(event) => updateWorkflowModalValue('reason', event.target.value)} required placeholder="Например: подтверждено по телефону" /></label>
+                <p className="bulk-close-warning">{t("Будут закрыты заявки, по которым исполнитель завершил работу.")}</p>
+                <ul className="bulk-close-list">{workflowModal.apps.map((app) => <li key={app.id}>#{app.id} — {app.application || t('Без описания')}</li>)}</ul>
+                {workflowModal.blocked?.length > 0 && <p className="bulk-close-warning">{t("Не будут закрыты: ")}{workflowModal.blocked.length}{t(" заявок с другим статусом.")}</p>}
+                <label>{t("Причина массового закрытия")}<textarea rows={4} value={workflowModal.values.reason} onChange={(event) => updateWorkflowModalValue('reason', event.target.value)} required placeholder={t("Например: подтверждено по телефону")} /></label>
               </>
             ) : (
-              <label>Что было сделано<textarea rows={5} value={workflowModal.values.process} onChange={(event) => updateWorkflowModalValue('process', event.target.value)} required /></label>
+              <label>{t("Что было сделано")}<textarea rows={5} value={workflowModal.values.process} onChange={(event) => updateWorkflowModalValue('process', event.target.value)} required /></label>
             )}
-            <div className="modal-actions"><button type="button" onClick={() => setWorkflowModal(null)}>Отмена</button><button type="submit" disabled={actionBusyId === (workflowModal.app?.id || 'bulk')}>{actionBusyId === (workflowModal.app?.id || 'bulk') ? 'Сохраняем…' : workflowModal.type === 'bulk-close' ? 'Закрыть выбранные' : 'Сохранить'}</button></div>
+            <div className="modal-actions"><button type="button" onClick={() => setWorkflowModal(null)}>{t("Отмена")}</button><button type="submit" disabled={actionBusyId === (workflowModal.app?.id || 'bulk')}>{t(actionBusyId === (workflowModal.app?.id || 'bulk') ? 'Сохраняем…' : workflowModal.type === 'bulk-close' ? 'Закрыть выбранные' : 'Сохранить')}</button></div>
           </form>
         </div>
       )}
 
-      {toast && <div className={`dashboard-toast ${toast.type}`}>{toast.message}</div>}
+      {toast && <div className={`dashboard-toast ${toast.type}`}>{t(toast.message)}</div>}
     </div>
   );
 };

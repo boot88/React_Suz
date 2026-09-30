@@ -3,12 +3,15 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Simulate } from 'react-dom/test-utils';
 import ChatUploadSettings from './ChatUploadSettings';
+import { initializeUserPreferences } from '../utils/userPreferences';
 import { authFetch } from '../utils/authFetch';
 
 jest.mock('../utils/authFetch', () => ({ authFetch: jest.fn() }));
 
 test('editing the limit leaves it unchanged until a successful Save', async () => {
   global.IS_REACT_ACT_ENVIRONMENT = true;
+  localStorage.setItem('authState', JSON.stringify({ user: { username: 'admin' } }));
+  initializeUserPreferences('admin', { uiLanguage: 'ru' });
   authFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ limitMb: 50 }) });
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -30,6 +33,7 @@ test('editing the limit leaves it unchanged until a successful Save', async () =
   } finally {
     act(() => { root.unmount(); });
     container.remove();
+    localStorage.clear();
     delete global.IS_REACT_ACT_ENVIRONMENT;
   }
 });

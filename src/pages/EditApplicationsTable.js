@@ -1,3 +1,4 @@
+import { useAdminTranslation, getAdminLocale } from '../utils/adminTranslation';
 import { userSettingsStorage } from '../utils/userPreferences';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -9,6 +10,7 @@ import { useAuth } from '../context/AuthContext';
 const SHOW_EDIT_APPLICATION_TABLE_KEY = 'admin.showEditApplicationTable';
 
 function EditApplicationsTable() {
+  const t = useAdminTranslation();
   const { isLoading: authLoading } = useAuth();
   const { id: applicationId } = useParams();
   const navigate = useNavigate();
@@ -274,7 +276,7 @@ function EditApplicationsTable() {
 
   const saveChanges = async () => {
     if (!validateForm()) {
-      alert('Пожалуйста, исправьте ошибки в форме');
+      alert(t('Пожалуйста, исправьте ошибки в форме'));
       return;
     }
 
@@ -308,11 +310,11 @@ function EditApplicationsTable() {
       } else {
         const errorText = await response.text();
         console.error('Ошибка сервера:', response.status, errorText);
-        alert(`Ошибка при сохранении: ${response.status} ${response.statusText}`);
+        alert(t(`Ошибка при сохранении: ${response.status} ${response.statusText}`));
       }
     } catch (err) {
       console.error('Ошибка:', err.message);
-      alert('Произошла сетевая ошибка при сохранении. Проверьте подключение к серверу.');
+      alert(t('Произошла сетевая ошибка при сохранении. Проверьте подключение к серверу.'));
     }
   };
 
@@ -329,7 +331,7 @@ function EditApplicationsTable() {
   };
 
   const deleteApplication = async (id) => {
-    if (!window.confirm('Вы уверены, что хотите удалить заявку?')) {
+    if (!window.confirm(t('Вы уверены, что хотите удалить заявку?'))) {
       return;
     }
 
@@ -352,11 +354,11 @@ function EditApplicationsTable() {
       } else {
         const errorText = await response.text();
         console.error('Ошибка сервера:', response.status, errorText);
-        alert(`Ошибка при удалении: ${response.status} ${response.statusText}`);
+        alert(t(`Ошибка при удалении: ${response.status} ${response.statusText}`));
       }
     } catch (err) {
       console.error('Ошибка удаления:', err.message);
-      alert('Произошла сетевая ошибка при удалении. Проверьте подключение к серверу.');
+      alert(t('Произошла сетевая ошибка при удалении. Проверьте подключение к серверу.'));
     }
   };
 
@@ -387,7 +389,7 @@ function EditApplicationsTable() {
 
   const formatDate = (dateString) => {
     if (!dateString) return '—';
-    return new Date(dateString).toLocaleDateString('ru-RU');
+    return new Date(dateString).toLocaleDateString(getAdminLocale());
   };
 
   const getStatusLabel = (app) => {
@@ -412,7 +414,7 @@ function EditApplicationsTable() {
           onClick={goToFirstPage}
           disabled={currentPage === 1}
           className="pagination-btn"
-          title="Первая страница"
+          title={t("Первая страница")}
         >
           ««
         </button>
@@ -421,7 +423,7 @@ function EditApplicationsTable() {
           onClick={goToPrevPage}
           disabled={currentPage === 1}
           className="pagination-btn"
-          title="Предыдущая страница"
+          title={t("Предыдущая страница")}
         >
           «
         </button>
@@ -432,7 +434,7 @@ function EditApplicationsTable() {
             onClick={() => goToPage(page)}
             className={`pagination-btn ${currentPage === page ? 'active' : ''}`}
           >
-            {page}
+            {t(page)}
           </button>
         ))}
 
@@ -440,7 +442,7 @@ function EditApplicationsTable() {
           onClick={goToNextPage}
           disabled={currentPage === totalPages}
           className="pagination-btn"
-          title="Следующая страница"
+          title={t("Следующая страница")}
         >
           »
         </button>
@@ -449,13 +451,12 @@ function EditApplicationsTable() {
           onClick={goToLastPage}
           disabled={currentPage === totalPages}
           className="pagination-btn"
-          title="Последняя страница"
+          title={t("Последняя страница")}
         >
           »»
         </button>
 
-        <span className="pagination-info">
-          Страница {currentPage} из {totalPages}
+        <span className="pagination-info">{t("Страница ")}{t(currentPage)}{t(" из ")}{t(totalPages)}
         </span>
       </div>
     );
@@ -480,7 +481,7 @@ function EditApplicationsTable() {
   if (loading) {
     return (
       <div className="edit-container">
-        <div className="loading">Загрузка данных...</div>
+        <div className="loading">{t("Загрузка данных...")}</div>
       </div>
     );
   }
@@ -489,10 +490,8 @@ function EditApplicationsTable() {
     return (
       <div className="edit-container">
         <div className="error-message">
-          <span>{error}</span>
-          <button onClick={fetchApplications} className="retry-button">
-            Повторить попытку
-          </button>
+          <span>{t(error)}</span>
+          <button onClick={fetchApplications} className="retry-button">{t("Повторить попытку")}</button>
         </div>
       </div>
     );
@@ -501,61 +500,57 @@ function EditApplicationsTable() {
   return (
     <div className="edit-container">
       {!directEditingMode && <div className="edit-header">
-        <h2>Редактирование заявок</h2>
+        <h2>{t("Редактирование заявок")}</h2>
         <div className="header-actions">
-          <button onClick={fetchApplications} className="refresh-button">
-            Обновить
-          </button>
+          <button onClick={fetchApplications} className="refresh-button">{t("Обновить")}</button>
           <select
             value={statusFilter}
             onChange={handleStatusFilterChange}
             className="page-size-select"
-            title="Фильтр по статусу заявки"
+            title={t("Фильтр по статусу заявки")}
           >
-            <option value="all">Все статусы</option>
-            <option value="queue">Новые</option>
-            <option value="active">В работе</option>
-            <option value="confirmation">Ждут подтверждения</option>
-            <option value="done">Выполненные</option>
-            <option value="overdue">Просроченные</option>
+            <option value="all">{t("Все статусы")}</option>
+            <option value="queue">{t("Новые")}</option>
+            <option value="active">{t("В работе")}</option>
+            <option value="confirmation">{t("Ждут подтверждения")}</option>
+            <option value="done">{t("Выполненные")}</option>
+            <option value="overdue">{t("Просроченные")}</option>
           </select>
           <select
             value={itemsPerPage}
             onChange={handleItemsPerPageChange}
             className="page-size-select"
           >
-            <option value={5}>5 на странице</option>
-            <option value={10}>10 на странице</option>
-            <option value={20}>20 на странице</option>
-            <option value={50}>50 на странице</option>
+            <option value={5}>{t("5 на странице")}</option>
+            <option value={10}>{t("10 на странице")}</option>
+            <option value={20}>{t("20 на странице")}</option>
+            <option value={50}>{t("50 на странице")}</option>
           </select>
         </div>
       </div>}
 
       {error && (
         <div className="error-message">
-          <span>{error}</span>
-          <button onClick={fetchApplications} className="retry-button">
-            Повторить попытку
-          </button>
+          <span>{t(error)}</span>
+          <button onClick={fetchApplications} className="retry-button">{t("Повторить попытку")}</button>
         </div>
       )}
 
       {successMessage && (
         <div className="success-message">
-          {successMessage}
+          {t(successMessage)}
         </div>
       )}
 
       {editing ? (
         <div className="edit-form">
-          <h3>Редактирование заявки #{editingApp.id}</h3>
+          <h3>{t("Редактирование заявки #")}{editingApp.id}</h3>
           
           <div className="form-section">
-            <h4 className="form-section-title">Основная информация</h4>
+            <h4 className="form-section-title">{t("Основная информация")}</h4>
             <div className="form-grid">
               <div className="form-group">
-                <label htmlFor="name" className="required-field">ФИО</label>
+                <label htmlFor="name" className="required-field">{t("ФИО")}</label>
                 <input
                   type="text"
                   id="name"
@@ -566,13 +561,13 @@ function EditApplicationsTable() {
                   maxLength={40}
                 />
                 {fieldErrors.name && (
-                  <span className="field-error">{fieldErrors.name}</span>
+                  <span className="field-error">{t(fieldErrors.name)}</span>
                 )}
                 <div className="character-count">
                   {editingApp.name?.length || 0}/40
                 </div>
                 {employeeHints.length > 0 && (
-                  <div className="employee-name-hints" role="listbox" aria-label="Сотрудники из справочника">
+                  <div className="employee-name-hints" role="listbox" aria-label={t("Сотрудники из справочника")}>
                     {employeeHints.map((employee) => (
                       <button
                         key={employee.id || `${employee.full_name}-${employee.room}-${employee.internal_phone}`}
@@ -580,7 +575,7 @@ function EditApplicationsTable() {
                         onClick={() => applyEmployeeHint(employee)}
                       >
                         <strong>{employee.full_name}</strong>
-                        <span>{employee.department || 'Отдел не указан'} · каб. {employee.room || '—'} · вн. {employee.internal_phone || '—'}</span>
+                        <span>{employee.department || t('Отдел не указан')}{t(" · каб. ")}{employee.room || '—'}{t(" · вн. ")}{employee.internal_phone || '—'}</span>
                       </button>
                     ))}
                   </div>
@@ -588,7 +583,7 @@ function EditApplicationsTable() {
               </div>
 
               <div className="form-group">
-                <label htmlFor="cabinet">Кабинет</label>
+                <label htmlFor="cabinet">{t("Кабинет")}</label>
                 <input
                   type="text"
                   id="cabinet"
@@ -599,7 +594,7 @@ function EditApplicationsTable() {
                   maxLength={15}
                 />
                 {fieldErrors.cabinet && (
-                  <span className="field-error">{fieldErrors.cabinet}</span>
+                  <span className="field-error">{t(fieldErrors.cabinet)}</span>
                 )}
                 <div className="character-count">
                   {editingApp.cabinet?.length || 0}/15
@@ -607,7 +602,7 @@ function EditApplicationsTable() {
               </div>
 
               <div className="form-group">
-                <label htmlFor="N_tel">Номер телефона</label>
+                <label htmlFor="N_tel">{t("Номер телефона")}</label>
                 <input
                   type="text"
                   id="N_tel"
@@ -618,7 +613,7 @@ function EditApplicationsTable() {
                   maxLength={15}
                 />
                 {fieldErrors.N_tel && (
-                  <span className="field-error">{fieldErrors.N_tel}</span>
+                  <span className="field-error">{t(fieldErrors.N_tel)}</span>
                 )}
                 <div className="character-count">
                   {editingApp.N_tel?.length || 0}/15
@@ -628,10 +623,10 @@ function EditApplicationsTable() {
           </div>
 
           <div className="form-section">
-            <h4 className="form-section-title">Содержание заявки</h4>
+            <h4 className="form-section-title">{t("Содержание заявки")}</h4>
             <div className="form-grid">
               <div className="form-group full-width">
-                <label htmlFor="application" className="required-field">Заявка</label>
+                <label htmlFor="application" className="required-field">{t("Заявка")}</label>
                 <textarea
                   id="application"
                   name="application"
@@ -642,7 +637,7 @@ function EditApplicationsTable() {
                   rows={4}
                 />
                 {fieldErrors.application && (
-                  <span className="field-error">{fieldErrors.application}</span>
+                  <span className="field-error">{t(fieldErrors.application)}</span>
                 )}
                 <div className="character-count">
                   {editingApp.application?.length || 0}/500
@@ -650,7 +645,7 @@ function EditApplicationsTable() {
               </div>
 
               <div className="form-group full-width">
-                <label htmlFor="process">Процесс выполнения</label>
+                <label htmlFor="process">{t("Процесс выполнения")}</label>
                 <textarea
                   id="process"
                   name="process"
@@ -661,7 +656,7 @@ function EditApplicationsTable() {
                   rows={6}
                 />
                 {fieldErrors.process && (
-                  <span className="field-error">{fieldErrors.process}</span>
+                  <span className="field-error">{t(fieldErrors.process)}</span>
                 )}
                 <div className="character-count">
                   {editingApp.process?.length || 0}/1500
@@ -671,10 +666,10 @@ function EditApplicationsTable() {
           </div>
 
           <div className="form-section status-section">
-            <h4 className="form-section-title">Статус выполнения</h4>
+            <h4 className="form-section-title">{t("Статус выполнения")}</h4>
             <div className="form-grid">
               <div className="form-group">
-                <label htmlFor="executor">Исполнитель</label>
+                <label htmlFor="executor">{t("Исполнитель")}</label>
                 <input
                   type="text"
                   id="executor"
@@ -685,10 +680,10 @@ function EditApplicationsTable() {
                   maxLength={60}
                 />
                 {fieldErrors.executor && (
-                  <span className="field-error">{fieldErrors.executor}</span>
+                  <span className="field-error">{t(fieldErrors.executor)}</span>
                 )}
                 <div className="character-count">
-                  {editingApp.executor?.length || 0}/60
+                  {t(editingApp.executor?.length || 0)}/60
                 </div>
               </div>
 
@@ -723,40 +718,32 @@ function EditApplicationsTable() {
                 checked={editingApp.fl || false}
                 onChange={handleChange}
               />
-              <span className="checkbox-custom"></span>
-              Заявка выполнена
-            </label>
+              <span className="checkbox-custom"></span>{t("Заявка выполнена")}</label>
           </div>
 
           <div className="form-buttons">
-            <button onClick={cancelEditing} className="cancel-button">
-              Отмена
-            </button>
-            <button onClick={saveChanges} className="save-button">
-              Сохранить изменения
-            </button>
+            <button onClick={cancelEditing} className="cancel-button">{t("Отмена")}</button>
+            <button onClick={saveChanges} className="save-button">{t("Сохранить изменения")}</button>
           </div>
         </div>
       ) : (
         <>
-          <div className="table-info">
-            Показано {applications.length} из {totalItems} заявок
-          </div>
+          <div className="table-info">{t("Показано ")}{applications.length}{t(" из ")}{t(totalItems)}{t(" заявок")}</div>
           
           <div className="table-container">
             <table className="applications-table">
               <thead>
                 <tr >
 				{/*<th>ID</th>*/}
-                  <th>ФИО</th>
-                  <th>Кабинет</th>
-                  <th>Телефон</th>
-                  <th>Заявка</th>
-                  <th>Процесс</th>
-                  <th>Дата создания</th>
-                  <th>Исполнитель</th>
-                  <th>Статус</th>
-                  <th>Действия</th>
+                  <th>{t("ФИО")}</th>
+                  <th>{t("Кабинет")}</th>
+                  <th>{t("Телефон")}</th>
+                  <th>{t("Заявка")}</th>
+                  <th>{t("Процесс")}</th>
+                  <th>{t("Дата создания")}</th>
+                  <th>{t("Исполнитель")}</th>
+                  <th>{t("Статус")}</th>
+                  <th>{t("Действия")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -775,19 +762,19 @@ function EditApplicationsTable() {
                     </td>
                     <td 
                       className="cell-process"
-                      data-tooltip={app.process || 'Информация отсутствует'}
+                      data-tooltip={app.process || t('Информация отсутствует')}
                       onMouseMove={handleTooltipMouseMove}
                     >
                       {app.process || '—'}
                     </td>
                     <td className="cell-date">
-                      <div>{formatDate(app.data)}</div>
+                      <div>{t(formatDate(app.data))}</div>
 						  {/*<div>{formatTime(app.data)}</div>*/}
                     </td>
-                    <td>{app.executor || '—'}</td>
+                    <td>{t(app.executor || '—')}</td>
                     <td>
                       <span className={`status-badge ${app.fl ? 'completed' : 'pending'}`}>
-                        {getStatusLabel(app)}
+                        {t(getStatusLabel(app))}
                       </span>
                     </td>
                     <td>
@@ -795,14 +782,14 @@ function EditApplicationsTable() {
                         <button
                           onClick={() => startEditing(app)}
                           className="edit-button"
-                          title="Редактировать"
+                          title={t("Редактировать")}
                         >
                           ✏️
                         </button>
                         <button
                           onClick={() => deleteApplication(app.id)}
                           className="delete-button"
-                          title="Удалить"
+                          title={t("Удалить")}
                         >
                           🗑️
                         </button>

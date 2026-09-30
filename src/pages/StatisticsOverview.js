@@ -1,3 +1,4 @@
+import { translateAdminText as t, useAdminTranslation, useAdminLanguage, getAdminLocale } from '../utils/adminTranslation';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -93,9 +94,9 @@ const getDayKey = (app = {}) => {
   return new Date(timestamp).toLocaleDateString('sv-SE', { timeZone: APPLICATION_TIME_ZONE });
 };
 
-const formatDay = (dayKey) => {
+const formatDay = (dayKey, language) => {
   const date = new Date(`${dayKey}T12:00:00Z`);
-  return date.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', timeZone: APPLICATION_TIME_ZONE });
+  return date.toLocaleDateString(getAdminLocale(language), { day: '2-digit', month: 'short', timeZone: APPLICATION_TIME_ZONE });
 };
 
 const shiftDayKey = (dayKey, days) => {
@@ -104,7 +105,7 @@ const shiftDayKey = (dayKey, days) => {
   return date.toISOString().slice(0, 10);
 };
 
-const getApplicationTitle = (app = {}) => app.application || app.name || 'Без названия заявки';
+const getApplicationTitle = (app = {}) => app.application || app.name || t('Без названия заявки');
 
 // Минимальная выборка — неделя: суточной статистики в отчёте нет.
 const MIN_RANGE_DAYS = 7;
@@ -137,8 +138,8 @@ function ApplicationDayTooltip({ point, onOpenApplication, onMouseEnter, onMouse
       onMouseLeave={onMouseLeave}
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <strong>{point.date}</strong>
-      <span>{point.value} {point.value === 1 ? 'заявка' : 'заявок'}</span>
+      <strong>{t(point.date)}</strong>
+      <span>{point.value} {t(point.value === 1 ? 'заявка' : 'заявок')}</span>
       <div>
         {point.applications.map((app) => (
           <button key={app.id} type="button" onClick={() => onOpenApplication(app)}>
@@ -168,6 +169,8 @@ function ApplicationPointDot({ cx, cy, payload, onShow, onScheduleHide }) {
 }
 
 export default function StatisticsOverview() {
+  const adminLanguage = useAdminLanguage();
+  const t = useAdminTranslation();
   const navigate = useNavigate();
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -221,13 +224,13 @@ export default function StatisticsOverview() {
       .map((app) => toApplicationTimestamp(app.created_at || app.data))
       .filter(Boolean);
     if (timestamps.length === 0) return '';
-    return new Date(Math.min(...timestamps)).toLocaleDateString('ru-RU', {
+    return new Date(Math.min(...timestamps)).toLocaleDateString(getAdminLocale(adminLanguage), {
       day: '2-digit',
       month: 'short',
       year: 'numeric',
       timeZone: APPLICATION_TIME_ZONE
     });
-  }, [applications]);
+  }, [applications, adminLanguage]);
 
   const periodFiltered = useMemo(() => {
     const threshold = period === 'all' ? null : Date.now() - Number(period) * 86400000;
@@ -280,7 +283,7 @@ export default function StatisticsOverview() {
       const dayApplications = applicationsByDay.get(day) || [];
       points.push({
         day,
-        date: formatDay(day),
+        date: formatDay(day, adminLanguage),
         value: dayApplications.length,
         applications: dayApplications.sort((left, right) => (
           toApplicationTimestamp(left.created_at || left.data) - toApplicationTimestamp(right.created_at || right.data)
@@ -288,7 +291,7 @@ export default function StatisticsOverview() {
       });
     }
     return points;
-  }, [applications, availableRangeDays, filtered, period]);
+  }, [applications, availableRangeDays, filtered, period, adminLanguage]);
 
   useEffect(() => {
     if (dynamics.length === 0) {
@@ -454,16 +457,16 @@ export default function StatisticsOverview() {
   return <main className="statistics-overview">
     <header className="statistics-head">
       <div>
-        <span className="statistics-kicker">Аналитика заявок</span>
-        <h1>Статистика</h1>
-        <p>Объём обращений, текущие состояния и нагрузка исполнителей</p>
+        <span className="statistics-kicker">{t("Аналитика заявок")}</span>
+        <h1>{t("Статистика")}</h1>
+        <p>{t("Объём обращений, текущие состояния и нагрузка исполнителей")}</p>
       </div>
     </header>
 
-    <section className="statistics-filters" aria-label="Фильтры статистики">
-      <label className="statistics-period">Период<select value={period} onChange={(event) => setPeriod(event.target.value)}>{customPeriod && <option value={period}>Последние {period} дней</option>}{RANGE_PRESETS.map(({ days, optionLabel }) => <option key={days} value={String(days)}>{optionLabel}</option>)}<option value="all">Всё время</option></select></label>
+    <section className="statistics-filters" aria-label={t("Фильтры статистики")}>
+      <label className="statistics-period">{t("Период")}<select value={period} onChange={(event) => setPeriod(event.target.value)}>{customPeriod && <option value={period}>{t("Последние ")}{t(period)}{t(" дней")}</option>}{RANGE_PRESETS.map(({ days, optionLabel }) => <option key={days} value={String(days)}>{t(optionLabel)}</option>)}<option value="all">{t("Всё время")}</option></select></label>
       <fieldset className="statistics-executors">
-        <legend>Исполнитель</legend>
+        <legend>{t("Исполнитель")}</legend>
         <div className="statistics-executor-picker" ref={executorPickerRef}>
           <button
             type="button"
@@ -472,48 +475,48 @@ export default function StatisticsOverview() {
             aria-expanded={isExecutorMenuOpen}
             onClick={() => setIsExecutorMenuOpen((isOpen) => !isOpen)}
           >
-            <span className="statistics-executor-trigger-label">{pickerLabel}</span>
+            <span className="statistics-executor-trigger-label">{t(pickerLabel)}</span>
             {selectedNames.length > 0 && <span className="statistics-executor-trigger-badge">{selectedNames.length}</span>}
             <span className="statistics-executor-trigger-caret" aria-hidden="true">▾</span>
           </button>
-          {isExecutorMenuOpen && <div className="statistics-executor-menu" role="group" aria-label="Выбор исполнителей">
-            <small className="statistics-executor-menu-hint">Показываем заявки только с выбранным составом. Число справа — заявки, сделанные в одиночку</small>
+          {isExecutorMenuOpen && <div className="statistics-executor-menu" role="group" aria-label={t("Выбор исполнителей")}>
+            <small className="statistics-executor-menu-hint">{t("Показываем заявки только с выбранным составом. Число справа — заявки, сделанные в одиночку")}</small>
             {EXECUTORS.map((person) => <label key={person.name} className={`statistics-executor-option ${selectedExecutors.includes(person.name) ? 'is-active' : ''}`} title={person.name}>
               <input type="checkbox" checked={selectedExecutors.includes(person.name)} onChange={() => toggleExecutor(person.name)} />
               <span className="statistics-executor-option-name">{person.name}</span>
               <span className="statistics-executor-option-count">{soloCounts.get(person.name) || 0}</span>
             </label>)}
-            {selectedNames.length > 0 && <button type="button" className="statistics-executor-menu-reset" onClick={() => setSelectedExecutors([])}>Снять выбор</button>}
+            {selectedNames.length > 0 && <button type="button" className="statistics-executor-menu-reset" onClick={() => setSelectedExecutors([])}>{t("Снять выбор")}</button>}
           </div>}
         </div>
       </fieldset>
-      {hasFilters && <button type="button" className="statistics-reset" onClick={resetFilters}>Сбросить</button>}
-      <small className="statistics-filters-hint">{selectionHint}</small>
+      {hasFilters && <button type="button" className="statistics-reset" onClick={resetFilters}>{t("Сбросить")}</button>}
+      <small className="statistics-filters-hint">{t(selectionHint)}</small>
     </section>
 
-    {loading && <div className="statistics-state">Загрузка статистики…</div>}
-    {error && <div className="statistics-state statistics-state--error">{error}</div>}
+    {loading && <div className="statistics-state">{t("Загрузка статистики…")}</div>}
+    {error && <div className="statistics-state statistics-state--error">{t(error)}</div>}
     {!loading && !error && <>
-      <section className="metrics-grid" aria-label="Основные показатели">
-        <article className="metric-total"><span>Всего заявок</span><strong>{metrics.total}</strong><small>в выбранном периоде</small></article>
-        <article className="metric-queue"><span>Новые и повторные</span><strong>{metrics.queue}</strong><small>ожидают начала работы</small></article>
-        <article className="metric-work"><span>В работе</span><strong>{metrics.work}</strong><small>включая ожидание подтверждения</small></article>
-        <article className="metric-done"><span>Выполненные</span><strong>{metrics.done}</strong><small>{metrics.total ? <>{Math.round(metrics.done / metrics.total * 100)}% <span className="metric-note-inline">от выборки</span></> : 'нет заявок в выборке'}</small></article>
+      <section className="metrics-grid" aria-label={t("Основные показатели")}>
+        <article className="metric-total"><span>{t("Всего заявок")}</span><strong>{metrics.total}</strong><small>{t("в выбранном периоде")}</small></article>
+        <article className="metric-queue"><span>{t("Новые и повторные")}</span><strong>{metrics.queue}</strong><small>{t("ожидают начала работы")}</small></article>
+        <article className="metric-work"><span>{t("В работе")}</span><strong>{metrics.work}</strong><small>{t("включая ожидание подтверждения")}</small></article>
+        <article className="metric-done"><span>{t("Выполненные")}</span><strong>{metrics.done}</strong><small>{metrics.total ? <>{t(Math.round(metrics.done / metrics.total * 100))}% <span className="metric-note-inline">{t("от выборки")}</span></> : t('нет заявок в выборке')}</small></article>
       </section>
 
       <section className="reports-grid">
         <article className="report-card report-card--wide">
           <div className="report-card-head statistics-trend-head">
-            <div><h2>Динамика заявок</h2><p>Наведите на точку, чтобы увидеть заявки. Нажмите название — откроется карточка.</p></div>
-            <span className="statistics-range-label">{rangeLabel}</span>
+            <div><h2>{t("Динамика заявок")}</h2><p>{t("Наведите на точку, чтобы увидеть заявки. Нажмите название — откроется карточка.")}</p></div>
+            <span className="statistics-range-label">{t(rangeLabel)}</span>
           </div>
-          <div className="statistics-range-controls" aria-label="Масштаб графика">
-            {RANGE_PRESETS.map((preset) => <button key={preset.days} type="button" className={period === String(preset.days) ? 'active' : ''} disabled={preset.days > availableRangeDays} onClick={() => setRangeDays(preset.days)}>{preset.label}</button>)}
-            <button type="button" className={period === 'all' ? 'active' : ''} onClick={() => setPeriod('all')}>Всё время</button>
+          <div className="statistics-range-controls" aria-label={t("Масштаб графика")}>
+            {RANGE_PRESETS.map((preset) => <button key={preset.days} type="button" className={period === String(preset.days) ? 'active' : ''} disabled={preset.days > availableRangeDays} onClick={() => setRangeDays(preset.days)}>{t(preset.label)}</button>)}
+            <button type="button" className={period === 'all' ? 'active' : ''} onClick={() => setPeriod('all')}>{t("Всё время")}</button>
           </div>
           <div className={`statistics-drag-hint ${isDraggingChart ? 'is-dragging' : ''}`}>
             <span aria-hidden="true">←</span>
-            {isDraggingChart ? (chartDragDirection === 'out' ? 'Расширяем период' : chartDragDirection === 'in' ? 'Приближаем период' : 'Ведите влево или вправо') : 'Зажмите график и ведите влево — больше времени, вправо — подробнее'}
+            {t(isDraggingChart ? (chartDragDirection === 'out' ? 'Расширяем период' : chartDragDirection === 'in' ? 'Приближаем период' : 'Ведите влево или вправо') : 'Зажмите график и ведите влево — больше времени, вправо — подробнее')}
             <span aria-hidden="true">→</span>
           </div>
           {dynamics.length > 0 ? <>
@@ -540,7 +543,7 @@ export default function StatisticsOverview() {
                   <Line
                     type="monotone"
                     dataKey="value"
-                    name="Заявки"
+                    name={t("Заявки")}
                     stroke="#4f86a7"
                     strokeWidth={3}
                     dot={<ApplicationPointDot onShow={showPointTooltip} onScheduleHide={schedulePointTooltipClose} />}
@@ -563,30 +566,30 @@ export default function StatisticsOverview() {
               />}
             </div>
             {activeDayData && <div className="statistics-day-applications">
-              <div><strong>Заявки за {activeDayData.date}</strong><span>{activeDayData.value}</span></div>
+              <div><strong>{t("Заявки за ")}{t(activeDayData.date)}</strong><span>{activeDayData.value}</span></div>
               <div>{activeDayData.applications.map((app) => <button key={app.id} type="button" onClick={() => openApplication(app)}><small>#{app.id}</small><span>{getApplicationTitle(app)}</span></button>)}</div>
             </div>}
-          </> : <div className="chart-empty">За выбранный период заявок нет</div>}
+          </> : <div className="chart-empty">{t("За выбранный период заявок нет")}</div>}
         </article>
 
         <article className="report-card">
-          <div className="report-card-head"><div><h2>Нагрузка по исполнителям</h2><p>{selectionLabel || 'Одиночные, затем пары и тройка'}</p></div></div>
-          <div className="chart-box chart-box--workload"><ResponsiveContainer><BarChart data={workload} layout="vertical" margin={{ top: 4, right: 20, left: 0, bottom: 4 }}><CartesianGrid strokeDasharray="3 3" horizontal={false} /><XAxis type="number" allowDecimals={false} /><YAxis type="category" dataKey="name" width={106} tick={{ fontSize: 12 }} /><Tooltip formatter={(value) => [value, 'Заявки']} labelFormatter={(label, payload) => payload?.[0]?.payload?.fullName || label} /><Bar dataKey="value" name="Заявки" fill="#4f86a7" radius={[0, 5, 5, 0]} /></BarChart></ResponsiveContainer></div>
+          <div className="report-card-head"><div><h2>{t("Нагрузка по исполнителям")}</h2><p>{t(selectionLabel || 'Одиночные, затем пары и тройка')}</p></div></div>
+          <div className="chart-box chart-box--workload"><ResponsiveContainer><BarChart data={workload} layout="vertical" margin={{ top: 4, right: 20, left: 0, bottom: 4 }}><CartesianGrid strokeDasharray="3 3" horizontal={false} /><XAxis type="number" allowDecimals={false} /><YAxis type="category" dataKey="name" width={106} tick={{ fontSize: 12 }} /><Tooltip formatter={(value) => [value, t('Заявки')]} labelFormatter={(label, payload) => payload?.[0]?.payload?.fullName || label} /><Bar dataKey="value" name={t("Заявки")} fill="#4f86a7" radius={[0, 5, 5, 0]} /></BarChart></ResponsiveContainer></div>
         </article>
 
         <article className="report-card">
-          <div className="report-card-head"><div><h2>Статусы заявок</h2><p>Текущее распределение выбранной выборки</p></div></div>
-          {statusData.length > 0 ? <div className="chart-box"><ResponsiveContainer><PieChart><Pie data={statusData} dataKey="value" nameKey="name" innerRadius="53%" outerRadius="76%" paddingAngle={3}>{statusData.map((item) => <Cell key={item.key} fill={item.color} />)}</Pie><Tooltip formatter={(value) => [value, 'Заявки']} /><Legend /></PieChart></ResponsiveContainer></div> : <div className="chart-empty">Нет данных для распределения</div>}
+          <div className="report-card-head"><div><h2>{t("Статусы заявок")}</h2><p>{t("Текущее распределение выбранной выборки")}</p></div></div>
+          {statusData.length > 0 ? <div className="chart-box"><ResponsiveContainer><PieChart><Pie data={statusData} dataKey="value" nameKey="name" innerRadius="53%" outerRadius="76%" paddingAngle={3}>{statusData.map((item) => <Cell key={item.key} fill={item.color} />)}</Pie><Tooltip formatter={(value) => [value, t('Заявки')]} labelFormatter={(label) => t(label)} /><Legend formatter={(name) => t(name)} /></PieChart></ResponsiveContainer></div> : <div className="chart-empty">{t("Нет данных для распределения")}</div>}
         </article>
 
         <article className="report-card report-card--wide executor-summary-card">
           <div className="report-card-head">
-            <div><h2>Сводка по исполнителям</h2><p>{selectionLabel || 'В статистике учитываются только Повисок Е.В., Андреев Р.В., Польников Д.В. и их сочетания'}</p></div>
+            <div><h2>{t("Сводка по исполнителям")}</h2><p>{t(selectionLabel || 'В статистике учитываются только Повисок Е.В., Андреев Р.В., Польников Д.В. и их сочетания')}</p></div>
           </div>
           <div className="statistics-table-wrap">
             <table className="statistics-table">
-              <thead><tr><th>Тип</th><th>Исполнитель</th><th>Всего</th><th>Новые</th><th>В работе</th><th>Выполнено</th></tr></thead>
-              <tbody>{executorRows.map((row) => <tr key={row.name}><td><span className={`executor-group executor-group--${row.group === 'Пара' ? 'pair' : row.group === 'Тройка' ? 'triple' : 'single'}`}>{row.group}</span></td><td><strong>{row.name}</strong><small>{row.shortName}</small></td><td>{row.total}</td><td>{row.queue}</td><td>{row.work}</td><td>{row.done}</td></tr>)}</tbody>
+              <thead><tr><th>{t("Тип")}</th><th>{t("Исполнитель")}</th><th>{t("Всего")}</th><th>{t("Новые")}</th><th>{t("В работе")}</th><th>{t("Выполнено")}</th></tr></thead>
+              <tbody>{executorRows.map((row) => <tr key={row.name}><td><span className={`executor-group executor-group--${row.group === 'Пара' ? 'pair' : row.group === 'Тройка' ? 'triple' : 'single'}`}>{t(row.group)}</span></td><td><strong>{row.name}</strong><small>{t(row.shortName)}</small></td><td>{row.total}</td><td>{row.queue}</td><td>{row.work}</td><td>{row.done}</td></tr>)}</tbody>
             </table>
           </div>
         </article>

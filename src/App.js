@@ -1,3 +1,4 @@
+import { translateAdminText as t } from './utils/adminTranslation';
 import { userSettingsStorage, PREFERENCES_EVENT, flushPreferenceSync } from './utils/userPreferences';
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate, useParams, Link } from 'react-router-dom';
@@ -85,6 +86,10 @@ function AppWorkspace() {
   const currentPathRef = useRef(location.pathname);
   const navigateRef = useRef(navigate);
 
+  useEffect(() => {
+    if (isAuthenticated && (user?.role === 'admin' || user?.serverRole === 'admin') && location.pathname !== '/employee' && !location.pathname.startsWith('/chat-tools')) document.documentElement.lang = adminLanguage;
+  }, [adminLanguage, isAuthenticated, location.pathname, user?.role, user?.serverRole]);
+
   useEffect(() => { currentPathRef.current = location.pathname; }, [location.pathname]);
   useEffect(() => { navigateRef.current = navigate; }, [navigate]);
 
@@ -157,8 +162,8 @@ function AppWorkspace() {
     <div className={`app-container ${showAdminShell ? `admin-workspace admin-theme-${adminTheme}` : ''}`} data-admin-language={adminLanguage}>
       {showAdminShell && <Sidebar language={adminLanguage} />}
       <div className={`app-content ${showAdminShell ? 'app-content--with-sidebar admin-shell-content' : ''}`}>
-        {isAuthenticated && preferenceSyncError && <div role="alert" className="settings-sync-error">{preferenceSyncError} <button type="button" onClick={flushPreferenceSync}>Повторить сохранение</button></div>}
-        {showAdminShell && <AdminTextTranslator language={adminLanguage} />}
+        {isAuthenticated && preferenceSyncError && <div role="alert" className="settings-sync-error">{t(preferenceSyncError, adminLanguage)} <button type="button" onClick={flushPreferenceSync}>{t('Повторить сохранение', adminLanguage)}</button></div>}
+        {showAdminShell && location.pathname.startsWith('/chat-tools') && <AdminTextTranslator language={adminLanguage} />}
         {showAdminShell && <AdminWelcomeNotice language={adminLanguage} />}
         <Routes>
           <Route path="/login" element={<Login />} />

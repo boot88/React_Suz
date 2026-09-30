@@ -1,9 +1,11 @@
+import { useAdminTranslation } from '../utils/adminTranslation';
 import React, { useEffect, useState } from 'react';
 import './AddApplication.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
 
 const AddApplication = () => {
+  const t = useAdminTranslation();
   const [formData, setFormData] = useState({
     name: '',
     cabinet: '',
@@ -237,31 +239,31 @@ const AddApplication = () => {
   return (
     <div className="add-application-container">
       <div className="add-application-header">
-        <h2>Добавить новую заявку</h2>
-        <p>Институт органической химии - Система учёта заявки</p>
+        <h2>{t("Добавить новую заявку")}</h2>
+        <p>{t("Институт органической химии - Система учёта заявки")}</p>
       </div>
 
       <form onSubmit={handleSubmit} className="application-form">
         <div className="form-section">
-          <h3>Основная информация</h3>
+          <h3>{t("Основная информация")}</h3>
           <div className="form-grid">
             <div className="form-group with-icon" id="name-field">
-              <label htmlFor="name">ФИО научного сотрудника *</label>
+              <label htmlFor="name">{t("ФИО научного сотрудника *")}</label>
               <input
                 id="name"
                 name="name"
                 type="text"
-                placeholder="Введите полное имя сотрудника"
+                placeholder={t("Введите полное имя сотрудника")}
                 value={formData.name}
                 onChange={handleChange}
                 required
                 maxLength={40}
                 className={errors.name ? 'error' : ''}
               />
-              {errors.name && <span className="error-text">{errors.name}</span>}
+              {errors.name && <span className="error-text">{t(errors.name)}</span>}
               <div className="character-count">{formData.name.length}/40</div>
               {employeeHints.length > 0 && (
-                <div className="employee-name-hints" role="listbox" aria-label="Сотрудники из справочника">
+                <div className="employee-name-hints" role="listbox" aria-label={t("Сотрудники из справочника")}>
                   {employeeHints.map((employee) => (
                     <button
                       key={employee.id || `${employee.full_name}-${employee.room}-${employee.internal_phone}`}
@@ -269,7 +271,7 @@ const AddApplication = () => {
                       onClick={() => applyEmployeeHint(employee)}
                     >
                       <strong>{employee.full_name}</strong>
-                      <span>{employee.department || 'Отдел не указан'} · каб. {employee.room || '—'} · вн. {employee.internal_phone || '—'}</span>
+                      <span>{employee.department || t('Отдел не указан')}{t(" · каб. ")}{employee.room || '—'}{t(" · вн. ")}{employee.internal_phone || '—'}</span>
                     </button>
                   ))}
                 </div>
@@ -277,64 +279,64 @@ const AddApplication = () => {
             </div>
 
             <div className="form-group with-icon" id="cabinet-field">
-              <label htmlFor="cabinet">Лаборатория/Кабинет *</label>
+              <label htmlFor="cabinet">{t("Лаборатория/Кабинет *")}</label>
               <input
                 id="cabinet"
                 name="cabinet"
                 type="text"
-                placeholder="Номер лаборатории или кабинета"
+                placeholder={t("Номер лаборатории или кабинета")}
                 value={formData.cabinet}
                 onChange={handleChange}
                 required
                 maxLength={15}
                 className={errors.cabinet ? 'error' : ''}
               />
-              {errors.cabinet && <span className="error-text">{errors.cabinet}</span>}
+              {errors.cabinet && <span className="error-text">{t(errors.cabinet)}</span>}
               <div className="character-count">{formData.cabinet.length}/15</div>
             </div>
 
             <div className="form-group with-icon" id="phone-field">
-              <label htmlFor="N_tel">Внутренний телефон</label>
+              <label htmlFor="N_tel">{t("Внутренний телефон")}</label>
               <input
                 id="N_tel"
                 name="N_tel"
                 type="tel"
-                placeholder="Внутренний номер"
+                placeholder={t("Внутренний номер")}
                 value={formData.N_tel}
                 onChange={handleChange}
                 maxLength={15}
                 className={errors.N_tel ? 'error' : ''}
               />
-              {errors.N_tel && <span className="error-text">{errors.N_tel}</span>}
+              {errors.N_tel && <span className="error-text">{t(errors.N_tel)}</span>}
               <div className="character-count">{formData.N_tel.length}/15</div>
             </div>
 
             <div className="form-group">
-              <label htmlFor="executor">Исполнитель</label>
+              <label htmlFor="executor">{t("Исполнитель")}</label>
               <input
                 id="executor"
                 name="executor"
                 type="text"
-                placeholder="ФИО исполнителя"
+                placeholder={t("ФИО исполнителя")}
                 value={formData.executor}
                 onChange={handleChange}
                 maxLength={60}
                 className={errors.executor ? 'error' : ''}
               />
-              {errors.executor && <span className="error-text">{errors.executor}</span>}
+              {errors.executor && <span className="error-text">{t(errors.executor)}</span>}
               <div className="character-count">{formData.executor.length}/60</div>
             </div>
           </div>
         </div>
 
         <div className="form-section">
-          <h3>Описание заявки</h3>
+          <h3>{t("Описание заявки")}</h3>
           <div className="form-group">
-            <label htmlFor="application">Суть заявки *</label>
+            <label htmlFor="application">{t("Суть заявки *")}</label>
             <textarea
               id="application"
               name="application"
-              placeholder="Опишите проблему или задачу, укажите необходимое оборудование или реактивы"
+              placeholder={t("Опишите проблему или задачу, укажите необходимое оборудование или реактивы")}
               value={formData.application}
               onChange={handleChange}
               rows="4"
@@ -342,7 +344,7 @@ const AddApplication = () => {
               maxLength={500}
               className={errors.application ? 'error' : ''}
             />
-            {errors.application && <span className="error-text">{errors.application}</span>}
+            {errors.application && <span className="error-text">{t(errors.application)}</span>}
             <div className="character-count">{formData.application.length}/500</div>
           </div>
         </div>
@@ -357,9 +359,7 @@ const AddApplication = () => {
                 onChange={handleChange}
                 className="checkbox-input"
               />
-              <span className="checkbox-custom"></span>
-              Заявка выполнена
-            </label>
+              <span className="checkbox-custom"></span>{t("Заявка выполнена")}</label>
           </div>
         </div>
 
@@ -369,20 +369,18 @@ const AddApplication = () => {
             className="submit-button"
             disabled={isSubmitting}
           >
-            {isSubmitting ? 'Добавление...' : 'Добавить заявку'}
+            {t(isSubmitting ? 'Добавление...' : 'Добавить заявку')}
           </button>
           
           <button 
             type="button" 
             className="cancel-button"
             onClick={() => window.history.back()}
-          >
-            Назад
-          </button>
+          >{t("Назад")}</button>
         </div>
         {message.text && (
           <div className={`message ${message.type}`} role="status">
-            {message.text}
+            {t(message.text)}
           </div>
         )}
       </form>

@@ -1,3 +1,4 @@
+import { useAdminTranslation } from '../utils/adminTranslation';
 import React, { useEffect, useRef, useState } from 'react';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
@@ -43,6 +44,7 @@ const checkResponse = async (response) => {
 };
 
 export default function AdminBackups({ onSettingsRestored }) {
+  const t = useAdminTranslation();
   const [groups, setGroups] = useState([]);
   const [busy, setBusy] = useState('');
   const [status, setStatus] = useState('');
@@ -83,7 +85,7 @@ export default function AdminBackups({ onSettingsRestored }) {
     const group = selected.current;
     if (!file || !group || inProgress.current) return;
     if (file.size > (group.key === 'settings' ? 65536 : MAX_BYTES)) { setError('Файл превышает допустимый размер. Для резервных копий — 512 МБ.'); return; }
-    if (!window.confirm(`Восстановить «${group.title}» из «${file.name}»? Текущие данные выбранного раздела будут заменены. ${group.key === 'settings' ? '' : 'Перед заменой сервер сохранит копию прежних данных.'}`)) return;
+    if (!window.confirm(t(`Восстановить «${group.title}» из «${file.name}»? Текущие данные выбранного раздела будут заменены. ${group.key === 'settings' ? '' : 'Перед заменой сервер сохранит копию прежних данных.'}`))) return;
     inProgress.current = true;
     setBusy(`import-${group.key}`); setStatus(''); setError(''); setRecovery('');
     try {
@@ -105,26 +107,26 @@ export default function AdminBackups({ onSettingsRestored }) {
 
   const settings = { key: 'settings', title: 'Настройки этого браузера', extension: '.json' };
   return <section className="settings-group">
-    <h2 className="settings-group-title">Резервные копии и восстановление</h2>
-    <p className="backup-help">Экспорт сохраняет файл на вашем компьютере. Импорт полностью заменяет выбранный раздел. На время операции работа с данными приостанавливается.</p>
-    <p className="backup-help">Для импорта используйте копии, созданные здесь. Отсутствующие таблицы создаются из копии; таблицы со сложными индексами или внешними ключами предварительно подготовьте миграциями.</p>
-    <p className="backup-help">Лимит одной копии — 512 МБ, вложений — 256 МБ. Для больших объёмов используйте резервирование на сервере.</p>
-    {(!window.showSaveFilePicker || !window.isSecureContext) && <p className="backup-help">Место сохранения выбирает браузер. Чтобы он спрашивал папку каждый раз, включите «Всегда указывать место для скачивания» в его настройках загрузок.</p>}
+    <h2 className="settings-group-title">{t("Резервные копии и восстановление")}</h2>
+    <p className="backup-help">{t("Экспорт сохраняет файл на вашем компьютере. Импорт полностью заменяет выбранный раздел. На время операции работа с данными приостанавливается.")}</p>
+    <p className="backup-help">{t("Для импорта используйте копии, созданные здесь. Отсутствующие таблицы создаются из копии; таблицы со сложными индексами или внешними ключами предварительно подготовьте миграциями.")}</p>
+    <p className="backup-help">{t("Лимит одной копии — 512 МБ, вложений — 256 МБ. Для больших объёмов используйте резервирование на сервере.")}</p>
+    {(!window.showSaveFilePicker || !window.isSecureContext) && <p className="backup-help">{t("Место сохранения выбирает браузер. Чтобы он спрашивал папку каждый раз, включите «Всегда указывать место для скачивания» в его настройках загрузок.")}</p>}
     <div className="settings-group-grid">
       {[...groups.filter((group) => group.key !== 'other' || group.tables.length), settings].map((group) => <article key={group.key}>
-        <h2>{group.title}</h2>
-        <p>{DESCRIPTIONS[group.key] || 'Язык, тема, вид и размер списка заявок, история действий, экран редактирования и тестовый режим поиска документов. Аккаунты и пароли в этот файл не входят.'}</p>
-        {group.tables && <p className="backup-tables">Таблицы: {group.tables.join(', ') || 'ещё не созданы'}</p>}
+        <h2>{t(group.title)}</h2>
+        <p>{t(DESCRIPTIONS[group.key] || 'Язык, тема, вид и размер списка заявок, история действий, экран редактирования и тестовый режим поиска документов. Аккаунты и пароли в этот файл не входят.')}</p>
+        {group.tables && <p className="backup-tables">{t("Таблицы: ")}{t(group.tables.join(', ') || 'ещё не созданы')}</p>}
         <div className="backup-buttons">
-          <button type="button" disabled={!!busy || (group.tables && !group.tables.length)} onClick={() => exportBackup(group)}>{busy === `export-${group.key}` ? 'Сохраняем…' : `Экспорт ${group.extension === '.sql' ? 'SQL' : ''}`}</button>
-          <button type="button" className="backup-import" disabled={!!busy} onClick={() => { selected.current = group; input.current.accept = group.extension; input.current.click(); }}>{busy === `import-${group.key}` ? 'Восстанавливаем…' : 'Импорт / восстановить'}</button>
+          <button type="button" disabled={!!busy || (group.tables && !group.tables.length)} onClick={() => exportBackup(group)}>{t(busy === `export-${group.key}` ? 'Сохраняем…' : `Экспорт ${group.extension === '.sql' ? 'SQL' : ''}`)}</button>
+          <button type="button" className="backup-import" disabled={!!busy} onClick={() => { selected.current = group; input.current.accept = group.extension; input.current.click(); }}>{t(busy === `import-${group.key}` ? 'Восстанавливаем…' : 'Импорт / восстановить')}</button>
         </div>
       </article>)}
     </div>
-    <input ref={input} type="file" hidden onChange={importBackup} aria-label="Файл резервной копии" />
-    {busy && <p role="status" className="settings-message">{busy.startsWith('import') ? 'Восстанавливаем данные. Дождитесь завершения операции.' : 'Готовим резервную копию…'}</p>}
-    {status && <div className="settings-message" role="status">{status}</div>}
-    {error && <div className="settings-message backup-error" role="alert">{error}</div>}
-    {recovery && <button type="button" disabled={!!busy} onClick={() => exportBackup({ key: 'recovery' }, recovery)}>Скачать копию до восстановления</button>}
+    <input ref={input} type="file" hidden onChange={importBackup} aria-label={t("Файл резервной копии")} />
+    {busy && <p role="status" className="settings-message">{t(busy.startsWith('import') ? 'Восстанавливаем данные. Дождитесь завершения операции.' : 'Готовим резервную копию…')}</p>}
+    {status && <div className="settings-message" role="status">{t(status)}</div>}
+    {error && <div className="settings-message backup-error" role="alert">{t(error)}</div>}
+    {recovery && <button type="button" disabled={!!busy} onClick={() => exportBackup({ key: 'recovery' }, recovery)}>{t("Скачать копию до восстановления")}</button>}
   </section>;
 }

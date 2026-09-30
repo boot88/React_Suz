@@ -1,8 +1,10 @@
+import { useAdminTranslation } from '../utils/adminTranslation';
 import React, { useState, useEffect, useCallback } from 'react';
 import { searchEmployees, getDepartments } from '../services/employeeService';
 import './EmployeeSearch.css'; // Импортируем CSS файл
 
 const EmployeeSearch = () => {
+  const t = useAdminTranslation();
   const [searchTerm, setSearchTerm] = useState('');
   const [searchField, setSearchField] = useState('full_name');
   const [departmentFilter, setDepartmentFilter] = useState('');
@@ -93,9 +95,9 @@ const EmployeeSearch = () => {
 
     return (
       <div className="sync-records-container">
-        <h3>{title}: {changeGroup.count}</h3>
+        <h3>{t(title)}: {changeGroup.count}</h3>
         {changeGroup.count > changeGroup.items.length && (
-          <p>Показаны первые {changeGroup.items.length} из {changeGroup.count}.</p>
+          <p>{t("Показаны первые ")}{changeGroup.items.length}{t(" из ")}{changeGroup.count}.</p>
         )}
         <div className="table-container">
           {renderRows(changeGroup.items || [])}
@@ -112,17 +114,15 @@ const EmployeeSearch = () => {
   return (
     <div className="employee-search-container">
       <div className="employee-search-header">
-        <h1>🔍 Поиск сотрудников</h1>
-        <p>Институт органической химии - База данных сотрудников</p>
+        <h1>{t("🔍 Поиск сотрудников")}</h1>
+        <p>{t("Институт органической химии - База данных сотрудников")}</p>
       </div>
 
       <form onSubmit={handleSearch} className="search-form">
         <div className="search-grid">
           {/* Поле поиска */}
           <div className="form-group">
-            <label>
-              Поле для поиска:
-            </label>
+            <label>{t("Поле для поиска:")}</label>
             <select
               value={searchField}
               onChange={(e) => setSearchField(e.target.value)}
@@ -131,7 +131,7 @@ const EmployeeSearch = () => {
             >
               {searchFields.map(field => (
                 <option key={field.value} value={field.value}>
-                  {field.label}
+                  {t(field.label)}
                 </option>
               ))}
             </select>
@@ -139,14 +139,12 @@ const EmployeeSearch = () => {
 
           {/* Поисковый запрос */}
           <div className="form-group">
-            <label>
-              Поисковый запрос:
-            </label>
+            <label>{t("Поисковый запрос:")}</label>
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Введите запрос для поиска..."
+              placeholder={t("Введите запрос для поиска...")}
               disabled={!!departmentFilter}
               className="search-input"
             />
@@ -154,15 +152,13 @@ const EmployeeSearch = () => {
 
           {/* Фильтр по отделу */}
           <div className="form-group">
-            <label>
-              Фильтр по отделу:
-            </label>
+            <label>{t("Фильтр по отделу:")}</label>
             <select
               value={departmentFilter}
               onChange={(e) => setDepartmentFilter(e.target.value)}
               className="search-select"
             >
-              <option value="">Все отделы</option>
+              <option value="">{t("Все отделы")}</option>
               {departments.map(dept => (
                 <option key={dept} value={dept}>
                   {dept}
@@ -178,16 +174,14 @@ const EmployeeSearch = () => {
               disabled={loading}
               className="search-button"
             >
-              {loading ? '⏳ Поиск...' : '🔍 Найти'}
+              {t(loading ? '⏳ Поиск...' : '🔍 Найти')}
             </button>
 
             <button
               type="button"
               onClick={clearFilters}
               className="clear-button"
-            >
-              🗑️ Очистить
-            </button>
+            >{t("🗑️ Очистить")}</button>
 
           </div>
         </div>
@@ -195,13 +189,13 @@ const EmployeeSearch = () => {
 
       {error && (
         <div className="error-message">
-          {error}
+          {t(error)}
         </div>
       )}
 
       {syncMessage && (
         <div className="sync-message">
-          {syncMessage}
+          {t(syncMessage)}
         </div>
       )}
 
@@ -211,12 +205,12 @@ const EmployeeSearch = () => {
             <table className="results-table sync-records-table">
               <thead>
                 <tr>
-                  <th>ФИО</th>
-                  <th>Должность</th>
-                  <th>Отдел</th>
-                  <th>Кабинет</th>
-                  <th>Телефон вн.</th>
-                  <th>Телефон внешний</th>
+                  <th>{t("ФИО")}</th>
+                  <th>{t("Должность")}</th>
+                  <th>{t("Отдел")}</th>
+                  <th>{t("Кабинет")}</th>
+                  <th>{t("Телефон вн.")}</th>
+                  <th>{t("Телефон внешний")}</th>
                   <th>Email</th>
                 </tr>
               </thead>
@@ -234,12 +228,12 @@ const EmployeeSearch = () => {
             <table className="results-table sync-records-table">
               <thead>
                 <tr>
-                  <th>ФИО</th>
-                  <th>Должность</th>
-                  <th>Отдел</th>
-                  <th>Кабинет</th>
-                  <th>Телефон вн.</th>
-                  <th>Телефон внешний</th>
+                  <th>{t("ФИО")}</th>
+                  <th>{t("Должность")}</th>
+                  <th>{t("Отдел")}</th>
+                  <th>{t("Кабинет")}</th>
+                  <th>{t("Телефон вн.")}</th>
+                  <th>{t("Телефон внешний")}</th>
                   <th>Email</th>
                 </tr>
               </thead>
@@ -257,9 +251,9 @@ const EmployeeSearch = () => {
             <table className="results-table sync-updates-table">
               <thead>
                 <tr>
-                  <th>ФИО</th>
-                  <th>Отдел</th>
-                  <th>Что изменилось</th>
+                  <th>{t("ФИО")}</th>
+                  <th>{t("Отдел")}</th>
+                  <th>{t("Что изменилось")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -270,7 +264,7 @@ const EmployeeSearch = () => {
                     <td>
                       {(item.changes || []).map((change) => (
                         <div key={change.field} className="sync-field-change">
-                          <strong>{change.label}:</strong> {change.oldValue || '—'} → {change.newValue || '—'}
+                          <strong>{t(change.label)}:</strong> {change.oldValue || '—'} → {change.newValue || '—'}
                         </div>
                       ))}
                     </td>
@@ -284,17 +278,17 @@ const EmployeeSearch = () => {
 
       {results.length > 0 ? (
         <div className="results-container">
-          <h3>Найдено сотрудников: {results.length}</h3>
+          <h3>{t("Найдено сотрудников: ")}{results.length}</h3>
           <div className="table-container">
             <table className="results-table">
               <thead>
                 <tr>
-                  <th>ФИО</th>
-                  <th>Должность</th>
-                  <th>Отдел</th>
-                  <th>Кабинет</th>
-                  <th>Телефон внутренний</th>
-                  <th>Телефон внешний</th>
+                  <th>{t("ФИО")}</th>
+                  <th>{t("Должность")}</th>
+                  <th>{t("Отдел")}</th>
+                  <th>{t("Кабинет")}</th>
+                  <th>{t("Телефон внутренний")}</th>
+                  <th>{t("Телефон внешний")}</th>
                   <th>Email</th>
                 </tr>
               </thead>
@@ -328,7 +322,7 @@ const EmployeeSearch = () => {
       ) : (
         !loading && (searchTerm || departmentFilter) && (
           <div className="empty-state">
-            <p>Сотрудники не найдены. Попробуйте изменить поисковый запрос или фильтры.</p>
+            <p>{t("Сотрудники не найдены. Попробуйте изменить поисковый запрос или фильтры.")}</p>
           </div>
         )
       )}

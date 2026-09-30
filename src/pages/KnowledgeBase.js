@@ -1,9 +1,11 @@
+import { useAdminTranslation, getAdminLocale } from '../utils/adminTranslation';
 import React, { useState, useEffect, useRef } from 'react';
 import './KnowledgeBase.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
 
 const KnowledgeBase = () => {
+  const t = useAdminTranslation();
   const [articles, setArticles] = useState([]);
   const [newArticle, setNewArticle] = useState({ 
     title: '', 
@@ -104,13 +106,13 @@ const KnowledgeBase = () => {
       for (const file of files) {
         // Проверка типа файла
         if (!file.type.startsWith('image/')) {
-          alert(`Файл "${file.name}" не является изображением`);
+          alert(t(`Файл "${file.name}" не является изображением`));
           continue;
         }
 
         // Проверка размера (максимум 2MB)
         if (file.size > 2 * 1024 * 1024) {
-          alert(`Файл "${file.name}" слишком большой. Максимальный размер: 2MB`);
+          alert(t(`Файл "${file.name}" слишком большой. Максимальный размер: 2MB`));
           continue;
         }
 
@@ -127,7 +129,7 @@ const KnowledgeBase = () => {
           });
         } catch (error) {
           console.error(`Ошибка конвертации файла ${file.name}:`, error);
-          alert(`Ошибка при обработке файла "${file.name}"`);
+          alert(t(`Ошибка при обработке файла "${file.name}"`));
         }
       }
 
@@ -147,7 +149,7 @@ const KnowledgeBase = () => {
 
     } catch (err) {
       console.error('Ошибка загрузки изображений:', err);
-      alert('Ошибка при загрузке изображений');
+      alert(t('Ошибка при загрузке изображений'));
     } finally {
       setUploadingImages(false);
       e.target.value = '';
@@ -185,7 +187,7 @@ const KnowledgeBase = () => {
 
   const addArticle = async () => {
     if (!newArticle.title.trim() || !newArticle.solution.trim()) {
-      alert('Заголовок и решение обязательны для заполнения');
+      alert(t('Заголовок и решение обязательны для заполнения'));
       return;
     }
 
@@ -210,20 +212,20 @@ const KnowledgeBase = () => {
       if (response.ok) {
         await fetchArticles();
         setNewArticle({ title: '', solution: '', category: 'Общее', images: [] });
-        alert('Статья успешно добавлена!');
+        alert(t('Статья успешно добавлена!'));
       } else {
         const errorData = await response.json();
         throw new Error(`Ошибка при добавлении статьи: ${errorData.error || response.statusText}`);
       }
     } catch (err) {
       console.error('Ошибка добавления статьи:', err);
-      alert('Произошла ошибка при добавлении статьи: ' + err.message);
+      alert(t('Произошла ошибка при добавлении статьи: ' + err.message));
     }
   };
 
   const updateArticle = async () => {
     if (!editingArticle.title.trim() || !editingArticle.solution.trim()) {
-      alert('Заголовок и решение обязательны для заполнения');
+      alert(t('Заголовок и решение обязательны для заполнения'));
       return;
     }
 
@@ -248,19 +250,19 @@ const KnowledgeBase = () => {
       if (response.ok) {
         await fetchArticles();
         setEditingArticle(null);
-        alert('Статья успешно обновлена!');
+        alert(t('Статья успешно обновлена!'));
       } else {
         const errorData = await response.json();
         throw new Error(`Ошибка при обновлении статьи: ${errorData.error || response.statusText}`);
       }
     } catch (err) {
       console.error('Ошибка обновления статьи:', err);
-      alert('Произошла ошибка при обновлении статьи: ' + err.message);
+      alert(t('Произошла ошибка при обновлении статьи: ' + err.message));
     }
   };
 
   const deleteArticle = async (id) => {
-    if (!window.confirm('Вы уверены, что хотите удалить эту статью?')) {
+    if (!window.confirm(t('Вы уверены, что хотите удалить эту статью?'))) {
       return;
     }
 
@@ -271,13 +273,13 @@ const KnowledgeBase = () => {
 
       if (response.ok) {
         await fetchArticles();
-        alert('Статья успешно удалена!');
+        alert(t('Статья успешно удалена!'));
       } else {
         throw new Error('Ошибка при удалении статьи');
       }
     } catch (err) {
       console.error('Ошибка удаления статьи:', err);
-      alert('Произошла ошибка при удалении статьи');
+      alert(t('Произошла ошибка при удалении статьи'));
     }
   };
 
@@ -306,7 +308,7 @@ const KnowledgeBase = () => {
 
   const formatDate = (dateString) => {
     if (!dateString) return 'Не указано';
-    return new Date(dateString).toLocaleDateString('ru-RU', {
+    return new Date(dateString).toLocaleDateString(getAdminLocale(), {
       year: 'numeric',
       month: 'long',
       day: 'numeric'
@@ -324,7 +326,7 @@ const KnowledgeBase = () => {
       <div className="knowledge-base">
         <div className="loading-container">
           <div className="spinner"></div>
-          <p>Загрузка базы знаний...</p>
+          <p>{t("Загрузка базы знаний...")}</p>
         </div>
       </div>
     );
@@ -333,11 +335,11 @@ const KnowledgeBase = () => {
   return (
     <div className="knowledge-base">
       <div className="kb-header">
-        <h1>База знаний</h1>
+        <h1>{t("База знаний")}</h1>
         <div className="search-filter">
           <input
             type="text"
-            placeholder="Поиск статей..."
+            placeholder={t("Поиск статей...")}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="search-input"
@@ -347,10 +349,10 @@ const KnowledgeBase = () => {
             onChange={(e) => setSelectedCategory(e.target.value)}
             className="category-filter"
           >
-            <option value="all">Все категории</option>
+            <option value="all">{t("Все категории")}</option>
             {categories.filter(cat => cat && cat !== 'all').map(category => (
               <option key={category} value={category}>
-                {category}
+                {t(category)}
               </option>
             ))}
           </select>
@@ -359,22 +361,18 @@ const KnowledgeBase = () => {
 
       {error && (
         <div className="error-message">
-          <span>{error}</span>
-          <button onClick={fetchArticles} className="retry-button">
-            Повторить попытку
-          </button>
+          <span>{t(error)}</span>
+          <button onClick={fetchArticles} className="retry-button">{t("Повторить попытку")}</button>
         </div>
       )}
 
       <div className="kb-content">
         <div className="articles-section">
-          <h2>Статьи ({filteredArticles.length})</h2>
+          <h2>{t("Статьи (")}{filteredArticles.length})</h2>
           {filteredArticles.length === 0 ? (
             <div className="no-articles">
-              <p>Статьи не найдены</p>
-              <button onClick={fetchArticles} className="retry-button">
-                Обновить
-              </button>
+              <p>{t("Статьи не найдены")}</p>
+              <button onClick={fetchArticles} className="retry-button">{t("Обновить")}</button>
             </div>
           ) : (
             <div className="articles-grid">
@@ -390,32 +388,28 @@ const KnowledgeBase = () => {
                         <button 
                           onClick={() => startEditing(article)}
                           className="edit-btn"
-                        >
-                          Редактировать
-                        </button>
+                        >{t("Редактировать")}</button>
                         <button 
                           onClick={() => deleteArticle(article.id)}
                           className="delete-btn"
-                        >
-                          Удалить
-                        </button>
+                        >{t("Удалить")}</button>
                       </div>
                     </div>
-                    <p className="article-category">Категория: {article.category || 'Общее'}</p>
+                    <p className="article-category">{t("Категория: ")}{t(article.category || 'Общее')}</p>
                     <div className="article-content">
-                      <h4>Решение:</h4>
+                      <h4>{t("Решение:")}</h4>
                       <pre>{article.solution}</pre>
                     </div>
                     
                     {articleImages.length > 0 && (
                       <div className="article-images">
-                        <h4>Изображения ({articleImages.length})</h4>
+                        <h4>{t("Изображения (")}{articleImages.length})</h4>
                         <div className="images-grid">
                           {articleImages.map((image, index) => (
                             <div key={index} className="image-item">
                               <img 
                                 src={image.data || image.url} 
-                                alt={image.name || `Изображение ${index + 1}`}
+                                alt={image.name || t(`Изображение ${index + 1}`)}
                                 onClick={() => setExpandedImage(image)}
                                 className="article-image"
                                 onError={(e) => {
@@ -424,8 +418,8 @@ const KnowledgeBase = () => {
                                 }}
                               />
                               <span className="image-name">
-                                {image.name || `Изображение ${index + 1}`}
-                                {image.size && ` (${formatFileSize(image.size)})`}
+                                {image.name || t(`Изображение ${index + 1}`)}
+                                {t(image.size && ` (${formatFileSize(image.size)})`)}
                               </span>
                             </div>
                           ))}
@@ -433,8 +427,7 @@ const KnowledgeBase = () => {
                       </div>
                     )}
                     
-                    <p className="article-date">
-                      Обновлено: {formatDate(article.updated_at)}
+                    <p className="article-date">{t("Обновлено: ")}{t(formatDate(article.updated_at))}
                     </p>
                   </div>
                 );
@@ -446,11 +439,11 @@ const KnowledgeBase = () => {
         <div className="edit-section">
           {editingArticle ? (
             <div className="edit-form">
-              <h2>Редактирование статьи #{editingArticle.id}</h2>
+              <h2>{t("Редактирование статьи #")}{editingArticle.id}</h2>
               <input
                 type="text"
                 name="title"
-                placeholder="Заголовок статьи"
+                placeholder={t("Заголовок статьи")}
                 value={editingArticle.title}
                 onChange={handleInputChange}
                 className="form-input"
@@ -461,16 +454,16 @@ const KnowledgeBase = () => {
                 onChange={handleInputChange}
                 className="form-input"
               >
-                <option value="Установка ПО">Установка ПО</option>
-                <option value="Сеть">Сеть</option>
-                <option value="Оборудование">Оборудование</option>
-                <option value="Принтеры">Принтеры</option>
-                <option value="Активация">Активация</option>
-                <option value="Общее">Общее</option>
+                <option value="Установка ПО">{t("Установка ПО")}</option>
+                <option value="Сеть">{t("Сеть")}</option>
+                <option value="Оборудование">{t("Оборудование")}</option>
+                <option value="Принтеры">{t("Принтеры")}</option>
+                <option value="Активация">{t("Активация")}</option>
+                <option value="Общее">{t("Общее")}</option>
               </select>
               <textarea
                 name="solution"
-                placeholder="Решение проблемы"
+                placeholder={t("Решение проблемы")}
                 value={editingArticle.solution}
                 onChange={handleInputChange}
                 className="form-textarea"
@@ -478,7 +471,7 @@ const KnowledgeBase = () => {
               />
               
               <div className="image-upload-section">
-                <h4>Изображения</h4>
+                <h4>{t("Изображения")}</h4>
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -493,32 +486,30 @@ const KnowledgeBase = () => {
                   className="upload-btn"
                   disabled={uploadingImages}
                 >
-                  {uploadingImages ? 'Загрузка...' : 'Добавить изображения'}
+                  {t(uploadingImages ? 'Загрузка...' : 'Добавить изображения')}
                 </button>
-                <p className="file-restrictions">
-                  Максимальный размер: 2MB. Разрешены: JPEG, PNG, GIF, WebP
-                </p>
+                <p className="file-restrictions">{t("Максимальный размер: 2MB. Разрешены: JPEG, PNG, GIF, WebP")}</p>
                 
                 {editingArticle.images && editingArticle.images.length > 0 && (
                   <div className="uploaded-images">
-                    <h5>Загруженные изображения ({editingArticle.images.length}):</h5>
+                    <h5>{t("Загруженные изображения (")}{editingArticle.images.length}):</h5>
                     <div className="images-preview">
                       {editingArticle.images.map((image, index) => (
                         <div key={index} className="image-preview-item">
                           <img 
                             src={image.data || image.url} 
-                            alt={image.name || `Превью ${index + 1}`}
+                            alt={image.name || t(`Превью ${index + 1}`)}
                             className="preview-image"
                           />
                           <div className="image-info">
-                            <span>{image.name || `Изображение ${index + 1}`}</span>
-                            <span>{formatFileSize(image.size)}</span>
-                            <span>{new Date(image.uploadedAt).toLocaleDateString()}</span>
+                            <span>{image.name || t(`Изображение ${index + 1}`)}</span>
+                            <span>{t(formatFileSize(image.size))}</span>
+                            <span>{t(new Date(image.uploadedAt).toLocaleDateString(getAdminLocale()))}</span>
                           </div>
                           <button 
                             onClick={() => removeImage(index, true)}
                             className="remove-image-btn"
-                            title="Удалить изображение"
+                            title={t("Удалить изображение")}
                           >
                             ×
                           </button>
@@ -530,21 +521,17 @@ const KnowledgeBase = () => {
               </div>
               
               <div className="form-actions">
-                <button onClick={cancelEditing} className="cancel-btn">
-                  Отмена
-                </button>
-                <button onClick={updateArticle} className="save-btn">
-                  Сохранить изменения
-                </button>
+                <button onClick={cancelEditing} className="cancel-btn">{t("Отмена")}</button>
+                <button onClick={updateArticle} className="save-btn">{t("Сохранить изменения")}</button>
               </div>
             </div>
           ) : (
             <div className="add-form">
-              <h2>Добавить новую статью</h2>
+              <h2>{t("Добавить новую статью")}</h2>
               <input
                 type="text"
                 name="title"
-                placeholder="Заголовок статьи"
+                placeholder={t("Заголовок статьи")}
                 value={newArticle.title}
                 onChange={handleInputChange}
                 className="form-input"
@@ -555,16 +542,16 @@ const KnowledgeBase = () => {
                 onChange={handleInputChange}
                 className="form-input"
               >
-                <option value="Установка ПО">Установка ПО</option>
-                <option value="Сеть">Сеть</option>
-                <option value="Оборудование">Оборудование</option>
-                <option value="Принтеры">Принтеры</option>
-                <option value="Активация">Активация</option>
-                <option value="Общее">Общее</option>
+                <option value="Установка ПО">{t("Установка ПО")}</option>
+                <option value="Сеть">{t("Сеть")}</option>
+                <option value="Оборудование">{t("Оборудование")}</option>
+                <option value="Принтеры">{t("Принтеры")}</option>
+                <option value="Активация">{t("Активация")}</option>
+                <option value="Общее">{t("Общее")}</option>
               </select>
               <textarea
                 name="solution"
-                placeholder="Решение проблемы"
+                placeholder={t("Решение проблемы")}
                 value={newArticle.solution}
                 onChange={handleInputChange}
                 className="form-textarea"
@@ -572,7 +559,7 @@ const KnowledgeBase = () => {
               />
               
               <div className="image-upload-section">
-                <h4>Изображения (опционально)</h4>
+                <h4>{t("Изображения (опционально)")}</h4>
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -587,32 +574,30 @@ const KnowledgeBase = () => {
                   className="upload-btn"
                   disabled={uploadingImages}
                 >
-                  {uploadingImages ? 'Загрузка...' : 'Добавить изображения'}
+                  {t(uploadingImages ? 'Загрузка...' : 'Добавить изображения')}
                 </button>
-                <p className="file-restrictions">
-                  Максимальный размер: 2MB. Разрешены: JPEG, PNG, GIF, WebP
-                </p>
+                <p className="file-restrictions">{t("Максимальный размер: 2MB. Разрешены: JPEG, PNG, GIF, WebP")}</p>
                 
                 {newArticle.images && newArticle.images.length > 0 && (
                   <div className="uploaded-images">
-                    <h5>Загруженные изображения ({newArticle.images.length}):</h5>
+                    <h5>{t("Загруженные изображения (")}{newArticle.images.length}):</h5>
                     <div className="images-preview">
                       {newArticle.images.map((image, index) => (
                         <div key={index} className="image-preview-item">
                           <img 
                             src={image.data || image.url} 
-                            alt={image.name || `Превью ${index + 1}`}
+                            alt={image.name || t(`Превью ${index + 1}`)}
                             className="preview-image"
                           />
                           <div className="image-info">
-                            <span>{image.name || `Изображение ${index + 1}`}</span>
-                            <span>{formatFileSize(image.size)}</span>
-                            <span>{new Date(image.uploadedAt).toLocaleDateString()}</span>
+                            <span>{image.name || t(`Изображение ${index + 1}`)}</span>
+                            <span>{t(formatFileSize(image.size))}</span>
+                            <span>{t(new Date(image.uploadedAt).toLocaleDateString(getAdminLocale()))}</span>
                           </div>
                           <button 
                             onClick={() => removeImage(index)}
                             className="remove-image-btn"
-                            title="Удалить изображение"
+                            title={t("Удалить изображение")}
                           >
                             ×
                           </button>
@@ -628,7 +613,7 @@ const KnowledgeBase = () => {
                 className="add-btn"
                 disabled={!newArticle.title || !newArticle.solution || uploadingImages}
               >
-                {uploadingImages ? 'Загрузка...' : 'Добавить статью'}
+                {t(uploadingImages ? 'Загрузка...' : 'Добавить статью')}
               </button>
             </div>
           )}
@@ -647,15 +632,15 @@ const KnowledgeBase = () => {
             </button>
             <img 
               src={expandedImage.data || expandedImage.url} 
-              alt={expandedImage.name || 'Увеличенное изображение'}
+              alt={expandedImage.name || t('Увеличенное изображение')}
               className="expanded-image"
             />
             <div className="image-details">
-              <p><strong>Имя файла:</strong> {expandedImage.name || 'Не указано'}</p>
-              <p><strong>Размер:</strong> {formatFileSize(expandedImage.size)}</p>
-              <p><strong>Тип:</strong> {expandedImage.type || 'Не указан'}</p>
+              <p><strong>{t("Имя файла:")}</strong> {expandedImage.name || t('Не указано')}</p>
+              <p><strong>{t("Размер:")}</strong> {t(formatFileSize(expandedImage.size))}</p>
+              <p><strong>{t("Тип:")}</strong> {t(expandedImage.type || 'Не указан')}</p>
               {expandedImage.uploadedAt && (
-                <p><strong>Загружено:</strong> {new Date(expandedImage.uploadedAt).toLocaleString()}</p>
+                <p><strong>{t("Загружено:")}</strong> {t(new Date(expandedImage.uploadedAt).toLocaleString(getAdminLocale()))}</p>
               )}
             </div>
           </div>
