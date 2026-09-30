@@ -5179,5 +5179,13 @@ router.get('/records/archives/:archiveId/download', async (req, res) => {
 router.runChatStorageMigration = migrateArchiveToMysql;
 router.replayMessageJournal = replayMessageJournal;
 router.repairStoredRecordFileLinks = repairStoredRecordFileLinks;
+router.resetAfterAdminRestore = () => {
+  cachedThreads = null;
+  streamEventBuffer.length = 0;
+  streamClients.forEach((client) => {
+    try { client.res.end(); } catch { /* Already closed. */ }
+  });
+  streamClients.clear();
+};
 
 module.exports = router;

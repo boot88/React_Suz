@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { syncEmployees } from '../services/employeeService';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
+import AdminBackups from '../components/AdminBackups';
 import './AdminSettings.css';
 
 const EMPLOYEE_DETAIL_FIELDS = [
@@ -191,6 +192,17 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
         <h1>Служебные обновления</h1>
         <span>Редкие операции вынесены из рабочих экранов.</span>
       </header>
+
+      <AdminBackups onSettingsRestored={() => {
+        setApplicationActionHistoryVisible(localStorage.getItem('admin.showApplicationActionHistory') === 'true');
+        setAuditTestModeEnabled(localStorage.getItem(AUDIT_TEST_MODE_SETTING_KEY) === 'true');
+        setLargeRequestsEnabled(localStorage.getItem(DASHBOARD_CARD_SIZE_KEY) === 'modern');
+        setEditApplicationTableVisible(localStorage.getItem(SHOW_EDIT_APPLICATION_TABLE_KEY) === 'true');
+        onLanguageChange(localStorage.getItem('adminLanguage') || 'ru');
+        onThemeChange(localStorage.getItem('adminTheme') || 'light');
+        window.dispatchEvent(new Event(DASHBOARD_CARD_SIZE_EVENT));
+        window.dispatchEvent(new Event('admin:application-action-history-visibility'));
+      }} />
 
       <section className="settings-group">
         <h2 className="settings-group-title">Заявки</h2>

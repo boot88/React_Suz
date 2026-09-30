@@ -10,6 +10,7 @@ const authRoutes = require('./routes/auth');
 const chatRoutes = require('./routes/chat');
 const knowledgeBaseRoutes = require('./routes/knowledgeBase');
 const networkMapRoutes = require('./routes/networkMap');
+const { router: adminBackupRoutes, backupGate } = require('./routes/adminBackups');
 const pool = require('./config/database');
 const {
   requireAuth,
@@ -81,6 +82,8 @@ app.use(cors({
   credentials: true,
   exposedHeaders: ['Content-Type', 'Authorization']
 }));
+app.use(backupGate);
+app.use('/api/backups', adminBackupRoutes);
 app.use('/api/chat', express.json({ limit: '512kb' }));
 app.use(express.json({ limit: '25mb' })); // Лимит для JSON-base64 изображений базы знаний
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
