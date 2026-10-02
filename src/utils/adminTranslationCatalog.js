@@ -16,6 +16,8 @@ export const ADMIN_TRANSLATIONS = {
   "Этапы операции": "Operation stages",
   "Подготовка": "Preparation",
   "Обработка данных": "Processing data",
+  "Сохранение...": "Saving…",
+  "Показать ещё": "Show more",
   "Сохранение": "Saving",
   "Проверка копии": "Backup validation",
   "Подтверждение": "Confirmation",

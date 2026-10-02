@@ -802,6 +802,8 @@ const markApplicationViewed = async (applicationId, adminLogin) => {
   );
 };
 
+app.use('/api/application-statistics', requireAuth, requireRole('admin', 'manager'), require('./routes/applicationStatistics').createStatisticsRouter(pool));
+
 app.get('/api/applications', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit) || 10));

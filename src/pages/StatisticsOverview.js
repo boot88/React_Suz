@@ -1,4 +1,3 @@
-import { compareApplicationPeriods } from '../utils/statisticsComparison';
 import AdminNotice from '../components/AdminNotice';
 import { translateAdminText as t, useAdminTranslation, useAdminLanguage, getAdminLocale } from '../utils/adminTranslation';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -179,7 +178,12 @@ export default function StatisticsOverview() {
   const [error, setError] = useState('');
   const [period, setPeriod] = useState(String(DEFAULT_RANGE_DAYS));
   const [selectedExecutors, setSelectedExecutors] = useState([]);
-  const [reportNow, setReportNow] = useState(Date.now());
+  const [summary, setSummary] = useState(null);
+  const [dayDetails, setDayDetails] = useState({});
+  const [dayError, setDayError] = useState('');
+  const [dayLoading, setDayLoading] = useState(false);
+  const dayController = useRef(null);
+  const detailsRef = useRef({});
   const [isExecutorMenuOpen, setIsExecutorMenuOpen] = useState(false);
   const [activeDay, setActiveDay] = useState('');
   const [isDraggingChart, setIsDraggingChart] = useState(false);
@@ -191,68 +195,65 @@ export default function StatisticsOverview() {
   const executorPickerRef = useRef(null);
 
   useEffect(() => {
-    let active = true;
-    const loadAllApplications = async () => {
-      const allApplications = [];
-      let page = 1;
-      let totalPages = 1;
-      do {
-        const response = await authFetch(`${API_BASE_URL}/applications?page=${page}&limit=1000&sort=date_desc`);
+    const controller = new AbortController();
+    dayController.current?.abort();
+    detailsRef.current = {};
+    setDayDetails({});
+    setFloatingDay(null);
+    setDayError('');
+    setDayLoading(false);
+    setLoading(true);
+    setError('');
+    const params = new URLSearchParams({ days: period, executors: JSON.stringify(selectedExecutors) });
+    authFetch(`${API_BASE_URL}/application-statistics?${params}`, { signal: controller.signal })
+      .then(async (response) => {
         if (!response.ok) throw new Error('Не удалось загрузить данные');
         const data = await response.json();
-        allApplications.push(...(data.applications || []));
-        totalPages = Math.max(1, Number(data.totalPages) || 1);
-        page += 1;
-      } while (active && page <= totalPages);
-      if (active) { setApplications(allApplications); setReportNow(Date.now()); }
-    };
+        if (controller.signal.aborted) return;
+        setSummary(data);
+        setApplications((data.groups || []).map((group) => ({ ...group, count: Number(group.count) || 0, created_at: `${group.day}T00:00:00+07:00` })));
+      })
+      .catch((err) => { if (!controller.signal.aborted) setError(err.message || 'Не удалось загрузить данные'); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => { controller.abort(); dayController.current?.abort(); };
+  }, [period, selectedExecutors]);
 
-    loadAllApplications()
-      .catch((err) => active && setError(err.message || 'Не удалось загрузить данные'))
-      .finally(() => active && setLoading(false));
-    return () => { active = false; };
-  }, []);
+  const availableRangeDays = summary?.earliest ? Math.max(7, Math.ceil(((summary.now || Date.now()) - toApplicationTimestamp(summary.earliest)) / 86400000) + 1) : 7;
+  const availableStartLabel = summary?.earliest ? new Date(toApplicationTimestamp(summary.earliest)).toLocaleDateString(getAdminLocale(adminLanguage), {
+    day: '2-digit', month: 'short', year: 'numeric', timeZone: APPLICATION_TIME_ZONE
+  }) : '';
+  const periodFiltered = applications;
+  const filtered = useMemo(() => applications.filter((app) => matchExecutors(app.executor, selectedExecutors)), [applications, selectedExecutors]);
+  const comparison = summary?.comparison || null;
 
-  const availableRangeDays = useMemo(() => {
-    const timestamps = applications
-      .map((app) => toApplicationTimestamp(app.created_at || app.data))
-      .filter(Boolean);
-    if (timestamps.length === 0) return 1;
-    const earliest = Math.min(...timestamps);
-    return Math.max(1, Math.ceil((Date.now() - earliest) / 86400000) + 1);
-  }, [applications]);
-
-  const availableStartLabel = useMemo(() => {
-    const timestamps = applications
-      .map((app) => toApplicationTimestamp(app.created_at || app.data))
-      .filter(Boolean);
-    if (timestamps.length === 0) return '';
-    return new Date(Math.min(...timestamps)).toLocaleDateString(getAdminLocale(adminLanguage), {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      timeZone: APPLICATION_TIME_ZONE
-    });
-  }, [applications, adminLanguage]);
-
-  const periodFiltered = useMemo(() => {
-    const threshold = period === 'all' ? null : reportNow + 1 - Number(period) * 86400000;
-    return applications.filter((app) => {
-      const createdAt = toApplicationTimestamp(app.created_at || app.data);
-      return !threshold || (createdAt && createdAt >= threshold && createdAt <= reportNow);
-    });
-  }, [applications, period, reportNow]);
-
-  const filtered = useMemo(() => (
-    periodFiltered.filter((app) => matchExecutors(app.executor, selectedExecutors))
-  ), [periodFiltered, selectedExecutors]);
-
-  // Сколько заявок периода каждый исполнитель сделал в одиночку: показываем в меню,
-  // чтобы было видно, сколько заявок даст одиночный выбор.
-  const comparison = useMemo(() => compareApplicationPeriods(
-    applications.filter((app) => matchExecutors(app.executor, selectedExecutors)),
-    period === 'all' ? NaN : Number(period), reportNow
-  ), [applications, selectedExecutors, period, reportNow]);
+  const loadDay = async (day, more = false) => {
+    const existing = detailsRef.current[day];
+    if (!more && existing) return;
+    dayController.current?.abort();
+    const controller = new AbortController();
+    dayController.current = controller;
+    setDayLoading(true);
+    setDayError('');
+    const params = new URLSearchParams({ day, days: period, executors: JSON.stringify(selectedExecutors), offset: String(more ? existing?.applications.length || 0 : 0), now: String(summary?.now || Date.now()) });
+    try {
+      const response = await authFetch(`${API_BASE_URL}/application-statistics/day?${params}`, { signal: controller.signal });
+      if (!response.ok) throw new Error('Не удалось загрузить данные');
+      const data = await response.json();
+      if (controller.signal.aborted) return;
+      const next = { applications: [...(more ? existing?.applications || [] : []), ...(data.applications || [])], hasMore: Boolean(data.hasMore) };
+      detailsRef.current = { ...detailsRef.current, [day]: next };
+      setDayDetails(detailsRef.current);
+    } catch (err) {
+      if (!controller.signal.aborted) setDayError(err.message || 'Не удалось загрузить данные');
+    } finally {
+      if (!controller.signal.aborted) setDayLoading(false);
+    }
+  };
+  useEffect(() => {
+    if (!loading && !error && activeDay) loadDay(activeDay);
+    // The cache and controller prevent stale day responses after a filter change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDay, loading, error]);
   const comparisonDate = (timestamp) => new Date(timestamp).toLocaleString(getAdminLocale(adminLanguage), {
     day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: APPLICATION_TIME_ZONE
   });
@@ -262,15 +263,15 @@ export default function StatisticsOverview() {
     const counts = new Map(EXECUTORS.map(({ name }) => [name, 0]));
     periodFiltered.forEach((app) => {
       const people = executorsOf(app.executor);
-      if (people.length === 1 && counts.has(people[0])) counts.set(people[0], counts.get(people[0]) + 1);
+      if (people.length === 1 && counts.has(people[0])) counts.set(people[0], counts.get(people[0]) + app.count);
     });
     return counts;
   }, [periodFiltered]);
 
   const metrics = useMemo(() => {
     const statusCounts = { queue: 0, work: 0, done: 0 };
-    filtered.forEach((app) => { statusCounts[getStatusGroup(app)] += 1; });
-    return { total: filtered.length, ...statusCounts };
+    filtered.forEach((app) => { statusCounts[getStatusGroup(app)] += app.count; });
+    return { total: filtered.reduce((sum, app) => sum + app.count, 0), ...statusCounts };
   }, [filtered]);
 
   const dynamics = useMemo(() => {
@@ -284,26 +285,24 @@ export default function StatisticsOverview() {
     });
     if (applicationsByDay.size === 0) return [];
 
-    const today = new Date().toLocaleDateString('sv-SE', { timeZone: APPLICATION_TIME_ZONE });
+    const today = new Date(summary?.now || Date.now()).toLocaleDateString('sv-SE', { timeZone: APPLICATION_TIME_ZONE });
     const visibleDays = period === 'all' ? availableRangeDays : Number(period) || 30;
     const globalDays = applications.map(getDayKey).filter(Boolean).sort();
     const startDay = period === 'all'
       ? globalDays[0]
-      : shiftDayKey(today, -(visibleDays - 1));
+      : new Date((summary?.now || Date.now()) + 1 - visibleDays * 86400000).toLocaleDateString('sv-SE', { timeZone: APPLICATION_TIME_ZONE });
     const points = [];
     for (let day = startDay; day <= today; day = shiftDayKey(day, 1)) {
       const dayApplications = applicationsByDay.get(day) || [];
       points.push({
         day,
         date: formatDay(day, adminLanguage),
-        value: dayApplications.length,
-        applications: dayApplications.sort((left, right) => (
-          toApplicationTimestamp(left.created_at || left.data) - toApplicationTimestamp(right.created_at || right.data)
-        ))
+        value: dayApplications.reduce((sum, app) => sum + app.count, 0),
+        applications: dayDetails[day]?.applications || []
       });
     }
     return points;
-  }, [applications, availableRangeDays, filtered, period, adminLanguage]);
+  }, [applications, availableRangeDays, filtered, period, adminLanguage, dayDetails, summary]);
 
   useEffect(() => {
     if (dynamics.length === 0) {
@@ -349,11 +348,11 @@ export default function StatisticsOverview() {
     .map((executorCategory) => {
       const matching = periodFiltered.filter((app) => categoryOfPeople(executorsOf(app.executor)) === executorCategory.name);
       const counts = { queue: 0, work: 0, done: 0 };
-      matching.forEach((app) => { counts[getStatusGroup(app)] += 1; });
+      matching.forEach((app) => { counts[getStatusGroup(app)] += app.count; });
       return {
         ...executorCategory,
         ...counts,
-        total: matching.length
+        total: matching.reduce((sum, app) => sum + app.count, 0)
       };
     }), [periodFiltered, selectedExecutors]);
 
@@ -587,7 +586,7 @@ export default function StatisticsOverview() {
                 </LineChart>
               </ResponsiveContainer>
               {floatingDay && <ApplicationDayTooltip
-                point={floatingDay.point}
+                point={dynamics.find((point) => point.day === floatingDay.point.day) || floatingDay.point}
                 onOpenApplication={openApplication}
                 onMouseEnter={keepPointTooltipOpen}
                 onMouseLeave={schedulePointTooltipClose}
@@ -602,7 +601,7 @@ export default function StatisticsOverview() {
             </div>
             {activeDayData && <div className="statistics-day-applications">
               <div><strong>{t("Заявки за ")}{t(activeDayData.date)}</strong><span>{activeDayData.value}</span></div>
-              <div>{activeDayData.applications.map((app) => <button key={app.id} type="button" onClick={() => openApplication(app)}><small>#{app.id}</small><span>{getApplicationTitle(app)}</span></button>)}</div>
+              <div>{dayLoading && <span role="status">{t("Загрузка...")}</span>}{dayError && <AdminNotice type="error">{t(dayError)} <button type="button" onClick={() => loadDay(activeDay, Boolean(dayDetails[activeDay]))}>{t("Повторить")}</button></AdminNotice>}{activeDayData.applications.map((app) => <button key={app.id} type="button" onClick={() => openApplication(app)}><small>#{app.id}</small><span>{getApplicationTitle(app)}</span></button>)}{dayDetails[activeDay]?.hasMore && <button type="button" disabled={dayLoading} onClick={() => loadDay(activeDay, true)}>{t("Показать ещё")}</button>}</div>
             </div>}
           </> : <div className="chart-empty">{t("За выбранный период заявок нет")}</div>}
         </article>

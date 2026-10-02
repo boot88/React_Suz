@@ -11,6 +11,7 @@ import NetworkMap from './NetworkMap';
 import StatisticsOverview from './StatisticsOverview';
 import AdminSettings from './AdminSettings';
 import AdminBackups from '../components/AdminBackups';
+import { compareApplicationPeriods } from '../utils/statisticsComparison';
 import { authFetch } from '../utils/authFetch';
 import { initializeUserPreferences, userSettingsStorage } from '../utils/userPreferences';
 import { translateAdminText, getAdminLocale } from '../utils/adminTranslation';
@@ -49,6 +50,7 @@ beforeEach(() => {
     let data = {};
     if (url.includes('/employees/all') || url.includes('/auth/employees')) data = { employees: [] };
     else if (url.includes('/employees/departments')) data = [];
+    else if (url.includes('/application-statistics')) data = { now: Date.now(), groups: [], comparison: null };
     else if (url.includes('/applications')) data = { applications: [], totalPages: 1, total: 0, stats: { total: 0, completed: 0, pending: 0 } };
     else if (url.includes('/knowledge-base')) data = [];
     else if (url.includes('/network-map')) data = { zoneText: '', fetchedAt: '2026-09-30T07:00:00Z' };
@@ -331,16 +333,25 @@ test('statistics compare equal periods, apply the executor filter and retain cha
     { ...application, id: 3, created_at: date(-9), fl: true, status: 'done', end_data: date(-8) },
     { ...application, id: 4, created_at: date(-1), executor: 'Андреев Р.В.' }
   ];
-  authFetch.mockResolvedValue({ ok: true, json: async () => ({ applications: rows, totalPages: 1 }) });
+  authFetch.mockImplementation(async (url) => {
+    const params = new URL(url, 'http://localhost').searchParams;
+    const selected = JSON.parse(params.get('executors') || '[]');
+    if (url.includes('/day?')) return { ok: true, json: async () => ({ applications: [{ ...application, id: 2 }], hasMore: false }) };
+    const days = params.get('days') === 'all' ? NaN : Number(params.get('days'));
+    const chosen = rows.filter((row) => !selected.length || selected.includes(row.executor));
+    const groups = rows.filter((row) => !Number.isFinite(days) || new Date(row.created_at).getTime() >= now + 1 - days * day).map((row) => ({ day: new Date(new Date(row.created_at).getTime() + 7 * 3600000).toISOString().slice(0, 10), executor: row.executor, status: row.status, count: 1 }));
+    return { ok: true, json: async () => ({ now, earliest: date(-20), groups, comparison: compareApplicationPeriods(chosen, days, now) }) };
+  });
   await render(<StatisticsOverview />);
   await act(async () => Simulate.change(container.querySelector('.statistics-period select'), { target: { value: '7' } }));
-  const comparison = container.querySelector('.statistics-comparison');
+  let comparison = container.querySelector('.statistics-comparison');
   expect(comparison.querySelector('[data-metric="received"] strong').textContent).toBe('2');
   expect(comparison.querySelector('[data-metric="closed"] strong').textContent).toBe('1');
   expect(comparison.querySelector('[data-metric="remaining"] strong').textContent).toBe('2');
   expect(comparison.querySelector('[data-metric="remaining"] b').textContent).toContain('+1');
   await act(async () => Simulate.click(container.querySelector('.statistics-executor-trigger')));
   await act(async () => Simulate.change(container.querySelector('.statistics-executor-option input')));
+  comparison = container.querySelector('.statistics-comparison');
   expect(comparison.querySelector('[data-metric="received"] strong').textContent).toBe('1');
   expect(comparison.querySelector('[data-metric="remaining"] strong').textContent).toBe('1');
   await act(async () => Simulate.mouseEnter(container.querySelector('button[data-chart-day]')));
@@ -351,6 +362,7 @@ test('statistics compare equal periods, apply the executor filter and retain cha
   await setLanguage('ru');
   expect(comparison.textContent).toContain('Сравнение с предыдущим периодом');
   await act(async () => Simulate.change(container.querySelector('.statistics-period select'), { target: { value: 'all' } }));
+  comparison = container.querySelector('.statistics-comparison');
   expect(comparison.querySelector('[data-metric]')).toBeNull();
   expect(comparison.textContent).toContain('Для сравнения выберите период');
 });
@@ -375,4 +387,61 @@ test('knowledge validation and request failures use inline warning/error notices
     await act(async () => Simulate.click(container.querySelector('.admin-notice-dismiss')));
     expect(container.querySelector('.admin-notice')).toBeNull();
   } finally { alert.mockRestore(); }
+});
+
+test('knowledge saving ignores repeated clicks and unlocks the preserved form after failure', async () => {
+  await render(<KnowledgeBase />);
+  act(() => {
+    Simulate.change(container.querySelector('input[name="title"]'), { target: { name: 'title', value: 'Test article' } });
+    Simulate.change(container.querySelector('textarea[name="solution"]'), { target: { name: 'solution', value: 'Solution' } });
+  });
+  let finish;
+  authFetch.mockClear();
+  authFetch.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+  const button = container.querySelector('.add-btn');
+  act(() => { Simulate.click(button); Simulate.click(button); });
+  expect(button.disabled).toBe(true);
+  expect(button.textContent).toContain('Saving');
+  expect(authFetch).toHaveBeenCalledTimes(1);
+  await act(async () => finish({ ok: false, json: async () => ({ error: 'Failed' }) }));
+  expect(button.disabled).toBe(false);
+  expect(container.querySelector('input[name="title"]').value).toBe('Test article');
+});
+
+test('employee clear aborts the active query and ignores its eventual response', async () => {
+  await render(<EmployeeSearch />);
+  act(() => Simulate.change(container.querySelector('#employee-search-query'), { target: { value: 'Иван' } }));
+  let finish, signal;
+  authFetch.mockImplementation((url, options) => { signal = options.signal; return new Promise((resolve) => { finish = resolve; }); });
+  act(() => Simulate.submit(container.querySelector('form')));
+  act(() => Simulate.click(container.querySelector('.clear-button')));
+  expect(signal.aborted).toBe(true);
+  await act(async () => finish({ ok: true, json: async () => [{ full_name: 'Устаревший результат' }] }));
+  expect(container.textContent).not.toContain('Устаревший результат');
+  expect(container.querySelector('.search-button').disabled).toBe(false);
+});
+
+test('request search waits 300ms, cancels stale reads, and date drafts do not reload', async () => {
+  jest.useFakeTimers();
+  try {
+    await render(<Dashboard />);
+    authFetch.mockClear();
+    act(() => Simulate.change(container.querySelector('#dashboard-date-from'), { target: { value: '2026-01-01' } }));
+    expect(authFetch.mock.calls.filter(([url]) => url.includes('/applications?page='))).toHaveLength(0);
+    const search = container.querySelector('input[placeholder="Search requests"]');
+    act(() => Simulate.change(search, { target: { value: 'a' } }));
+    await act(async () => jest.advanceTimersByTime(200));
+    act(() => Simulate.change(search, { target: { value: 'ab' } }));
+    await act(async () => jest.advanceTimersByTime(299));
+    expect(authFetch.mock.calls.filter(([url]) => url.includes('/applications?page='))).toHaveLength(0);
+    let finish;
+    authFetch.mockImplementation((url) => url.includes('/applications?page=') ? new Promise((resolve) => { finish = resolve; }) : Promise.resolve({ ok: true, json: async () => ({}) }));
+    await act(async () => jest.advanceTimersByTime(1));
+    const call = authFetch.mock.calls.find(([url]) => url.includes('/applications?page='));
+    expect(new URL(call[0], 'http://localhost').searchParams.get('search')).toBe('ab');
+    act(() => Simulate.change(search, { target: { value: 'abc' } }));
+    expect(call[1].signal.aborted).toBe(true);
+    await act(async () => finish({ ok: true, json: async () => ({ applications: [{ ...application, application: 'Stale result' }], stats: {} }) }));
+    expect(container.textContent).not.toContain('Stale result');
+  } finally { jest.useRealTimers(); }
 });

@@ -25,6 +25,8 @@ const KnowledgeBase = () => {
   const [error, setError] = useState(null);
   const fileInputRef = useRef(null);
   const [uploadingImages, setUploadingImages] = useState(false);
+  const [savingArticle, setSavingArticle] = useState(false);
+  const articleSaveLock = useRef(false);
 
   // Загрузка статей из базы данных
   useEffect(() => {
@@ -191,11 +193,14 @@ const KnowledgeBase = () => {
   };
 
   const addArticle = async () => {
+    if (articleSaveLock.current || uploadingImages) return;
     if (!newArticle.title.trim() || !newArticle.solution.trim()) {
       notify('Заголовок и решение обязательны для заполнения', 'warning');
       return;
     }
 
+    articleSaveLock.current = true;
+    setSavingArticle(true);
     try {
       const articleData = {
         title: newArticle.title,
@@ -225,15 +230,21 @@ const KnowledgeBase = () => {
     } catch (err) {
       console.error('Ошибка добавления статьи:', err);
       notify('Произошла ошибка при добавлении статьи: ' + err.message, 'error');
+    } finally {
+      articleSaveLock.current = false;
+      setSavingArticle(false);
     }
   };
 
   const updateArticle = async () => {
+    if (articleSaveLock.current || uploadingImages) return;
     if (!editingArticle.title.trim() || !editingArticle.solution.trim()) {
       notify('Заголовок и решение обязательны для заполнения', 'warning');
       return;
     }
 
+    articleSaveLock.current = true;
+    setSavingArticle(true);
     try {
       const articleData = {
         title: editingArticle.title,
@@ -263,6 +274,9 @@ const KnowledgeBase = () => {
     } catch (err) {
       console.error('Ошибка обновления статьи:', err);
       notify('Произошла ошибка при обновлении статьи: ' + err.message, 'error');
+    } finally {
+      articleSaveLock.current = false;
+      setSavingArticle(false);
     }
   };
 
@@ -493,12 +507,12 @@ const KnowledgeBase = () => {
                   accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
                   multiple
                   className="file-input"
-                  disabled={uploadingImages}
+                  disabled={uploadingImages || savingArticle}
                 />
                 <button 
                   onClick={() => fileInputRef.current?.click()}
                   className="upload-btn"
-                  disabled={uploadingImages}
+                  disabled={uploadingImages || savingArticle}
                 >
                   {t(uploadingImages ? 'Загрузка...' : 'Добавить изображения')}
                 </button>
@@ -536,7 +550,7 @@ const KnowledgeBase = () => {
               
               <div className="form-actions">
                 <button onClick={cancelEditing} className="cancel-btn">{t("Отмена")}</button>
-                <button onClick={updateArticle} className="save-btn">{t("Сохранить изменения")}</button>
+                <button onClick={updateArticle} disabled={savingArticle || uploadingImages} className="save-btn">{t(savingArticle ? "Сохранение..." : "Сохранить изменения")}</button>
               </div>
             </div>
           ) : (
@@ -581,12 +595,12 @@ const KnowledgeBase = () => {
                   accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
                   multiple
                   className="file-input"
-                  disabled={uploadingImages}
+                  disabled={uploadingImages || savingArticle}
                 />
                 <button 
                   onClick={() => fileInputRef.current?.click()}
                   className="upload-btn"
-                  disabled={uploadingImages}
+                  disabled={uploadingImages || savingArticle}
                 >
                   {t(uploadingImages ? 'Загрузка...' : 'Добавить изображения')}
                 </button>
@@ -625,9 +639,9 @@ const KnowledgeBase = () => {
               <button 
                 onClick={addArticle} 
                 className="add-btn"
-                disabled={!newArticle.title || !newArticle.solution || uploadingImages}
+                disabled={!newArticle.title.trim() || !newArticle.solution.trim() || uploadingImages || savingArticle}
               >
-                {t(uploadingImages ? 'Загрузка...' : 'Добавить статью')}
+                {t(savingArticle ? 'Сохранение...' : uploadingImages ? 'Загрузка...' : 'Добавить статью')}
               </button>
             </div>
           )}

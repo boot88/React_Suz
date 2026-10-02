@@ -1,6 +1,6 @@
 import AdminNotice from '../components/AdminNotice';
 import { useAdminTranslation } from '../utils/adminTranslation';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { searchEmployees, getDepartments } from '../services/employeeService';
 import './EmployeeSearch.css'; // Импортируем CSS файл
 
@@ -16,6 +16,9 @@ const EmployeeSearch = () => {
   const [error, setError] = useState('');
   const [syncMessage, setSyncMessage] = useState('');
   const [syncChanges, setSyncChanges] = useState(null);
+  const searchController = useRef(null);
+  const searchVersion = useRef(0);
+  useEffect(() => () => { searchVersion.current += 1; searchController.current?.abort(); }, []);
 
   const searchFields = [
     { value: 'full_name', label: 'ФИО' },
@@ -49,24 +52,35 @@ const EmployeeSearch = () => {
       return;
     }
 
+    searchController.current?.abort();
+    const controller = new AbortController();
+    searchController.current = controller;
+    const version = ++searchVersion.current;
+    setResults([]);
+    setSearched(false);
     setLoading(true);
     setError('');
     setSyncMessage('');
     setSyncChanges(null);
 
     try {
-      const data = await searchEmployees(searchField, searchTerm.trim(), departmentFilter);
+      const data = await searchEmployees(searchField, searchTerm.trim(), departmentFilter, controller.signal);
+      if (controller.signal.aborted || version !== searchVersion.current) return;
       setResults(data);
       setSearched(true);
     } catch (err) {
+      if (controller.signal.aborted || version !== searchVersion.current) return;
       setError(err.message || 'Ошибка при поиске сотрудников');
       console.error('Search error:', err);
     } finally {
-      setLoading(false);
+      if (version === searchVersion.current) setLoading(false);
     }
   };
 
   const clearFilters = () => {
+    searchVersion.current += 1;
+    searchController.current?.abort();
+    setLoading(false);
     setSearchTerm('');
     setDepartmentFilter('');
     setResults([]);

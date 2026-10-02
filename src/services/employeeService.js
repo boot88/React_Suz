@@ -18,10 +18,10 @@ const API_BASE_URL = getApiBaseUrl();
 
 
 // Поиск сотрудников
-export const searchEmployees = async (field, query, department = '') => {
+export const searchEmployees = async (field, query, department = '', signal) => {
   try {
     const response = await authFetch(
-      `${API_BASE_URL}/employees/search?field=${encodeURIComponent(field)}&query=${encodeURIComponent(query)}${department ? `&department=${encodeURIComponent(department)}` : ''}`
+      `${API_BASE_URL}/employees/search?field=${encodeURIComponent(field)}&query=${encodeURIComponent(query)}${department ? `&department=${encodeURIComponent(department)}` : ''}`, { signal }
     );
 
     if (!response.ok) {
@@ -31,7 +31,7 @@ export const searchEmployees = async (field, query, department = '') => {
 
     return await response.json();
   } catch (error) {
-    console.error('Error searching employees:', error);
+    if (error.name !== 'AbortError') console.error('Error searching employees:', error);
     throw error;
   }
 };

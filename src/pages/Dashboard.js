@@ -312,6 +312,23 @@ const Dashboard = () => {
     window.URL.revokeObjectURL(url);
   };
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const applicationsAbortRef = useRef(null);
+  const searchMountedRef = useRef(false);
+  const [searchRevision, setSearchRevision] = useState(0);
+  useEffect(() => {
+    if (!searchMountedRef.current) { searchMountedRef.current = true; return undefined; }
+    // Invalidate immediately; an old response must not paint while typing.
+    applicationsAbortRef.current?.abort();
+    applicationsRequestIdRef.current += 1;
+    applicationsRequestUrlRef.current = '';
+    const timer = window.setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+      setSearchRevision((value) => value + 1);
+      setCurrentPage(1);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [searchTerm]);
   const [workflowMessage, setWorkflowMessage] = useState('');
   const [workflowMessageType, setWorkflowMessageType] = useState('info');
   const [actionBusyId, setActionBusyId] = useState(null);
@@ -357,6 +374,7 @@ const Dashboard = () => {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [dateFilterActive, setDateFilterActive] = useState(false);
+  const [appliedDates, setAppliedDates] = useState({ from: '', to: '' });
 
   useEffect(() => {
     const syncApplicationActionHistoryVisibility = () => {
@@ -397,7 +415,7 @@ const Dashboard = () => {
   }, []);
 
   const exportToExcel = async () => {
-    if (exportLoading || loading) return;
+    if (exportLoading || loading || searchTerm !== debouncedSearchTerm) return;
     setExportLoading(true);
     setExportProgress({ step: 0 });
     try {
@@ -414,8 +432,8 @@ const Dashboard = () => {
           params.set('status', filter);
         }
       }
-      if (dateFilterActive && fromDate) params.set('from', fromDate);
-      if (dateFilterActive && toDate) params.set('to', toDate);
+      if (dateFilterActive && appliedDates.from) params.set('from', appliedDates.from);
+      if (dateFilterActive && appliedDates.to) params.set('to', appliedDates.to);
       if (searchTerm && searchTerm.trim()) params.set('search', searchTerm.trim());
 
       let url = '/applications/export';
@@ -478,10 +496,11 @@ const Dashboard = () => {
   };
 
   const fetchApplications = async ({ silent = false, attempt = 0 } = {}) => {
+    if (searchTerm !== debouncedSearchTerm) return false;
     let url = `/applications?page=${currentPage}&limit=${limit}`;
 
-    if (searchTerm.trim()) {
-      url += `&search=${encodeURIComponent(searchTerm.trim())}`;
+    if (debouncedSearchTerm.trim()) {
+      url += `&search=${encodeURIComponent(debouncedSearchTerm.trim())}`;
     }
 
     if (filter !== 'all') {
@@ -496,8 +515,8 @@ const Dashboard = () => {
     }
     url += `&sort=${encodeURIComponent(sortMode)}`;
     if (dateFilterActive) {
-      if (fromDate) url += `&from=${fromDate}`;
-      if (toDate) url += `&to=${toDate}`;
+      if (appliedDates.from) url += `&from=${appliedDates.from}`;
+      if (appliedDates.to) url += `&to=${appliedDates.to}`;
     }
 
     // При входе и восстановлении вкладки браузер может почти одновременно
@@ -505,6 +524,9 @@ const Dashboard = () => {
     // его более поздняя ошибка не должна затирать успешный первый ответ.
     if (applicationsRequestUrlRef.current === url) return false;
 
+    applicationsAbortRef.current?.abort();
+    const controller = new AbortController();
+    applicationsAbortRef.current = controller;
     const requestId = applicationsRequestIdRef.current + 1;
     applicationsRequestIdRef.current = requestId;
     applicationsRequestUrlRef.current = url;
@@ -513,32 +535,32 @@ const Dashboard = () => {
     }
     try {
 
-      const response = await authFetch(`${API_BASE_URL}${url}`);
+      const response = await authFetch(`${API_BASE_URL}${url}`, { signal: controller.signal });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         const requestError = new Error(data.error || 'Ошибка загрузки заявок');
         requestError.status = response.status;
         throw requestError;
       }
-      if (requestId !== applicationsRequestIdRef.current) return false;
+      if (controller.signal.aborted || requestId !== applicationsRequestIdRef.current) return false;
 
       const nextStats = data.stats || { total: 0, completed: 0, pending: 0 };
       const nextApplications = data.applications || [];
       setApplications(nextApplications);
       setTotalPages(data.totalPages || 1);
       setFilteredStats(nextStats);
-      if (!searchTerm.trim() && !dateFilterActive && filter === 'all') {
+      if (!debouncedSearchTerm.trim() && !dateFilterActive && filter === 'all') {
         setStats(nextStats);
       }
       window.dispatchEvent(new Event('applications:refresh'));
       return true;
     } catch (error) {
-      if (requestId !== applicationsRequestIdRef.current) return false;
+      if (controller.signal.aborted || requestId !== applicationsRequestIdRef.current) return false;
       console.error('Ошибка загрузки:', error);
       const retryable = !error?.status || error.status === 429 || error.status >= 500;
       if (retryable && attempt < 2) {
         await new Promise((resolve) => window.setTimeout(resolve, 400 * (attempt + 1)));
-        if (requestId !== applicationsRequestIdRef.current) return false;
+        if (controller.signal.aborted || requestId !== applicationsRequestIdRef.current) return false;
         applicationsRequestUrlRef.current = '';
         return fetchApplications({ silent, attempt: attempt + 1 });
       }
@@ -563,17 +585,13 @@ const Dashboard = () => {
   };
 
   const handleSearch = (value) => {
+    setSelectedIds([]);
     setSearchTerm(value);
-    setCurrentPage(1);
-    setApplications([]);
-    setLoading(true);
   };
 
   const clearSearch = () => {
+    setSelectedIds([]);
     setSearchTerm('');
-    setCurrentPage(1);
-    setApplications([]);
-    setLoading(true);
   };
 
   const markApplicationsViewed = (ids) => {
@@ -676,6 +694,7 @@ const Dashboard = () => {
         setFromDate('');
         setToDate('');
         setDateFilterActive(false);
+    setAppliedDates({ from: '', to: '' });
         setFilter(targetFilter);
         setCurrentPage(targetPage);
         setScrollToApplicationId(data.application.id);
@@ -753,7 +772,7 @@ const Dashboard = () => {
     fetchApplications();
     return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, limit, filter, fromDate, toDate, dateFilterActive, searchTerm, sortMode]);
+  }, [currentPage, limit, filter, appliedDates, dateFilterActive, debouncedSearchTerm, searchRevision, sortMode]);
 
   useEffect(() => {
     const syncTimelineCardDesign = () => setTimelineCardDesign(readDashboardCardDesign());
@@ -762,6 +781,7 @@ const Dashboard = () => {
   }, []);
 
   useEffect(() => () => {
+    applicationsAbortRef.current?.abort();
     applicationsRequestIdRef.current += 1;
     applicationsRequestUrlRef.current = '';
   }, []);
@@ -795,7 +815,7 @@ const Dashboard = () => {
       document.removeEventListener('visibilitychange', onVisible);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, limit, filter, fromDate, toDate, dateFilterActive, searchTerm, sortMode]);
+  }, [currentPage, limit, filter, appliedDates, dateFilterActive, debouncedSearchTerm, searchRevision, sortMode]);
 
   const setFilterAndResetPage = (newFilter) => {
     setFilter(newFilter);
@@ -806,6 +826,7 @@ const Dashboard = () => {
 
   const applyFilters = () => {
     setCurrentPage(1);
+    setAppliedDates({ from: fromDate, to: toDate });
     setDateFilterActive(Boolean(fromDate || toDate));
   };
 
@@ -815,6 +836,7 @@ const Dashboard = () => {
     setToDate('');
     setCurrentPage(1);
     setDateFilterActive(false);
+    setAppliedDates({ from: '', to: '' });
     setSearchTerm('');
     setApplications([]);
     setLoading(true);
@@ -831,8 +853,8 @@ const Dashboard = () => {
 
   const activeFilterChips = [
     filter !== 'all' ? { key: 'status', label: WORKFLOW_FILTERS.find((item) => item.id === filter)?.label || 'Раздел', onRemove: () => setFilterAndResetPage('all') } : null,
-    dateFilterActive && fromDate ? { key: 'from', label: `с ${fromDate}`, onRemove: () => { setFromDate(''); setDateFilterActive(Boolean(toDate)); setCurrentPage(1); } } : null,
-    dateFilterActive && toDate ? { key: 'to', label: `по ${toDate}`, onRemove: () => { setToDate(''); setDateFilterActive(Boolean(fromDate)); setCurrentPage(1); } } : null,
+    dateFilterActive && appliedDates.from ? { key: 'from', label: `с ${appliedDates.from}`, onRemove: () => { setFromDate(''); setAppliedDates((dates) => ({ ...dates, from: '' })); setDateFilterActive(Boolean(appliedDates.to)); setCurrentPage(1); } } : null,
+    dateFilterActive && appliedDates.to ? { key: 'to', label: `по ${appliedDates.to}`, onRemove: () => { setToDate(''); setAppliedDates((dates) => ({ ...dates, to: '' })); setDateFilterActive(Boolean(appliedDates.from)); setCurrentPage(1); } } : null,
     searchTerm ? { key: 'search', label: `поиск: ${searchTerm}`, onRemove: clearSearch } : null
   ].filter(Boolean);
 

@@ -165,6 +165,7 @@ function AppWorkspace() {
       <div className={`app-content ${showAdminShell ? 'app-content--with-sidebar admin-shell-content' : ''}`}>
         {isAuthenticated && preferenceSyncError && (showAdminShell ? <AdminNotice type="error">{t(preferenceSyncError, adminLanguage)} <button type="button" onClick={flushPreferenceSync}>{t('Повторить сохранение', adminLanguage)}</button></AdminNotice> : <div role="alert" className="settings-sync-error">{t(preferenceSyncError, adminLanguage)} <button type="button" onClick={flushPreferenceSync}>{t('Повторить сохранение', adminLanguage)}</button></div>)}
         {showAdminShell && <AdminWelcomeNotice language={adminLanguage} />}
+        <div key={showAdminShell ? location.pathname : 'public'} className={showAdminShell ? 'admin-route-content' : undefined}>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/admin" element={<Login mode="admin" />} />
@@ -184,6 +185,7 @@ function AppWorkspace() {
           <Route path="/support" element={<Support />} />
           <Route path="*" element={<Navigate to={isEmployee ? '/employee' : '/'} replace />} />
         </Routes>
+        </div>
       </div>
       {workspaceTransition && (
         <div className={`admin-workspace-transition is-${workspaceTransition.phase} ${workspaceTransition.direction}`} role="status" aria-live="polite">
@@ -216,7 +218,7 @@ const SIDEBAR_COPY = {
   }
 };
 
-function Sidebar({ language }) {
+export function Sidebar({ language }) {
   const { logout, user } = useAuth();
   const location = useLocation();
   const copy = SIDEBAR_COPY[language] || SIDEBAR_COPY.ru;
@@ -246,8 +248,13 @@ function Sidebar({ language }) {
 
   useEffect(() => {
     let isCancelled = false;
+    let requestsBusy = false, chatBusy = false;
+    let requestsPending = false, chatPending = false;
 
     const fetchNewRequests = async () => {
+      if (isCancelled || document.visibilityState === 'hidden') return;
+      if (requestsBusy) { requestsPending = true; return; }
+      requestsBusy = true;
       try {
         const adminLogin = encodeURIComponent(user?.username || user?.name || 'admin');
         const response = await authFetch(`${API_BASE_URL}/applications/unseen-count?admin_login=${adminLogin}`);
@@ -258,10 +265,16 @@ function Sidebar({ language }) {
         localStorage.setItem('cachedNewRequests', String(fresh));
       } catch (error) {
         console.error('Ошибка загрузки новых заявок:', error);
+      } finally {
+        requestsBusy = false;
+        if (requestsPending) { requestsPending = false; fetchNewRequests(); }
       }
     };
 
     const fetchChatUnread = async () => {
+      if (isCancelled || document.visibilityState === 'hidden') return;
+      if (chatBusy) { chatPending = true; return; }
+      chatBusy = true;
       const requestVersion = ++chatUnreadRequestVersionRef.current;
       try {
         const response = await authFetch(`${API_BASE_URL}/chat/threads/unread-count`);
@@ -270,6 +283,9 @@ function Sidebar({ language }) {
         setChatUnreadCount(Number(data?.count || 0));
       } catch (error) {
         // Канал уведомлений чата может быть недоступен — не критично.
+      } finally {
+        chatBusy = false;
+        if (chatPending) { chatPending = false; fetchChatUnread(); }
       }
     };
 
@@ -279,8 +295,6 @@ function Sidebar({ language }) {
     };
 
     refreshAll();
-    const firstRetry = setTimeout(refreshAll, 250);
-    const secondRetry = setTimeout(refreshAll, 1000);
     const interval = setInterval(refreshAll, 5000);
     const refreshOnVisible = () => {
       if (document.visibilityState === 'visible') refreshAll();
@@ -316,8 +330,6 @@ function Sidebar({ language }) {
 
     return () => {
       isCancelled = true;
-      clearTimeout(firstRetry);
-      clearTimeout(secondRetry);
       clearInterval(interval);
       window.removeEventListener('focus', refreshAll);
       document.removeEventListener('visibilitychange', refreshOnVisible);
