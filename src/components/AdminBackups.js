@@ -1,3 +1,4 @@
+import AdminNotice from './AdminNotice';
 import { useAdminTranslation, getAdminLocale } from '../utils/adminTranslation';
 import React, { useEffect, useRef, useState } from 'react';
 import { API_BASE_URL } from '../utils/apiConfig';
@@ -200,8 +201,8 @@ export default function AdminBackups({ onSettingsRestored }) {
         </div>
       </div>
     </div>}
-    {status && <div className="settings-message" role="status">{t(status)}</div>}
-    {error && <div className="settings-message backup-error" role="alert">{t(error)}</div>}
+    {status && <AdminNotice type="success">{t(status)}</AdminNotice>}
+    {error && <AdminNotice type="error">{t(error)}</AdminNotice>}
     {recovery && <button type="button" disabled={!!busy || !!pendingRestore} onClick={() => exportBackup({ key: 'recovery' }, recovery)}>{t("Скачать копию до восстановления")}</button>}
   </section>;
 }

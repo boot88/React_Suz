@@ -1,3 +1,4 @@
+import AdminNotice from '../components/AdminNotice';
 import { useAdminTranslation, getAdminLocale } from '../utils/adminTranslation';
 import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import './NetworkMap.css';
@@ -228,7 +229,7 @@ const NetworkMap = () => {
         <div><strong>{t(networkUpdatedAt ? new Date(networkUpdatedAt).toLocaleString(getAdminLocale()) : '—')}</strong><span>{t("последнее обновление")}</span></div>
       </div>
 
-      {networkError && <div className="network-error">{t(networkError)}</div>}
+      {networkError && <AdminNotice type="error">{t(networkError)}</AdminNotice>}
 
       <div className="network-tables">
         {filteredNetworkGroups.length === 0 && <div className="network-empty">{t("Сетка не найдена по текущему поиску")}</div>}

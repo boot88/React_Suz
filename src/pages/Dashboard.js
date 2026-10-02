@@ -1,3 +1,4 @@
+import AdminNotice from '../components/AdminNotice';
 import { useAdminTranslation, getAdminLocale } from '../utils/adminTranslation';
 import { userSettingsStorage } from '../utils/userPreferences';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -312,6 +313,7 @@ const Dashboard = () => {
   };
   const [searchTerm, setSearchTerm] = useState('');
   const [workflowMessage, setWorkflowMessage] = useState('');
+  const [workflowMessageType, setWorkflowMessageType] = useState('info');
   const [actionBusyId, setActionBusyId] = useState(null);
   const [openActionMenuId, setOpenActionMenuId] = useState(null);
   const [sortMode, setSortMode] = useState(readDashboardSortMode);
@@ -807,13 +809,6 @@ const Dashboard = () => {
     setDateFilterActive(Boolean(fromDate || toDate));
   };
 
-  const clearDateFilter = () => {
-    setFromDate('');
-    setToDate('');
-    setDateFilterActive(false);
-    setCurrentPage(1);
-  };
-
   const clearFilters = () => {
     setFilter('all');
     setFromDate('');
@@ -970,6 +965,7 @@ const Dashboard = () => {
         .filter((item) => matchesDashboardFilter(item, filter, assignee)));
       setSelectedApplication((prev) => (prev?.id === app.id ? data.application : prev));
       setStats((current) => updateStatsForApplicationTransition(current, app, updatedApplication));
+      setWorkflowMessageType('success');
       setWorkflowMessage(data.message || 'Статус заявки обновлён');
       showToast(data.message || 'Статус заявки обновлён', 'success');
       setWorkflowModal(null);
@@ -980,6 +976,7 @@ const Dashboard = () => {
       fetchApplications({ silent: true });
       if (showApplicationActionHistory) fetchApplicationEvents(app.id);
     } catch (error) {
+      setWorkflowMessageType('error');
       setWorkflowMessage(error.message || 'Ошибка изменения статуса');
       showToast(error.message || 'Ошибка изменения статуса', 'error');
     } finally {
@@ -1257,7 +1254,7 @@ const Dashboard = () => {
               <span className="button-spinner"></span>{t("Экспорт...")}</>
           ) : (
             <>
-              <span className="export-icon">📥</span>{t(`Экспорт найденных — ${requestCountLabel(filteredStats.total)}`)}</>
+              <span className="export-icon">📥</span>{t("Экспорт в Excel")}</>
           )}
         </button>
         </div>
@@ -1282,7 +1279,7 @@ const Dashboard = () => {
 
       {exportProgress && <OperationProgress steps={['Подготовка', 'Обработка данных', 'Сохранение', 'Готово']} {...exportProgress} />}
 
-      {workflowMessage && <div className="workflow-message">{t(workflowMessage)}</div>}
+      {workflowMessage && <AdminNotice type={workflowMessageType}>{t(workflowMessage)}</AdminNotice>}
 
       {/* Фильтры */}
       <div className="filters-section filters-section-compact">
@@ -1295,7 +1292,6 @@ const Dashboard = () => {
                   <span className="eyebrow">{t("Период заявок")}</span>
                   <h3>{t("Произвольный период")}</h3>
                 </div>
-                <button type="button" onClick={clearDateFilter} className="btn-secondary compact-reset">{t("Сбросить период")}</button>
               </div>
               <div className="date-filters">
                 <div className="filter-group">
@@ -1743,7 +1739,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      {toast && <div className={`dashboard-toast ${toast.type}`}>{t(toast.message)}</div>}
+      {toast && <AdminNotice type={toast.type} className="admin-notice--floating">{t(toast.message)}</AdminNotice>}
     </div>
   );
 };

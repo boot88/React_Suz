@@ -1,3 +1,5 @@
+import { compareApplicationPeriods } from '../utils/statisticsComparison';
+import AdminNotice from '../components/AdminNotice';
 import { translateAdminText as t, useAdminTranslation, useAdminLanguage, getAdminLocale } from '../utils/adminTranslation';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -177,6 +179,7 @@ export default function StatisticsOverview() {
   const [error, setError] = useState('');
   const [period, setPeriod] = useState(String(DEFAULT_RANGE_DAYS));
   const [selectedExecutors, setSelectedExecutors] = useState([]);
+  const [reportNow, setReportNow] = useState(Date.now());
   const [isExecutorMenuOpen, setIsExecutorMenuOpen] = useState(false);
   const [activeDay, setActiveDay] = useState('');
   const [isDraggingChart, setIsDraggingChart] = useState(false);
@@ -201,7 +204,7 @@ export default function StatisticsOverview() {
         totalPages = Math.max(1, Number(data.totalPages) || 1);
         page += 1;
       } while (active && page <= totalPages);
-      if (active) setApplications(allApplications);
+      if (active) { setApplications(allApplications); setReportNow(Date.now()); }
     };
 
     loadAllApplications()
@@ -233,12 +236,12 @@ export default function StatisticsOverview() {
   }, [applications, adminLanguage]);
 
   const periodFiltered = useMemo(() => {
-    const threshold = period === 'all' ? null : Date.now() - Number(period) * 86400000;
+    const threshold = period === 'all' ? null : reportNow + 1 - Number(period) * 86400000;
     return applications.filter((app) => {
       const createdAt = toApplicationTimestamp(app.created_at || app.data);
-      return !threshold || (createdAt && createdAt >= threshold);
+      return !threshold || (createdAt && createdAt >= threshold && createdAt <= reportNow);
     });
-  }, [applications, period]);
+  }, [applications, period, reportNow]);
 
   const filtered = useMemo(() => (
     periodFiltered.filter((app) => matchExecutors(app.executor, selectedExecutors))
@@ -246,6 +249,15 @@ export default function StatisticsOverview() {
 
   // Сколько заявок периода каждый исполнитель сделал в одиночку: показываем в меню,
   // чтобы было видно, сколько заявок даст одиночный выбор.
+  const comparison = useMemo(() => compareApplicationPeriods(
+    applications.filter((app) => matchExecutors(app.executor, selectedExecutors)),
+    period === 'all' ? NaN : Number(period), reportNow
+  ), [applications, selectedExecutors, period, reportNow]);
+  const comparisonDate = (timestamp) => new Date(timestamp).toLocaleString(getAdminLocale(adminLanguage), {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: APPLICATION_TIME_ZONE
+  });
+  const signed = (value) => value > 0 ? `+${value}` : String(value);
+
   const soloCounts = useMemo(() => {
     const counts = new Map(EXECUTORS.map(({ name }) => [name, 0]));
     periodFiltered.forEach((app) => {
@@ -273,7 +285,7 @@ export default function StatisticsOverview() {
     if (applicationsByDay.size === 0) return [];
 
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: APPLICATION_TIME_ZONE });
-    const visibleDays = period === 'all' ? availableRangeDays : Math.min(availableRangeDays, Number(period) || 30);
+    const visibleDays = period === 'all' ? availableRangeDays : Number(period) || 30;
     const globalDays = applications.map(getDayKey).filter(Boolean).sort();
     const startDay = period === 'all'
       ? globalDays[0]
@@ -355,7 +367,7 @@ export default function StatisticsOverview() {
     dynamics.find((point) => point.day === activeDay) || null
   ), [activeDay, dynamics]);
 
-  const currentRangeDays = period === 'all' ? availableRangeDays : Math.min(availableRangeDays, Number(period) || 30);
+  const currentRangeDays = period === 'all' ? availableRangeDays : Number(period) || 30;
   const customPeriod = period !== 'all' && !RANGE_PRESETS.some(({ days }) => String(days) === period);
   const rangeLabel = period === 'all'
     ? `Всё время${availableStartLabel ? ` · с ${availableStartLabel}` : ''}`
@@ -495,13 +507,36 @@ export default function StatisticsOverview() {
     </section>
 
     {loading && <div className="statistics-state">{t("Загрузка статистики…")}</div>}
-    {error && <div className="statistics-state statistics-state--error">{t(error)}</div>}
+    {error && <AdminNotice type="error">{t(error)}</AdminNotice>}
     {!loading && !error && <>
       <section className="metrics-grid" aria-label={t("Основные показатели")}>
         <article className="metric-total"><span>{t("Всего заявок")}</span><strong>{metrics.total}</strong><small>{t("в выбранном периоде")}</small></article>
         <article className="metric-queue"><span>{t("Новые и повторные")}</span><strong>{metrics.queue}</strong><small>{t("ожидают начала работы")}</small></article>
         <article className="metric-work"><span>{t("В работе")}</span><strong>{metrics.work}</strong><small>{t("включая ожидание подтверждения")}</small></article>
         <article className="metric-done"><span>{t("Выполненные")}</span><strong>{metrics.done}</strong><small>{metrics.total ? <>{t(Math.round(metrics.done / metrics.total * 100))}% <span className="metric-note-inline">{t("от выборки")}</span></> : t('нет заявок в выборке')}</small></article>
+      </section>
+
+      <section className="statistics-comparison" aria-labelledby="statistics-comparison-title">
+        <h2 id="statistics-comparison-title">{t('Сравнение с предыдущим периодом')}</h2>
+        {comparison ? <>
+          <div className="statistics-comparison-dates">
+            <p><strong>{t('Текущий период')}</strong><span>{comparisonDate(comparison.current.from)} — {comparisonDate(comparison.current.to - 1)}</span></p>
+            <p><strong>{t('Предыдущий равный период')}</strong><span>{comparisonDate(comparison.previous.from)} — {comparisonDate(comparison.previous.to - 1)}</span></p>
+          </div>
+          <div className="statistics-comparison-grid">
+            {[['received', 'Поступило'], ['closed', 'Закрыто окончательно'], ['remaining', 'Остаток на конец периода']].map(([key, label]) => {
+              const delta = comparison.current[key] - comparison.previous[key];
+              return <article key={key} data-metric={key}>
+                <span>{t(label)}</span><strong>{comparison.current[key]}</strong>
+                <small>{t('Предыдущий период: ')}{comparison.previous[key]}</small>
+                <b className={key === 'remaining' && delta > 0 ? 'comparison-increase' : key === 'remaining' && delta < 0 ? 'comparison-decrease' : ''}>{t('Изменение: ')}{signed(delta)}</b>
+              </article>;
+            })}
+          </div>
+          <p>{t('Остаток за текущий период: ')}{comparison.current.opening} → {comparison.current.remaining} ({signed(comparison.current.change)})</p>
+          <p className="statistics-comparison-note">{t('Остаток — заявки, поданные к концу периода и ещё не закрытые окончательно. Закрытия учитываются по дате окончательного закрытия, включая заявки прошлых периодов.')}</p>
+          {comparison.excluded > 0 && <AdminNotice type="warning">{t(`В сравнении не учтено заявок без корректных дат: ${comparison.excluded}.`)}</AdminNotice>}
+        </> : <AdminNotice>{t('Для сравнения выберите период: 7 дней, месяц или другой ограниченный диапазон.')}</AdminNotice>}
       </section>
 
       <section className="reports-grid">

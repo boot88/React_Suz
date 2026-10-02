@@ -1,3 +1,4 @@
+import AdminNotice from '../components/AdminNotice';
 import { useAdminTranslation, getAdminLocale } from '../utils/adminTranslation';
 import React, { useState, useEffect, useRef } from 'react';
 import './KnowledgeBase.css';
@@ -6,6 +7,8 @@ import { authFetch } from '../utils/authFetch';
 
 const KnowledgeBase = () => {
   const t = useAdminTranslation();
+  const [notice, setNotice] = useState(null);
+  const notify = (text, type = 'error') => setNotice({ text, type });
   const [articles, setArticles] = useState([]);
   const [newArticle, setNewArticle] = useState({ 
     title: '', 
@@ -31,6 +34,7 @@ const KnowledgeBase = () => {
   const fetchArticles = async () => {
     try {
       setLoading(true);
+      setError(null);
       const response = await authFetch(`${API_BASE_URL}/knowledge-base`);
       
       if (!response.ok) {
@@ -107,13 +111,13 @@ const KnowledgeBase = () => {
       for (const file of files) {
         // Проверка типа файла
         if (!file.type.startsWith('image/')) {
-          alert(t(`Файл "${file.name}" не является изображением`));
+          notify(`Файл "${file.name}" не является изображением`, 'warning');
           continue;
         }
 
         // Проверка размера (максимум 2MB)
         if (file.size > 2 * 1024 * 1024) {
-          alert(t(`Файл "${file.name}" слишком большой. Максимальный размер: 2MB`));
+          notify(`Файл "${file.name}" слишком большой. Максимальный размер: 2MB`, 'warning');
           continue;
         }
 
@@ -130,7 +134,7 @@ const KnowledgeBase = () => {
           });
         } catch (error) {
           console.error(`Ошибка конвертации файла ${file.name}:`, error);
-          alert(t(`Ошибка при обработке файла "${file.name}"`));
+          notify(`Ошибка при обработке файла "${file.name}"`, 'error');
         }
       }
 
@@ -150,7 +154,7 @@ const KnowledgeBase = () => {
 
     } catch (err) {
       console.error('Ошибка загрузки изображений:', err);
-      alert(t('Ошибка при загрузке изображений'));
+      notify('Ошибка при загрузке изображений', 'error');
     } finally {
       setUploadingImages(false);
       e.target.value = '';
@@ -188,7 +192,7 @@ const KnowledgeBase = () => {
 
   const addArticle = async () => {
     if (!newArticle.title.trim() || !newArticle.solution.trim()) {
-      alert(t('Заголовок и решение обязательны для заполнения'));
+      notify('Заголовок и решение обязательны для заполнения', 'warning');
       return;
     }
 
@@ -213,20 +217,20 @@ const KnowledgeBase = () => {
       if (response.ok) {
         await fetchArticles();
         setNewArticle({ title: '', solution: '', category: 'Общее', images: [] });
-        alert(t('Статья успешно добавлена!'));
+        notify('Статья успешно добавлена!', 'success');
       } else {
         const errorData = await response.json();
         throw new Error(`Ошибка при добавлении статьи: ${errorData.error || response.statusText}`);
       }
     } catch (err) {
       console.error('Ошибка добавления статьи:', err);
-      alert(t('Произошла ошибка при добавлении статьи: ' + err.message));
+      notify('Произошла ошибка при добавлении статьи: ' + err.message, 'error');
     }
   };
 
   const updateArticle = async () => {
     if (!editingArticle.title.trim() || !editingArticle.solution.trim()) {
-      alert(t('Заголовок и решение обязательны для заполнения'));
+      notify('Заголовок и решение обязательны для заполнения', 'warning');
       return;
     }
 
@@ -251,14 +255,14 @@ const KnowledgeBase = () => {
       if (response.ok) {
         await fetchArticles();
         setEditingArticle(null);
-        alert(t('Статья успешно обновлена!'));
+        notify('Статья успешно обновлена!', 'success');
       } else {
         const errorData = await response.json();
         throw new Error(`Ошибка при обновлении статьи: ${errorData.error || response.statusText}`);
       }
     } catch (err) {
       console.error('Ошибка обновления статьи:', err);
-      alert(t('Произошла ошибка при обновлении статьи: ' + err.message));
+      notify('Произошла ошибка при обновлении статьи: ' + err.message, 'error');
     }
   };
 
@@ -274,13 +278,13 @@ const KnowledgeBase = () => {
 
       if (response.ok) {
         await fetchArticles();
-        alert(t('Статья успешно удалена!'));
+        notify('Статья успешно удалена!', 'success');
       } else {
         throw new Error('Ошибка при удалении статьи');
       }
     } catch (err) {
       console.error('Ошибка удаления статьи:', err);
-      alert(t('Произошла ошибка при удалении статьи'));
+      notify('Произошла ошибка при удалении статьи', 'error');
     }
   };
 
@@ -361,11 +365,13 @@ const KnowledgeBase = () => {
       </div>
 
       {error && (
-        <div className="error-message">
+        <AdminNotice type="error">
           <span>{t(error)}</span>
           <button onClick={fetchArticles} className="retry-button">{t("Повторить попытку")}</button>
-        </div>
+        </AdminNotice>
       )}
+
+      {notice && <AdminNotice type={notice.type} onDismiss={() => setNotice(null)} dismissLabel={t("Закрыть уведомление")}>{t(notice.text)}</AdminNotice>}
 
       <div className="kb-content">
         <div className="articles-section">

@@ -1,3 +1,4 @@
+import AdminNotice from './AdminNotice';
 import { useAdminTranslation } from '../utils/adminTranslation';
 import React, { useCallback, useEffect, useState } from 'react';
 import { API_BASE_URL } from '../utils/apiConfig';
@@ -10,6 +11,7 @@ export default function ChatUploadSettings() {
   const [busy, setBusy] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [message, setMessage] = useState('');
+  const [messageType, setMessageType] = useState('info');
   const load = useCallback(async () => {
     setBusy(true);
     try {
@@ -17,22 +19,23 @@ export default function ChatUploadSettings() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.message);
       setSaved(data.limitMb); setValue(String(data.limitMb)); setLoaded(true); setMessage('');
-    } catch (error) { setMessage(error.message || 'Не удалось загрузить настройку'); }
+    } catch (error) { setMessageType('error'); setMessage(error.message || 'Не удалось загрузить настройку'); }
     finally { setBusy(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
   const save = async (event) => {
     event.preventDefault();
     const limitMb = Number(value);
-    if (!Number.isInteger(limitMb) || limitMb < 10 || limitMb > 150) { setMessage('Введите целое число от 10 до 150 МБ.'); return; }
+    if (!Number.isInteger(limitMb) || limitMb < 10 || limitMb > 150) { setMessageType('warning'); setMessage('Введите целое число от 10 до 150 МБ.'); return; }
     setBusy(true); setMessage('');
     try {
       const response = await authFetch(`${API_BASE_URL}/settings/chat-upload-limit`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ limitMb }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message);
       setSaved(data.limitMb); setValue(String(data.limitMb));
+      setMessageType('success');
       setMessage(`Сохранено. Теперь можно прикреплять файлы до ${data.limitMb} МБ.`);
-    } catch (error) { setMessage(error.message || 'Не удалось сохранить настройку'); }
+    } catch (error) { setMessageType('error'); setMessage(error.message || 'Не удалось сохранить настройку'); }
     finally { setBusy(false); }
   };
   return <section className="settings-group">
@@ -47,7 +50,7 @@ export default function ChatUploadSettings() {
         <button type="submit" disabled={!loaded || busy || Number(value) === saved}>{t(busy ? 'Подождите…' : 'Сохранить')}</button>
       </form>
       {!loaded && !busy && <button type="button" onClick={load}>{t("Повторить загрузку")}</button>}
-      {message && <p className="settings-message" role="status">{t(message)}</p>}
+      {message && <AdminNotice type={messageType}>{t(message)}</AdminNotice>}
     </article></div>
   </section>;
 }

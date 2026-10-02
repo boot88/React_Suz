@@ -1,3 +1,4 @@
+import AdminNotice from './components/AdminNotice';
 import { translateAdminText as t } from './utils/adminTranslation';
 import { userSettingsStorage, PREFERENCES_EVENT, flushPreferenceSync } from './utils/userPreferences';
 import React, { useState, useEffect, useRef } from 'react';
@@ -162,7 +163,7 @@ function AppWorkspace() {
     <div className={`app-container ${showAdminShell ? `admin-workspace admin-theme-${adminTheme}` : ''}`} data-admin-language={adminLanguage}>
       {showAdminShell && <Sidebar language={adminLanguage} />}
       <div className={`app-content ${showAdminShell ? 'app-content--with-sidebar admin-shell-content' : ''}`}>
-        {isAuthenticated && preferenceSyncError && <div role="alert" className="settings-sync-error">{t(preferenceSyncError, adminLanguage)} <button type="button" onClick={flushPreferenceSync}>{t('Повторить сохранение', adminLanguage)}</button></div>}
+        {isAuthenticated && preferenceSyncError && (showAdminShell ? <AdminNotice type="error">{t(preferenceSyncError, adminLanguage)} <button type="button" onClick={flushPreferenceSync}>{t('Повторить сохранение', adminLanguage)}</button></AdminNotice> : <div role="alert" className="settings-sync-error">{t(preferenceSyncError, adminLanguage)} <button type="button" onClick={flushPreferenceSync}>{t('Повторить сохранение', adminLanguage)}</button></div>)}
         {showAdminShell && <AdminWelcomeNotice language={adminLanguage} />}
         <Routes>
           <Route path="/login" element={<Login />} />

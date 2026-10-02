@@ -1,3 +1,4 @@
+import AdminNotice from '../components/AdminNotice';
 import { useAdminTranslation, getAdminLocale } from '../utils/adminTranslation';
 import { userSettingsStorage } from '../utils/userPreferences';
 import React, { useState, useEffect, useCallback } from 'react';
@@ -22,6 +23,7 @@ function EditApplicationsTable() {
   const [editing, setEditing] = useState(false);
   const [editingApp, setEditingApp] = useState({});
   const [successMessage, setSuccessMessage] = useState('');
+  const [notice, setNotice] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -276,7 +278,7 @@ function EditApplicationsTable() {
 
   const saveChanges = async () => {
     if (!validateForm()) {
-      alert(t('Пожалуйста, исправьте ошибки в форме'));
+      setNotice({ text: 'Пожалуйста, исправьте ошибки в форме', type: 'warning' });
       return;
     }
 
@@ -304,17 +306,18 @@ function EditApplicationsTable() {
         } else {
           await fetchApplications();
           setEditing(false);
+          setNotice(null);
           setSuccessMessage('Изменения успешно сохранены!');
           setTimeout(() => setSuccessMessage(''), 3000);
         }
       } else {
         const errorText = await response.text();
         console.error('Ошибка сервера:', response.status, errorText);
-        alert(t(`Ошибка при сохранении: ${response.status} ${response.statusText}`));
+        setNotice({ text: `Ошибка при сохранении: ${response.status} ${response.statusText}`, type: 'error' });
       }
     } catch (err) {
       console.error('Ошибка:', err.message);
-      alert(t('Произошла сетевая ошибка при сохранении. Проверьте подключение к серверу.'));
+      setNotice({ text: 'Произошла сетевая ошибка при сохранении. Проверьте подключение к серверу.', type: 'error' });
     }
   };
 
@@ -354,11 +357,11 @@ function EditApplicationsTable() {
       } else {
         const errorText = await response.text();
         console.error('Ошибка сервера:', response.status, errorText);
-        alert(t(`Ошибка при удалении: ${response.status} ${response.statusText}`));
+        setNotice({ text: `Ошибка при удалении: ${response.status} ${response.statusText}`, type: 'error' });
       }
     } catch (err) {
       console.error('Ошибка удаления:', err.message);
-      alert(t('Произошла сетевая ошибка при удалении. Проверьте подключение к серверу.'));
+      setNotice({ text: 'Произошла сетевая ошибка при удалении. Проверьте подключение к серверу.', type: 'error' });
     }
   };
 
@@ -489,10 +492,7 @@ function EditApplicationsTable() {
   if (error) {
     return (
       <div className="edit-container">
-        <div className="error-message">
-          <span>{t(error)}</span>
-          <button onClick={fetchApplications} className="retry-button">{t("Повторить попытку")}</button>
-        </div>
+        <AdminNotice type="error"><span>{t(error)}</span><button onClick={fetchApplications} className="retry-button">{t("Повторить попытку")}</button></AdminNotice>
       </div>
     );
   }
@@ -530,16 +530,13 @@ function EditApplicationsTable() {
       </div>}
 
       {error && (
-        <div className="error-message">
-          <span>{t(error)}</span>
-          <button onClick={fetchApplications} className="retry-button">{t("Повторить попытку")}</button>
-        </div>
+        <AdminNotice type="error"><span>{t(error)}</span><button onClick={fetchApplications} className="retry-button">{t("Повторить попытку")}</button></AdminNotice>
       )}
 
+      {notice && <AdminNotice type={notice.type} onDismiss={() => setNotice(null)} dismissLabel={t("Закрыть уведомление")}>{t(notice.text)}</AdminNotice>}
+
       {successMessage && (
-        <div className="success-message">
-          {t(successMessage)}
-        </div>
+        <AdminNotice type="success">{t(successMessage)}</AdminNotice>
       )}
 
       {editing ? (

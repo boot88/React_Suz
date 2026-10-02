@@ -1,5 +1,17 @@
 // Admin interface text only. User-entered content and stored identifiers stay unchanged.
 export const ADMIN_TRANSLATIONS = {
+  "Закрыть уведомление": "Dismiss notification",
+  "Сравнение с предыдущим периодом": "Comparison with the previous period",
+  "Текущий период": "Current period",
+  "Предыдущий равный период": "Previous equal period",
+  "Поступило": "Received",
+  "Закрыто окончательно": "Finally closed",
+  "Остаток на конец периода": "Backlog at period end",
+  "Предыдущий период:": "Previous period:",
+  "Изменение:": "Change:",
+  "Остаток за текущий период:": "Backlog during the current period:",
+  "Остаток — заявки, поданные к концу периода и ещё не закрытые окончательно. Закрытия учитываются по дате окончательного закрытия, включая заявки прошлых периодов.": "Backlog includes requests submitted by the period end that were not yet finally closed. Closures are counted by their final closing date, including requests submitted in earlier periods.",
+  "Для сравнения выберите период: 7 дней, месяц или другой ограниченный диапазон.": "To compare, select 7 days, a month or another finite range.",
   "Файл личных настроек превышает 64 КБ.": "The personal preferences file exceeds 64 KB.",
   "Этапы операции": "Operation stages",
   "Подготовка": "Preparation",

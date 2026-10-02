@@ -72,9 +72,9 @@ test('test-mode empty state with counts and earliest date is fully English', asy
 test('server error is translated at render and switches back to Russian', async () => {
   authFetch.mockResolvedValue({ ok: false, json: async () => ({ message: 'Не удалось загрузить периоды' }) });
   await render();
-  expect(container.querySelector('[role="alert"]').textContent).toBe('Could not load periods');
+  expect(container.querySelector('[role="alert"] .admin-notice-content').textContent).toBe('Could not load periods');
   await render(false);
-  expect(container.querySelector('[role="alert"]').textContent).toBe('Не удалось загрузить периоды');
+  expect(container.querySelector('[role="alert"] .admin-notice-content').textContent).toBe('Не удалось загрузить периоды');
 });
 
 test('English delete confirmation uses DELETE and preserves the server confirmation contract', async () => {

@@ -1,3 +1,4 @@
+import AdminNotice from '../components/AdminNotice';
 import { useAdminTranslation } from '../utils/adminTranslation';
 import React, { useEffect, useState } from 'react';
 import './AddApplication.css';
@@ -379,9 +380,7 @@ const AddApplication = () => {
           >{t("Назад")}</button>
         </div>
         {message.text && (
-          <div className={`message ${message.type}`} role="status">
-            {t(message.text)}
-          </div>
+          <AdminNotice type={message.type}>{t(message.text)}</AdminNotice>
         )}
       </form>
     </div>

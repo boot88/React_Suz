@@ -1,3 +1,4 @@
+import AdminNotice from '../AdminNotice';
 import { translateAdminText } from '../../utils/adminTranslation';
 import { userSettingsStorage } from '../../utils/userPreferences';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -530,7 +531,7 @@ export default function ChatAuditAdministration({
         </label>
       </div>
 
-      {error && <div className="audit-search-error" role="alert">{auditText(error)}</div>}
+      {error && <AdminNotice type="error">{auditText(error)}</AdminNotice>}
       {showPeriodHint && <div className="audit-search-empty"><b>1</b><span>{auditText("Выберите день или месяц сверху либо укажите даты вручную.")}</span></div>}
       {showEmployeeHint && <div className="audit-search-empty"><b>2</b><span>{participantsLoading ? auditText('Загружаем сотрудников выбранного периода…') : auditText(`Выберите сотрудника из списка участников периода (${employeeOptions.length}).`)}</span></div>}
       {searchReady && searchLoading && conversations.length === 0 && <div className="audit-search-empty"><span>{copy.searching}</span></div>}
@@ -592,7 +593,7 @@ export default function ChatAuditAdministration({
           <div className="audit-media-viewer-header"><strong>{previewFile.name || auditText('Вложение')}</strong><button type="button" onClick={() => setPreviewFile(null)} aria-label={auditText("Закрыть")}>×</button></div>
           <div className="audit-media-viewer-stage">
             {previewLoading && <div className="audit-media-viewer-status">{auditText("Загружаем файл…")}</div>}
-            {!previewLoading && previewError && <div className="audit-media-viewer-status" role="alert">{auditText(previewError)}</div>}
+            {!previewLoading && previewError && <AdminNotice type="error">{auditText(previewError)}</AdminNotice>}
             {!previewLoading && !previewError && previewSource && (isVideoAttachment(previewFile)
               ? <video key={previewSource} src={previewSource} controls playsInline preload="metadata">{auditText("Ваш браузер не поддерживает видео.")}</video>
               : <img src={previewSource} alt={previewFile.name || auditText('Фото')} />)}

@@ -15,13 +15,21 @@ import { authFetch } from '../utils/authFetch';
 import { initializeUserPreferences, userSettingsStorage } from '../utils/userPreferences';
 import { translateAdminText, getAdminLocale } from '../utils/adminTranslation';
 
+const mockNavigate = jest.fn();
+
 jest.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { username: 'admin', name: 'Повисок Евгений Вячеславович', role: 'admin' }, isLoading: false }) }));
-jest.mock('react-router-dom', () => ({ useNavigate: () => jest.fn(), useLocation: () => ({ pathname: '/', search: '' }), useParams: () => ({}) }));
+jest.mock('react-router-dom', () => ({ useNavigate: () => mockNavigate, useLocation: () => ({ pathname: '/', search: '' }), useParams: () => ({}) }));
 jest.mock('../utils/authFetch', () => ({ authFetch: jest.fn() }));
 jest.mock('recharts', () => {
   const React = require('react');
   const Container = ({ children }) => React.createElement('div', null, children);
-  return Object.fromEntries(['Bar', 'BarChart', 'CartesianGrid', 'Cell', 'Legend', 'Line', 'LineChart', 'Pie', 'PieChart', 'ResponsiveContainer', 'Tooltip', 'XAxis', 'YAxis'].map((key) => [key, Container]));
+  const components = Object.fromEntries(['Bar', 'BarChart', 'CartesianGrid', 'Cell', 'Legend', 'Line', 'LineChart', 'Pie', 'PieChart', 'ResponsiveContainer', 'Tooltip', 'XAxis', 'YAxis'].map((key) => [key, Container]));
+  components.LineChart = ({ children, data = [], onMouseMove }) => React.createElement('div', null, children,
+    data.filter((point) => point.value > 0).map((point) => React.createElement('button', {
+      key: point.day, 'data-chart-day': point.day,
+      onMouseEnter: () => onMouseMove?.({ activePayload: [{ payload: point }] })
+    }, point.date)));
+  return components;
 });
 
 let container, root;
@@ -35,6 +43,7 @@ beforeEach(() => {
   localStorage.clear();
   localStorage.setItem('authState', JSON.stringify({ user: { username: 'admin' } }));
   initializeUserPreferences('admin', { uiLanguage: 'en', requestViewMode: 'table' });
+  mockNavigate.mockReset();
   authFetch.mockReset();
   authFetch.mockImplementation(async (url) => {
     let data = {};
@@ -168,7 +177,8 @@ test('knowledge base categories display in English but save their original ident
     expect(authFetch).toHaveBeenCalledWith(expect.stringContaining('/knowledge-base'), expect.objectContaining({ method: 'POST', body: expect.any(String) }));
     const saved = JSON.parse(authFetch.mock.calls.find(([, options]) => options?.method === 'POST')[1].body);
     expect(saved).toMatchObject({ title: 'Все заявки', solution: 'Сохранить', category: 'Установка ПО' });
-    expect(alert).toHaveBeenCalledWith('Article added successfully!');
+    expect(alert).not.toHaveBeenCalled();
+    expect(container.querySelector('.admin-notice--success').textContent).toContain('Article added successfully!');
   } finally { alert.mockRestore(); }
 });
 
@@ -243,7 +253,8 @@ test('Excel captions match all filtered rows or the selected page rows and expor
   const anchorClick = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
   try {
     await render(<Dashboard />);
-    expect(container.querySelector('.export-btn').textContent).toContain('Export matching — 2 requests');
+    expect(container.querySelector('.export-btn').textContent.trim()).toBe('📥Export to Excel');
+    expect(container.querySelector('.compact-reset')).toBeNull();
     await act(async () => Simulate.change(container.querySelector('#dashboard-date-from'), { target: { value: '2026-09-01' } }));
     await act(async () => Simulate.click(container.querySelector('.export-btn')));
     const exportQuery = authFetch.mock.calls.find(([url]) => url.includes('/applications/export?') || url.endsWith('/applications/export'));
@@ -309,4 +320,59 @@ test('personal preference preview and cancellation do not change stored settings
   expect(container.querySelector('[role="dialog"]').textContent).toContain('Your personal preferences');
   await act(async () => Simulate.click(container.querySelector('[role="dialog"] .backup-import')));
   expect(userSettingsStorage.getItem('adminLanguage')).toBe('en');
+});
+
+test('statistics compare equal periods, apply the executor filter and retain chart request links', async () => {
+  const now = Date.now(), day = 86400000;
+  const date = (days) => new Date(now + days * day).toISOString();
+  const rows = [
+    { ...application, id: 1, created_at: date(-20), fl: true, status: 'done', end_data: date(-1) },
+    { ...application, id: 2, created_at: date(-2) },
+    { ...application, id: 3, created_at: date(-9), fl: true, status: 'done', end_data: date(-8) },
+    { ...application, id: 4, created_at: date(-1), executor: 'Андреев Р.В.' }
+  ];
+  authFetch.mockResolvedValue({ ok: true, json: async () => ({ applications: rows, totalPages: 1 }) });
+  await render(<StatisticsOverview />);
+  await act(async () => Simulate.change(container.querySelector('.statistics-period select'), { target: { value: '7' } }));
+  const comparison = container.querySelector('.statistics-comparison');
+  expect(comparison.querySelector('[data-metric="received"] strong').textContent).toBe('2');
+  expect(comparison.querySelector('[data-metric="closed"] strong').textContent).toBe('1');
+  expect(comparison.querySelector('[data-metric="remaining"] strong').textContent).toBe('2');
+  expect(comparison.querySelector('[data-metric="remaining"] b').textContent).toContain('+1');
+  await act(async () => Simulate.click(container.querySelector('.statistics-executor-trigger')));
+  await act(async () => Simulate.change(container.querySelector('.statistics-executor-option input')));
+  expect(comparison.querySelector('[data-metric="received"] strong').textContent).toBe('1');
+  expect(comparison.querySelector('[data-metric="remaining"] strong').textContent).toBe('1');
+  await act(async () => Simulate.mouseEnter(container.querySelector('button[data-chart-day]')));
+  const requestButton = container.querySelector('.statistics-day-applications button');
+  expect(requestButton).not.toBeNull();
+  await act(async () => Simulate.click(requestButton));
+  expect(mockNavigate).toHaveBeenCalledWith('/?application=2');
+  await setLanguage('ru');
+  expect(comparison.textContent).toContain('Сравнение с предыдущим периодом');
+  await act(async () => Simulate.change(container.querySelector('.statistics-period select'), { target: { value: 'all' } }));
+  expect(comparison.querySelector('[data-metric]')).toBeNull();
+  expect(comparison.textContent).toContain('Для сравнения выберите период');
+});
+
+test('knowledge validation and request failures use inline warning/error notices without browser alerts', async () => {
+  const alert = jest.spyOn(window, 'alert').mockImplementation(() => {});
+  try {
+    await render(<KnowledgeBase />);
+    await act(async () => Simulate.change(container.querySelector('input[type="file"]'), { target: { files: [{ name: 'Спектр.zip', type: 'application/zip', size: 12 }], value: '' } }));
+    expect(container.querySelector('.admin-notice--warning').textContent).toContain('File "Спектр.zip" is not an image');
+    expect(container.querySelector('.admin-notice--warning').getAttribute('role')).toBe('alert');
+    await setLanguage('ru');
+    expect(container.querySelector('.admin-notice--warning').textContent).toContain('не является изображением');
+    act(() => {
+      Simulate.change(container.querySelector('input[name="title"]'), { target: { name: 'title', value: 'Статья' } });
+      Simulate.change(container.querySelector('textarea[name="solution"]'), { target: { name: 'solution', value: 'Решение' } });
+    });
+    authFetch.mockResolvedValue({ ok: false, json: async () => ({ error: 'Ошибка сервера' }), statusText: 'Server error' });
+    await act(async () => Simulate.click(container.querySelector('.add-form .add-btn')));
+    expect(container.querySelector('.admin-notice--error')).not.toBeNull();
+    expect(alert).not.toHaveBeenCalled();
+    await act(async () => Simulate.click(container.querySelector('.admin-notice-dismiss')));
+    expect(container.querySelector('.admin-notice')).toBeNull();
+  } finally { alert.mockRestore(); }
 });

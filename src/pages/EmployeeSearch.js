@@ -1,3 +1,4 @@
+import AdminNotice from '../components/AdminNotice';
 import { useAdminTranslation } from '../utils/adminTranslation';
 import React, { useState, useEffect, useCallback } from 'react';
 import { searchEmployees, getDepartments } from '../services/employeeService';
@@ -188,15 +189,11 @@ const EmployeeSearch = () => {
       </form>
 
       {error && (
-        <div className="error-message">
-          {t(error)}
-        </div>
+        <AdminNotice type="error">{t(error)}</AdminNotice>
       )}
 
       {syncMessage && (
-        <div className="sync-message">
-          {t(syncMessage)}
-        </div>
+        <AdminNotice type="success">{t(syncMessage)}</AdminNotice>
       )}
 
       {hasSyncChanges && (

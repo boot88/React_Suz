@@ -1,3 +1,4 @@
+import AdminNotice from '../components/AdminNotice';
 import { translateAdminText as t, useAdminTranslation, getAdminLocale } from '../utils/adminTranslation';
 import { userSettingsStorage } from '../utils/userPreferences';
 import React, { useState } from 'react';
@@ -131,6 +132,7 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
   const [busy, setBusy] = useState('');
   const [operation, setOperation] = useState(null);
   const [message, setMessage] = useState('');
+  const [messageType, setMessageType] = useState('info');
   const [directoryReport, setDirectoryReport] = useState(null);
   const [applicationActionHistoryVisible, setApplicationActionHistoryVisible] = useState(() => userSettingsStorage.getItem('admin.showApplicationActionHistory') === 'true');
   const [auditTestModeEnabled, setAuditTestModeEnabled] = useState(() => userSettingsStorage.getItem(AUDIT_TEST_MODE_SETTING_KEY) === 'true');
@@ -188,9 +190,11 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
         localStorage.setItem('network-map-cache', JSON.stringify(data));
         setMessage('Данные IP-сетки обновлены и сохранены в SQL.');
       }
+      setMessageType('success');
       setOperation({ steps, step: 2 });
     } catch (error) {
       setOperation((previous) => ({ ...previous, failed: true }));
+      setMessageType('error');
       setMessage(error.message || 'Не удалось выполнить обновление.');
     } finally {
       setBusy('');
@@ -301,7 +305,7 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
             </article>
           </div>
           {operation && <OperationProgress {...operation} />}
-          {message && <div className="settings-message">{Array.isArray(message) ? message.map((part) => t(part)).join(' ') : t(message)}</div>}
+          {message && <AdminNotice type={messageType}>{Array.isArray(message) ? message.map((part) => t(part)).join(' ') : t(message)}</AdminNotice>}
           <DirectorySyncReport report={directoryReport} />
         </section>
 
