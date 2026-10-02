@@ -17,6 +17,7 @@ const KnowledgeBase = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [expandedImage, setExpandedImage] = useState(null);
+  const [expandedArticles, setExpandedArticles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const fileInputRef = useRef(null);
@@ -396,6 +397,12 @@ const KnowledgeBase = () => {
                       </div>
                     </div>
                     <p className="article-category">{t("Категория: ")}{t(article.category || 'Общее')}</p>
+                    <p className="article-excerpt">{String(article.solution || '').replace(/\s+/g, ' ').slice(0, 180)}{String(article.solution || '').length > 180 ? '…' : ''}</p>
+                    <button type="button" className="article-expand" aria-expanded={expandedArticles.includes(article.id)} aria-controls={`article-body-${article.id}`}
+                      onClick={() => setExpandedArticles((ids) => ids.includes(article.id) ? ids.filter((id) => id !== article.id) : [...ids, article.id])}>
+                      {t(expandedArticles.includes(article.id) ? 'Свернуть статью' : 'Читать решение')}{articleImages.length > 0 && <span> · {t('Фотографии: ')}{articleImages.length}</span>}
+                    </button>
+                    {expandedArticles.includes(article.id) && <div id={`article-body-${article.id}`}>
                     <div className="article-content">
                       <h4>{t("Решение:")}</h4>
                       <pre>{article.solution}</pre>
@@ -427,6 +434,7 @@ const KnowledgeBase = () => {
                       </div>
                     )}
                     
+                    </div>}
                     <p className="article-date">{t("Обновлено: ")}{t(formatDate(article.updated_at))}
                     </p>
                   </div>

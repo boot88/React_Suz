@@ -1457,11 +1457,8 @@ button:disabled,
   }
 }
 
-.workflow-quick-filters{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0}
-.workflow-quick-filters button{padding:10px 16px;border:1px solid var(--dash-border);border-radius:999px;background:var(--dash-surface);color:var(--dash-text);font-weight:700;cursor:pointer}
-.workflow-quick-filters button.active{background:var(--dash-primary);color:#fff;border-color:var(--dash-primary)}
-.workflow-quick-filters button:focus-visible,.side-panel-chronology summary:focus-visible{outline:2px solid var(--dash-primary);outline-offset:3px}
 .side-panel-head h2{padding-right:32px;font-size:22px;overflow-wrap:anywhere}.side-panel-head small{display:block;color:var(--dash-muted);line-height:1.5}
 .side-panel-chronology{border-top:1px solid var(--dash-border);padding-top:14px}.side-panel-chronology summary{cursor:pointer;font-weight:700;margin-bottom:12px}
 button.stat-card{text-align:left;font:inherit;cursor:pointer}.stat-card .stat-number{display:block}.stat-card:focus-visible{outline:2px solid var(--dash-primary);outline-offset:3px}
 .side-panel-head h2{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.side-panel-chronology summary:focus-visible{outline:2px solid var(--dash-primary);outline-offset:3px}

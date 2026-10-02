@@ -70,7 +70,7 @@ export const getAllEmployees = async () => {
 };
 
 // Ручное обновление справочника сотрудников
-export const syncEmployees = async () => {
+export const syncEmployees = async (onStage = () => {}) => {
   try {
     const directoryResponse = await authFetch(`${API_BASE_URL}/employees/sync`, {
       method: 'POST'
@@ -82,6 +82,7 @@ export const syncEmployees = async () => {
       throw new Error(directory.error || 'Ошибка при обновлении справочника сотрудников');
     }
 
+    onStage(1);
     const accountsResponse = await authFetch(`${API_BASE_URL}/auth/provision-from-phone-book`, {
       method: 'POST'
     });

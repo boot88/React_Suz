@@ -96,3 +96,14 @@ test('restoration creates an absent table from metadata without executing upload
     assert.equal(createdSql, 'CREATE TABLE `knowledge_base` (`id` int NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
   } finally { exists = true; await fs.rm(recoveryDir, { recursive: true, force: true }); }
 });
+
+test('inspection reports verified counts without leaking rows or executing restoration', async () => {
+  const { describeBackup } = require('../routes/adminBackups');
+  const backup = await decodeUpload(Buffer.from(incoming()), 'knowledge', group);
+  inserted = []; rolledBack = false;
+  const metadata = describeBackup(backup, 'knowledge');
+  assert.deepEqual(metadata, { group: 'knowledge', version: 1, createdAt: null, tables: [{ name: 'knowledge_base', rows: 1 }], rows: 1, files: 0, embeddedImages: 1 });
+  assert.equal(JSON.stringify(metadata).includes('Восстановленная статья'), false);
+  assert.deepEqual(inserted, []);
+  assert.equal(rolledBack, false);
+});

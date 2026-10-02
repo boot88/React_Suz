@@ -10,6 +10,7 @@ import KnowledgeBase from './KnowledgeBase';
 import NetworkMap from './NetworkMap';
 import StatisticsOverview from './StatisticsOverview';
 import AdminSettings from './AdminSettings';
+import AdminBackups from '../components/AdminBackups';
 import { authFetch } from '../utils/authFetch';
 import { initializeUserPreferences, userSettingsStorage } from '../utils/userPreferences';
 import { translateAdminText, getAdminLocale } from '../utils/adminTranslation';
@@ -183,24 +184,10 @@ test('settings separate account preferences from shared limits and maintenance',
   expect(scopes[2].textContent).toContain('Refresh directory');
 });
 
-test('visible queue filters preserve search and use the matching server filter', async () => {
+test('the extra quick-filter row is removed while the original statistics remain', async () => {
   await render(<Dashboard />);
-  await act(async () => Simulate.change(container.querySelector('input[placeholder="Search requests"]'), { target: { value: '15' } }));
-  const filters = [...container.querySelectorAll('.workflow-quick-filters button')];
-  expect(filters).toHaveLength(7);
-  for (const [caption, parameter, value] of [['Mine', 'queue', 'my'], ['Unassigned', 'queue', 'unassigned'], ['Overdue', 'status', 'overdue'], ['Closed', 'status', 'done']]) {
-    const button = filters.find((item) => item.textContent === caption);
-    expect(button).toBeDefined();
-    authFetch.mockClear();
-    await act(async () => Simulate.click(button));
-    expect(button.getAttribute('aria-pressed')).toBe('true');
-    const calls = authFetch.mock.calls.filter(([url]) => url.includes('/applications?'));
-    expect(calls.length).toBeGreaterThan(0);
-    const params = new URL(calls[0][0], 'http://localhost').searchParams;
-    expect(params.get(parameter)).toBe(value);
-    expect(params.get('search')).toBe('15');
-    expect(params.get('assignee')).toBe(value === 'my' ? 'Повисок Евгений Вячеславович' : null);
-  }
+  expect(container.querySelector('.workflow-quick-filters')).toBeNull();
+  expect(container.querySelectorAll('.stats-grid .stat-card')).toHaveLength(3);
 });
 
 test('employee search combines a department with FIO and also searches a department alone', async () => {
@@ -226,4 +213,100 @@ test('employee search combines a department with FIO and also searches a departm
   params = new URL(authFetch.mock.calls[0][0], 'http://localhost').searchParams;
   expect(params.get('query')).toBe('');
   expect(params.get('department')).toBe('Отдел А');
+});
+
+test('knowledge articles show excerpts first and load full solutions and photos on expansion', async () => {
+  const solution = 'Оригинальный русский текст '.repeat(20);
+  authFetch.mockResolvedValue({ ok: true, json: async () => [{ id: 1, title: 'Спектрометр', category: 'Оборудование', solution, images: JSON.stringify([{ name: 'Фото.png', data: 'data:image/png;base64,eA==' }]) }] });
+  await render(<KnowledgeBase />);
+  const card = container.querySelector('.article-card');
+  expect(card.querySelector('.article-excerpt').textContent.length).toBeLessThan(190);
+  expect(card.querySelector('pre')).toBeNull();
+  expect(card.querySelector('img')).toBeNull();
+  const button = card.querySelector('.article-expand');
+  expect(button.textContent).toContain('Photos: 1');
+  await act(async () => Simulate.click(button));
+  expect(button.getAttribute('aria-expanded')).toBe('true');
+  expect(card.querySelector('pre').textContent).toBe(solution);
+  expect(card.querySelector('img').getAttribute('alt')).toBe('Фото.png');
+  await setLanguage('ru');
+  expect(button.textContent).toContain('Свернуть статью');
+  await act(async () => Simulate.click(button));
+  expect(card.querySelector('pre')).toBeNull();
+});
+
+test('Excel captions match all filtered rows or the selected page rows and export the matching data', async () => {
+  const rows = [application, { ...application, id: 8 }];
+  authFetch.mockImplementation(async (url) => ({ ok: true, json: async () => url.includes('/applications/export') ? { applications: rows } : url.includes('/applications') ? { applications: [application], totalPages: 2, stats: { total: 2 } } : { employees: [] }, blob: async () => new Blob(['xlsx']) }));
+  const originalCreate = URL.createObjectURL, originalRevoke = URL.revokeObjectURL;
+  URL.createObjectURL = jest.fn(() => 'blob:export'); URL.revokeObjectURL = jest.fn();
+  const anchorClick = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  try {
+    await render(<Dashboard />);
+    expect(container.querySelector('.export-btn').textContent).toContain('Export matching — 2 requests');
+    await act(async () => Simulate.change(container.querySelector('#dashboard-date-from'), { target: { value: '2026-09-01' } }));
+    await act(async () => Simulate.click(container.querySelector('.export-btn')));
+    const exportQuery = authFetch.mock.calls.find(([url]) => url.includes('/applications/export?') || url.endsWith('/applications/export'));
+    expect(new URL(exportQuery[0], 'http://localhost').searchParams.get('from')).toBeNull();
+    let call = authFetch.mock.calls.find(([url]) => url.endsWith('/export-xlsx'));
+    expect(JSON.parse(call[1].body).applications).toHaveLength(2);
+    expect(container.querySelector('.operation-progress .current').textContent).toContain('Done');
+    authFetch.mockClear();
+    await act(async () => Simulate.change(container.querySelector('tbody input[type="checkbox"]'), { target: { checked: true } }));
+    const selectedButton = [...container.querySelectorAll('.bulk-actions-bar button')].find((button) => button.textContent.startsWith('Export selected'));
+    expect(selectedButton.textContent).toBe('Export selected — 1 request');
+    await act(async () => Simulate.click(selectedButton));
+    call = authFetch.mock.calls.find(([url]) => url.endsWith('/export-xlsx'));
+    expect(JSON.parse(call[1].body).applications.map((row) => row.id)).toEqual([7]);
+    await act(async () => Simulate.change(container.querySelector('input[placeholder="Search requests"]'), { target: { value: 'новый поиск' } }));
+    expect(container.querySelector('.bulk-actions-bar')).toBeNull();
+  } finally { URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke; anchorClick.mockRestore(); }
+});
+
+test('restore shows validated backup metadata and only imports after explicit confirmation', async () => {
+  const file = { name: 'Заявки.sql', size: 2048 };
+  authFetch.mockImplementation(async (url) => ({ ok: true, json: async () => url.endsWith('/inspect') ? { group: 'applications', rows: 12, files: 0, embeddedImages: 0, createdAt: null, tables: [{ name: 'application', rows: 12 }] } : url.endsWith('/import') ? { message: 'Данные восстановлены. Обновите страницу. Копия прежних данных сохранена на сервере.', tables: [{ rows: 12 }], files: 0, recoveryName: '1-applications.sql' } : [{ key: 'applications', title: 'Заявки', extension: '.sql', tables: ['application'] }] }));
+  await render(<AdminBackups />);
+  await act(async () => Simulate.click(container.querySelector('.backup-import')));
+  await act(async () => Simulate.change(container.querySelector('input[type="file"]'), { target: { files: [file], value: '' } }));
+  const dialog = container.querySelector('[role="dialog"]');
+  expect(dialog.textContent).toContain('Заявки.sql');
+  expect(dialog.textContent).toContain('application: 12');
+  expect(dialog.textContent).toContain('Not specified in the backup');
+  expect(authFetch.mock.calls.some(([url]) => url.endsWith('/import'))).toBe(false);
+  await setLanguage('ru');
+  expect(dialog.textContent).toContain('Подтверждение восстановления');
+  await act(async () => Simulate.click([...dialog.querySelectorAll('button')].find((button) => button.textContent === 'Восстановить данные')));
+  const call = authFetch.mock.calls.find(([url]) => url.endsWith('/import'));
+  expect(call[1].body).toBe(file);
+  expect(call[1].headers['X-Confirm-Restore']).toBe('replace');
+  expect(container.querySelector('[role="dialog"]')).toBeNull();
+  expect(container.querySelector('.operation-progress .current').textContent).toContain('Готово');
+});
+
+test('invalid backups and cancelled confirmations never import data', async () => {
+  authFetch.mockImplementation(async (url) => ({ ok: !url.endsWith('/inspect'), json: async () => url.endsWith('/inspect') ? { message: 'Дамп повреждён или сохранён не полностью' } : [{ key: 'applications', title: 'Заявки', extension: '.sql', tables: ['application'] }] }));
+  await render(<AdminBackups />);
+  await act(async () => Simulate.click(container.querySelector('.backup-import')));
+  await act(async () => Simulate.change(container.querySelector('input[type="file"]'), { target: { files: [{ name: 'broken.sql', size: 10 }], value: '' } }));
+  expect(container.querySelector('[role="dialog"]')).toBeNull();
+  expect(container.querySelector('[role="alert"]')).not.toBeNull();
+  expect(authFetch.mock.calls.some(([url]) => url.endsWith('/import'))).toBe(false);
+  authFetch.mockImplementation(async () => ({ ok: true, json: async () => ({ rows: 1, files: 0, embeddedImages: 0, tables: [{ name: 'application', rows: 1 }] }) }));
+  await act(async () => Simulate.change(container.querySelector('input[type="file"]'), { target: { files: [{ name: 'valid.sql', size: 10 }], value: '' } }));
+  await act(async () => Simulate.click(container.querySelector('[role="dialog"] .backup-import')));
+  expect(container.querySelector('[role="dialog"]')).toBeNull();
+  expect(authFetch.mock.calls.some(([url]) => url.endsWith('/import'))).toBe(false);
+});
+
+test('personal preference preview and cancellation do not change stored settings', async () => {
+  await render(<AdminBackups />);
+  const article = [...container.querySelectorAll('article')].find((item) => item.querySelector('h2').textContent === 'Personal preferences');
+  await act(async () => Simulate.click(article.querySelector('.backup-import')));
+  const file = { name: 'settings.json', size: 150, text: async () => JSON.stringify({ format: 'React_Suz browser settings', version: 1, settings: { adminLanguage: 'ru' } }) };
+  await act(async () => Simulate.change(container.querySelector('input[type="file"]'), { target: { files: [file], value: '' } }));
+  expect(userSettingsStorage.getItem('adminLanguage')).toBe('en');
+  expect(container.querySelector('[role="dialog"]').textContent).toContain('Your personal preferences');
+  await act(async () => Simulate.click(container.querySelector('[role="dialog"] .backup-import')));
+  expect(userSettingsStorage.getItem('adminLanguage')).toBe('en');
 });

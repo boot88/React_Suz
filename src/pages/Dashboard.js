@@ -6,12 +6,19 @@ import './Dashboard.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { useAuth } from '../context/AuthContext';
 import { authFetch } from '../utils/authFetch';
+import OperationProgress from '../components/OperationProgress';
 import {
   APPLICATION_TIME_ZONE,
   formatApplicationDateTime,
   formatApplicationDuration,
   getApplicationTiming
 } from '../utils/applicationTime';
+
+const requestCountLabel = (count) => {
+  const lastTwo = count % 100, last = count % 10;
+  const word = lastTwo >= 11 && lastTwo <= 14 ? 'заявок' : last === 1 ? 'заявка' : last >= 2 && last <= 4 ? 'заявки' : 'заявок';
+  return `${count} ${word}`;
+};
 
 const STATUS_META = {
   new: { label: 'Новая', icon: '📥' },
@@ -313,6 +320,10 @@ const Dashboard = () => {
   const [viewMode, setViewMode] = useState(() => userSettingsStorage.getItem('dashboard.viewMode') || 'timeline');
   const [timelineCardDesign, setTimelineCardDesign] = useState(readDashboardCardDesign);
   const [selectedIds, setSelectedIds] = useState([]);
+  const [exportProgress, setExportProgress] = useState(null);
+  useEffect(() => {
+    setSelectedIds((ids) => ids.filter((id) => applications.some((app) => app.id === id)));
+  }, [applications]);
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
   const [bulkExecutor, setBulkExecutor] = useState('');
   const [selectedApplication, setSelectedApplication] = useState(null);
@@ -384,7 +395,9 @@ const Dashboard = () => {
   }, []);
 
   const exportToExcel = async () => {
+    if (exportLoading || loading) return;
     setExportLoading(true);
+    setExportProgress({ step: 0 });
     try {
       // Экспортируем ровно то, что сейчас отфильтровано в таблице
       // (статус/очередь, период, поиск).
@@ -399,20 +412,23 @@ const Dashboard = () => {
           params.set('status', filter);
         }
       }
-      if (fromDate) params.set('from', fromDate);
-      if (toDate) params.set('to', toDate);
+      if (dateFilterActive && fromDate) params.set('from', fromDate);
+      if (dateFilterActive && toDate) params.set('to', toDate);
       if (searchTerm && searchTerm.trim()) params.set('search', searchTerm.trim());
 
       let url = '/applications/export';
       const query = params.toString();
       if (query) url += `?${query}`;
 
+      setExportProgress({ step: 1 });
       const response = await authFetch(`${API_BASE_URL}${url}`);
+      if (!response.ok) throw new Error('Не удалось загрузить заявки для экспорта');
       const data = await response.json();
       const allApplications = data.applications || [];
 
       if (allApplications.length === 0) {
         showToast('Нет данных для экспорта', 'warning');
+        setExportProgress(null);
         return;
       }
 
@@ -433,11 +449,14 @@ const Dashboard = () => {
       }
 
       const blob = await exportResponse.blob();
+      setExportProgress({ step: 2 });
       downloadBlob(blob, fileName);
+      setExportProgress({ step: 3 });
       showToast(`Данные экспортированы: ${fileName}`, 'success');
 
     } catch (error) {
       console.error('Ошибка при экспорте:', error);
+      setExportProgress({ step: 1, failed: true });
       showToast('Произошла ошибка при экспорте данных', 'error');
     } finally {
       setExportLoading(false);
@@ -1058,7 +1077,9 @@ const Dashboard = () => {
 
   const exportSelectedApplications = async () => {
     const selectedApplications = displayedApplications.filter((app) => selectedIds.includes(app.id));
-    if (selectedApplications.length === 0) return;
+    if (selectedApplications.length === 0 || exportLoading) return;
+    setExportLoading(true);
+    setExportProgress({ step: 1 });
     try {
       const exportResponse = await authFetch(`${API_BASE_URL}/applications/export-xlsx`, {
         method: 'POST',
@@ -1067,13 +1088,16 @@ const Dashboard = () => {
       });
       if (!exportResponse.ok) throw new Error('Не удалось сформировать файл Excel');
       const blob = await exportResponse.blob();
+      setExportProgress({ step: 2 });
       const fileName = `selected-applications-${new Date().toISOString().split('T')[0]}.xlsx`;
       downloadBlob(blob, fileName);
+      setExportProgress({ step: 3 });
       showToast(`Экспортировано заявок: ${selectedApplications.length}`, 'success');
     } catch (error) {
       console.error('Ошибка при экспорте выбранных заявок:', error);
+      setExportProgress({ step: 1, failed: true });
       showToast('Не удалось экспортировать выбранные заявки', 'error');
-    }
+    } finally { setExportLoading(false); }
   };
 
   const renderPagination = () => {
@@ -1224,16 +1248,16 @@ const Dashboard = () => {
           <div className="table-search table-search--header"><input type="text" value={searchTerm} onChange={(e) => handleSearch(e.target.value)} placeholder={t("Поиск по заявкам")} className="search-input" aria-label={t("Поиск по заявкам")} />{searchTerm && <button type="button" onClick={clearSearch} className="clear-search" title={t("Очистить поиск")}>×</button>}</div>
         <button
           onClick={exportToExcel}
-          disabled={exportLoading || stats.total === 0}
+          disabled={exportLoading || loading || filteredStats.total === 0}
           className="export-btn"
-          title={t("Экспортировать данные в Excel")}
+          title={t("Экспорт всех найденных заявок с учётом поиска и применённого периода")}
         >
           {exportLoading ? (
             <>
               <span className="button-spinner"></span>{t("Экспорт...")}</>
           ) : (
             <>
-              <span className="export-icon">📥</span>{t("Экспорт в Excel")}</>
+              <span className="export-icon">📥</span>{t(`Экспорт найденных — ${requestCountLabel(filteredStats.total)}`)}</>
           )}
         </button>
         </div>
@@ -1256,13 +1280,7 @@ const Dashboard = () => {
         ))}
       </div>
 
-      <div className="workflow-quick-filters" role="group" aria-label={t("Разделы заявок")}>
-        {WORKFLOW_FILTERS.map((item) => (
-          <button type="button" key={item.id} aria-pressed={filter === item.id}
-            className={filter === item.id ? 'active' : ''}
-            onClick={() => setFilterAndResetPage(item.id)}>{t(item.label)}</button>
-        ))}
-      </div>
+      {exportProgress && <OperationProgress steps={['Подготовка', 'Обработка данных', 'Сохранение', 'Готово']} {...exportProgress} />}
 
       {workflowMessage && <div className="workflow-message">{t(workflowMessage)}</div>}
 
@@ -1385,7 +1403,7 @@ const Dashboard = () => {
                 <strong>{t("Выбрано: ")}{selectedIds.length}</strong>
                 <button type="button" onClick={() => setBulkAssignOpen(true)} disabled={actionBusyId === 'bulk'}>{t("Назначить исполнителя")}</button>
                 <button type="button" onClick={runBulkClose} disabled={actionBusyId === 'bulk'}>{t("Закрыть")}</button>
-                <button type="button" onClick={exportSelectedApplications}>{t("Экспортировать выбранные")}</button>
+                <button type="button" onClick={exportSelectedApplications} disabled={exportLoading}>{t(exportLoading ? 'Экспорт...' : `Экспорт выбранных — ${requestCountLabel(selectedIds.length)}`)}</button>
                 <button type="button" onClick={() => setSelectedIds([])}>{t("Снять выбор")}</button>
                 {bulkAssignOpen && (
                   <div className="bulk-assign-box">

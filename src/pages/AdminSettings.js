@@ -6,6 +6,7 @@ import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
 import AdminBackups from '../components/AdminBackups';
 import ChatUploadSettings from '../components/ChatUploadSettings';
+import OperationProgress from '../components/OperationProgress';
 import './AdminSettings.css';
 
 const EMPLOYEE_DETAIL_FIELDS = [
@@ -128,6 +129,7 @@ const DirectorySyncReport = ({ report }) => {
 export default function AdminSettings({ language, theme, onLanguageChange, onThemeChange }) {
   const t = useAdminTranslation();
   const [busy, setBusy] = useState('');
+  const [operation, setOperation] = useState(null);
   const [message, setMessage] = useState('');
   const [directoryReport, setDirectoryReport] = useState(null);
   const [applicationActionHistoryVisible, setApplicationActionHistoryVisible] = useState(() => userSettingsStorage.getItem('admin.showApplicationActionHistory') === 'true');
@@ -159,11 +161,13 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
   const run = async (kind) => {
     if (!window.confirm(t(kind === 'directory' ? 'Обновить справочник сотрудников? Изменения будут сохранены.' : 'Обновить данные IP-сетки?'))) return;
     setBusy(kind);
+    const steps = kind === 'directory' ? ['Обновление справочника', 'Обновление учётных записей', 'Готово'] : ['Обработка данных', 'Обновление экрана', 'Готово'];
+    setOperation({ steps, step: 0 });
     setMessage('');
     if (kind === 'directory') setDirectoryReport(null);
     try {
       if (kind === 'directory') {
-        const data = await syncEmployees();
+        const data = await syncEmployees((step) => setOperation({ steps, step }));
         const createdAccounts = Number(data.accounts?.created || 0);
         const deactivatedCount = Number(data.changes?.deactivated?.count || 0);
         const skippedRemovals = Number(data.accounts?.skippedRemovals || 0);
@@ -180,10 +184,13 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
         const response = await authFetch(`${API_BASE_URL}/network-map/refresh`, { method: 'POST' });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || data.message || 'Не удалось обновить IP-сетку');
+        setOperation({ steps, step: 1 });
         localStorage.setItem('network-map-cache', JSON.stringify(data));
         setMessage('Данные IP-сетки обновлены и сохранены в SQL.');
       }
+      setOperation({ steps, step: 2 });
     } catch (error) {
+      setOperation((previous) => ({ ...previous, failed: true }));
       setMessage(error.message || 'Не удалось выполнить обновление.');
     } finally {
       setBusy('');
@@ -192,7 +199,6 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
   return (
     <main className="admin-settings">
       <header>
-        <p>{t("Настройки")}</p>
         <h1>{t("Настройки")}</h1>
         <span>{t("Личные параметры, общие настройки и обслуживание программы.")}</span>
       </header>
@@ -294,6 +300,7 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
               <button onClick={() => run('network')} disabled={!!busy}>{t(busy === 'network' ? 'Обновляем…' : 'Обновить IP-сетку')}</button>
             </article>
           </div>
+          {operation && <OperationProgress {...operation} />}
           {message && <div className="settings-message">{Array.isArray(message) ? message.map((part) => t(part)).join(' ') : t(message)}</div>}
           <DirectorySyncReport report={directoryReport} />
         </section>

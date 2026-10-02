@@ -159,6 +159,29 @@ const decodeUpload = async (bytes, key, group) => {
   return { ...backup, tables };
 };
 
+// Only counts and metadata are returned; original records and file contents stay private.
+const describeBackup = (backup, key) => {
+  let embeddedImages = 0;
+  for (const table of backup.tables) {
+    if (table.name !== 'knowledge_base') continue;
+    const index = table.columns?.indexOf('images') ?? -1;
+    if (index < 0) continue;
+    for (const row of table.rows) {
+      try {
+        const images = JSON.parse(String(row[index] || '[]'));
+        if (Array.isArray(images)) embeddedImages += images.length;
+      } catch { /* Legacy image fields can be empty or malformed. */ }
+    }
+  }
+  return {
+    group: key, version: 1,
+    createdAt: backup.createdAt && Number.isFinite(Date.parse(backup.createdAt)) ? new Date(backup.createdAt).toISOString() : null,
+    tables: backup.tables.map((table) => ({ name: table.name, rows: table.rows.length })),
+    rows: backup.tables.reduce((sum, table) => sum + table.rows.length, 0),
+    files: backup.files.length, embeddedImages
+  };
+};
+
 const assertNoSymlinks = async (relative) => {
   let current = serverRoot;
   for (const part of relative.split('/')) {
@@ -295,6 +318,15 @@ router.get('/:group/export', async (req, res) => {
     res.type(sqlOnly ? 'application/sql' : 'application/gzip').send(bytes);
   } catch (error) { res.status(error.status || 500).json({ message: error.message }); }
 });
+router.post('/:group/inspect', express.raw({ type: 'application/octet-stream', limit: MAX_BYTES }), async (req, res) => {
+  try {
+    const key = req.params.group;
+    const group = await resolveGroup(key);
+    const backup = await decodeUpload(req.body, key, group);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(describeBackup(backup, key));
+  } catch (error) { res.status(error.status || 500).json({ message: error.message }); }
+});
 router.post('/:group/import', express.raw({ type: 'application/octet-stream', limit: MAX_BYTES }), async (req, res) => {
   try {
     if (req.headers['x-confirm-restore'] !== 'replace') throw fail('Подтвердите замену данных');
@@ -307,4 +339,4 @@ router.post('/:group/import', express.raw({ type: 'application/octet-stream', li
   } catch (error) { res.status(error.status || 500).json({ message: error.message }); }
 });
 
-module.exports = { router, backupGate, capture, decodeUpload, restore, exclusive };
+module.exports = { router, backupGate, capture, decodeUpload, describeBackup, restore, exclusive };

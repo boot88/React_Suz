@@ -21,6 +21,8 @@ export const useAdminTranslation = () => {
 // Match complete UI messages. Captured names, file names and search queries
 // are preserved; there are no global replacements in user-entered content.
 const MESSAGE_TRANSLATIONS = [
+  [/^Экспорт найденных — (\d+) заяв(?:ок|ка|ки)$/, (_, count) => `Export matching — ${count} ${count === '1' ? 'request' : 'requests'}`],
+  [/^Экспорт выбранных — (\d+) заяв(?:ок|ка|ки)$/, (_, count) => `Export selected — ${count} ${count === '1' ? 'request' : 'requests'}`],
   [/^Архив повреждён: (.+)$/, (_, file) => `Archive corrupted: ${file}`],
   [/^Выберите сотрудника из списка участников периода \((\d+)\)\.$/, (_, count) => `Select an employee from the period's participant list (${count}).`],
   [/^Некорректная настройка: (.+)$/, (_, key) => `Invalid setting: ${key}`],
