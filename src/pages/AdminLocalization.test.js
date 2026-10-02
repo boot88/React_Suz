@@ -445,3 +445,75 @@ test('request search waits 300ms, cancels stale reads, and date drafts do not re
     expect(container.textContent).not.toContain('Stale result');
   } finally { jest.useRealTimers(); }
 });
+
+test('bulk assignment reports HTTP/network failures and retries only failed requests', async () => {
+  const rows = [application, { ...application, id: 8 }, { ...application, id: 9 }];
+  let retry = false;
+  const accepted = [];
+  authFetch.mockImplementation(async (url) => {
+    if (url.endsWith('/accept')) {
+      const id = Number(url.match(/applications\/(\d+)/)[1]);
+      accepted.push(id);
+      if (!retry && id === 9) throw new Error('Network failure');
+      return { ok: retry || id === 7, status: 500 };
+    }
+    return { ok: true, json: async () => url.includes('/applications') ? { applications: rows, totalPages: 1, stats: { total: 3 } } : { employees: [] } };
+  });
+  await render(<Dashboard />);
+  act(() => container.querySelectorAll('tbody input[type="checkbox"]').forEach((input) => Simulate.change(input, { target: { checked: true } })));
+  act(() => Simulate.click(container.querySelector('.bulk-actions-bar button')));
+  act(() => Simulate.change(container.querySelector('.bulk-assign-box input'), { target: { value: 'Повисок Е.В.' } }));
+  await act(async () => { Simulate.click(container.querySelector('.bulk-assign-box button')); Simulate.click(container.querySelector('.bulk-assign-box button')); });
+  expect(accepted).toEqual([7, 8, 9]);
+  expect(container.querySelector('.bulk-assign-result').textContent).toContain('Assigned: 1. Failed: 2.');
+  expect(container.querySelector('.bulk-assign-result').textContent).toContain('#8, #9');
+  const selected = [...container.querySelectorAll('tbody input[type="checkbox"]')].map((input) => input.checked);
+  expect(selected).toEqual([false, true, true]);
+  await setLanguage('ru');
+  expect(container.querySelector('.bulk-assign-result').textContent).toContain('Назначено: 1. Не удалось: 2.');
+  retry = true;
+  await act(async () => Simulate.click(container.querySelector('.bulk-assign-result button')));
+  expect(accepted).toEqual([7, 8, 9, 8, 9]);
+  expect(container.querySelector('.bulk-assign-result').textContent).toContain('Назначено: 2. Не удалось: 0.');
+  expect(container.querySelector('.bulk-actions-bar')).toBeNull();
+});
+
+test('initial load failure has a retry action and is distinct from a successful empty result', async () => {
+  authFetch.mockImplementation(async (url) => ({ ok: !url.includes('/applications?page='), status: 403, json: async () => ({ error: 'Denied', employees: [] }) }));
+  await render(<Dashboard />);
+  const notice = container.querySelector('.applications-load-error');
+  expect(notice.textContent).toContain('Could not load requests.');
+  expect(container.querySelector('.no-data').textContent).not.toContain('No requests match this filter');
+  authFetch.mockImplementation(async (url) => ({ ok: true, json: async () => url.includes('/applications') ? { applications: [], totalPages: 1, stats: { total: 0 } } : { employees: [] } }));
+  await act(async () => Simulate.click(notice.querySelector('button')));
+  expect(container.querySelector('.applications-load-error')).toBeNull();
+  expect(container.querySelector('.no-data').textContent).toContain('No requests match this filter');
+});
+
+test('failed background refresh retains the previous rows and retry clears the warning', async () => {
+  authFetch.mockImplementation(async (url) => ({ ok: true, json: async () => url.includes('/applications') ? { applications: [application], totalPages: 1, stats: { total: 1 } } : { employees: [] } }));
+  await render(<Dashboard />);
+  expect(container.querySelector('tbody').textContent).toContain('Все заявки');
+  authFetch.mockImplementation(async (url) => ({ ok: !url.includes('/applications?page='), status: 403, json: async () => ({ error: 'Denied' }) }));
+  await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+  expect(container.querySelector('.applications-load-error').textContent).toContain('Previously loaded data is shown.');
+  expect(container.querySelector('tbody').textContent).toContain('Все заявки');
+  authFetch.mockImplementation(async () => ({ ok: true, json: async () => ({ applications: [{ ...application, application: 'Updated request' }], stats: { total: 1 }, totalPages: 1 }) }));
+  await act(async () => Simulate.click(container.querySelector('.applications-load-error button')));
+  expect(container.querySelector('.applications-load-error')).toBeNull();
+  expect(container.querySelector('tbody').textContent).toContain('Updated request');
+});
+
+test('initial 500 response retries twice then shows a load error instead of an empty result', async () => {
+  jest.useFakeTimers();
+  try {
+    authFetch.mockImplementation(async (url) => ({ ok: !url.includes('/applications?page='), status: 500, json: async () => ({ error: 'Server failure', employees: [], stats: {} }) }));
+    await render(<Dashboard />);
+    expect(container.querySelector('.applications-load-error')).toBeNull();
+    await act(async () => jest.advanceTimersByTime(400));
+    await act(async () => jest.advanceTimersByTime(800));
+    expect(authFetch.mock.calls.filter(([url]) => url.includes('/applications?page='))).toHaveLength(3);
+    expect(container.querySelector('.applications-load-error').textContent).toContain('Could not load requests.');
+    expect(container.querySelector('.no-data').textContent).not.toContain('No requests match this filter');
+  } finally { jest.useRealTimers(); }
+});

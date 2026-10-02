@@ -298,6 +298,9 @@ const Dashboard = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [limit, setLimit] = useState(readDashboardPageSize);
   const [loading, setLoading] = useState(true);
+  const [applicationsLoadError, setApplicationsLoadError] = useState(null);
+  const [hasLoadedApplications, setHasLoadedApplications] = useState(false);
+  const hasLoadedApplicationsRef = useRef(false);
   const [filter, setFilter] = useState('all');
   const [exportLoading, setExportLoading] = useState(false);
 
@@ -339,9 +342,12 @@ const Dashboard = () => {
   const [viewMode, setViewMode] = useState(() => userSettingsStorage.getItem('dashboard.viewMode') || 'timeline');
   const [timelineCardDesign, setTimelineCardDesign] = useState(readDashboardCardDesign);
   const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkAssignResult, setBulkAssignResult] = useState(null);
+  const bulkFailedIdsRef = useRef([]);
+  const bulkAssignLockRef = useRef(false);
   const [exportProgress, setExportProgress] = useState(null);
   useEffect(() => {
-    setSelectedIds((ids) => ids.filter((id) => applications.some((app) => app.id === id)));
+    setSelectedIds((ids) => ids.filter((id) => applications.some((app) => app.id === id) || bulkFailedIdsRef.current.includes(id)));
   }, [applications]);
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
   const [bulkExecutor, setBulkExecutor] = useState('');
@@ -486,6 +492,7 @@ const Dashboard = () => {
   const fetchGeneralStats = async () => {
     try {
       const response = await authFetch(`${API_BASE_URL}/applications?limit=1`);
+      if (!response.ok) throw new Error('Ошибка загрузки статистики');
       const data = await response.json();
       setStats(data.stats || { total: 0, completed: 0, pending: 0 });
       return true;
@@ -536,7 +543,7 @@ const Dashboard = () => {
     try {
 
       const response = await authFetch(`${API_BASE_URL}${url}`, { signal: controller.signal });
-      const data = await response.json().catch(() => ({}));
+      const data = await response.json();
       if (!response.ok) {
         const requestError = new Error(data.error || 'Ошибка загрузки заявок');
         requestError.status = response.status;
@@ -544,6 +551,10 @@ const Dashboard = () => {
       }
       if (controller.signal.aborted || requestId !== applicationsRequestIdRef.current) return false;
 
+      if (!Array.isArray(data.applications)) throw new Error('Некорректный ответ сервера');
+      hasLoadedApplicationsRef.current = true;
+      setHasLoadedApplications(true);
+      setApplicationsLoadError(null);
       const nextStats = data.stats || { total: 0, completed: 0, pending: 0 };
       const nextApplications = data.applications || [];
       setApplications(nextApplications);
@@ -564,12 +575,7 @@ const Dashboard = () => {
         applicationsRequestUrlRef.current = '';
         return fetchApplications({ silent, attempt: attempt + 1 });
       }
-      // Убираем блокирующий alert при стартовой загрузке,
-      // чтобы интерфейс не показывал всплывающее окно подтверждения.
-      if (!silent) {
-        setApplications([]);
-        setFilteredStats({ total: 0, completed: 0, pending: 0 });
-      }
+      setApplicationsLoadError(hasLoadedApplicationsRef.current ? 'Данные не обновлены. Показаны ранее загруженные данные.' : 'Не удалось загрузить заявки.');
       return false;
     } finally {
       // Подтверждение удаления может вызвать фоновую загрузку и отменить
@@ -694,12 +700,11 @@ const Dashboard = () => {
         setFromDate('');
         setToDate('');
         setDateFilterActive(false);
-    setAppliedDates({ from: '', to: '' });
+        setAppliedDates({ from: '', to: '' });
         setFilter(targetFilter);
         setCurrentPage(targetPage);
         setScrollToApplicationId(data.application.id);
         if (needsReload) {
-          setApplications([]);
           setLoading(true);
         }
         await openApplicationPanel(data.application);
@@ -820,7 +825,6 @@ const Dashboard = () => {
   const setFilterAndResetPage = (newFilter) => {
     setFilter(newFilter);
     setCurrentPage(1);
-    setApplications([]);
     setLoading(true);
   };
 
@@ -838,7 +842,6 @@ const Dashboard = () => {
     setDateFilterActive(false);
     setAppliedDates({ from: '', to: '' });
     setSearchTerm('');
-    setApplications([]);
     setLoading(true);
   };
 
@@ -1035,27 +1038,35 @@ const Dashboard = () => {
     ));
   };
 
-  const runBulkAssign = async () => {
-    if (!bulkExecutor.trim() || selectedIds.length === 0) return;
+  const runBulkAssign = async (requestedIds) => {
+    const ids = Array.isArray(requestedIds) ? requestedIds : selectedIds;
+    if (!bulkExecutor.trim() || ids.length === 0 || bulkAssignLockRef.current) return;
+    bulkAssignLockRef.current = true;
     setActionBusyId('bulk');
     try {
-      await Promise.all(selectedIds.map((id) => authFetch(`${API_BASE_URL}/applications/${id}/accept`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          executor: bulkExecutor.trim(),
-          admin_comment: 'Назначено массовым действием'
-        })
-      })));
-      showToast(`Исполнитель назначен для ${selectedIds.length} заявок`, 'success');
-      setBulkAssignOpen(false);
-      setBulkExecutor('');
-      setSelectedIds([]);
-      fetchApplications();
-      fetchGeneralStats();
-    } catch (error) {
-      showToast('Не удалось назначить исполнителя массово', 'error');
+      const responses = await Promise.allSettled(ids.map(async (id) => {
+        const response = await authFetch(`${API_BASE_URL}/applications/${id}/accept`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ executor: bulkExecutor.trim(), admin_comment: 'Назначено массовым действием' })
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      }));
+      const failedIds = ids.filter((id, index) => responses[index].status === 'rejected');
+      const succeeded = ids.length - failedIds.length;
+      bulkFailedIdsRef.current = failedIds;
+      setBulkAssignResult({ succeeded, failedIds });
+      setSelectedIds(failedIds);
+      if (failedIds.length === 0) {
+        setBulkAssignOpen(false);
+        setBulkExecutor('');
+      }
+      if (succeeded > 0) {
+        await fetchApplications({ silent: true });
+        fetchGeneralStats();
+      }
     } finally {
+      bulkAssignLockRef.current = false;
       setActionBusyId(null);
     }
   };
@@ -1303,6 +1314,18 @@ const Dashboard = () => {
 
       {workflowMessage && <AdminNotice type={workflowMessageType}>{t(workflowMessage)}</AdminNotice>}
 
+      {applicationsLoadError && <AdminNotice type={hasLoadedApplications ? "warning" : "error"} className="applications-load-error">
+        {t(applicationsLoadError)} <button type="button" disabled={loading || searchTerm !== debouncedSearchTerm} onClick={() => fetchApplications({ silent: hasLoadedApplications })}>{t("Повторить загрузку")}</button>
+      </AdminNotice>}
+      {bulkAssignResult && <AdminNotice type={bulkAssignResult.failedIds.length ? (bulkAssignResult.succeeded ? 'warning' : 'error') : 'success'} className="bulk-assign-result">
+        {t(`Назначено: ${bulkAssignResult.succeeded}. Не удалось: ${bulkAssignResult.failedIds.length}.`)}
+        {bulkAssignResult.failedIds.length > 0 && <>
+          <span> {t('Неудачные заявки: ')}{bulkAssignResult.failedIds.map((id) => `#${id}`).join(', ')}. </span>
+          <button type="button" disabled={actionBusyId === 'bulk' || !bulkExecutor.trim()} onClick={() => runBulkAssign(bulkAssignResult.failedIds)}>{t("Повторить назначение")}</button>
+        </>}
+      </AdminNotice>}
+      {loading && hasLoadedApplications && <AdminNotice>{t("Обновление заявок...")}</AdminNotice>}
+
       {/* Фильтры */}
       <div className="filters-section filters-section-compact">
         <details className="dashboard-settings">
@@ -1351,7 +1374,7 @@ const Dashboard = () => {
       )}
 
       {/* Таблица */}
-      {loading ? (
+      {loading && !hasLoadedApplications ? (
         <div className="loading-spinner">
           <div className="spinner"></div>
           <p>{t("Загрузка данных...")}</p>
@@ -1618,7 +1641,7 @@ const Dashboard = () => {
 	                    <tr>
 		                      <td colSpan={visibleColumns.length + 1} className="no-data">
                         <span className="science-icon">🔍</span>
-                        {t(searchTerm
+                        {t(applicationsLoadError ? applicationsLoadError : searchTerm
                           ? `Не найдено заявок по запросу "${searchTerm}"`
                           : 'Нет заявок по данному фильтру')
                         }
