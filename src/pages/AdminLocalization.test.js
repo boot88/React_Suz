@@ -42,7 +42,7 @@ beforeEach(() => {
     else if (url.includes('/applications')) data = { applications: [], totalPages: 1, total: 0, stats: { total: 0, completed: 0, pending: 0 } };
     else if (url.includes('/knowledge-base')) data = [];
     else if (url.includes('/network-map')) data = { zoneText: '', fetchedAt: '2026-09-30T07:00:00Z' };
-    else if (url.includes('/settings/chat-upload-limit')) data = { limitMb: 50 };
+    else if (url.includes('/settings/chat-upload-limit')) data = { limitMb: 10 };
     else if (url.endsWith('/backups')) data = [{ key: 'applications', title: 'Заявки', extension: '.sql', tables: ['application'] }, { key: 'knowledge', title: 'База знаний с фотографиями', extension: '.sql', tables: ['knowledge_base'] }];
     return { ok: true, json: async () => data };
   });
@@ -72,14 +72,14 @@ test('settings, server backup titles and attachment messages switch without losi
   await render(<AdminSettings language="en" theme="light" onLanguageChange={jest.fn()} onThemeChange={jest.fn()} />);
   expect(interfaceText()).not.toMatch(/[а-яё]/i);
   const input = container.querySelector('#chat-upload-limit');
-  act(() => Simulate.change(input, { target: { value: '128' } }));
+  act(() => Simulate.change(input, { target: { value: '150' } }));
   await setLanguage('ru');
   expect(container.textContent).toContain('Резервные копии и восстановление');
-  expect(input.value).toBe('128');
+  expect(input.value).toBe('150');
   await setLanguage('en');
   expect(container.textContent).toContain('Backup and restore');
   expect(container.textContent).toContain('Knowledge base with photos');
-  expect(input.value).toBe('128');
+  expect(input.value).toBe('150');
   expect(interfaceText()).not.toMatch(/[а-яё]/i);
 });
 
@@ -101,7 +101,7 @@ test('dashboard filters and request details are translated while request text, n
 });
 
 test('translated UI messages preserve dynamic counts, filenames and names', () => {
-  expect(translateAdminText('Сохранено. Теперь можно прикреплять файлы до 128 МБ.', 'en')).toBe('Saved. Files up to 128 MB can now be attached.');
+  expect(translateAdminText('Сохранено. Теперь можно прикреплять файлы до 150 МБ.', 'en')).toBe('Saved. Files up to 150 MB can now be attached.');
   expect(translateAdminText('Файл "спектр$&.jpg" не является изображением', 'en')).toBe('File "спектр$&.jpg" is not an image');
   expect(translateAdminText('Заявки, где Повисок Е.В. работал один', 'en')).toBe('Requests handled individually by Повисок Е.В.');
   expect(translateAdminText('Список заявок', 'ru')).toBe('Список заявок');

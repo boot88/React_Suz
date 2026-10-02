@@ -7,6 +7,6 @@ export const fetchChatUploadLimitMb = async () => {
   const response = await authFetch(`${API_BASE_URL}/settings/chat-upload-limit`);
   const data = await response.json();
   if (!response.ok) throw new Error(data.message || 'Не удалось проверить размер вложений');
-  if (!Number.isInteger(data.limitMb) || data.limitMb < 50 || data.limitMb > 128) throw new Error('Не удалось проверить размер вложений');
+  if (!Number.isInteger(data.limitMb) || data.limitMb < 10 || data.limitMb > 150) throw new Error('Не удалось проверить размер вложений');
   return data.limitMb;
 };

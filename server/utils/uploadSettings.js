@@ -1,8 +1,8 @@
-const MIN_UPLOAD_MB = 50;
-const MAX_UPLOAD_MB = 128;
+const MIN_UPLOAD_MB = 10;
+const MAX_UPLOAD_MB = 150;
 const validateUploadLimit = (value) => {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < MIN_UPLOAD_MB || value > MAX_UPLOAD_MB) {
-    throw Object.assign(new Error('Размер вложения должен быть целым числом от 50 до 128 МБ'), { status: 400 });
+    throw Object.assign(new Error('Размер вложения должен быть целым числом от 10 до 150 МБ'), { status: 400 });
   }
   return value;
 };
