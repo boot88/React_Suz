@@ -11,6 +11,7 @@ const EmployeeSearch = () => {
   const [results, setResults] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
   const [error, setError] = useState('');
   const [syncMessage, setSyncMessage] = useState('');
   const [syncChanges, setSyncChanges] = useState(null);
@@ -42,11 +43,7 @@ const EmployeeSearch = () => {
   const handleSearch = async (e) => {
     e.preventDefault();
 
-    // Если выбран фильтр по отделу, используем его
-    const actualSearchField = departmentFilter ? 'department' : searchField;
-    const actualSearchTerm = departmentFilter || searchTerm;
-
-    if (!actualSearchTerm.trim()) {
+    if (!searchTerm.trim() && !departmentFilter) {
       setError('Введите поисковый запрос');
       return;
     }
@@ -57,8 +54,9 @@ const EmployeeSearch = () => {
     setSyncChanges(null);
 
     try {
-      const data = await searchEmployees(actualSearchField, actualSearchTerm);
+      const data = await searchEmployees(searchField, searchTerm.trim(), departmentFilter);
       setResults(data);
+      setSearched(true);
     } catch (err) {
       setError(err.message || 'Ошибка при поиске сотрудников');
       console.error('Search error:', err);
@@ -71,6 +69,7 @@ const EmployeeSearch = () => {
     setSearchTerm('');
     setDepartmentFilter('');
     setResults([]);
+    setSearched(false);
     setError('');
     setSyncMessage('');
     setSyncChanges(null);
@@ -122,11 +121,11 @@ const EmployeeSearch = () => {
         <div className="search-grid">
           {/* Поле поиска */}
           <div className="form-group">
-            <label>{t("Поле для поиска:")}</label>
+            <label htmlFor="employee-search-field">{t("Поле для поиска:")}</label>
             <select
+              id="employee-search-field"
               value={searchField}
               onChange={(e) => setSearchField(e.target.value)}
-              disabled={!!departmentFilter}
               className="search-select"
             >
               {searchFields.map(field => (
@@ -139,21 +138,22 @@ const EmployeeSearch = () => {
 
           {/* Поисковый запрос */}
           <div className="form-group">
-            <label>{t("Поисковый запрос:")}</label>
+            <label htmlFor="employee-search-query">{t("Поисковый запрос:")}</label>
             <input
               type="text"
+              id="employee-search-query"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder={t("Введите запрос для поиска...")}
-              disabled={!!departmentFilter}
               className="search-input"
             />
           </div>
 
           {/* Фильтр по отделу */}
           <div className="form-group">
-            <label>{t("Фильтр по отделу:")}</label>
+            <label htmlFor="employee-search-department">{t("Фильтр по отделу:")}</label>
             <select
+              id="employee-search-department"
               value={departmentFilter}
               onChange={(e) => setDepartmentFilter(e.target.value)}
               className="search-select"
@@ -320,7 +320,7 @@ const EmployeeSearch = () => {
           </div>
         </div>
       ) : (
-        !loading && (searchTerm || departmentFilter) && (
+        !loading && !error && searched && (
           <div className="empty-state">
             <p>{t("Сотрудники не найдены. Попробуйте изменить поисковый запрос или фильтры.")}</p>
           </div>

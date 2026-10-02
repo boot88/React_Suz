@@ -193,111 +193,122 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
     <main className="admin-settings">
       <header>
         <p>{t("Настройки")}</p>
-        <h1>{t("Служебные обновления")}</h1>
-        <span>{t("Редкие операции вынесены из рабочих экранов.")}</span>
+        <h1>{t("Настройки")}</h1>
+        <span>{t("Личные параметры, общие настройки и обслуживание программы.")}</span>
       </header>
 
-      <ChatUploadSettings />
+      <section className="settings-scope" aria-labelledby="personal-settings-title">
+        <h2 id="personal-settings-title">{t("Мои настройки")}</h2>
+        <p className="settings-scope-note">{t("Применяются только к вашей учётной записи и сохраняются для следующих входов.")}</p>
+        <section className="settings-group">
+          <h2 className="settings-group-title">{t("Заявки")}</h2>
+          <div className="settings-group-grid">
+            <article>
+              <h2>{t("Вид заявок")}</h2>
+              <p>{t("Вид — Новые заявки.")}</p>
+              <label className="settings-toggle">
+                <input type="checkbox" checked={largeRequestsEnabled} onChange={toggleLargeRequests} />
+                <span aria-hidden="true" />
+                <b>{t(largeRequestsEnabled ? 'Большие заявки включены' : 'Обычные заявки')}</b>
+              </label>
+            </article>
+            <article>
+              <h2>{t("Редактирование заявок")}</h2>
+              <p>{t("Показывать промежуточную таблицу выбора перед открытием заявки.")}</p>
+              <label className="settings-toggle">
+                <input type="checkbox" checked={editApplicationTableVisible} onChange={toggleEditApplicationTable} />
+                <span aria-hidden="true" />
+                <b>{t(editApplicationTableVisible ? 'Таблица выбора показывается' : 'Заявка открывается сразу')}</b>
+              </label>
+            </article>
+            <article>
+              <h2>{t("Карточка заявки")}</h2>
+              <p>{t("Показывать в карточке заявки блок «История действий».")}</p>
+              <label className="settings-toggle">
+                <input type="checkbox" checked={applicationActionHistoryVisible} onChange={toggleApplicationActionHistory} />
+                <span aria-hidden="true" />
+                <b>{t(applicationActionHistoryVisible ? 'История показывается' : 'История скрыта')}</b>
+              </label>
+            </article>
+          </div>
+        </section>
 
-      <AdminBackups onSettingsRestored={() => {
-        setApplicationActionHistoryVisible(userSettingsStorage.getItem('admin.showApplicationActionHistory') === 'true');
-        setAuditTestModeEnabled(userSettingsStorage.getItem(AUDIT_TEST_MODE_SETTING_KEY) === 'true');
-        setLargeRequestsEnabled(userSettingsStorage.getItem(DASHBOARD_CARD_SIZE_KEY) === 'modern');
-        setEditApplicationTableVisible(userSettingsStorage.getItem(SHOW_EDIT_APPLICATION_TABLE_KEY) === 'true');
-        onLanguageChange(userSettingsStorage.getItem('adminLanguage') || 'en');
-        onThemeChange(userSettingsStorage.getItem('adminTheme') || 'light');
-        window.dispatchEvent(new Event(DASHBOARD_CARD_SIZE_EVENT));
-        window.dispatchEvent(new Event('admin:application-action-history-visibility'));
-      }} />
-
-      <section className="settings-group">
-        <h2 className="settings-group-title">{t("Заявки")}</h2>
-        <div className="settings-group-grid">
-          <article>
-            <h2>{t("Вид заявок")}</h2>
-            <p>{t("Вид — Новые заявки.")}</p>
-            <label className="settings-toggle">
-              <input type="checkbox" checked={largeRequestsEnabled} onChange={toggleLargeRequests} />
-              <span aria-hidden="true" />
-              <b>{t(largeRequestsEnabled ? 'Большие заявки включены' : 'Обычные заявки')}</b>
-            </label>
-          </article>
-          <article>
-            <h2>{t("Редактирование заявок")}</h2>
-            <p>{t("Показывать промежуточную таблицу выбора перед открытием заявки.")}</p>
-            <label className="settings-toggle">
-              <input type="checkbox" checked={editApplicationTableVisible} onChange={toggleEditApplicationTable} />
-              <span aria-hidden="true" />
-              <b>{t(editApplicationTableVisible ? 'Таблица выбора показывается' : 'Заявка открывается сразу')}</b>
-            </label>
-          </article>
-          <article>
-            <h2>{t("Карточка заявки")}</h2>
-            <p>{t("Показывать в карточке заявки блок «История действий».")}</p>
-            <label className="settings-toggle">
-              <input type="checkbox" checked={applicationActionHistoryVisible} onChange={toggleApplicationActionHistory} />
-              <span aria-hidden="true" />
-              <b>{t(applicationActionHistoryVisible ? 'История показывается' : 'История скрыта')}</b>
-            </label>
-          </article>
-        </div>
-      </section>
-
-      <section className="settings-group">
-        <h2 className="settings-group-title">{t("Обновление данных")}</h2>
-        <div className="settings-group-grid">
-          <article>
-            <h2>{t("Справочник сотрудников")}</h2>
-            <p>{t("Загружает актуальные записи из источника и обновляет локальный справочник.")}</p>
-            <button onClick={() => run('directory')} disabled={!!busy}>{t(busy === 'directory' ? 'Обновляем…' : 'Обновить справочник')}</button>
-          </article>
-          <article>
-            <h2>{t("Диагностика сети")}</h2>
-            <p>{t("Обновляет сохранённый снимок IP-адресов. Экран диагностики работает с этим снимком.")}</p>
-            <button onClick={() => run('network')} disabled={!!busy}>{t(busy === 'network' ? 'Обновляем…' : 'Обновить IP-сетку')}</button>
-          </article>
-        </div>
-        {message && <div className="settings-message">{Array.isArray(message) ? message.map((part) => t(part)).join(' ') : t(message)}</div>}
-        <DirectorySyncReport report={directoryReport} />
-      </section>
-
-      <section className="settings-group">
-        <h2 className="settings-group-title">{t("Интерфейс")}</h2>
-        <div className="settings-group-grid">
-          <article>
-            <h2>{t("Оформление")}</h2>
-            <p>{t("Язык и тема применяются ко всей админ-панели.")}</p>
-            <div className="settings-choice">
-              <span>{t("Язык")}</span>
-              <div className="settings-segmented" role="group" aria-label={t("Язык")}>
-                <button type="button" className={language === 'ru' ? 'active' : ''} onClick={() => onLanguageChange('ru')}>RU</button>
-                <button type="button" className={language === 'en' ? 'active' : ''} onClick={() => onLanguageChange('en')}>EN</button>
+        <section className="settings-group">
+          <h2 className="settings-group-title">{t("Интерфейс")}</h2>
+          <div className="settings-group-grid">
+            <article>
+              <h2>{t("Оформление")}</h2>
+              <p>{t("Язык и тема применяются ко всей админ-панели.")}</p>
+              <div className="settings-choice">
+                <span>{t("Язык")}</span>
+                <div className="settings-segmented" role="group" aria-label={t("Язык")}>
+                  <button type="button" className={language === 'ru' ? 'active' : ''} onClick={() => onLanguageChange('ru')}>RU</button>
+                  <button type="button" className={language === 'en' ? 'active' : ''} onClick={() => onLanguageChange('en')}>EN</button>
+                </div>
               </div>
-            </div>
-            <div className="settings-choice">
-              <span>{t("Тема")}</span>
-              <div className="settings-segmented" role="group" aria-label={t("Тема")}>
-                <button type="button" className={theme === 'light' ? 'active' : ''} onClick={() => onThemeChange('light')}>{t("Светлая")}</button>
-                <button type="button" className={theme === 'dark' ? 'active' : ''} onClick={() => onThemeChange('dark')}>{t("Тёмная")}</button>
+              <div className="settings-choice">
+                <span>{t("Тема")}</span>
+                <div className="settings-segmented" role="group" aria-label={t("Тема")}>
+                  <button type="button" className={theme === 'light' ? 'active' : ''} onClick={() => onThemeChange('light')}>{t("Светлая")}</button>
+                  <button type="button" className={theme === 'dark' ? 'active' : ''} onClick={() => onThemeChange('dark')}>{t("Тёмная")}</button>
+                </div>
               </div>
-            </div>
-          </article>
-        </div>
-      </section>
+            </article>
+          </div>
+        </section>
 
-      <section className="settings-group">
-        <h2 className="settings-group-title">{t("Поиск документов")}</h2>
-        <div className="settings-group-grid">
-          <article>
-            <h2>{t("Тестовый режим")}</h2>
-            <p>{t("Тестовый режим показывает переписку по месяцам, включая текущий. Обычный режим показывает периоды старше года.")}</p>
-            <label className="settings-toggle">
-              <input type="checkbox" checked={auditTestModeEnabled} onChange={toggleAuditTestMode} />
-              <span aria-hidden="true" />
-              <b>{t(auditTestModeEnabled ? 'Тестовый режим включён' : 'Тестовый режим выключен')}</b>
-            </label>
-          </article>
-        </div>
+        <section className="settings-group">
+          <h2 className="settings-group-title">{t("Поиск документов")}</h2>
+          <div className="settings-group-grid">
+            <article>
+              <h2>{t("Тестовый режим")}</h2>
+              <p>{t("Тестовый режим показывает переписку по месяцам, включая текущий. Обычный режим показывает периоды старше года.")}</p>
+              <label className="settings-toggle">
+                <input type="checkbox" checked={auditTestModeEnabled} onChange={toggleAuditTestMode} />
+                <span aria-hidden="true" />
+                <b>{t(auditTestModeEnabled ? 'Тестовый режим включён' : 'Тестовый режим выключен')}</b>
+              </label>
+            </article>
+          </div>
+        </section>
+      </section>
+      <section className="settings-scope" aria-labelledby="shared-settings-title">
+        <h2 id="shared-settings-title">{t("Настройки программы")}</h2>
+        <p className="settings-scope-note">{t("Общие параметры для всех сотрудников. Лимит вложения изменится после сохранения.")}</p>
+        <ChatUploadSettings />
+      </section>
+      <section className="settings-scope" aria-labelledby="maintenance-settings-title">
+        <h2 id="maintenance-settings-title">{t("Обслуживание и резервные копии")}</h2>
+        <p className="settings-scope-note">{t("Обновление справочников и восстановление баз изменяют общие данные программы. Экспорт настроек относится только к вашей учётной записи.")}</p>
+        <section className="settings-group">
+          <h2 className="settings-group-title">{t("Обновление данных")}</h2>
+          <div className="settings-group-grid">
+            <article>
+              <h2>{t("Справочник сотрудников")}</h2>
+              <p>{t("Загружает актуальные записи из источника и обновляет локальный справочник.")}</p>
+              <button onClick={() => run('directory')} disabled={!!busy}>{t(busy === 'directory' ? 'Обновляем…' : 'Обновить справочник')}</button>
+            </article>
+            <article>
+              <h2>{t("Диагностика сети")}</h2>
+              <p>{t("Обновляет сохранённый снимок IP-адресов. Экран диагностики работает с этим снимком.")}</p>
+              <button onClick={() => run('network')} disabled={!!busy}>{t(busy === 'network' ? 'Обновляем…' : 'Обновить IP-сетку')}</button>
+            </article>
+          </div>
+          {message && <div className="settings-message">{Array.isArray(message) ? message.map((part) => t(part)).join(' ') : t(message)}</div>}
+          <DirectorySyncReport report={directoryReport} />
+        </section>
+
+        <AdminBackups onSettingsRestored={() => {
+          setApplicationActionHistoryVisible(userSettingsStorage.getItem('admin.showApplicationActionHistory') === 'true');
+          setAuditTestModeEnabled(userSettingsStorage.getItem(AUDIT_TEST_MODE_SETTING_KEY) === 'true');
+          setLargeRequestsEnabled(userSettingsStorage.getItem(DASHBOARD_CARD_SIZE_KEY) === 'modern');
+          setEditApplicationTableVisible(userSettingsStorage.getItem(SHOW_EDIT_APPLICATION_TABLE_KEY) === 'true');
+          onLanguageChange(userSettingsStorage.getItem('adminLanguage') || 'en');
+          onThemeChange(userSettingsStorage.getItem('adminTheme') || 'light');
+          window.dispatchEvent(new Event(DASHBOARD_CARD_SIZE_EVENT));
+          window.dispatchEvent(new Event('admin:application-action-history-visibility'));
+        }} />
+
       </section>
     </main>
   );

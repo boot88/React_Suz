@@ -1,5 +1,14 @@
 // Admin interface text only. User-entered content and stored identifiers stay unchanged.
 export const ADMIN_TRANSLATIONS = {
+  "Мои настройки": "My settings",
+  "Применяются только к вашей учётной записи и сохраняются для следующих входов.": "Apply only to your account and are saved for future sign-ins.",
+  "Настройки программы": "Application settings",
+  "Общие параметры для всех сотрудников. Лимит вложения изменится после сохранения.": "Shared settings for all employees. The attachment limit changes after saving.",
+  "Обслуживание и резервные копии": "Maintenance and backups",
+  "Обновление справочников и восстановление баз изменяют общие данные программы. Экспорт настроек относится только к вашей учётной записи.": "Directory updates and database restores change shared application data. Settings export applies only to your account.",
+  "Личные параметры, общие настройки и обслуживание программы.": "Personal preferences, shared settings and application maintenance.",
+  "Разделы заявок": "Request queues",
+  "Закрытые": "Closed",
   "Заявки": "Requests",
   "Новая заявка": "New request",
   "Статистика": "Statistics",

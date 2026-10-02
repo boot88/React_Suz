@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
+const { buildEmployeeSearch } = require('../utils/employeeSearch');
 const { requireRole } = require('../middleware/auth');
 const {
   PHONE_BOOK_URL,
@@ -260,19 +261,9 @@ router.get('/search', async (req, res) => {
   try {
     await ensurePhoneBookSchema();
 
-    const { field, query } = req.query;
-
-    if (!field || !query) {
-      return res.status(400).json({ error: 'Не указаны поле поиска или запрос' });
-    }
-
-    const validFields = ['full_name', 'position', 'department', 'room', 'internal_phone', 'external_phone', 'email'];
-    if (!validFields.includes(field)) {
-      return res.status(400).json({ error: 'Недопустимое поле для поиска' });
-    }
-
-    const sql = `SELECT * FROM phone_book WHERE is_active = 1 AND ${field} LIKE ? ORDER BY full_name`;
-    const [results] = await pool.execute(sql, [`%${query}%`]);
+    const search = buildEmployeeSearch(req.query);
+    if (search.error) return res.status(400).json({ error: search.error });
+    const [results] = await pool.execute(search.sql, search.params);
 
     res.json(results);
   } catch (error) {

@@ -18,10 +18,10 @@ const API_BASE_URL = getApiBaseUrl();
 
 
 // Поиск сотрудников
-export const searchEmployees = async (field, query) => {
+export const searchEmployees = async (field, query, department = '') => {
   try {
     const response = await authFetch(
-      `${API_BASE_URL}/employees/search?field=${field}&query=${encodeURIComponent(query)}`
+      `${API_BASE_URL}/employees/search?field=${encodeURIComponent(field)}&query=${encodeURIComponent(query)}${department ? `&department=${encodeURIComponent(department)}` : ''}`
     );
 
     if (!response.ok) {

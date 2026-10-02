@@ -26,9 +26,8 @@ const WORKFLOW_FILTERS = [
   { id: 'queue', label: 'Новые' },
   { id: 'inwork', label: 'В работе' },
   { id: 'my', label: 'Мои' },
-  { id: 'active', label: 'В работе' },
   { id: 'unassigned', label: 'Без исполнителя' },
-  { id: 'done', label: 'Выполненные' },
+  { id: 'done', label: 'Закрытые' },
   { id: 'overdue', label: 'Просроченные' }
 ];
 const TABLE_STATUS_ORDER = {
@@ -1243,15 +1242,25 @@ const Dashboard = () => {
       {/* Статистика */}
       <div className="stats-grid dashboard-stats-expanded">
         {statCards.map((card) => (
-          <div
+          <button
+            type="button"
+            aria-pressed={filter === card.id}
             key={card.id}
             className={`stat-card ${card.tone === 'danger' ? 'stat-danger' : ''} ${filter === card.id ? 'stat-active' : ''}`}
             onClick={() => (card.id === 'all' ? clearFilters() : setFilterAndResetPage(card.id))}
           >
             <span className="stat-label">{t(card.label)}</span>
-            <div className="stat-number">{card.value}</div>
+            <span className="stat-number">{card.value}</span>
             <small>{t(card.hint)}</small>
-          </div>
+          </button>
+        ))}
+      </div>
+
+      <div className="workflow-quick-filters" role="group" aria-label={t("Разделы заявок")}>
+        {WORKFLOW_FILTERS.map((item) => (
+          <button type="button" key={item.id} aria-pressed={filter === item.id}
+            className={filter === item.id ? 'active' : ''}
+            onClick={() => setFilterAndResetPage(item.id)}>{t(item.label)}</button>
         ))}
       </div>
 
@@ -1596,18 +1605,15 @@ const Dashboard = () => {
           <button type="button" className="side-panel-close" onClick={closeApplicationPanel}>×</button>
           <div className="side-panel-head">
             <span>{t(getStatusLabel(selectedApplication))}</span>
-            <h2>{t("Заявка #")}{selectedApplication.id}</h2>
+            <h2>{selectedApplication.application || t("Без названия заявки")}</h2>
+            <small>{t("Заявка #")}{selectedApplication.id} · {t("Исполнитель")}: {selectedApplication.executor || selectedApplication.accepted_by || t("Не назначен")}</small>
             <p>{[selectedEmployee?.full_name || selectedApplication.name, selectedEmployee?.position, selectedEmployee?.department].filter(Boolean).join(' · ')}</p>
           </div>
-          <div className="time-summary-card">
-            <strong>{t(getStatusLabel(selectedApplication))}</strong>
-            {selectedAppTimes && (
-              <span>
-                {!isAdministratorCreatedApplication(selectedApplication) && selectedCumulativeWorkSeconds != null && <em>{t("Всего в работе: ")}{t(formatApplicationDuration(selectedCumulativeWorkSeconds))}</em>}
-                {isAdministratorCreatedApplication(selectedApplication) && !selectedApplication.fl && selectedAppTimes.workSeconds != null && <em>{t("В работе: ")}{t(formatApplicationDuration(selectedAppTimes.workSeconds))}</em>}
-                {selectedAppTimes.closedAt && selectedClosureSeconds != null && <em>{t("Подали → полностью закрыли: ")}{t(formatApplicationDuration(selectedClosureSeconds))}</em>}
-              </span>
-            )}
+          <div className="side-panel-actions">
+            {isEmployeeCreatedApplication(selectedApplication) && ['new', 'reopened'].includes(selectedApplication.status || 'new') && <button type="button" onClick={() => openAcceptModal(selectedApplication)}>{t("Взять в работу")}</button>}
+            {selectedApplication.employee_login && <a href={getOpenChatHref(selectedApplication)}>{t("Открыть чат")}</a>}
+            <a href={`/edit/${selectedApplication.id}`}>{t("Редактировать заявку")}</a>
+            <button type="button" className="side-panel-delete" onClick={deleteSelectedApplication} disabled={actionBusyId === selectedApplication.id}>{t(actionBusyId === selectedApplication.id ? 'Удаляем…' : 'Удалить заявку')}</button>
           </div>
           <div className="next-action-card">
             <span>{t("Следующее действие")}</span>
@@ -1628,7 +1634,17 @@ const Dashboard = () => {
             <div><strong>Email</strong><span>{selectedEmployee?.email || (String(selectedApplication.employee_login || '').includes('@') ? selectedApplication.employee_login : '—')}</span></div>
             {selectedEmployee && selectedEmployee.is_active === false && <div><strong>{t("Статус справочника")}</strong><span>{t("Запись неактивна")}</span></div>}
           </div></div>
-          <div className="side-panel-section"><h3>{t("Хронология")}</h3><div className="side-panel-grid">
+          <div className="time-summary-card">
+            <strong>{t(getStatusLabel(selectedApplication))}</strong>
+            {selectedAppTimes && (
+              <span>
+                {!isAdministratorCreatedApplication(selectedApplication) && selectedCumulativeWorkSeconds != null && <em>{t("Всего в работе: ")}{t(formatApplicationDuration(selectedCumulativeWorkSeconds))}</em>}
+                {isAdministratorCreatedApplication(selectedApplication) && !selectedApplication.fl && selectedAppTimes.workSeconds != null && <em>{t("В работе: ")}{t(formatApplicationDuration(selectedAppTimes.workSeconds))}</em>}
+                {selectedAppTimes.closedAt && selectedClosureSeconds != null && <em>{t("Подали → полностью закрыли: ")}{t(formatApplicationDuration(selectedClosureSeconds))}</em>}
+              </span>
+            )}
+          </div>
+          <details key={selectedApplication.id} className="side-panel-section side-panel-chronology"><summary>{t("Хронология")}</summary><div className="side-panel-grid">
             {!isAdministratorCreatedApplication(selectedApplication) && <div><strong>{t("Категория")}</strong><span>{t(selectedApplication.category || '—')}</span></div>}
             {!isAdministratorCreatedApplication(selectedApplication) && <div><strong>{t("Приоритет")}</strong><span>{t(selectedApplication.priority || 'Обычный')}</span></div>}
             <div><strong>{t("Источник")}</strong><span>{t(getApplicationSourceLabel(selectedApplication))}</span></div>
@@ -1650,7 +1666,7 @@ const Dashboard = () => {
             })}
             {selectedAppTimes?.closedAt && <div><strong>{t("Закрыта")}</strong><span>{t(formatCreatedAt(selectedAppTimes.closedAt))}</span></div>}
             {selectedAppTimes?.closedAt && selectedClosureSeconds != null && <div><strong>{t("Подали → полностью закрыли")}</strong><span>{t(formatApplicationDuration(selectedClosureSeconds))}</span></div>}
-          </div></div>
+          </div></details>
           {selectedApplication.admin_comment && (
             <div className="side-panel-section">
               <h3>{t("Комментарий администратора")}</h3>
@@ -1667,12 +1683,6 @@ const Dashboard = () => {
               <p>{selectedApplication.employee_comment}</p>
             </div>
           )}
-          <div className="side-panel-actions">
-            {isEmployeeCreatedApplication(selectedApplication) && ['new', 'reopened'].includes(selectedApplication.status || 'new') && <button type="button" onClick={() => openAcceptModal(selectedApplication)}>{t("Взять в работу")}</button>}
-            {selectedApplication.employee_login && <a href={getOpenChatHref(selectedApplication)}>{t("Открыть чат")}</a>}
-            <a href={`/edit/${selectedApplication.id}`}>{t("Редактировать заявку")}</a>
-            <button type="button" className="side-panel-delete" onClick={deleteSelectedApplication} disabled={actionBusyId === selectedApplication.id}>{t(actionBusyId === selectedApplication.id ? 'Удаляем…' : 'Удалить заявку')}</button>
-          </div>
           {showApplicationActionHistory && <div className="side-panel-section">
             <h3>{t("История действий")}</h3>
             {eventsLoading && <p>{t("Загружаем историю…")}</p>}
