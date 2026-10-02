@@ -1,0 +1,17 @@
+[Unit]
+Description=React_Suz (боевая версия, порты 5000/3000)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/qwest/.cline/data/workspaces/chat/React_Suz
+ExecStart=/usr/bin/npm run dev
+Environment=NODE_ENV=development
+Environment=BROWSER=none
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target
