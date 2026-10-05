@@ -145,6 +145,7 @@ export default function AdminBackups({ onSettingsRestored }) {
         const result = await response.json();
         setStatus(`${result.message} Восстановлено записей: ${result.tables.reduce((sum, table) => sum + table.rows, 0)}; файлов: ${result.files}.`);
         setRecovery(result.recoveryName);
+        window.dispatchEvent(new Event('admin:data-restored'));
       }
       setProgress({ steps, step: 2 });
     } catch (failure) { setError(failure.message); setProgress({ steps, step: 1, failed: true }); }
@@ -154,7 +155,7 @@ export default function AdminBackups({ onSettingsRestored }) {
   const settings = { key: 'settings', title: 'Личные настройки', extension: '.json' };
   return <section className="settings-group">
     <h2 className="settings-group-title">{t("Резервные копии и восстановление")}</h2>
-    <p className="backup-help">{t("Экспорт сохраняет файл на вашем компьютере. Импорт полностью заменяет выбранный раздел. На время операции работа с данными приостанавливается.")}</p>
+    <p className="backup-help">{t("Экспорт сохраняет файл на вашем компьютере. Импорт полностью заменяет выбранный раздел. Во время экспорта чтение доступно, изменения приостанавливаются. При восстановлении приостанавливается вся работа с данными.")}</p>
     <p className="backup-help">{t("Для импорта используйте копии, созданные здесь. Отсутствующие таблицы создаются из копии; таблицы со сложными индексами или внешними ключами предварительно подготовьте миграциями.")}</p>
     <p className="backup-help">{t("Лимит одной копии — 512 МБ, вложений — 256 МБ. Для больших объёмов используйте резервирование на сервере.")}</p>
     {(!window.showSaveFilePicker || !window.isSecureContext) && <p className="backup-help">{t("Место сохранения выбирает браузер. Чтобы он спрашивал папку каждый раз, включите «Всегда указывать место для скачивания» в его настройках загрузок.")}</p>}

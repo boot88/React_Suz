@@ -107,3 +107,33 @@ test('inspection reports verified counts without leaking rows or executing resto
   assert.deepEqual(inserted, []);
   assert.equal(rolledBack, false);
 });
+
+test('export allows API reads and blocks writes; restore blocks both and reports completion', async () => {
+  const { EventEmitter } = require('node:events');
+  const { exclusive, backupGate, maintenanceStatus } = require('../routes/adminBackups');
+  const check = (method) => {
+    let next = false;
+    const res = Object.assign(new EventEmitter(), { status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; } });
+    backupGate({ path: '/api/applications', method }, res, () => { next = true; res.emit('finish'); });
+    return { next, res };
+  };
+  for (const mode of ['export', 'restore']) {
+    let release;
+    const pending = exclusive(() => new Promise((resolve) => { release = resolve; }), mode);
+    assert.equal(maintenanceStatus().operation, mode);
+    assert.equal(check('GET').next, mode === 'export');
+    assert.equal(check('PUT').res.statusCode, 503);
+    release(); await pending; assert.equal(maintenanceStatus().active, false);
+  }
+});
+
+test('restoration batches rows rather than issuing one INSERT per record', async () => {
+  const recoveryDir = await fs.mkdtemp(path.join(os.tmpdir(), 'suz-restore-batch-'));
+  inserted = []; failInsert = false;
+  try {
+    const sql = makeSql('knowledge', [{ name: 'knowledge_base', schema, columns: ['id', 'title', 'images'], rows: Array.from({ length: 205 }, (_, id) => ({ id, title: `Статья ${id}`, images: null })) }]);
+    const backup = await decodeUpload(Buffer.from(sql), 'knowledge', group);
+    await restore(backup, 'knowledge', group, { recoveryDir });
+    assert.equal(inserted.length, 3); assert.deepEqual(inserted.map((batch) => batch.length), [300, 300, 15]);
+  } finally { await fs.rm(recoveryDir, { recursive: true, force: true }); }
+});

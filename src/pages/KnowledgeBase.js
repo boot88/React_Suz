@@ -4,19 +4,33 @@ import React, { useState, useEffect, useRef } from 'react';
 import './KnowledgeBase.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
+import KnowledgeImage from '../components/KnowledgeImage';
+import { readFormDraft, useFormDraft } from '../utils/useFormDraft';
 
 const KnowledgeBase = () => {
   const t = useAdminTranslation();
   const [notice, setNotice] = useState(null);
   const notify = (text, type = 'error') => setNotice({ text, type });
   const [articles, setArticles] = useState([]);
-  const [newArticle, setNewArticle] = useState({ 
+  const [newArticle, setNewArticle] = useState(() => readFormDraft('knowledge-new', null) || {
     title: '', 
     solution: '', 
     category: 'Общее',
     images: []
   });
-  const [editingArticle, setEditingArticle] = useState(null);
+  const [editingArticle, setEditingArticle] = useState(() => readFormDraft('knowledge-edit', null));
+  const editBaseline = useRef(null);
+  const clearNewDraft = useFormDraft('knowledge-new', newArticle, Boolean(newArticle.title || newArticle.solution || newArticle.images.length));
+  const clearEditDraft = useFormDraft('knowledge-edit', editingArticle, Boolean(editingArticle && JSON.stringify(editingArticle) !== JSON.stringify(editBaseline.current)));
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [serverCategories, setServerCategories] = useState([]);
+  const [articleDetails, setArticleDetails] = useState({});
+  const [detailLoading, setDetailLoading] = useState(null);
+  const listController = useRef(null);
+  const detailsController = useRef(null);
+  const detailVersion = useRef(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [expandedImage, setExpandedImage] = useState(null);
@@ -28,30 +42,66 @@ const KnowledgeBase = () => {
   const [savingArticle, setSavingArticle] = useState(false);
   const articleSaveLock = useRef(false);
 
-  // Загрузка статей из базы данных
+  const firstListLoad = useRef(true);
   useEffect(() => {
-    fetchArticles();
-  }, []);
-
+    if (firstListLoad.current) { firstListLoad.current = false; fetchArticles(); return () => listController.current?.abort(); }
+    const timer = setTimeout(() => fetchArticles(), 250);
+    return () => { clearTimeout(timer); listController.current?.abort(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, searchTerm, selectedCategory]);
+  useEffect(() => () => { detailVersion.current += 1; detailsController.current?.abort(); }, []);
   const fetchArticles = async () => {
+    listController.current?.abort();
+    const controller = new AbortController(); listController.current = controller;
     try {
-      setLoading(true);
       setError(null);
-      const response = await authFetch(`${API_BASE_URL}/knowledge-base`);
-      
-      if (!response.ok) {
-        throw new Error(`Ошибка сервера: ${response.status}`);
-      }
-      
+      const params = new URLSearchParams({ page: String(page), limit: '12', search: searchTerm, category: selectedCategory });
+      const response = await authFetch(`${API_BASE_URL}/knowledge-base?${params}`, { signal: controller.signal });
+      if (!response.ok) throw new Error('Не удалось загрузить статьи');
       const data = await response.json();
-      console.log('Загруженные статьи:', data);
-      setArticles(data.articles || data || []);
-      setLoading(false);
-    } catch (err) {
-      console.error('Ошибка загрузки статей:', err);
-      setError('Не удалось загрузить статьи. Проверьте подключение к серверу.');
-      setLoading(false);
-    }
+      if (controller.signal.aborted) return;
+      const rows = Array.isArray(data) ? data : data.articles || [];
+      setArticles(rows); setTotal(data.total ?? rows.length); setTotalPages(data.totalPages || 1);
+      setServerCategories(data.categories || []);
+      if (data.page && data.page !== page) setPage(data.page);
+    } catch (err) { if (!controller.signal.aborted) setError(err.message); }
+    finally { if (!controller.signal.aborted) setLoading(false); }
+  };
+  const refreshArticlesRef = useRef(null);
+  refreshArticlesRef.current = fetchArticles;
+  useEffect(() => {
+    const refresh = () => {
+      detailsController.current?.abort(); detailVersion.current += 1;
+      setArticleDetails({}); setExpandedArticles([]); setDetailLoading(null);
+      refreshArticlesRef.current?.();
+    };
+    window.addEventListener('admin:data-restored', refresh);
+    return () => window.removeEventListener('admin:data-restored', refresh);
+  }, []);
+  const loadArticle = async (article, editing = false) => {
+    // Compatibility with a cached response from the previous client/API.
+    if (!('image_count' in article)) return { ...article, images: safeParseImages(article.images) };
+    if (!editing && articleDetails[article.id]) return articleDetails[article.id];
+    detailsController.current?.abort();
+    const controller = new AbortController(); detailsController.current = controller;
+    const version = ++detailVersion.current;
+    setDetailLoading(article.id);
+    try {
+      const response = await authFetch(`${API_BASE_URL}/knowledge-base/${article.id}${editing ? '?edit=1' : ''}`, { signal: controller.signal });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Не удалось загрузить статью');
+      if (controller.signal.aborted || version !== detailVersion.current) return null;
+      setArticleDetails((current) => ({ ...current, [article.id]: data })); return data;
+    } catch (error) { if (!controller.signal.aborted) notify(error.message); return null; }
+    finally { if (version === detailVersion.current) setDetailLoading(null); }
+  };
+  const toggleArticle = async (article) => {
+    if (expandedArticles.includes(article.id)) { setExpandedArticles((ids) => ids.filter((id) => id !== article.id)); return; }
+    if (await loadArticle(article)) setExpandedArticles((ids) => [...ids, article.id]);
+  };
+  const replaceArticle = (article) => {
+    setArticleDetails((current) => ({ ...current, [article.id]: article }));
+    setArticles((rows) => rows.map((row) => row.id === article.id ? { ...article, image_count: article.images?.length || 0, images: [], solution: article.solution.slice(0, 180) } : row));
   };
 
   // Безопасный парсинг JSON для изображений
@@ -83,6 +133,7 @@ const KnowledgeBase = () => {
   };
 
   const handleInputChange = (e) => {
+    if (articleSaveLock.current || uploadingImages) return;
     const { name, value } = e.target;
     if (editingArticle) {
       setEditingArticle(prev => ({ ...prev, [name]: value }));
@@ -112,7 +163,7 @@ const KnowledgeBase = () => {
 
       for (const file of files) {
         // Проверка типа файла
-        if (!file.type.startsWith('image/')) {
+        if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) {
           notify(`Файл "${file.name}" не является изображением`, 'warning');
           continue;
         }
@@ -141,6 +192,8 @@ const KnowledgeBase = () => {
       }
 
       if (uploadedImages.length > 0) {
+        const combined = [...((editingArticle || newArticle).images || []), ...uploadedImages];
+        if (combined.length > 20 || new Blob([JSON.stringify(combined)]).size > 10 * 1024 * 1024) { notify('Максимум 20 изображений и 10 МБ данных изображений на статью', 'warning'); return; }
         if (editingArticle) {
           setEditingArticle(prev => ({
             ...prev,
@@ -209,7 +262,6 @@ const KnowledgeBase = () => {
         images: prepareImagesForSend(newArticle.images)
       };
 
-      console.log('Отправляемые данные:', articleData);
 
       const response = await authFetch(`${API_BASE_URL}/knowledge-base`, {
         method: 'POST',
@@ -220,7 +272,13 @@ const KnowledgeBase = () => {
       });
 
       if (response.ok) {
-        await fetchArticles();
+        const created = await response.json();
+        clearNewDraft();
+        if (page === 1 && !searchTerm && selectedCategory === 'all') {
+          setArticles((rows) => [{ ...created, image_count: created.images?.length || 0, images: [], solution: created.solution.slice(0, 180) }, ...rows].slice(0, 12));
+          setTotal(total + 1); setTotalPages(Math.max(1, Math.ceil((total + 1) / 12)));
+          setServerCategories((values) => [...new Set([...values, created.category])]);
+        } else fetchArticles();
         setNewArticle({ title: '', solution: '', category: 'Общее', images: [] });
         notify('Статья успешно добавлена!', 'success');
       } else {
@@ -253,7 +311,6 @@ const KnowledgeBase = () => {
         images: prepareImagesForSend(editingArticle.images)
       };
 
-      console.log('Отправляемые данные для обновления:', articleData);
 
       const response = await authFetch(`${API_BASE_URL}/knowledge-base/${editingArticle.id}`, {
         method: 'PUT',
@@ -264,7 +321,9 @@ const KnowledgeBase = () => {
       });
 
       if (response.ok) {
-        await fetchArticles();
+        const updated = await response.json(); replaceArticle(updated);
+        clearEditDraft(); editBaseline.current = null;
+        setServerCategories((values) => [...new Set([...values, updated.category])]);
         setEditingArticle(null);
         notify('Статья успешно обновлена!', 'success');
       } else {
@@ -291,7 +350,11 @@ const KnowledgeBase = () => {
       });
 
       if (response.ok) {
-        await fetchArticles();
+        setArticles((rows) => rows.filter((row) => row.id !== id));
+        setTotal((value) => Math.max(0, value - 1));
+        setArticleDetails((current) => { const next = { ...current }; delete next[id]; return next; });
+        if (articles.length === 1 && page > 1) setPage(page - 1);
+        else fetchArticles();
         notify('Статья успешно удалена!', 'success');
       } else {
         throw new Error('Ошибка при удалении статьи');
@@ -302,28 +365,19 @@ const KnowledgeBase = () => {
     }
   };
 
-  const startEditing = (article) => {
-    // Используем безопасный парсинг для изображений
-    const images = safeParseImages(article.images);
-    setEditingArticle({ 
-      ...article, 
-      images: images 
-    });
+  const startEditing = async (article) => {
+    if (articleSaveLock.current || uploadingImages) return;
+    if (editingArticle && !window.confirm(t('Заменить несохранённый черновик статьи?'))) return;
+    const data = await loadArticle(article, true);
+    if (data) { editBaseline.current = data; setEditingArticle({ ...data }); }
   };
-
   const cancelEditing = () => {
-    setEditingArticle(null);
+    if (articleSaveLock.current || uploadingImages) return;
+    if (editingArticle && JSON.stringify(editingArticle) !== JSON.stringify(editBaseline.current) && !window.confirm(t('Отменить несохранённые изменения?'))) return;
+    clearEditDraft(); editBaseline.current = null; setEditingArticle(null);
   };
-
-  const filteredArticles = articles.filter(article => {
-    const matchesSearch = article.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         article.solution.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = selectedCategory === 'all' || article.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
-
-  // Получаем уникальные категории из статей
-  const categories = ['all', ...new Set(articles.map(article => article.category).filter(Boolean))];
+  const filteredArticles = articles;
+  const categories = ['all', ...new Set([...serverCategories, ...articles.map((article) => article.category)].filter(Boolean))];
 
   const formatDate = (dateString) => {
     if (!dateString) return 'Не указано';
@@ -360,12 +414,12 @@ const KnowledgeBase = () => {
             type="text"
             placeholder={t("Поиск статей...")}
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
             className="search-input"
           />
           <select 
             value={selectedCategory} 
-            onChange={(e) => setSelectedCategory(e.target.value)}
+            onChange={(e) => { setSelectedCategory(e.target.value); setPage(1); }}
             className="category-filter"
           >
             <option value="all">{t("Все категории")}</option>
@@ -389,7 +443,7 @@ const KnowledgeBase = () => {
 
       <div className="kb-content">
         <div className="articles-section">
-          <h2>{t("Статьи (")}{filteredArticles.length})</h2>
+          <h2>{t("Статьи (")}{total})</h2>
           {filteredArticles.length === 0 ? (
             <div className="no-articles">
               <p>{t("Статьи не найдены")}</p>
@@ -399,7 +453,9 @@ const KnowledgeBase = () => {
             <div className="articles-grid">
               {filteredArticles.map(article => {
                 // Используем безопасный парсинг для изображений
-                const articleImages = safeParseImages(article.images);
+                const detail = articleDetails[article.id] || article;
+                const articleImages = safeParseImages(detail.images);
+                const imageCount = article.image_count ?? articleImages.length;
                 
                 return (
                   <div key={article.id} className="article-card">
@@ -419,13 +475,13 @@ const KnowledgeBase = () => {
                     <p className="article-category">{t("Категория: ")}{t(article.category || 'Общее')}</p>
                     <p className="article-excerpt">{String(article.solution || '').replace(/\s+/g, ' ').slice(0, 180)}{String(article.solution || '').length > 180 ? '…' : ''}</p>
                     <button type="button" className="article-expand" aria-expanded={expandedArticles.includes(article.id)} aria-controls={`article-body-${article.id}`}
-                      onClick={() => setExpandedArticles((ids) => ids.includes(article.id) ? ids.filter((id) => id !== article.id) : [...ids, article.id])}>
-                      {t(expandedArticles.includes(article.id) ? 'Свернуть статью' : 'Читать решение')}{articleImages.length > 0 && <span> · {t('Фотографии: ')}{articleImages.length}</span>}
+                      disabled={detailLoading === article.id} onClick={() => toggleArticle(article)}>
+                      {t(expandedArticles.includes(article.id) ? 'Свернуть статью' : 'Читать решение')}{imageCount > 0 && <span> · {t('Фотографии: ')}{imageCount}</span>}
                     </button>
                     {expandedArticles.includes(article.id) && <div id={`article-body-${article.id}`}>
                     <div className="article-content">
                       <h4>{t("Решение:")}</h4>
-                      <pre>{article.solution}</pre>
+                      <pre>{detail.solution}</pre>
                     </div>
                     
                     {articleImages.length > 0 && (
@@ -434,10 +490,10 @@ const KnowledgeBase = () => {
                         <div className="images-grid">
                           {articleImages.map((image, index) => (
                             <div key={index} className="image-item">
-                              <img 
-                                src={image.data || image.url} 
+                              <KnowledgeImage
+                                image={image}
                                 alt={image.name || t(`Изображение ${index + 1}`)}
-                                onClick={() => setExpandedImage(image)}
+                                onOpen={setExpandedImage}
                                 className="article-image"
                                 onError={(e) => {
                                   console.error('Ошибка загрузки изображения:', image);
@@ -462,6 +518,11 @@ const KnowledgeBase = () => {
               })}
             </div>
           )}
+        {totalPages > 1 && <nav aria-label={t('Страницы статей')}>
+          <button type="button" disabled={page === 1} onClick={() => setPage(page - 1)}>{t('Назад')}</button>
+          <span>{page} / {totalPages}</span>
+          <button type="button" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>{t('Далее')}</button>
+        </nav>}
         </div>
 
         <div className="edit-section">
@@ -470,7 +531,7 @@ const KnowledgeBase = () => {
               <h2>{t("Редактирование статьи #")}{editingArticle.id}</h2>
               <input
                 type="text"
-                name="title"
+                name="title" maxLength={255}
                 placeholder={t("Заголовок статьи")}
                 value={editingArticle.title}
                 onChange={handleInputChange}
@@ -516,7 +577,7 @@ const KnowledgeBase = () => {
                 >
                   {t(uploadingImages ? 'Загрузка...' : 'Добавить изображения')}
                 </button>
-                <p className="file-restrictions">{t("Максимальный размер: 2MB. Разрешены: JPEG, PNG, GIF, WebP")}</p>
+                <p className="file-restrictions">{t("До 2 МБ на файл, до 20 изображений и 10 МБ данных на статью. JPEG, PNG, GIF, WebP")}</p>
                 
                 {editingArticle.images && editingArticle.images.length > 0 && (
                   <div className="uploaded-images">
@@ -558,7 +619,7 @@ const KnowledgeBase = () => {
               <h2>{t("Добавить новую статью")}</h2>
               <input
                 type="text"
-                name="title"
+                name="title" maxLength={255}
                 placeholder={t("Заголовок статьи")}
                 value={newArticle.title}
                 onChange={handleInputChange}
@@ -604,7 +665,7 @@ const KnowledgeBase = () => {
                 >
                   {t(uploadingImages ? 'Загрузка...' : 'Добавить изображения')}
                 </button>
-                <p className="file-restrictions">{t("Максимальный размер: 2MB. Разрешены: JPEG, PNG, GIF, WebP")}</p>
+                <p className="file-restrictions">{t("До 2 МБ на файл, до 20 изображений и 10 МБ данных на статью. JPEG, PNG, GIF, WebP")}</p>
                 
                 {newArticle.images && newArticle.images.length > 0 && (
                   <div className="uploaded-images">

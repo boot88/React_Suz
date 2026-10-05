@@ -6,7 +6,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import './Dashboard.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { useAuth } from '../context/AuthContext';
-import { authFetch } from '../utils/authFetch';
+import { authFetch, withAccessToken } from '../utils/authFetch';
 import OperationProgress from '../components/OperationProgress';
 import {
   APPLICATION_TIME_ZONE,
@@ -71,17 +71,7 @@ const getApplicationTimes = (app = {}, now = Date.now()) => {
   };
 };
 
-const getCumulativeWorkSeconds = (app = {}, now = Date.now()) => {
-  const timing = getApplicationTiming(app, now);
-  const completed = Math.max(0, Number(app.work_seconds) || 0);
-  const status = getApplicationStatus(app);
-  if (!app.fl && ['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(status)) {
-    return completed + Math.max(0, Number(timing.workSeconds) || 0);
-  }
-  return completed || timing.workSeconds;
-};
-
-
+const getCumulativeWorkSeconds = (app = {}, now = Date.now()) => getApplicationTiming(app, now).cumulativeWorkSeconds;
 const secondsSince = (dateValue) => {
   if (!dateValue) return 0;
   const started = new Date(dateValue).getTime();
@@ -252,17 +242,8 @@ const getWaitingSeconds = (app = {}) => {
 const getWorkSeconds = (app = {}) => {
   const status = app.status || (app.fl ? 'done' : 'new');
   if (app.sla_paused_at && ['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(status)) return app.sla_paused_seconds ?? null;
-  if (app.work_seconds != null) {
-    if (!app.fl && ['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(status)) {
-      return Number(app.work_seconds || 0) + secondsSince(app.resolved_at || app.work_started_at || app.accepted_at || app.start_data);
-    }
-    return app.work_seconds;
-  }
-  const startedAt = app.work_started_at || app.accepted_at || (app.accepted_by ? app.start_data : null);
-  const finishedAt = app.resolved_at || app.end_data || app.employee_confirmed_at;
-  if (startedAt && finishedAt) return secondsBetweenValues(startedAt, finishedAt);
-  if (startedAt && ['accepted', 'in_progress', 'waiting_employee_confirmation'].includes(status) && !app.fl) return secondsSince(startedAt);
-  return null;
+  // SLA applies to the current work cycle, independently of cumulative work.
+  return secondsSince(app.work_started_at || app.accepted_at || app.start_data || app.created_at || app.data);
 };
 
 const getSlaState = (app = {}) => {
@@ -287,6 +268,13 @@ const getSlaState = (app = {}) => {
   return { level: 'ok', label: 'В норме', seconds: 0 };
 };
 
+const readDashboardSession = () => {
+  try {
+    const username = JSON.parse(localStorage.getItem('authState') || 'null')?.user?.username || '';
+    return JSON.parse(sessionStorage.getItem(`dashboard:${username}`) || '{}');
+  } catch { return {}; }
+};
+
 const Dashboard = () => {
   const t = useAdminTranslation();
   const { user } = useAuth();
@@ -294,14 +282,15 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const [applications, setApplications] = useState([]);
   const [employeeDirectory, setEmployeeDirectory] = useState([]);
-  const [currentPage, setCurrentPage] = useState(1);
+  const savedSession = useRef(readDashboardSession());
+  const [currentPage, setCurrentPage] = useState(() => savedSession.current.currentPage || 1);
   const [totalPages, setTotalPages] = useState(1);
   const [limit, setLimit] = useState(readDashboardPageSize);
   const [loading, setLoading] = useState(true);
   const [applicationsLoadError, setApplicationsLoadError] = useState(null);
   const [hasLoadedApplications, setHasLoadedApplications] = useState(false);
   const hasLoadedApplicationsRef = useRef(false);
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState(() => savedSession.current.filter || 'all');
   const [exportLoading, setExportLoading] = useState(false);
 
   const downloadBlob = (blob, fileName) => {
@@ -314,8 +303,8 @@ const Dashboard = () => {
     link.remove();
     window.URL.revokeObjectURL(url);
   };
-  const [searchTerm, setSearchTerm] = useState('');
-  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(() => savedSession.current.searchTerm || '');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(() => savedSession.current.searchTerm || '');
   const applicationsAbortRef = useRef(null);
   const searchMountedRef = useRef(false);
   const [searchRevision, setSearchRevision] = useState(0);
@@ -342,6 +331,8 @@ const Dashboard = () => {
   const [viewMode, setViewMode] = useState(() => userSettingsStorage.getItem('dashboard.viewMode') || 'timeline');
   const [timelineCardDesign, setTimelineCardDesign] = useState(readDashboardCardDesign);
   const [selectedIds, setSelectedIds] = useState([]);
+  const bulkCloseLockRef = useRef(false);
+  const [bulkCloseResult, setBulkCloseResult] = useState(null);
   const [bulkAssignResult, setBulkAssignResult] = useState(null);
   const bulkFailedIdsRef = useRef([]);
   const bulkAssignLockRef = useRef(false);
@@ -377,10 +368,37 @@ const Dashboard = () => {
     pending: 0,
   });
 
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
-  const [dateFilterActive, setDateFilterActive] = useState(false);
-  const [appliedDates, setAppliedDates] = useState({ from: '', to: '' });
+  const [fromDate, setFromDate] = useState(() => savedSession.current.fromDate || '');
+  const [toDate, setToDate] = useState(() => savedSession.current.toDate || '');
+  const [dateFilterActive, setDateFilterActive] = useState(() => Boolean(savedSession.current.dateFilterActive));
+  const [appliedDates, setAppliedDates] = useState(() => savedSession.current.appliedDates || { from: '', to: '' });
+  useEffect(() => {
+    try {
+      const key = `dashboard:${user?.username || ''}`;
+      const old = JSON.parse(sessionStorage.getItem(key) || '{}');
+      sessionStorage.setItem(key, JSON.stringify({ ...old, currentPage, filter, searchTerm, fromDate, toDate, dateFilterActive, appliedDates }));
+    } catch {}
+  }, [user?.username, currentPage, filter, searchTerm, fromDate, toDate, dateFilterActive, appliedDates]);
+  const restoredScroll = useRef(false);
+  const sessionStateRef = useRef({});
+  sessionStateRef.current = { currentPage, filter, searchTerm, fromDate, toDate, dateFilterActive, appliedDates };
+  useEffect(() => {
+    const save = () => {
+      try {
+        const container = document.querySelector('.app-content');
+        sessionStorage.setItem(`dashboard:${user?.username || ''}`, JSON.stringify({ ...sessionStateRef.current, scrollTop: container?.scrollTop || window.scrollY || 0 }));
+      } catch {}
+    };
+    window.addEventListener('scroll', save, true);
+    return () => { save(); window.removeEventListener('scroll', save, true); };
+  }, [user?.username]);
+  useEffect(() => {
+    if (!hasLoadedApplications || restoredScroll.current) return;
+    restoredScroll.current = true;
+    const container = document.querySelector('.app-content');
+    if (container) container.scrollTop = savedSession.current.scrollTop || 0;
+    else if (savedSession.current.scrollTop > 0) window.scrollTo?.(0, savedSession.current.scrollTop);
+  }, [hasLoadedApplications]);
 
   useEffect(() => {
     const syncApplicationActionHistoryVisibility = () => {
@@ -442,39 +460,16 @@ const Dashboard = () => {
       if (dateFilterActive && appliedDates.to) params.set('to', appliedDates.to);
       if (searchTerm && searchTerm.trim()) params.set('search', searchTerm.trim());
 
-      let url = '/applications/export';
-      const query = params.toString();
-      if (query) url += `?${query}`;
 
       setExportProgress({ step: 1 });
-      const response = await authFetch(`${API_BASE_URL}${url}`);
-      if (!response.ok) throw new Error('Не удалось загрузить заявки для экспорта');
-      const data = await response.json();
-      const allApplications = data.applications || [];
-
-      if (allApplications.length === 0) {
-        showToast('Нет данных для экспорта', 'warning');
-        setExportProgress(null);
-        return;
+      params.set('sort', sortMode);
+      const response = await authFetch(`${API_BASE_URL}/applications/export-xlsx?${params}`);
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Не удалось сформировать файл Excel');
       }
-
-      const date = new Date().toLocaleDateString(getAdminLocale()).replace(/\./g, '-');
-      const fileName = searchTerm
-        ? `заявки_поиск_${searchTerm}_${date}.xlsx`
-        : `все_заявки_${date}.xlsx`;
-
-      const exportResponse = await authFetch(`${API_BASE_URL}/applications/export-xlsx`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ applications: allApplications, sheetName: 'Заявки' })
-      });
-
-      if (!exportResponse.ok) {
-        const errorData = await exportResponse.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Не удалось сформировать файл Excel');
-      }
-
-      const blob = await exportResponse.blob();
+      const blob = await response.blob();
+      const fileName = `заявки_${new Date().toISOString().slice(0, 10)}.xlsx`;
       setExportProgress({ step: 2 });
       downloadBlob(blob, fileName);
       setExportProgress({ step: 3 });
@@ -483,7 +478,7 @@ const Dashboard = () => {
     } catch (error) {
       console.error('Ошибка при экспорте:', error);
       setExportProgress({ step: 1, failed: true });
-      showToast('Произошла ошибка при экспорте данных', 'error');
+      showToast(error.message || 'Произошла ошибка при экспорте данных', 'error');
     } finally {
       setExportLoading(false);
     }
@@ -491,7 +486,7 @@ const Dashboard = () => {
 
   const fetchGeneralStats = async () => {
     try {
-      const response = await authFetch(`${API_BASE_URL}/applications?limit=1`);
+      const response = await authFetch(`${API_BASE_URL}/applications/stats`);
       if (!response.ok) throw new Error('Ошибка загрузки статистики');
       const data = await response.json();
       setStats(data.stats || { total: 0, completed: 0, pending: 0 });
@@ -502,6 +497,7 @@ const Dashboard = () => {
     }
   };
 
+  const pendingRefreshRef = useRef(false);
   const fetchApplications = async ({ silent = false, attempt = 0 } = {}) => {
     if (searchTerm !== debouncedSearchTerm) return false;
     let url = `/applications?page=${currentPage}&limit=${limit}`;
@@ -529,7 +525,7 @@ const Dashboard = () => {
     // При входе и восстановлении вкладки браузер может почти одновременно
     // запустить effect и событие focus. Не создаём второй одинаковый запрос:
     // его более поздняя ошибка не должна затирать успешный первый ответ.
-    if (applicationsRequestUrlRef.current === url) return false;
+    if (applicationsRequestUrlRef.current === url) { if (silent) pendingRefreshRef.current = true; return false; }
 
     applicationsAbortRef.current?.abort();
     const controller = new AbortController();
@@ -559,9 +555,12 @@ const Dashboard = () => {
       const nextApplications = data.applications || [];
       setApplications(nextApplications);
       setTotalPages(data.totalPages || 1);
+      if (data.currentPage && data.currentPage !== currentPage) setCurrentPage(data.currentPage);
       setFilteredStats(nextStats);
       if (!debouncedSearchTerm.trim() && !dateFilterActive && filter === 'all') {
         setStats(nextStats);
+      } else {
+        fetchGeneralStats();
       }
       window.dispatchEvent(new Event('applications:refresh'));
       return true;
@@ -586,6 +585,7 @@ const Dashboard = () => {
       }
       if (requestId === applicationsRequestIdRef.current) {
         setLoading(false);
+        if (pendingRefreshRef.current) { pendingRefreshRef.current = false; window.setTimeout(() => refreshRef.current?.(), 0); }
       }
     }
   };
@@ -613,23 +613,29 @@ const Dashboard = () => {
     showToast.timer = window.setTimeout(() => setToast(null), 3600);
   };
 
+  const eventsRequestRef = useRef(0);
   const fetchApplicationEvents = async (applicationId) => {
+    const version = ++eventsRequestRef.current;
     if (!applicationId) return;
     setEventsLoading(true);
     try {
       const response = await authFetch(`${API_BASE_URL}/applications/${applicationId}/events`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Не удалось загрузить историю');
+      if (version !== eventsRequestRef.current) return;
       setApplicationEvents(Array.isArray(data.events) ? data.events : []);
     } catch (error) {
+      if (version !== eventsRequestRef.current) return;
       showToast(error.message || 'Не удалось загрузить историю заявки', 'error');
       setApplicationEvents([]);
     } finally {
-      setEventsLoading(false);
+      if (version === eventsRequestRef.current) setEventsLoading(false);
     }
   };
 
   const openApplicationPanel = async (app) => {
+    eventsRequestRef.current += 1;
+    setApplicationEvents([]);
     setSelectedApplication(app);
     if (showApplicationActionHistory) await fetchApplicationEvents(app.id);
     if (['new', 'reopened'].includes(app.status || 'new')) {
@@ -650,27 +656,11 @@ const Dashboard = () => {
   // разделе при текущей сортировке. Нужен, чтобы после перехода из статистики
   // заявка была видна, а не оставалась на другой странице пагинации.
   const resolveApplicationPage = async (app, targetFilter) => {
-    const pageLimit = Math.min(1000, Math.max(1, Number(limit) || 10));
-    const chunkSize = 1000;
-    let page = 1;
-    let totalPages = 1;
-    do {
-      const params = new URLSearchParams({
-        page: String(page),
-        limit: String(chunkSize),
-        sort: sortMode
-      });
-      if (targetFilter && targetFilter !== 'all') params.set('status', targetFilter);
-      const response = await authFetch(`${API_BASE_URL}/applications?${params.toString()}`);
-      if (!response.ok) return 1;
-      const data = await response.json().catch(() => ({}));
-      const chunk = data.applications || [];
-      const index = chunk.findIndex((item) => String(item.id) === String(app.id));
-      if (index >= 0) return Math.floor(((page - 1) * chunkSize + index) / pageLimit) + 1;
-      totalPages = Math.max(1, Number(data.totalPages) || 1);
-      page += 1;
-    } while (page <= totalPages);
-    return 1;
+    const params = new URLSearchParams({ limit: String(limit), sort: sortMode, status: targetFilter });
+    const response = await authFetch(`${API_BASE_URL}/applications/${app.id}/position?${params}`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Не удалось определить страницу заявки');
+    return data.page || 1;
   };
 
   useEffect(() => {
@@ -742,6 +732,7 @@ const Dashboard = () => {
   }, [scrollToApplicationId, applications]);
 
   const closeApplicationPanel = () => {
+    eventsRequestRef.current += 1;
     setSelectedApplication(null);
     setApplicationEvents([]);
     const params = new URLSearchParams(location.search);
@@ -768,10 +759,6 @@ const Dashboard = () => {
     setWorkflowModal((prev) => prev ? { ...prev, values: { ...prev.values, [field]: value } } : prev);
   };
 
-  useEffect(() => {
-    fetchGeneralStats();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   useEffect(() => {
     fetchApplications();
@@ -802,7 +789,8 @@ const Dashboard = () => {
   useEffect(() => {
     setSelectedApplication((current) => {
       if (!current) return current;
-      return applications.find((application) => application.id === current.id) || current;
+      const next = applications.find((application) => application.id === current.id);
+      return next && Number(next.revision || 0) >= Number(current.revision || 0) ? next : current;
     });
   }, [applications]);
 
@@ -812,7 +800,6 @@ const Dashboard = () => {
         // Сохраняем текущую таблицу на экране: обновление после возврата во
         // вкладку не должно заменять её индикатором загрузки.
         fetchApplications({ silent: true });
-        fetchGeneralStats();
       }
     };
     document.addEventListener('visibilitychange', onVisible);
@@ -822,10 +809,56 @@ const Dashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, limit, filter, appliedDates, dateFilterActive, debouncedSearchTerm, searchRevision, sortMode]);
 
+  const refreshRef = useRef(null);
+  refreshRef.current = () => fetchApplications({ silent: true });
+  const panelRef = useRef(null);
+  panelRef.current = selectedApplication;
+  useEffect(() => {
+    if (!user?.accessToken || typeof EventSource === 'undefined') return undefined;
+    let timer, fallback;
+    let active = true;
+    const refresh = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => { if (!document.hidden) refreshRef.current?.(); }, 200);
+    };
+    const stream = new EventSource(withAccessToken(`${API_BASE_URL}/applications/stream`));
+    stream.addEventListener('ready', () => { window.clearInterval(fallback); fallback = null; refresh(); });
+    stream.addEventListener('application', (event) => {
+      try {
+        const { application, eventType } = JSON.parse(event.data);
+        if (String(panelRef.current?.id) === String(application?.id)) {
+          if (eventType === 'deleted') closePanelRef.current?.();
+          else setSelectedApplication((current) => current && Number(application.revision || 0) >= Number(current.revision || 0) ? { ...current, ...application } : current);
+        }
+        refresh();
+      } catch {}
+    });
+    stream.addEventListener('maintenance', (event) => {
+      try { window.dispatchEvent(new CustomEvent('admin:maintenance', { detail: JSON.parse(event.data) })); } catch {}
+    });
+    stream.onerror = () => { if (!fallback) fallback = window.setInterval(refresh, 30000); };
+    const afterRestore = async () => {
+      refresh();
+      const applicationId = panelRef.current?.id;
+      if (!applicationId) return;
+      try {
+        const response = await authFetch(`${API_BASE_URL}/applications/${applicationId}`);
+        const data = await response.json().catch(() => ({}));
+        if (!active || String(panelRef.current?.id) !== String(applicationId)) return;
+        if (response.status === 404) closePanelRef.current?.();
+        else if (response.ok && data.application) setSelectedApplication(data.application);
+      } catch {}
+    };
+    window.addEventListener('admin:data-restored', afterRestore);
+    return () => { active = false; stream.close(); window.clearTimeout(timer); window.clearInterval(fallback); window.removeEventListener('admin:data-restored', afterRestore); };
+  }, [user?.accessToken]);
+  const closePanelRef = useRef(null);
+  closePanelRef.current = closeApplicationPanel;
+
   const setFilterAndResetPage = (newFilter) => {
     setFilter(newFilter);
     setCurrentPage(1);
-    setLoading(true);
+    if (newFilter === filter && currentPage === 1) fetchApplications({ silent: true });
   };
 
   const applyFilters = () => {
@@ -842,7 +875,6 @@ const Dashboard = () => {
     setDateFilterActive(false);
     setAppliedDates({ from: '', to: '' });
     setSearchTerm('');
-    setLoading(true);
   };
 
   const isColumnVisible = (columnId) => visibleColumns.includes(columnId);
@@ -961,7 +993,6 @@ const Dashboard = () => {
       setApplications((prev) => prev.filter((item) => item.id !== app.id));
       closeApplicationPanel();
       showToast(data.message || 'Заявка удалена', 'success');
-      fetchGeneralStats();
       fetchApplications({ silent: true });
     } catch (error) {
       showToast(error.message || 'Не удалось удалить заявку', 'error');
@@ -997,7 +1028,6 @@ const Dashboard = () => {
       window.dispatchEvent(new CustomEvent('applications:status-changed', {
         detail: { from: getApplicationStatus(app), to: getApplicationStatus(updatedApplication) }
       }));
-      fetchGeneralStats();
       fetchApplications({ silent: true });
       if (showApplicationActionHistory) fetchApplicationEvents(app.id);
     } catch (error) {
@@ -1045,7 +1075,7 @@ const Dashboard = () => {
     setActionBusyId('bulk');
     try {
       const responses = await Promise.allSettled(ids.map(async (id) => {
-        const response = await authFetch(`${API_BASE_URL}/applications/${id}/accept`, {
+        const response = await authFetch(`${API_BASE_URL}/applications/${id}/assign`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ executor: bulkExecutor.trim(), admin_comment: 'Назначено массовым действием' })
@@ -1063,7 +1093,6 @@ const Dashboard = () => {
       }
       if (succeeded > 0) {
         await fetchApplications({ silent: true });
-        fetchGeneralStats();
       }
     } finally {
       bulkAssignLockRef.current = false;
@@ -1084,25 +1113,24 @@ const Dashboard = () => {
   const confirmBulkClose = async () => {
     const apps = workflowModal?.apps || [];
     const reason = workflowModal?.values?.reason?.trim();
-    if (!reason || apps.length === 0) return;
-    setActionBusyId('bulk');
+    if (!reason || !apps.length || bulkCloseLockRef.current) return;
+    bulkCloseLockRef.current = true; setActionBusyId('bulk');
     try {
-      const responses = await Promise.all(apps.map((app) => authFetch(`${API_BASE_URL}/applications/${app.id}/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employee_comment: `Закрыто массовым действием администратора: ${reason}` })
-      })));
-      if (responses.some((response) => !response.ok)) throw new Error('Не все заявки удалось закрыть');
-      showToast(`Закрыто заявок: ${apps.length}`, 'success');
-      setSelectedIds([]);
-      setWorkflowModal(null);
-      fetchApplications();
-      fetchGeneralStats();
-    } catch (error) {
-      showToast('Не удалось закрыть выбранные заявки', 'error');
-    } finally {
-      setActionBusyId(null);
-    }
+      const results = await Promise.allSettled(apps.map(async (app) => {
+        const response = await authFetch(`${API_BASE_URL}/applications/${app.id}/confirm`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ employee_comment: `Закрыто массовым действием администратора: ${reason}` })
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      }));
+      const failed = apps.filter((_, index) => results[index].status === 'rejected');
+      const succeeded = apps.length - failed.length;
+      bulkFailedIdsRef.current = failed.map((app) => app.id);
+      setSelectedIds(bulkFailedIdsRef.current);
+      setBulkCloseResult({ succeeded, failedIds: bulkFailedIdsRef.current });
+      setWorkflowModal(failed.length ? (current) => ({ ...current, apps: failed, blocked: [] }) : null);
+      await fetchApplications({ silent: true });
+    } finally { bulkCloseLockRef.current = false; setActionBusyId(null); }
   };
 
   const exportSelectedApplications = async () => {
@@ -1111,13 +1139,10 @@ const Dashboard = () => {
     setExportLoading(true);
     setExportProgress({ step: 1 });
     try {
-      const exportResponse = await authFetch(`${API_BASE_URL}/applications/export-xlsx`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ applications: selectedApplications, sheetName: 'Выбранные заявки' })
-      });
-      if (!exportResponse.ok) throw new Error('Не удалось сформировать файл Excel');
-      const blob = await exportResponse.blob();
+      const params = new URLSearchParams({ ids: selectedApplications.map((app) => app.id).join(','), sort: sortMode });
+      const response = await authFetch(`${API_BASE_URL}/applications/export-xlsx?${params}`);
+      if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.error || 'Не удалось сформировать файл Excel'); }
+      const blob = await response.blob();
       setExportProgress({ step: 2 });
       const fileName = `selected-applications-${new Date().toISOString().split('T')[0]}.xlsx`;
       downloadBlob(blob, fileName);
@@ -1278,9 +1303,9 @@ const Dashboard = () => {
           <div className="table-search table-search--header"><input type="text" value={searchTerm} onChange={(e) => handleSearch(e.target.value)} placeholder={t("Поиск по заявкам")} className="search-input" aria-label={t("Поиск по заявкам")} />{searchTerm && <button type="button" onClick={clearSearch} className="clear-search" title={t("Очистить поиск")}>×</button>}</div>
         <button
           onClick={exportToExcel}
-          disabled={exportLoading || loading || filteredStats.total === 0}
+          disabled={exportLoading || loading || filteredStats.total === 0 || filteredStats.total > 100000}
           className="export-btn"
-          title={t("Экспорт всех найденных заявок с учётом поиска и применённого периода")}
+          title={t("Экспорт всех найденных заявок с учётом поиска и применённого периода. Максимум 100 000 заявок.")}
         >
           {exportLoading ? (
             <>
@@ -1293,6 +1318,7 @@ const Dashboard = () => {
         </div>
       </div>
 
+      {filteredStats.total > 100000 && <AdminNotice type="warning">{t('Экспорт ограничен 100 000 заявок. Выберите меньший период.')}</AdminNotice>}
       {/* Статистика */}
       <div className="stats-grid dashboard-stats-expanded">
         {statCards.map((card) => (
@@ -1317,6 +1343,7 @@ const Dashboard = () => {
       {applicationsLoadError && <AdminNotice type={hasLoadedApplications ? "warning" : "error"} className="applications-load-error">
         {t(applicationsLoadError)} <button type="button" disabled={loading || searchTerm !== debouncedSearchTerm} onClick={() => fetchApplications({ silent: hasLoadedApplications })}>{t("Повторить загрузку")}</button>
       </AdminNotice>}
+      {bulkCloseResult && <AdminNotice type={bulkCloseResult.failedIds.length ? 'warning' : 'success'}>{t(`Закрыто: ${bulkCloseResult.succeeded}. Не удалось: ${bulkCloseResult.failedIds.length}.`)} {bulkCloseResult.failedIds.map((id) => `#${id}`).join(', ')}</AdminNotice>}
       {bulkAssignResult && <AdminNotice type={bulkAssignResult.failedIds.length ? (bulkAssignResult.succeeded ? 'warning' : 'error') : 'success'} className="bulk-assign-result">
         {t(`Назначено: ${bulkAssignResult.succeeded}. Не удалось: ${bulkAssignResult.failedIds.length}.`)}
         {bulkAssignResult.failedIds.length > 0 && <>

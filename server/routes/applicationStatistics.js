@@ -36,24 +36,28 @@ function createStatisticsRouter(pool) {
       if (days) {
         const previousStart = start - days * 86400000;
         const windows = [{ from: start, to: end }, { from: previousStart, to: start }];
-        const summaries = [];
-        let excluded = 0;
-        for (const window of windows) {
-          const [rows] = await pool.execute(`SELECT executor,
-            SUM(created IS NULL OR (closed IS NULL AND (fl = 1 OR status = 'done')) OR closed < created) AS excluded,
-            SUM(CASE WHEN created IS NOT NULL AND (NOT (fl = 1 OR status = 'done') OR (closed IS NOT NULL AND closed >= created)) THEN created >= ? AND created < ? ELSE 0 END) AS received,
-            SUM(CASE WHEN created IS NOT NULL AND closed >= created THEN closed >= ? AND closed < ? ELSE 0 END) AS closed,
-            SUM(CASE WHEN created IS NOT NULL AND (NOT (fl = 1 OR status = 'done') OR (closed IS NOT NULL AND closed >= created)) THEN created < ? AND (closed IS NULL OR closed >= ?) ELSE 0 END) AS opening,
-            SUM(CASE WHEN created IS NOT NULL AND (NOT (fl = 1 OR status = 'done') OR (closed IS NOT NULL AND closed >= created)) THEN created < ? AND (closed IS NULL OR closed >= ?) ELSE 0 END) AS remaining
-            FROM (${BASE}) records GROUP BY executor`, [window.from, window.to, window.from, window.to, window.from, window.from, window.to, window.to].map(sqlDate));
-          const summary = { ...window, received: 0, closed: 0, opening: 0, remaining: 0 };
-          for (const row of rows.filter((row) => matches(row.executor, selected))) {
-            for (const key of ['received', 'closed', 'opening', 'remaining']) summary[key] += Number(row[key] || 0);
-          }
-          if (!summaries.length) excluded = rows.filter((row) => matches(row.executor, selected)).reduce((sum, row) => sum + Number(row.excluded || 0), 0);
-          summary.change = summary.remaining - summary.opening;
-          summaries.push(summary);
+        const valid = "created IS NOT NULL AND (NOT (fl = 1 OR status = 'done') OR (closed IS NOT NULL AND closed >= created))";
+        const metrics = [], params = [];
+        for (let index = 0; index < windows.length; index += 1) {
+          const window = windows[index];
+          metrics.push(`SUM(CASE WHEN ${valid} THEN created >= ? AND created < ? ELSE 0 END) AS received_${index}`,
+            `SUM(CASE WHEN created IS NOT NULL AND closed >= created THEN closed >= ? AND closed < ? ELSE 0 END) AS closed_${index}`,
+            `SUM(CASE WHEN ${valid} THEN created < ? AND (closed IS NULL OR closed >= ?) ELSE 0 END) AS opening_${index}`,
+            `SUM(CASE WHEN ${valid} THEN created < ? AND (closed IS NULL OR closed >= ?) ELSE 0 END) AS remaining_${index}`);
+          params.push(window.from, window.to, window.from, window.to, window.from, window.from, window.to, window.to);
         }
+        // Compare both windows in one scan. Opening balances still need older history.
+        const [rows] = await pool.execute(`SELECT executor,
+          SUM(created IS NULL OR (closed IS NULL AND (fl = 1 OR status = 'done')) OR closed < created) AS excluded,
+          ${metrics.join(',')} FROM (${BASE}) records GROUP BY executor`, params.map(sqlDate));
+        const selectedRows = rows.filter((row) => matches(row.executor, selected));
+        const summaries = windows.map((window, index) => {
+          const summary = { ...window };
+          for (const key of ['received', 'closed', 'opening', 'remaining']) summary[key] = selectedRows.reduce((sum, row) => sum + Number(row[`${key}_${index}`] || 0), 0);
+          summary.change = summary.remaining - summary.opening;
+          return summary;
+        });
+        const excluded = selectedRows.reduce((sum, row) => sum + Number(row.excluded || 0), 0);
         comparison = { current: summaries[0], previous: summaries[1], excluded };
       }
       res.json({ now, earliest: meta[0]?.earliest || null, groups, comparison });

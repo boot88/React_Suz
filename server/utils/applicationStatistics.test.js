@@ -21,11 +21,13 @@ test('summary returns grouped counts, equal windows and exact executor totals wi
     calls.push({ sql, params });
     if (sql.startsWith('SELECT MIN')) return [[{ earliest: '2026-01-01T00:00:00Z' }]];
     if (sql.includes('GROUP BY day')) return [[{ day: '2026-10-01', executor: 'Повисок Е.В.', status: 'new', count: 3 }]];
-    return [[{ executor: 'Повисок Е.В.', received: 3, closed: 2, opening: 4, remaining: 5, excluded: 1 }, { executor: 'Повисок Е.В. Андреев Р.В.', received: 99, remaining: 99 }]];
+    return [[{ executor: 'Повисок Е.В.', received_0: 3, closed_0: 2, opening_0: 4, remaining_0: 5, received_1: 1, closed_1: 1, opening_1: 4, remaining_1: 4, excluded: 1 }, { executor: 'Повисок Е.В. Андреев Р.В.', received_0: 99, remaining_0: 99 }]];
   } };
   const { status, body } = await invoke(pool, '/', { days: '7', executors: '["Повисок Е.В."]' });
   assert.equal(status, 200);
   assert.equal(body.comparison.current.received, 3);
+  assert.equal(body.comparison.previous.received, 1);
+  assert.equal(calls.length, 3);
   assert.equal(body.comparison.current.change, 1);
   assert.equal(body.comparison.excluded, 1);
   assert.equal(body.comparison.previous.to, body.comparison.current.from);

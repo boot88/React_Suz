@@ -1,14 +1,18 @@
 import AdminNotice from '../components/AdminNotice';
 import { useAdminTranslation, getAdminLocale } from '../utils/adminTranslation';
 import { userSettingsStorage } from '../utils/userPreferences';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import './EditApplicationsTable.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
+import applicationValidation from '../utils/applicationValidation';
+import { readFormDraft, useFormDraft } from '../utils/useFormDraft';
 import { useAuth } from '../context/AuthContext';
 
 const SHOW_EDIT_APPLICATION_TABLE_KEY = 'admin.showEditApplicationTable';
+
+const { validateApplicationField, validateApplication } = applicationValidation;
 
 function EditApplicationsTable() {
   const t = useAdminTranslation();
@@ -22,6 +26,12 @@ function EditApplicationsTable() {
   const [error, setError] = useState(null);
   const [editing, setEditing] = useState(false);
   const [editingApp, setEditingApp] = useState({});
+  const baselineRef = useRef(null);
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+  const [conflict, setConflict] = useState(false);
+  const dirty = editing && baselineRef.current && JSON.stringify(editingApp) !== JSON.stringify(baselineRef.current);
+  const clearDraft = useFormDraft(`edit-request:${editingApp.id || applicationId}`, editingApp, dirty);
   const [successMessage, setSuccessMessage] = useState('');
   const [notice, setNotice] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -39,14 +49,19 @@ function EditApplicationsTable() {
     return new Date(localDate.getTime() + timezoneOffset * 60000);
   };
 
+  const loadController = useRef(null);
+  const loadRetry = useRef(null);
   const fetchApplications = useCallback(async (attempt = 0) => {
     if (authLoading) return;
+    loadController.current?.abort(); window.clearTimeout(loadRetry.current);
+    const controller = new AbortController(); loadController.current = controller;
     setLoading(true);
     setError(null);
     try {
       if (directEditingMode) {
-        const response = await authFetch(`${API_BASE_URL}/applications/${encodeURIComponent(applicationId)}`);
+        const response = await authFetch(`${API_BASE_URL}/applications/${encodeURIComponent(applicationId)}`, { signal: controller.signal });
         const data = await response.json().catch(() => ({}));
+        if (controller.signal.aborted) return;
         if (!response.ok || !data.application) {
           throw new Error(data.error || 'Заявка не найдена');
         }
@@ -54,7 +69,13 @@ function EditApplicationsTable() {
         setTotalPages(1);
         setTotalItems(1);
         setEditing(true);
-        setEditingApp({ ...data.application });
+        baselineRef.current = data.application;
+        const draft = readFormDraft(`edit-request:${data.application.id}`, null);
+        const restored = draft && String(draft.id) === String(data.application.id);
+        const stale = Boolean(restored && draft.revision !== data.application.revision);
+        setEditingApp(restored ? draft : { ...data.application });
+        setConflict(stale);
+        setNotice(stale ? { text: 'Заявка изменена другим администратором. Загрузите актуальную версию перед сохранением.', type: 'warning' } : null);
         setFieldErrors({});
         setEmployeeHints([]);
         setSelectedDirectoryName('');
@@ -63,7 +84,7 @@ function EditApplicationsTable() {
       }
       const statusQuery = statusFilter !== 'all' ? `&status=${encodeURIComponent(statusFilter)}` : '';
       const response = await authFetch(
-        `${API_BASE_URL}/applications?page=${currentPage}&limit=${itemsPerPage}${statusQuery}`
+        `${API_BASE_URL}/applications?page=${currentPage}&limit=${itemsPerPage}${statusQuery}`, { signal: controller.signal }
       );
       
       if (!response.ok) {
@@ -71,13 +92,15 @@ function EditApplicationsTable() {
       }
       
       const data = await response.json();
+      if (controller.signal.aborted) return;
       setApplications(data.applications || []);
       setTotalPages(data.totalPages || 1);
       setTotalItems(data.total ?? data.stats?.total ?? 0);
       setLoading(false);
     } catch (err) {
+      if (controller.signal.aborted) return;
       if (attempt < 2) {
-        window.setTimeout(() => fetchApplications(attempt + 1), 400 * (attempt + 1));
+        loadRetry.current = window.setTimeout(() => { if (!controller.signal.aborted) fetchApplications(attempt + 1); }, 400 * (attempt + 1));
         return;
       }
       console.error('Ошибка загрузки:', err.message);
@@ -88,6 +111,7 @@ function EditApplicationsTable() {
 
   useEffect(() => {
     if (!authLoading) fetchApplications();
+    return () => { loadController.current?.abort(); window.clearTimeout(loadRetry.current); };
   }, [authLoading, fetchApplications]);
 
   useEffect(() => {
@@ -97,82 +121,33 @@ function EditApplicationsTable() {
       return undefined;
     }
 
+    const controller = new AbortController();
     const timeout = window.setTimeout(async () => {
       try {
-        const response = await authFetch(`${API_BASE_URL}/employees/search?field=full_name&query=${encodeURIComponent(query)}`);
+        const response = await authFetch(`${API_BASE_URL}/employees/search?field=full_name&query=${encodeURIComponent(query)}`, { signal: controller.signal });
         if (!response.ok) throw new Error('Directory request failed');
         const employees = await response.json();
+        if (controller.signal.aborted) return;
         setEmployeeHints(Array.isArray(employees) ? employees.slice(0, 8) : []);
       } catch {
-        setEmployeeHints([]);
+        if (!controller.signal.aborted) setEmployeeHints([]);
       }
     }, 220);
 
-    return () => window.clearTimeout(timeout);
+    return () => { controller.abort(); window.clearTimeout(timeout); };
   }, [editing, editingApp.name, selectedDirectoryName]);
 
-  const validateField = (name, value) => {
-    let error = '';
-    
-    switch(name) {
-      case 'name':
-        if (!value || value.trim() === '') {
-          error = 'ФИО обязательно для заполнения';
-        } else if (value.length > 40) {
-          error = 'Максимум 40 символов';
-        } else if (!/^[а-яА-ЯёЁ\s]+$/.test(value)) {
-          error = 'Только русские буквы и пробелы';
-        }
-        break;
-        
-      case 'cabinet':
-        if (value && value.length > 15) {
-          error = 'Максимум 15 символов';
-        } else if (value && !/^[а-яА-ЯёЁ0-9\s,-]+$/.test(value)) {
-          error = 'Только цифры, русские буквы, пробелы, запятые, дефис';
-        }
-        break;
-        
-      case 'N_tel':
-        if (value && value.length > 15) {
-          error = 'Максимум 15 символов';
-        } else if (value && !/^[0-9\s,-]+$/.test(value)) {
-          error = 'Только цифры, пробел, запятые и дефис';
-        }
-        break;
-        
-      case 'application':
-        if (!value || value.trim() === '') {
-          error = 'Заявка обязательна для заполнения';
-        } else if (value.length > 500) {
-          error = 'Максимум 500 символов';
-        }
-        break;
-        
-      case 'process':
-        if (value && value.length > 1500) {
-          error = 'Максимум 1500 символов';
-        }
-        break;
-        
-      case 'executor':
-        if (value && value.length > 60) {
-          error = 'Максимум 60 символов';
-        } else if (value && !/^[а-яА-ЯёЁ\s,.]+$/.test(value)) {
-          error = 'Только русские буквы, пробелы, запятые, точка';
-        }
-        break;
-        
-      default:
-        break;
-    }
-    
-    return error;
-  };
+  const validateField = (name, value) => validateApplicationField(name, value);
 
   const startEditing = (app) => {
     setEditing(true);
-    setEditingApp({...app});
+    baselineRef.current = app;
+    const draft = readFormDraft(`edit-request:${app.id}`, null);
+    const restored = draft && String(draft.id) === String(app.id);
+    const stale = Boolean(restored && draft.revision !== app.revision);
+    setEditingApp(restored ? draft : { ...app });
+    setConflict(stale);
+    setNotice(stale ? { text: 'Заявка изменена другим администратором. Загрузите актуальную версию перед сохранением.', type: 'warning' } : null);
     setFieldErrors({});
     setEmployeeHints([]);
     setSelectedDirectoryName('');
@@ -194,6 +169,7 @@ function EditApplicationsTable() {
   };
 
   const handleChange = (e) => {
+    if (savingRef.current) return;
     const { name, value, type, checked } = e.target;
     
     let processedValue = type === 'checkbox' ? checked : value;
@@ -245,43 +221,18 @@ function EditApplicationsTable() {
   };
 
   const validateForm = () => {
-    const errors = {};
-    let isValid = true;
-    
-    const nameError = validateField('name', editingApp.name);
-    if (nameError) {
-      errors.name = nameError;
-      isValid = false;
-    }
-    
-    const applicationError = validateField('application', editingApp.application);
-    if (applicationError) {
-      errors.application = applicationError;
-      isValid = false;
-    }
-    
-    const cabinetError = validateField('cabinet', editingApp.cabinet);
-    if (cabinetError) errors.cabinet = cabinetError;
-    
-    const telError = validateField('N_tel', editingApp.N_tel);
-    if (telError) errors.N_tel = telError;
-    
-    const processError = validateField('process', editingApp.process);
-    if (processError) errors.process = processError;
-    
-    const executorError = validateField('executor', editingApp.executor);
-    if (executorError) errors.executor = executorError;
-    
-    setFieldErrors(errors);
-    return isValid;
+    const next = validateApplication(editingApp);
+    setFieldErrors(next); return Object.keys(next).length === 0;
   };
 
   const saveChanges = async () => {
+    if (savingRef.current) return;
     if (!validateForm()) {
       setNotice({ text: 'Пожалуйста, исправьте ошибки в форме', type: 'warning' });
       return;
     }
 
+    savingRef.current = true; setSaving(true);
     try {
       const appToSave = { ...editingApp };
 
@@ -301,6 +252,8 @@ function EditApplicationsTable() {
       });
 
       if (response.ok) {
+        baselineRef.current = appToSave; clearDraft();
+        window.dispatchEvent(new Event('applications:refresh'));
         if (directEditingMode) {
           navigate('/');
         } else {
@@ -311,17 +264,20 @@ function EditApplicationsTable() {
           setTimeout(() => setSuccessMessage(''), 3000);
         }
       } else {
-        const errorText = await response.text();
-        console.error('Ошибка сервера:', response.status, errorText);
-        setNotice({ text: `Ошибка при сохранении: ${response.status} ${response.statusText}`, type: 'error' });
+        const data = await response.json().catch(() => ({}));
+        setConflict(response.status === 409);
+        if (data.errors) setFieldErrors(data.errors);
+        setNotice({ text: data.error || `Ошибка при сохранении: ${response.status}`, type: 'error' });
       }
     } catch (err) {
       console.error('Ошибка:', err.message);
       setNotice({ text: 'Произошла сетевая ошибка при сохранении. Проверьте подключение к серверу.', type: 'error' });
-    }
+    } finally { savingRef.current = false; setSaving(false); }
   };
 
   const cancelEditing = () => {
+    if (dirty && !window.confirm(t('Отменить несохранённые изменения?'))) return;
+    baselineRef.current = null; clearDraft();
     if (directEditingMode) {
       navigate('/');
       return;
@@ -719,8 +675,9 @@ function EditApplicationsTable() {
           </div>
 
           <div className="form-buttons">
-            <button onClick={cancelEditing} className="cancel-button">{t("Отмена")}</button>
-            <button onClick={saveChanges} className="save-button">{t("Сохранить изменения")}</button>
+            <button onClick={cancelEditing} disabled={saving} className="cancel-button">{t("Отмена")}</button>
+            <button onClick={saveChanges} disabled={saving || conflict} className="save-button">{t(saving ? 'Сохранение...' : 'Сохранить изменения')}</button>
+            {conflict && <button type="button" onClick={() => { if (window.confirm(t('Загрузить актуальную заявку? Несохранённые изменения будут отменены.'))) { clearDraft(); fetchApplications(); } }}>{t('Загрузить актуальную версию')}</button>}
           </div>
         </div>
       ) : (

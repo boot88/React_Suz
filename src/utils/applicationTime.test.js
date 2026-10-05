@@ -78,3 +78,9 @@ test('does not invent taken or work time when an administrator closes a new requ
     takenAt: ''
   });
 });
+
+test('cumulative work adds ten minutes of work and five minutes of confirmation wait once', () => {
+  const app = { status: 'waiting_employee_confirmation', work_seconds: 600, accepted_at: '2026-10-01 00:00:00', work_started_at: '2026-10-01 00:00:00', resolved_at: '2026-10-01 00:10:00' };
+  expect(getApplicationTiming(app, Date.parse('2026-10-01T00:15:00Z')).cumulativeWorkSeconds).toBe(900);
+  expect(getApplicationTiming({ ...app, status: 'done', fl: true, work_seconds: 900 }, Date.parse('2026-10-01T01:00:00Z')).cumulativeWorkSeconds).toBe(900);
+});

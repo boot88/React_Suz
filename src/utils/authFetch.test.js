@@ -1,3 +1,4 @@
+import { API_BASE_URL } from './apiConfig';
 import { authFetch, withAccessToken } from './authFetch';
 
 describe('authenticated API requests', () => {
@@ -15,7 +16,7 @@ describe('authenticated API requests', () => {
       user: { accessToken: 'signed-token' }
     }));
 
-    await authFetch('/api/chat/feed', {
+    await authFetch(`${API_BASE_URL}/chat/feed`, {
       headers: { 'Content-Type': 'application/json' }
     });
 
@@ -29,21 +30,22 @@ describe('authenticated API requests', () => {
       user: { accessToken: 'signed-token' }
     }));
 
-    expect(withAccessToken('/api/chat/files/file-1/download'))
-      .toBe('/api/chat/files/file-1/download?access_token=signed-token');
+    expect(withAccessToken(`${API_BASE_URL}/chat/files/file-1/download`))
+      .toBe(`${API_BASE_URL}/chat/files/file-1/download?access_token=signed-token`);
   });
 
-  test('prefers a short-lived media token for file URLs when cached', () => {
+  test('prefers a short-lived media token for file URLs when cached', async () => {
     localStorage.setItem('authState', JSON.stringify({
       user: { accessToken: 'signed-token' }
     }));
 
     // Кэш media-токенов изолирован от тестов: сначала убеждаемся, что fallback
     // работает, а затем заполняем кэш и проверяем ветку с ?mt=.
-    const { storeMediaToken } = require('./mediaTokenCache');
-    storeMediaToken('file-1', 'media-token-1', Date.now() + 600000);
+    const { ensureMediaTokens } = require('./mediaTokenCache');
+    global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ tokens: [{ fileId: 'file-1', token: 'media-token-1', expiresAt: Date.now() + 600000 }] }) });
+    await ensureMediaTokens({ fileIds: ['file-1'], getToken: () => 'signed-token' });
 
-    expect(withAccessToken('/api/chat/files/file-1/download'))
-      .toBe('/api/chat/files/file-1/download?mt=media-token-1');
+    expect(withAccessToken(`${API_BASE_URL}/chat/files/file-1/download`))
+      .toBe(`${API_BASE_URL}/chat/files/file-1/download?mt=media-token-1`);
   });
 });

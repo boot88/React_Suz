@@ -205,4 +205,4 @@ const assertReferencedFiles = (tables, files, sourceRoot) => {
   }
 };
 
-module.exports = { GROUPS, EXCLUDED, MAX_BYTES, fail, identifier, digest, getGroups, makeSql, parseSql, safeFilePath, orderTables, assertReferencedFiles, buildCreateSql };
+module.exports = { GROUPS, EXCLUDED, MAX_BYTES, fail, identifier, digest, getGroups, makeSql, sqlValue, parseSql, safeFilePath, orderTables, assertReferencedFiles, buildCreateSql };

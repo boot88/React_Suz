@@ -1,9 +1,12 @@
 const express = require('express');
+const { EventEmitter } = require('events');
+const maintenanceEvents = new EventEmitter();
 const fs = require('fs/promises');
 const path = require('path');
 const zlib = require('zlib');
 const { promisify } = require('util');
 const db = require('../config/database');
+const { writeSqlBackup } = require('../utils/adminBackupStream');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { MAX_BYTES, fail, identifier, digest, getGroups, makeSql, parseSql, safeFilePath, assertReferencedFiles, buildCreateSql, GROUPS } = require('../utils/adminBackup');
 
@@ -12,37 +15,43 @@ const gunzip = promisify(zlib.gunzip);
 const serverRoot = path.resolve(__dirname, '..');
 const router = express.Router();
 let paused = false;
+let activeRequests = 0;
 let activeWrites = 0;
+let maintenanceStarted = null;
+const maintenanceStatus = () => ({ active: Boolean(paused), operation: paused || null, startedAt: maintenanceStarted });
 
 // Drain in-flight writes and prevent changes during a snapshot/restore.
 // Install before all /api routes. Deployments with multiple server processes
 // must stop the other processes during backup/restore (documented in README).
 const backupGate = (req, res, next) => {
   if (!req.path.startsWith('/api/') || req.path.startsWith('/api/backups') || req.method === 'OPTIONS') return next();
-  if (paused) {
+  const isWrite = !['GET', 'HEAD'].includes(req.method);
+  if (paused && (paused === 'restore' || isWrite)) {
     return res.status(503).json({ message: 'Выполняется резервное копирование или восстановление. Повторите операцию позже.' });
   }
   if (!req.path.endsWith('/stream')) {
-    activeWrites += 1;
+    activeRequests += 1;
+    if (isWrite) activeWrites += 1;
     let finished = false;
-    const finish = () => { if (!finished) { finished = true; activeWrites -= 1; } };
+    const finish = () => { if (!finished) { finished = true; activeRequests -= 1; if (isWrite) activeWrites -= 1; } };
     res.once('finish', finish);
     res.once('close', finish);
   }
   next();
 };
 
-const exclusive = async (operation) => {
+const exclusive = async (operation, mode = 'restore') => {
   if (paused) throw fail('Другая операция резервного копирования уже выполняется', 409);
-  paused = true;
+  paused = mode; maintenanceStarted = new Date().toISOString();
+  maintenanceEvents.emit('change', maintenanceStatus());
   try {
     const deadline = Date.now() + 30000;
-    while (activeWrites) {
+    while (mode === 'restore' ? activeRequests : activeWrites) {
       if (Date.now() > deadline) throw fail('Дождитесь завершения текущих загрузок и повторите операцию', 409);
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     return await operation();
-  } finally { paused = false; }
+  } finally { paused = false; maintenanceStarted = null; maintenanceEvents.emit('change', maintenanceStatus()); }
 };
 
 const inventory = async (connection = db) => {
@@ -126,6 +135,31 @@ const capture = async (key, existingConnection = null) => {
   finally { if (!existingConnection) connection.release(); }
 };
 
+const captureSqlFile = async (key) => {
+  const connection = await db.getConnection();
+  let result;
+  try {
+    await connection.query("SET time_zone = '+00:00'");
+    await connection.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+    await connection.query('START TRANSACTION WITH CONSISTENT SNAPSHOT');
+    const group = await resolveGroup(key, connection), existing = await inventory(connection);
+    const names = group.tables.filter((name) => existing.includes(name));
+    if (!names.length) throw fail('В этом разделе пока нет таблиц для экспорта');
+    const tables = [];
+    for (const name of names) {
+      const [ddl] = await connection.query(`SHOW CREATE TABLE ${identifier(name)}`);
+      if (!/ENGINE=InnoDB\b/i.test(ddl[0]['Create Table'])) throw fail(`Для надёжной копии таблица ${name} должна использовать InnoDB`);
+      const [columns] = await connection.query(`SHOW COLUMNS FROM ${identifier(name)}`);
+      const [indexes] = await connection.query(`SHOW INDEX FROM ${identifier(name)}`);
+      tables.push({ name, schema: ddl[0]['Create Table'], definition: { columns, indexes, hasForeignKeys: /\bFOREIGN KEY\b/i.test(ddl[0]['Create Table']) }, columns: columns.filter((column) => !/(VIRTUAL|STORED) GENERATED/i.test(column.Extra)).map((column) => column.Field) });
+    }
+    result = await writeSqlBackup(key, tables, (table) => connection.connection.query({ sql: `SELECT * FROM ${identifier(table.name)}`, dateStrings: true }).stream({ highWaterMark: 1 }));
+    await connection.commit();
+    return result;
+  } catch (error) { await connection.rollback().catch(() => {}); await result?.cleanup(); throw error; }
+  finally { connection.release(); }
+};
+
 const encodePackage = async (backup) => {
   const bytes = Buffer.from(JSON.stringify(backup));
   if (bytes.length > MAX_BYTES) throw fail('Резервная копия превышает лимит 512 МБ. Экспортируйте разделы отдельно.', 413);
@@ -196,6 +230,7 @@ const restore = async (backup, key, group, options = {}) => {
   const rollbackFiles = [];
   let stage;
   let preserveStage = false;
+  let applicationRevision = null;
   try {
     // Complete schema validation before any changes or filesystem writes.
     const existing = await inventory(connection);
@@ -204,6 +239,7 @@ const restore = async (backup, key, group, options = {}) => {
     for (const statement of statements) await connection.query(statement);
     for (const table of backup.tables) {
       const [columns] = await connection.query(`SHOW COLUMNS FROM ${identifier(table.name)}`);
+      if (table.name === 'application' && columns.some((column) => column.Field === 'revision')) applicationRevision = 0;
       const names = new Set(columns.filter((column) => !/(VIRTUAL|STORED) GENERATED/i.test(column.Extra)).map((column) => column.Field));
       if (table.columns?.some((column) => !names.has(column))) throw fail(`Схема таблицы ${table.name} отличается от дампа. Обновите программу до совместимой версии.`);
       const [ddl] = await connection.query(`SHOW CREATE TABLE ${identifier(table.name)}`);
@@ -223,10 +259,20 @@ const restore = async (backup, key, group, options = {}) => {
     }
     await connection.query("SET time_zone = '+00:00'");
     await connection.beginTransaction();
-    // Lock all affected tables' records, then replace within one transaction.
-    for (const table of backup.tables) await connection.query(`SELECT 1 FROM ${identifier(table.name)} FOR UPDATE`);
+    // DELETE acquires row locks; avoid returning every row just to lock it.
+    if (applicationRevision !== null) {
+      const [rows] = await connection.query('SELECT MAX(revision) AS maximum FROM application');
+      applicationRevision = Number(rows[0]?.maximum || 0);
+    }
     for (const table of [...backup.tables].reverse()) await connection.query(`DELETE FROM ${identifier(table.name)}`);
     for (const table of backup.tables) {
+      let batch = [], bytes = 0;
+      const flush = async () => {
+        if (!batch.length) return;
+        const placeholders = batch.map((row) => '(' + row.map(() => '?').join(',') + ')').join(',');
+        await connection.query(`INSERT INTO ${identifier(table.name)} (${table.columns.map(identifier).join(',')}) VALUES ${placeholders}`, batch.flat());
+        batch = []; bytes = 0;
+      };
       for (const values of table.rows) {
         const row = [...values];
         // Absolute archive paths must follow the new installation directory.
@@ -240,9 +286,14 @@ const restore = async (backup, key, group, options = {}) => {
             row[index] = Buffer.from(path.join(serverRoot, relative));
           }
         }
-        await connection.query(`INSERT INTO ${identifier(table.name)} (${table.columns.map(identifier).join(',')}) VALUES (${row.map(() => '?').join(',')})`, row);
+        const rowBytes = row.reduce((sum, value) => sum + (value?.length || 8), 0);
+        if (batch.length && (batch.length >= 100 || bytes + rowBytes > 1024 * 1024)) await flush();
+        batch.push(row); bytes += rowBytes;
       }
+      await flush();
     }
+    // Old open edit forms must conflict even when an older backup is restored.
+    if (applicationRevision !== null) await connection.query('UPDATE application SET revision = revision + ?', [applicationRevision + 1]);
     if (['accounts', 'all'].includes(key) && (await inventory(connection)).includes('auth_sessions')) {
       await connection.query('DELETE FROM auth_sessions');
     }
@@ -267,6 +318,9 @@ const restore = async (backup, key, group, options = {}) => {
       await fs.rename(path.join(stage, `${i}.new`), target);
     }
     await connection.commit();
+    if (['knowledge', 'all'].includes(key)) {
+      try { require('./knowledgeBase').resetAfterAdminRestore(); } catch (error) { console.error('Knowledge cache reset failed:', error.message); }
+    }
     // Clear legacy in-memory chat state after replacement, then force clients
     // to reconnect/read the SQL snapshot on the next page load.
     if (['communication', 'all'].includes(key)) {
@@ -293,6 +347,7 @@ const restore = async (backup, key, group, options = {}) => {
 };
 
 router.use(requireAuth, requireRole('admin'));
+router.get('/status', (req, res) => { res.set('Cache-Control', 'no-store'); res.json(maintenanceStatus()); });
 router.get('/recovery/:name', async (req, res) => {
   if (!/^\d+-(applications|knowledge|accounts|communication|other|all|configuration)\.(sql|suz\.gz)$/.test(req.params.name)) return res.status(400).json({ message: 'Некорректное имя копии' });
   const file = path.join(serverRoot, 'data', 'admin-restore-recovery', req.params.name);
@@ -310,9 +365,18 @@ router.get('/', async (req, res) => {
 router.get('/:group/export', async (req, res) => {
   try {
     const key = req.params.group;
-    const backup = await exclusive(() => capture(key));
     const sqlOnly = ['applications', 'knowledge', 'other', 'configuration'].includes(key);
-    const bytes = sqlOnly ? Buffer.from(backup.sql) : await encodePackage(backup);
+    if (sqlOnly) {
+      const backup = await exclusive(() => captureSqlFile(key), 'export');
+      res.setHeader('Cache-Control', 'no-store');
+      res.download(backup.file, `react-suz-${key}-${new Date().toISOString().slice(0, 10)}.sql`, (error) => {
+        backup.cleanup().catch(() => {});
+        if (error && !res.headersSent) res.status(500).json({ message: 'Не удалось скачать копию' });
+      });
+      return;
+    }
+    const backup = await exclusive(() => capture(key), 'export');
+    const bytes = await encodePackage(backup);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Content-Disposition', `attachment; filename="react-suz-${key}-${new Date().toISOString().slice(0, 10)}${sqlOnly ? '.sql' : '.suz.gz'}"`);
     res.type(sqlOnly ? 'application/sql' : 'application/gzip').send(bytes);
@@ -339,4 +403,4 @@ router.post('/:group/import', express.raw({ type: 'application/octet-stream', li
   } catch (error) { res.status(error.status || 500).json({ message: error.message }); }
 });
 
-module.exports = { router, backupGate, capture, decodeUpload, describeBackup, restore, exclusive };
+module.exports = { router, backupGate, capture, decodeUpload, describeBackup, restore, exclusive, maintenanceEvents, maintenanceStatus };

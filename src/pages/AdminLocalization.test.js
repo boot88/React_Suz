@@ -18,9 +18,9 @@ import { translateAdminText, getAdminLocale } from '../utils/adminTranslation';
 
 const mockNavigate = jest.fn();
 
-jest.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { username: 'admin', name: 'Повисок Евгений Вячеславович', role: 'admin' }, isLoading: false }) }));
+jest.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { username: 'admin', name: 'Повисок Евгений Вячеславович', role: 'admin', accessToken: JSON.parse(global.localStorage.getItem('authState') || '{}')?.user?.accessToken }, isLoading: false }) }));
 jest.mock('react-router-dom', () => ({ useNavigate: () => mockNavigate, useLocation: () => ({ pathname: '/', search: '' }), useParams: () => ({}) }));
-jest.mock('../utils/authFetch', () => ({ authFetch: jest.fn() }));
+jest.mock('../utils/authFetch', () => ({ authFetch: jest.fn(), withAccessToken: (url) => url }));
 jest.mock('recharts', () => {
   const React = require('react');
   const Container = ({ children }) => React.createElement('div', null, children);
@@ -41,18 +41,18 @@ const interfaceText = () => [container.textContent, ...Array.from(container.quer
 
 beforeEach(() => {
   window.IS_REACT_ACT_ENVIRONMENT = true;
-  localStorage.clear();
+  localStorage.clear(); sessionStorage.clear();
   localStorage.setItem('authState', JSON.stringify({ user: { username: 'admin' } }));
   initializeUserPreferences('admin', { uiLanguage: 'en', requestViewMode: 'table' });
   mockNavigate.mockReset();
   authFetch.mockReset();
-  authFetch.mockImplementation(async (url) => {
+  authFetch.mockImplementation(async (url, options) => {
     let data = {};
     if (url.includes('/employees/all') || url.includes('/auth/employees')) data = { employees: [] };
     else if (url.includes('/employees/departments')) data = [];
     else if (url.includes('/application-statistics')) data = { now: Date.now(), groups: [], comparison: null };
     else if (url.includes('/applications')) data = { applications: [], totalPages: 1, total: 0, stats: { total: 0, completed: 0, pending: 0 } };
-    else if (url.includes('/knowledge-base')) data = [];
+    else if (url.includes('/knowledge-base')) data = options?.method === 'POST' ? { id: 1, ...JSON.parse(options.body) } : [];
     else if (url.includes('/network-map')) data = { zoneText: '', fetchedAt: '2026-09-30T07:00:00Z' };
     else if (url.includes('/settings/chat-upload-limit')) data = { limitMb: 10 };
     else if (url.endsWith('/backups')) data = [{ key: 'applications', title: 'Заявки', extension: '.sql', tables: ['application'] }, { key: 'knowledge', title: 'База знаний с фотографиями', extension: '.sql', tables: ['knowledge_base'] }];
@@ -60,7 +60,7 @@ beforeEach(() => {
   });
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
 });
-afterEach(() => { act(() => root.unmount()); container.remove(); localStorage.clear(); delete window.IS_REACT_ACT_ENVIRONMENT; });
+afterEach(() => { act(() => root.unmount()); container.remove(); localStorage.clear(); sessionStorage.clear(); delete window.IS_REACT_ACT_ENVIRONMENT; });
 
 test.each([
   ['dashboard', Dashboard, 'Request queue, deadlines and actions'],
@@ -68,7 +68,7 @@ test.each([
   ['request editing', EditApplicationsTable, 'Request editing'],
   ['employee directory', EmployeeSearch, 'Employee search'],
   ['knowledge base', KnowledgeBase, 'Knowledge base'],
-  ['network diagnostics', NetworkMap, 'Available and occupied IP addresses'],
+  ['network diagnostics', NetworkMap, 'IP addresses in the saved directory'],
   ['statistics', StatisticsOverview, 'Request analytics']
 ])('%s has English text and accessible labels, and switches back to Russian', async (_, Page, caption) => {
   await render(<Page />);
@@ -259,18 +259,18 @@ test('Excel captions match all filtered rows or the selected page rows and expor
     expect(container.querySelector('.compact-reset')).toBeNull();
     await act(async () => Simulate.change(container.querySelector('#dashboard-date-from'), { target: { value: '2026-09-01' } }));
     await act(async () => Simulate.click(container.querySelector('.export-btn')));
-    const exportQuery = authFetch.mock.calls.find(([url]) => url.includes('/applications/export?') || url.endsWith('/applications/export'));
+    const exportQuery = authFetch.mock.calls.find(([url]) => url.includes('/applications/export-xlsx?'));
     expect(new URL(exportQuery[0], 'http://localhost').searchParams.get('from')).toBeNull();
-    let call = authFetch.mock.calls.find(([url]) => url.endsWith('/export-xlsx'));
-    expect(JSON.parse(call[1].body).applications).toHaveLength(2);
+    let call = authFetch.mock.calls.find(([url]) => url.includes('/export-xlsx?'));
+    expect(call[1]).toBeUndefined();
     expect(container.querySelector('.operation-progress .current').textContent).toContain('Done');
     authFetch.mockClear();
     await act(async () => Simulate.change(container.querySelector('tbody input[type="checkbox"]'), { target: { checked: true } }));
     const selectedButton = [...container.querySelectorAll('.bulk-actions-bar button')].find((button) => button.textContent.startsWith('Export selected'));
     expect(selectedButton.textContent).toBe('Export selected — 1 request');
     await act(async () => Simulate.click(selectedButton));
-    call = authFetch.mock.calls.find(([url]) => url.endsWith('/export-xlsx'));
-    expect(JSON.parse(call[1].body).applications.map((row) => row.id)).toEqual([7]);
+    call = authFetch.mock.calls.find(([url]) => url.includes('/export-xlsx?'));
+    expect(new URL(call[0]).searchParams.get('ids')).toBe('7');
     await act(async () => Simulate.change(container.querySelector('input[placeholder="Search requests"]'), { target: { value: 'новый поиск' } }));
     expect(container.querySelector('.bulk-actions-bar')).toBeNull();
   } finally { URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke; anchorClick.mockRestore(); }
@@ -333,7 +333,7 @@ test('statistics compare equal periods, apply the executor filter and retain cha
     { ...application, id: 3, created_at: date(-9), fl: true, status: 'done', end_data: date(-8) },
     { ...application, id: 4, created_at: date(-1), executor: 'Андреев Р.В.' }
   ];
-  authFetch.mockImplementation(async (url) => {
+  authFetch.mockImplementation(async (url, options) => {
     const params = new URL(url, 'http://localhost').searchParams;
     const selected = JSON.parse(params.get('executors') || '[]');
     if (url.includes('/day?')) return { ok: true, json: async () => ({ applications: [{ ...application, id: 2 }], hasMore: false }) };
@@ -450,8 +450,8 @@ test('bulk assignment reports HTTP/network failures and retries only failed requ
   const rows = [application, { ...application, id: 8 }, { ...application, id: 9 }];
   let retry = false;
   const accepted = [];
-  authFetch.mockImplementation(async (url) => {
-    if (url.endsWith('/accept')) {
+  authFetch.mockImplementation(async (url, options) => {
+    if (url.endsWith('/assign')) {
       const id = Number(url.match(/applications\/(\d+)/)[1]);
       accepted.push(id);
       if (!retry && id === 9) throw new Error('Network failure');
@@ -516,4 +516,125 @@ test('initial 500 response retries twice then shows a load error instead of an e
     expect(container.querySelector('.applications-load-error').textContent).toContain('Could not load requests.');
     expect(container.querySelector('.no-data').textContent).not.toContain('No requests match this filter');
   } finally { jest.useRealTimers(); }
+});
+
+test('retry after a lost creation response reuses its operation key and preserves plain text', async () => {
+  let fail = true;
+  const sent = [];
+  authFetch.mockImplementation(async (url, options) => {
+    if (options?.method === 'POST' && url.endsWith('/applications')) {
+      sent.push(JSON.parse(options.body));
+      if (fail) throw new Error('Response lost');
+      return { ok: true, json: async () => ({ id: 7 }) };
+    }
+    return { ok: true, json: async () => [] };
+  });
+  await render(<AddApplication />);
+  act(() => {
+    for (const [name, value] of Object.entries({ name: 'Иванов Иван', cabinet: '15', application: 'C:\\Temp\\"file" & data' })) Simulate.change(container.querySelector(`[name="${name}"]`), { target: { name, value } });
+  });
+  await act(async () => Simulate.submit(container.querySelector('form')));
+  const stored = JSON.parse(sessionStorage.getItem('draft:admin:new-request'));
+  expect(stored.operation.key).toBe(sent[0].idempotency_key);
+  await act(async () => root.render(<div />));
+  await render(<AddApplication />);
+  expect(container.querySelector('[name="application"]').value).toBe('C:\\Temp\\"file" & data');
+  fail = false;
+  await act(async () => { Simulate.submit(container.querySelector('form')); Simulate.submit(container.querySelector('form')); });
+  expect(sent).toHaveLength(2);
+  expect(sent[1].idempotency_key).toBe(sent[0].idempotency_key);
+  expect(sent[1].application).toBe('C:\\Temp\\"file" & data');
+  expect(sessionStorage.getItem('draft:admin:new-request')).toBeNull();
+});
+
+test('clicking the already active filter refreshes without leaving a loading indicator', async () => {
+  await render(<Dashboard />);
+  const button = container.querySelector('.stat-card.stat-active');
+  await act(async () => Simulate.click(button));
+  expect(container.textContent).not.toContain('Updating requests');
+  expect(authFetch.mock.calls.filter(([url]) => url.includes('/applications?page='))).toHaveLength(2);
+});
+
+test('bulk closure reports partial success and retries only the failed request', async () => {
+  let retry = false;
+  const closed = [];
+  const rows = [7, 8].map((id) => ({ ...application, id, status: 'waiting_employee_confirmation' }));
+  authFetch.mockImplementation(async (url) => {
+    if (url.endsWith('/confirm')) {
+      const id = Number(url.match(/applications\/(\d+)/)[1]); closed.push(id);
+      return { ok: retry || id === 7, status: 500 };
+    }
+    return { ok: true, json: async () => url.includes('/applications') ? { applications: rows, totalPages: 1, stats: { total: 2 } } : { employees: [] } };
+  });
+  await render(<Dashboard />);
+  act(() => container.querySelectorAll('tbody input[type="checkbox"]').forEach((input) => Simulate.change(input, { target: { checked: true } })));
+  act(() => Simulate.click([...container.querySelectorAll('.bulk-actions-bar button')].find((button) => button.textContent.trim() === 'Close')));
+  act(() => Simulate.change(container.querySelector('.workflow-modal textarea'), { target: { value: 'Подтверждено' } }));
+  await act(async () => { Simulate.submit(container.querySelector('.workflow-modal')); Simulate.submit(container.querySelector('.workflow-modal')); });
+  expect(closed).toEqual([7, 8]);
+  expect(container.textContent).toContain('Closed: 1. Failed: 1.');
+  expect(container.querySelector('.bulk-close-list').textContent).toContain('#8');
+  expect(container.querySelector('.bulk-close-list').textContent).not.toContain('#7');
+  retry = true;
+  await act(async () => Simulate.submit(container.querySelector('.workflow-modal')));
+  expect(closed).toEqual([7, 8, 8]); expect(container.querySelector('.workflow-modal')).toBeNull();
+});
+
+test('server events preserve the open card and queue a refresh behind an in-flight request', async () => {
+  jest.useFakeTimers();
+  const previous = global.EventSource;
+  const listeners = {};
+  global.EventSource = class { addEventListener(name, handler) { listeners[name] = handler; } close() {} };
+  localStorage.setItem('authState', JSON.stringify({ user: { username: 'admin', accessToken: 'test-token' } }));
+  let finish, updated = false, deferred = false;
+  let pageReads = 0;
+  const response = (rows) => ({ ok: true, json: async () => ({ applications: rows, totalPages: 1, stats: { total: 1 } }) });
+  authFetch.mockImplementation(async (url) => {
+    if (url.includes('/applications?page=')) {
+      pageReads += 1;
+      if (deferred) { deferred = false; return new Promise((resolve) => { finish = resolve; }); }
+      return response([{ ...application, revision: updated ? 2 : 1, application: updated ? 'Updated request' : application.application }]);
+    }
+    return { ok: true, json: async () => ({ employees: [] }) };
+  });
+  try {
+    await render(<Dashboard />);
+    await act(async () => Simulate.click(container.querySelector('tbody tr')));
+    deferred = true;
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    updated = true;
+    await act(async () => { listeners.application({ data: JSON.stringify({ application: { ...application, revision: 2, application: 'Updated request' }, eventType: 'manual_update' }) }); jest.advanceTimersByTime(200); });
+    expect(container.querySelector('.application-side-panel h2').textContent).toBe('Updated request');
+    await act(async () => finish(response([{ ...application, revision: 1 }])));
+    // The older HTTP result must not replace the newer card from the event.
+    expect(container.querySelector('.application-side-panel h2').textContent).toBe('Updated request');
+    await act(async () => jest.advanceTimersByTime(1));
+    expect(pageReads).toBe(3);
+    expect(container.querySelector('tbody').textContent).toContain('Updated request');
+    expect(container.querySelector('.application-side-panel')).not.toBeNull();
+  } finally { global.EventSource = previous; jest.useRealTimers(); }
+});
+
+test('editing blocks invalid fields and exposes a version conflict without discarding text', async () => {
+  let puts = 0;
+  const conflict = 'Заявка изменена другим администратором. Загрузите актуальную версию перед сохранением.';
+  authFetch.mockImplementation(async (url, options) => {
+    if (options?.method === 'PUT') { puts += 1; return { ok: false, status: 409, json: async () => ({ error: conflict }) }; }
+    return { ok: true, json: async () => url.includes('/applications') ? { applications: [{ ...application, revision: 2 }], totalPages: 1, stats: { total: 1 } } : [] };
+  });
+  await render(<EditApplicationsTable />);
+  act(() => Simulate.click(container.querySelector('.edit-button')));
+  act(() => Simulate.change(container.querySelector('[name="N_tel"]'), { target: { name: 'N_tel', value: 'invalid' } }));
+  await act(async () => Simulate.click(container.querySelector('.save-button')));
+  expect(puts).toBe(0);
+  act(() => {
+    Simulate.change(container.querySelector('[name="N_tel"]'), { target: { name: 'N_tel', value: '555' } });
+    Simulate.change(container.querySelector('[name="application"]'), { target: { name: 'application', value: 'My unsaved changes' } });
+  });
+  await act(async () => Simulate.click(container.querySelector('.save-button')));
+  expect(puts).toBe(1);
+  expect(container.querySelector('.save-button').disabled).toBe(true);
+  expect(container.textContent).toContain('Another administrator has changed this request.');
+  expect(container.querySelector('[name="application"]').value).toBe('My unsaved changes');
+  expect(container.textContent).toContain('Load the current version');
 });

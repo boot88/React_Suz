@@ -146,7 +146,8 @@ export const AuthProvider = ({ children }) => {
       serverRole,
       name: data?.user?.full_name || data?.user?.login || loginValue,
       position: data?.user?.position || '',
-      accessToken: data?.token || ''
+      accessToken: data?.token || '',
+      mustChangePassword: Boolean(data?.user?.mustChangePassword)
     };
 
     if (loginScope === 'employee' && !['employee', 'manager', 'admin'].includes(effectiveRole)) {

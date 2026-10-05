@@ -11,7 +11,7 @@ const Support = () => {
     message: '',
     priority: 'normal'
   });
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmitting = false;
   const [message, setMessage] = useState({ text: '', type: '' });
 
   const handleChange = (e) => {
@@ -24,37 +24,8 @@ const Support = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setIsSubmitting(true);
+    setMessage({ text: 'Автоматическая отправка пока недоступна. Напишите на povisok@nioch.nsc.ru или позвоните по указанному телефону. Текст остаётся в форме.', type: 'error' });
     
-    try {
-      // Здесь будет логика отправки формы (можно интегрировать с email-сервисом)
-      console.log('Данные формы поддержки:', formData);
-      
-      // Имитация отправки
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      setMessage({
-        text: 'Ваше сообщение успешно отправлено! Мы ответим вам в ближайшее время.',
-        type: 'success'
-      });
-      
-      // Очищаем форму после успешной отправки
-      setFormData({
-        name: '',
-        email: '',
-        subject: '',
-        message: '',
-        priority: 'normal'
-      });
-      
-    } catch (error) {
-      setMessage({
-        text: 'Произошла ошибка при отправке сообщения. Попробуйте еще раз.',
-        type: 'error'
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
   };
 
   const contactInfo = [

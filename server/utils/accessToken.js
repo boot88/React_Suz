@@ -18,7 +18,7 @@ const getSecret = () => {
 const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
 const sign = (payload) => crypto.createHmac('sha256', getSecret()).update(payload).digest('base64url');
 
-const createAccessToken = ({ login, role = 'employee' } = {}) => {
+const createAccessToken = ({ login, role = 'employee', mustChangePassword = false } = {}) => {
   const normalizedLogin = String(login || '').trim().toLowerCase();
   if (!normalizedLogin) throw new Error('login is required for an access token');
   const now = Date.now();
@@ -26,6 +26,7 @@ const createAccessToken = ({ login, role = 'employee' } = {}) => {
     sessionId: crypto.randomUUID(),
     login: normalizedLogin,
     role: String(role || 'employee').toLowerCase(),
+    ...(mustChangePassword ? { mustChangePassword: true } : {}),
     issuedAt: now,
     expiresAt: now + TOKEN_TTL_MS
   });
@@ -91,6 +92,7 @@ const verifyAccessToken = (token = '') => {
     return {
       login: String(parsed.login).trim().toLowerCase(),
       role: String(parsed.role || 'employee').toLowerCase(),
+      ...(parsed.mustChangePassword ? { mustChangePassword: true } : {}),
       expiresAt: Number(parsed.expiresAt)
     };
   } catch {

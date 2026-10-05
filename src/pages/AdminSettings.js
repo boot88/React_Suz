@@ -1,7 +1,7 @@
 import AdminNotice from '../components/AdminNotice';
 import { translateAdminText as t, useAdminTranslation, getAdminLocale } from '../utils/adminTranslation';
-import { userSettingsStorage } from '../utils/userPreferences';
-import React, { useState } from 'react';
+import { userSettingsStorage, activePreferencesLogin } from '../utils/userPreferences';
+import React, { useEffect, useRef, useState } from 'react';
 import { syncEmployees } from '../services/employeeService';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
@@ -133,6 +133,11 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
   const [operation, setOperation] = useState(null);
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState('info');
+  const directoryRetryKey = `directory-retry:${activePreferencesLogin()}`;
+  const syncLock = useRef(false);
+  const [completedDirectory, setCompletedDirectory] = useState(() => { try { return JSON.parse(sessionStorage.getItem(directoryRetryKey) || 'null'); } catch { return null; } });
+  useEffect(() => { try { if (completedDirectory) sessionStorage.setItem(directoryRetryKey, JSON.stringify(completedDirectory)); else sessionStorage.removeItem(directoryRetryKey); } catch {} }, [completedDirectory, directoryRetryKey]);
+  const [temporaryAccounts, setTemporaryAccounts] = useState([]);
   const [directoryReport, setDirectoryReport] = useState(null);
   const [applicationActionHistoryVisible, setApplicationActionHistoryVisible] = useState(() => userSettingsStorage.getItem('admin.showApplicationActionHistory') === 'true');
   const [auditTestModeEnabled, setAuditTestModeEnabled] = useState(() => userSettingsStorage.getItem(AUDIT_TEST_MODE_SETTING_KEY) === 'true');
@@ -161,15 +166,18 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
     setEditApplicationTableVisible(nextValue);
   };
   const run = async (kind) => {
-    if (!window.confirm(t(kind === 'directory' ? 'Обновить справочник сотрудников? Изменения будут сохранены.' : 'Обновить данные IP-сетки?'))) return;
-    setBusy(kind);
+    if (syncLock.current) return;
+    if ((kind !== 'directory' || !completedDirectory) && !window.confirm(t(kind === 'directory' ? 'Обновить справочник сотрудников? Изменения будут сохранены.' : 'Обновить данные IP-сетки?'))) return;
+    syncLock.current = true; setBusy(kind);
     const steps = kind === 'directory' ? ['Обновление справочника', 'Обновление учётных записей', 'Готово'] : ['Обработка данных', 'Обновление экрана', 'Готово'];
     setOperation({ steps, step: 0 });
     setMessage('');
     if (kind === 'directory') setDirectoryReport(null);
     try {
       if (kind === 'directory') {
-        const data = await syncEmployees((step) => setOperation({ steps, step }));
+        const data = await syncEmployees((step, directory) => { setOperation({ steps, step }); setCompletedDirectory(directory); setDirectoryReport({ ...(directory.changes || {}), updatedAt: directory.updatedAt }); }, completedDirectory);
+        setCompletedDirectory(null);
+        setTemporaryAccounts(data.accounts?.temporaryAccounts || []);
         const createdAccounts = Number(data.accounts?.created || 0);
         const deactivatedCount = Number(data.changes?.deactivated?.count || 0);
         const skippedRemovals = Number(data.accounts?.skippedRemovals || 0);
@@ -177,7 +185,7 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
           `Справочник и учётные записи обновлены. Активных сотрудников: ${data.accounts?.total || data.activeAfter || 0}.`
         ];
         if (deactivatedCount) summary.push(`Снято с учёта: ${deactivatedCount} — проверьте отчёт ниже.`);
-        if (createdAccounts) summary.push(`Новых аккаунтов: ${createdAccounts}; начальный пароль — 12345.`);
+        if (createdAccounts) summary.push(`Новых аккаунтов: ${createdAccounts}. Для новых администраторов выданы индивидуальные временные пароли.`);
         if (skippedRemovals) summary.push(`Удаление ${skippedRemovals} аккаунтов пропущено: справочник загружен неполностью.`);
         setMessage(summary);
         setDirectoryReport({ ...(data.changes || {}), updatedAt: data.updatedAt });
@@ -193,11 +201,12 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
       setMessageType('success');
       setOperation({ steps, step: 2 });
     } catch (error) {
+      if (error.directory) { setCompletedDirectory(error.directory); setDirectoryReport({ ...(error.directory.changes || {}), updatedAt: error.directory.updatedAt }); }
       setOperation((previous) => ({ ...previous, failed: true }));
       setMessageType('error');
       setMessage(error.message || 'Не удалось выполнить обновление.');
     } finally {
-      setBusy('');
+      syncLock.current = false; setBusy('');
     }
   };
   return (
@@ -296,7 +305,7 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
             <article>
               <h2>{t("Справочник сотрудников")}</h2>
               <p>{t("Загружает актуальные записи из источника и обновляет локальный справочник.")}</p>
-              <button onClick={() => run('directory')} disabled={!!busy}>{t(busy === 'directory' ? 'Обновляем…' : 'Обновить справочник')}</button>
+              <button onClick={() => run('directory')} disabled={!!busy}>{t(busy === 'directory' ? 'Обновляем…' : completedDirectory ? 'Повторить обновление аккаунтов' : 'Обновить справочник')}</button>
             </article>
             <article>
               <h2>{t("Диагностика сети")}</h2>
@@ -307,6 +316,7 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
           {operation && <OperationProgress {...operation} />}
           {message && <AdminNotice type={messageType}>{Array.isArray(message) ? message.map((part) => t(part)).join(' ') : t(message)}</AdminNotice>}
           <DirectorySyncReport report={directoryReport} />
+          {temporaryAccounts.length > 0 && <article><h3>{t('Временный доступ новых администраторов')}</h3><p>{t('Передайте пароль соответствующему администратору. При первом входе потребуется смена пароля.')}</p>{temporaryAccounts.map((account) => <p key={account.login}><strong>{account.full_name}</strong> · {account.login} · <code>{account.password}</code></p>)}<button onClick={() => setTemporaryAccounts([])}>{t('Скрыть пароли')}</button></article>}
         </section>
 
         <AdminBackups onSettingsRestored={() => {

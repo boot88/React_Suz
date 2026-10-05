@@ -15,7 +15,8 @@ const {
 
 const SYNC_CHANGE_PREVIEW_LIMIT = Number(process.env.EMPLOYEE_SYNC_CHANGE_PREVIEW_LIMIT || 1000);
 
-const ensurePhoneBookSchema = async () => {
+let phoneBookSchemaPromise;
+const preparePhoneBookSchema = async () => {
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS phone_book (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -74,6 +75,11 @@ const ensurePhoneBookSchema = async () => {
   }
 };
 
+
+const ensurePhoneBookSchema = () => {
+  if (!phoneBookSchemaPromise) phoneBookSchemaPromise = preparePhoneBookSchema().catch((error) => { phoneBookSchemaPromise = null; throw error; });
+  return phoneBookSchemaPromise;
+};
 
 const EMPLOYEE_SYNC_FIELDS = [
   ['full_name', 'ФИО'],

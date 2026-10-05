@@ -70,26 +70,29 @@ export const getAllEmployees = async () => {
 };
 
 // Ручное обновление справочника сотрудников
-export const syncEmployees = async (onStage = () => {}) => {
+export const syncEmployees = async (onStage = () => {}, completedDirectory = null) => {
   try {
-    const directoryResponse = await authFetch(`${API_BASE_URL}/employees/sync`, {
-      method: 'POST'
-    });
+    let directory = completedDirectory;
+    if (!directory) {
+      const directoryResponse = await authFetch(`${API_BASE_URL}/employees/sync`, {
+        method: 'POST'
+      });
 
-    const directory = await directoryResponse.json();
+      directory = await directoryResponse.json();
 
-    if (!directoryResponse.ok) {
-      throw new Error(directory.error || 'Ошибка при обновлении справочника сотрудников');
+      if (!directoryResponse.ok) {
+        throw new Error(directory.error || 'Ошибка при обновлении справочника сотрудников');
+      }
     }
-
-    onStage(1);
-    const accountsResponse = await authFetch(`${API_BASE_URL}/auth/provision-from-phone-book`, {
+    onStage(1, directory);
+    let accountsResponse;
+    try { accountsResponse = await authFetch(`${API_BASE_URL}/auth/provision-from-phone-book`, {
       method: 'POST'
-    });
+    }); } catch (error) { error.directory = directory; throw error; }
     const accounts = await accountsResponse.json().catch(() => ({}));
 
     if (!accountsResponse.ok) {
-      throw new Error(accounts.message || 'Справочник обновлён, но не удалось обновить учётные записи сотрудников');
+      throw Object.assign(new Error(accounts.message || 'Справочник обновлён, но не удалось обновить учётные записи сотрудников'), { directory });
     }
 
     return { ...directory, accounts };

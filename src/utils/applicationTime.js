@@ -1,3 +1,6 @@
+import applicationDuration from './applicationDuration';
+const { applicationWorkSeconds } = applicationDuration;
+
 export const APPLICATION_TIME_ZONE = 'Asia/Novosibirsk';
 
 const toApplicationDate = (value) => {
@@ -77,7 +80,14 @@ export const getApplicationTiming = (application = {}, now = Date.now()) => {
     : '';
   const liveEnd = closedAt || new Date(now).toISOString();
 
+  const status = application.status || (isClosed ? 'done' : 'new');
+  const accumulated = Math.max(0, Number(application.work_seconds) || 0);
+  const activeFrom = status === 'waiting_employee_confirmation'
+    ? (application.resolved_at || currentTakenAt) : currentTakenAt;
+  const cumulativeWorkSeconds = applicationWorkSeconds(application, now);
+
   return {
+    cumulativeWorkSeconds: accumulated || activeFrom ? cumulativeWorkSeconds : null,
     createdAt,
     takenAt,
     closedAt,

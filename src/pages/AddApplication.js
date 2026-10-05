@@ -1,13 +1,20 @@
 import AdminNotice from '../components/AdminNotice';
 import { useAdminTranslation } from '../utils/adminTranslation';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import './AddApplication.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
+import applicationValidation from '../utils/applicationValidation';
+import { readFormDraft, useFormDraft } from '../utils/useFormDraft';
+
+const { validateApplicationField, validateApplication } = applicationValidation;
 
 const AddApplication = () => {
   const t = useAdminTranslation();
-  const [formData, setFormData] = useState({
+  const initialDraft = useRef(readFormDraft('new-request', {}));
+  const operationRef = useRef(initialDraft.current.operation || null);
+  const submitLock = useRef(false);
+  const [formData, setFormData] = useState(() => initialDraft.current.formData || {
     name: '',
     cabinet: '',
     N_tel: '',
@@ -16,62 +23,16 @@ const AddApplication = () => {
     fl: false
   });
 
+  const clearDraft = useFormDraft('new-request', { formData, operation: operationRef.current }, Boolean(formData.name || formData.application || formData.cabinet || formData.N_tel || formData.executor));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
   const [errors, setErrors] = useState({});
   const [employeeHints, setEmployeeHints] = useState([]);
 
-  // Валидационные функции
-  const validateName = (value) => {
-    if (!value.trim()) return 'ФИО обязательно для заполнения';
-    if (value.length > 40) return 'Максимум 40 символов';
-    if (!/^[а-яА-ЯёЁ\s]+$/.test(value)) return 'Только русские буквы и пробелы';
-    return '';
-  };
-
-  const validateCabinet = (value) => {
-    if (!value.trim()) return 'Лаборатория/кабинет обязателен для заполнения';
-    if (value.length > 15) return 'Максимум 15 символов';
-    if (!/^[а-яА-ЯёЁ0-9\s,-]+$/.test(value)) return 'Только русские буквы, цифры, пробелы, запятые и дефис';
-    return '';
-  };
-
-  const validatePhone = (value) => {
-    if (value && value.length > 15) return 'Максимум 15 символов';
-    if (value && !/^[0-9\s,-]+$/.test(value)) return 'Только цифры, пробелы, запятые и дефис';
-    return '';
-  };
-
-  const validateApplication = (value) => {
-    if (!value.trim()) return 'Суть заявки обязательна для заполнения';
-    if (value.length > 500) return 'Максимум 500 символов';
-    if (/[<>$&|;`\\]/.test(value)) return 'Недопустимые символы в тексте';
-    return '';
-  };
-
-  const validateExecutor = (value) => {
-    if (!value) return '';
-    if (value.length > 60) return 'Максимум 60 символов';
-    if (!/^[а-яА-ЯёЁ\s,.]+$/.test(value)) return 'Только русские буквы, пробелы, запятые и точки';
-    return '';
-  };
-
-  const validateField = (name, value) => {
-    switch (name) {
-      case 'name':
-        return validateName(value);
-      case 'cabinet':
-        return validateCabinet(value);
-      case 'N_tel':
-        return validatePhone(value);
-      case 'application':
-        return validateApplication(value);
-      case 'executor':
-        return validateExecutor(value);
-      default:
-        return '';
-    }
-  };
+  const validateField = (name, value) => validateApplicationField(name, value, { requireCabinet: true });
+  const validateName = (value) => validateField('name', value);
+  const validateCabinet = (value) => validateField('cabinet', value);
+  const validatePhone = (value) => validateField('N_tel', value);
 
   useEffect(() => {
     const query = formData.name.trim();
@@ -80,18 +41,20 @@ const AddApplication = () => {
       return undefined;
     }
 
+    const controller = new AbortController();
     const timeout = window.setTimeout(async () => {
       try {
-        const response = await authFetch(`${API_BASE_URL}/employees/search?field=full_name&query=${encodeURIComponent(query)}`);
+        const response = await authFetch(`${API_BASE_URL}/employees/search?field=full_name&query=${encodeURIComponent(query)}`, { signal: controller.signal });
         if (!response.ok) throw new Error('Directory request failed');
         const employees = await response.json();
+        if (controller.signal.aborted) return;
         setEmployeeHints(Array.isArray(employees) ? employees.slice(0, 8) : []);
       } catch {
-        setEmployeeHints([]);
+        if (!controller.signal.aborted) setEmployeeHints([]);
       }
     }, 220);
 
-    return () => window.clearTimeout(timeout);
+    return () => { controller.abort(); window.clearTimeout(timeout); };
   }, [formData.name]);
 
   const applyEmployeeHint = (employee) => {
@@ -126,48 +89,14 @@ const AddApplication = () => {
   };
 
   const validateForm = () => {
-    const newErrors = {};
-    
-    newErrors.name = validateName(formData.name);
-    newErrors.cabinet = validateCabinet(formData.cabinet);
-    newErrors.N_tel = validatePhone(formData.N_tel);
-    newErrors.application = validateApplication(formData.application);
-    newErrors.executor = validateExecutor(formData.executor);
-
-    setErrors(newErrors);
-
-    return !Object.values(newErrors).some(error => error !== '');
+    const next = validateApplication(formData, { requireCabinet: true });
+    setErrors(next); return Object.keys(next).length === 0;
   };
-
-  // Функция для санитизации данных
-  const sanitizeData = (data) => {
-    const sanitized = { ...data };
-    
-    // Убираем лишние пробелы
-    sanitized.name = sanitized.name.trim();
-    sanitized.cabinet = sanitized.cabinet.trim();
-    sanitized.N_tel = sanitized.N_tel.trim();
-    sanitized.application = sanitized.application.trim();
-    sanitized.executor = sanitized.executor.trim();
-
-    // Экранирование специальных символов
-    const escapeHtml = (text) => {
-      return text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-    };
-
-    sanitized.application = escapeHtml(sanitized.application);
-    sanitized.process = '-'; // Ставим "-" для выполненных работ
-
-    return sanitized;
-  };
+  const sanitizeData = (data) => Object.fromEntries(Object.entries(data).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value]));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitLock.current) return;
     
     if (!validateForm()) {
       setMessage({ 
@@ -177,6 +106,7 @@ const AddApplication = () => {
       return;
     }
 
+    submitLock.current = true;
     setIsSubmitting(true);
     setMessage({ text: '', type: '' });
 
@@ -194,8 +124,10 @@ const AddApplication = () => {
         process: formData.fl ? '-' : ''
       });
 
-      console.log('Отправляемые данные:', sanitizedData);
-      const idempotencyKey = window.crypto?.randomUUID?.() || `application-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const fingerprint = JSON.stringify(sanitizedData);
+      if (!operationRef.current || operationRef.current.fingerprint !== fingerprint) operationRef.current = { fingerprint, key: window.crypto?.randomUUID?.() || `application-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+      const idempotencyKey = operationRef.current.key;
+      try { sessionStorage.setItem(`draft:${JSON.parse(localStorage.getItem('authState') || 'null')?.user?.username?.toLowerCase() || ''}:new-request`, JSON.stringify({ formData, operation: operationRef.current })); } catch {}
 
       const response = await authFetch(`${API_BASE_URL}/applications`, {
         method: 'POST',
@@ -206,6 +138,8 @@ const AddApplication = () => {
       const responseData = await response.json();
 
       if (response.ok) {
+        clearDraft(); operationRef.current = null;
+        window.dispatchEvent(new Event('applications:refresh'));
         setMessage({ 
           text: 'Заявка успешно добавлена в систему!', 
           type: 'success' 
@@ -221,6 +155,7 @@ const AddApplication = () => {
         });
         setErrors({});
       } else {
+        if (responseData.errors) setErrors(responseData.errors);
         setMessage({ 
           text: `Ошибка при добавлении: ${responseData.error || responseData.details || 'Неизвестная ошибка'}`,
           type: 'error'
@@ -233,6 +168,7 @@ const AddApplication = () => {
         type: 'error'
       });
     } finally {
+      submitLock.current = false;
       setIsSubmitting(false);
     }
   };

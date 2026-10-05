@@ -6,6 +6,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 export PORT="${PORT:-5100}"
+export REACT_APP_API_PORT="$PORT"
 export CLIENT_PORT="${CLIENT_PORT:-3100}"
 export BROWSER=none   # не открывать лишнюю вкладку автоматически
 

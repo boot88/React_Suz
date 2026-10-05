@@ -18,6 +18,14 @@ const getRequestToken = (req, { allowQuery = false } = {}) => (
 // короткоживущему media-токену (скачивание файлов). Media-токен не даёт
 // identity для API-вызовов, только доступ к одному файлу, поэтому в этом
 // случае мы не заполняем req.auth — доступ проверяется в самом маршруте.
+const requirePasswordChange = (req, res, identity) => {
+  if (!identity.mustChangePassword) return false;
+  const path = String(req.originalUrl || req.path || '').split('?')[0];
+  if (['/api/auth/change-password', '/api/auth/session', '/api/auth/logout'].includes(path)) return false;
+  res.status(403).json({ message: 'Необходимо сменить временный пароль', code: 'PASSWORD_CHANGE_REQUIRED' });
+  return true;
+};
+
 const authenticateAllowQueryOrMedia = () => async (req, res, next) => {
   const mediaToken = String(req.query?.mt || '').trim();
   req.authToken = getRequestToken(req, { allowQuery: true });
@@ -25,6 +33,7 @@ const authenticateAllowQueryOrMedia = () => async (req, res, next) => {
   try { identity = req.authToken ? await resolveSession(req.authToken) : null; }
   catch { return res.status(503).json({ message: 'Проверка сессии временно недоступна' }); }
   if (identity) {
+    if (requirePasswordChange(req, res, identity)) return;
     req.auth = {
       login: normalizeLogin(identity.login),
       role: normalizeRole(identity.role),
@@ -52,6 +61,7 @@ const authenticate = ({ allowQuery = false } = {}) => async (req, res, next) => 
     return res.status(401).json({ message: 'Требуется действующий токен авторизации' });
   }
 
+  if (requirePasswordChange(req, res, identity)) return;
   req.auth = {
     login: normalizeLogin(identity.login),
     role: normalizeRole(identity.role),

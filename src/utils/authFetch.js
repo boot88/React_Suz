@@ -28,7 +28,7 @@ export const confirmSessionActive = (token = '') => {
       const response = await fetch(`${API_BASE_URL}/auth/session`, {
         headers: { Authorization: `Bearer ${normalized}` }
       });
-      if (response.status === 401 || response.status === 403) return false;
+    if (response.status === 401 || response.status === 403) return false;
       // 204 — сессия действует; сетевые сбои и 5xx не подтверждают её конец.
       return true;
     } catch {
@@ -37,6 +37,7 @@ export const confirmSessionActive = (token = '') => {
   })();
 
   sessionCheckState = { token: normalized, promise };
+  promise.finally(() => { if (sessionCheckState.promise === promise) sessionCheckState = { token: '', promise: null }; });
   return promise;
 };
 
@@ -75,6 +76,9 @@ export const authFetch = (input, init = {}) => {
     headers.set('Authorization', `Bearer ${token}`);
   }
   return fetch(input, { ...init, headers }).then(async (response) => {
+    if (response.status === 503 && isTrustedApiUrl(typeof input === 'string' ? input : input.url) && !String(input).includes('/backups/status')) {
+      response.clone().json().then((data) => { if (String(data.message || '').includes('резервное копирование')) window.dispatchEvent(new CustomEvent('admin:maintenance', { detail: { active: true } })); }).catch(() => {});
+    }
     if (response.status === 401 && token && getStoredAccessToken() === token && !String(input).includes('/auth/login')) {
       const stillActive = await confirmSessionActive(token);
       if (!stillActive) window.dispatchEvent(new Event('auth:expired'));

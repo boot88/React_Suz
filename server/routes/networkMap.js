@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
+const { parseNetworkZone } = require('../../src/utils/networkZone');
 const { requireRole } = require('../middleware/auth');
 
 const NETWORK_MAP_SOURCE_URL = process.env.NETWORK_MAP_SOURCE_URL || 'http://nioch.nioch.nsc.ru/nioch/nioch.txt';
@@ -78,7 +79,7 @@ const refreshSnapshot = async () => {
   if (!refreshPromise) {
     refreshPromise = (async () => {
       await ensureNetworkMapSchema();
-      const response = await fetch(NETWORK_MAP_SOURCE_URL);
+      const response = await fetch(NETWORK_MAP_SOURCE_URL, { signal: AbortSignal.timeout(15000) });
       if (!response.ok) {
         const error = new Error(`Не удалось загрузить сетку: ${response.status}`);
         error.status = response.status;
@@ -86,6 +87,9 @@ const refreshSnapshot = async () => {
       }
 
       const zoneText = await response.text();
+      if (Buffer.byteLength(zoneText, 'utf8') > 2 * 1024 * 1024 || !parseNetworkZone(zoneText).length) {
+        throw Object.assign(new Error('Источник не содержит корректных IP-записей. Прежний снимок сохранён.'), { status: 422 });
+      }
       const fetchedAt = new Date();
       await pool.execute(
         `INSERT INTO network_map_snapshot (id, source_url, zone_text, fetched_at)

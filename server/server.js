@@ -10,8 +10,11 @@ const authRoutes = require('./routes/auth');
 const chatRoutes = require('./routes/chat');
 const knowledgeBaseRoutes = require('./routes/knowledgeBase');
 const networkMapRoutes = require('./routes/networkMap');
-const { router: adminBackupRoutes, backupGate } = require('./routes/adminBackups');
+const { router: adminBackupRoutes, backupGate, maintenanceEvents, maintenanceStatus } = require('./routes/adminBackups');
 const pool = require('./config/database');
+const { applicationWorkSeconds } = require('../src/utils/applicationDuration');
+const { validateApplication } = require('../src/utils/applicationValidation');
+const { CREATED_SQL, buildApplicationQuery, orderApplications, aggregateSql, numericStats } = require('./utils/applicationQueries');
 const {
   requireAuth,
   requireAuthAllowQuery,
@@ -128,7 +131,7 @@ const APPLICATION_WORKFLOW_COLUMN_NAMES = [
   'waiting_seconds', 'arrival_seconds', 'work_seconds', 'source',
   'chat_thread_id', 'source_message_id', 'employee_comment', 'work_cycles_json',
   'sla_paused_at', 'sla_paused_seconds', 'idempotency_key', 'deleted_at',
-  'deleted_by', 'source_attachments_json'
+  'deleted_by', 'source_attachments_json', 'revision'
 ];
 const APPLICATION_WORKFLOW_COLUMNS = APPLICATION_WORKFLOW_COLUMN_NAMES.map(quoteColumn).join(', ');
 
@@ -183,6 +186,7 @@ const normalizeApplication = (app = {}) => {
   return {
   ...app,
   fl: Boolean(app.fl),
+  revision: Number(app.revision || 0),
   status,
   statusLabel: APPLICATION_STATUS_LABELS[status] || 'Новая',
   source_attachments: Array.isArray(sourceAttachments) ? sourceAttachments : [],
@@ -247,16 +251,21 @@ const getDirectoryFieldByPriority = (records, fields) => {
   return '';
 };
 
-const loadApplicationEmployeeDirectory = async () => {
+const loadApplicationEmployeeDirectory = async (applications) => {
+  const surnames = [...new Set(applications.map((app) => String(app.name || '').trim().split(/\s+/)[0].toLowerCase()).filter(Boolean))];
+  const logins = [...new Set(applications.map((app) => String(app.employee_login || '').trim().toLowerCase()).filter(Boolean))];
+  if (!surnames.length && !logins.length) return { byIdentifier: new Map(), byName: new Map() };
+  const nameCondition = surnames.length ? `LOWER(SUBSTRING_INDEX(TRIM(full_name), ' ', 1)) IN (${surnames.map(() => '?').join(',')})` : 'FALSE';
+  const userCondition = [nameCondition, logins.length ? `LOWER(login) IN (${logins.map(() => '?').join(',')})` : 'FALSE'].join(' OR ');
   try {
     const [phoneBookResult, usersResult] = await Promise.all([
       pool.execute(`
         SELECT full_name, position, department, room, internal_phone, external_phone,
           email, is_active, updated_at
         FROM phone_book
-        WHERE full_name IS NOT NULL AND TRIM(full_name) <> ''
+        WHERE ${nameCondition}
         ORDER BY is_active DESC, updated_at DESC
-      `).catch((error) => {
+      `, surnames).catch((error) => {
         console.error('Не удалось прочитать phone_book для заявок:', error.message);
         return [[]];
       }),
@@ -264,8 +273,8 @@ const loadApplicationEmployeeDirectory = async () => {
         SELECT login, full_name, position, department, room, phone AS internal_phone,
           external_phone
         FROM users
-        WHERE full_name IS NOT NULL AND TRIM(full_name) <> ''
-      `).catch((error) => {
+        WHERE ${userCondition}
+      `, [...surnames, ...logins]).catch((error) => {
         console.error('Не удалось прочитать users для заявок:', error.message);
         return [[]];
       })
@@ -331,7 +340,7 @@ const loadApplicationEmployeeDirectory = async () => {
 };
 
 const enrichApplicationsWithEmployeeDirectory = async (applications = []) => {
-  const { byIdentifier, byName } = await loadApplicationEmployeeDirectory();
+  const { byIdentifier, byName } = await loadApplicationEmployeeDirectory(applications);
   return applications.map((application) => {
     const identifier = String(application.employee_login || '').trim().toLowerCase();
     let employee = byIdentifier.get(identifier) || null;
@@ -396,6 +405,7 @@ const addWorkCycle = (cycles = [], { takenAt, executor = '', acceptedBy = '' } =
 ]);
 
 const APPLICATION_WORKFLOW_ALTERS = [
+  ['revision', 'ALTER TABLE application ADD COLUMN `revision` BIGINT UNSIGNED NOT NULL DEFAULT 0'],
   ['status', "ALTER TABLE application ADD COLUMN `status` VARCHAR(40) NULL DEFAULT 'new'"],
   ['created_at', 'ALTER TABLE application ADD COLUMN `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP'],
   ['updated_at', 'ALTER TABLE application ADD COLUMN `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'],
@@ -452,6 +462,10 @@ const ensureApplicationWorkflowSchema = async () => {
       await pool.execute('CREATE INDEX idx_application_deleted_at ON application (`deleted_at`)').catch((error) => {
         if (error.code !== 'ER_DUP_KEYNAME') throw error;
       });
+      for (const sql of [
+        'CREATE INDEX idx_application_created_id ON application (created_at, id)',
+        'CREATE INDEX idx_application_deleted_status_created ON application (deleted_at, status, created_at, id)'
+      ]) await pool.execute(sql).catch((error) => { if (error.code !== 'ER_DUP_KEYNAME') throw error; });
       try {
         await pool.execute(`
           CREATE TABLE IF NOT EXISTS application_events (
@@ -508,8 +522,8 @@ const addApplicationEvent = async (executorOrApplicationId, ...args) => {
     ? [executorOrApplicationId, ...args]
     : args;
   return executor.execute(
-    'INSERT INTO application_events (`application_id`, `actor_login`, `actor_role`, `event_type`, `comment`) VALUES (?, ?, ?, ?, ?)',
-    [applicationId, actorLogin || null, actorRole || null, eventType, comment || null]
+    'INSERT INTO application_events (`application_id`, `actor_login`, `actor_role`, `event_type`, `comment`, `created_at`) VALUES (?, ?, ?, ?, ?, ?)',
+    [applicationId, actorLogin || null, actorRole || null, eventType, comment || null, formatNowForMySQL()]
   );
 };
 
@@ -565,6 +579,12 @@ const applicationStreamClients = new Set();
 const sendApplicationEvent = (res, eventName, payload) => {
   res.write(`event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`);
 };
+maintenanceEvents.on('change', (status) => {
+  applicationStreamClients.forEach((client) => {
+    if (!hasRole({ auth: client.auth }, 'admin')) return;
+    try { sendApplicationEvent(client.res, 'maintenance', status); } catch { applicationStreamClients.delete(client); }
+  });
+});
 const publishApplicationUpdate = (application, eventType = 'updated') => {
   if (!application?.id) return;
   applicationStreamClients.forEach((client) => {
@@ -591,6 +611,7 @@ app.get('/api/applications/stream', requireAuthAllowQuery, (req, res) => {
   const client = { res, auth: req.auth };
   applicationStreamClients.add(client);
   sendApplicationEvent(res, 'ready', { at: new Date().toISOString() });
+  if (hasRole(req, 'admin')) sendApplicationEvent(res, 'maintenance', maintenanceStatus());
   const heartbeat = setInterval(() => {
     try { res.write(': keep-alive\n\n'); } catch { applicationStreamClients.delete(client); }
   }, 25000);
@@ -608,181 +629,59 @@ const handleNullValues = (value, defaultValue = null) => {
   return value;
 };
 
-app.get('/api/applications/export', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
-  const { status, from, to, search, employee_login, queue, assignee } = req.query; // Добавлен параметр search
-  const statusGroups = {
-    done: ['done'],
-    pending: ['new', 'accepted', 'in_progress', 'waiting_employee_confirmation', 'reopened'],
-    queue: ['new', 'reopened'],
-    active: ['accepted', 'in_progress'],
-    inwork: ['accepted', 'in_progress', 'waiting_employee_confirmation'],
-    confirmation: ['waiting_employee_confirmation']
-  };
-
-  let whereClause = ['`deleted_at` IS NULL'];
-  const queryParams = [];
-
-  if (status && status !== 'all') {
-    if (status === 'overdue') {
-      whereClause.push(APPLICATION_OVERDUE_SQL);
-    } else {
-      const statuses = statusGroups[status] || [status];
-      const statusSql = '`status` IN (' + statuses.map(() => '?').join(',') + ')';
-      whereClause.push(status === 'done' ? `(${statusSql} OR COALESCE(\`fl\`, 0) = 1)` : `COALESCE(\`fl\`, 0) = 0 AND ${statusSql}`);
-      queryParams.push(...statuses);
-    }
-  }
-
-  if (from) {
-    const fromDate = new Date(from);
-    if (isNaN(fromDate)) {
-      return res.status(400).json({ error: 'Неверный формат даты "from". Используйте YYYY-MM-DD' });
-    }
-    whereClause.push('data >= ?');
-    queryParams.push(fromDate.toISOString().split('T')[0] + ' 00:00:00');
-  }
-
-  if (to) {
-    const toDate = new Date(to);
-    if (isNaN(toDate)) {
-      return res.status(400).json({ error: 'Неверный формат даты "to". Используйте YYYY-MM-DD' });
-    }
-    whereClause.push('data <= ?');
-    queryParams.push(toDate.toISOString().split('T')[0] + ' 23:59:59');
-  }
-
-  // Добавлен поиск по тексту заявки
-  if (search && search.trim()) {
-    whereClause.push('(`application` LIKE ? OR `name` LIKE ? OR `cabinet` LIKE ? OR `N_tel` LIKE ? OR `executor` LIKE ? OR `category` LIKE ? OR `priority` LIKE ?)');
-    const like = `%${search.trim()}%`;
-    queryParams.push(like, like, like, like, like, like, like);
-  }
-
-  if (employee_login && employee_login.trim()) {
-    whereClause.push('LOWER(`employee_login`) = ?');
-    queryParams.push(employee_login.trim().toLowerCase());
-  }
-
-  if (queue === 'unassigned') {
-    whereClause.push("COALESCE(`fl`, 0) = 0 AND COALESCE(NULLIF(TRIM(`executor`), ''), NULLIF(TRIM(`accepted_by`), '')) IS NULL");
-  }
-
-  if (queue === 'my' && assignee && assignee.trim()) {
-    const normalizedAssignee = assignee.trim().toLowerCase();
-    whereClause.push('(LOWER(COALESCE(`executor`, \'\')) LIKE ? OR LOWER(COALESCE(`accepted_by`, \'\')) = ?)');
-    queryParams.push(`%${normalizedAssignee}%`, normalizedAssignee);
-  }
-
-  const whereSql = whereClause.length > 0 ? 'WHERE ' + whereClause.join(' AND ') : '';
-
+const MAX_EXPORT_ROWS = 100000;
+app.get('/api/applications/export-xlsx', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
+  let connection;
   try {
     await ensureApplicationWorkflowSchema();
-    const applicationsQuery = `
-      SELECT ${APPLICATION_WORKFLOW_COLUMNS}
-      FROM application
-      ${whereSql}
-      ORDER BY \`data\` DESC
-    `;
-
-    const [applications] = await pool.execute(applicationsQuery, queryParams);
-
-    const formattedApplications = await enrichApplicationsWithEmployeeDirectory(applications.map(normalizeApplication));
-
-    res.json({
-      applications: formattedApplications,
-      total: applications.length
-    });
+    const query = buildApplicationQuery(req.query, APPLICATION_OVERDUE_SQL);
+    const ids = req.query.ids ? String(req.query.ids).split(',') : [];
+    if (ids.length) {
+      if (ids.length > 1000 || ids.some((id) => !/^\d+$/.test(id))) return res.status(400).json({ error: 'Некорректный список заявок' });
+      query.whereSql += ' AND id IN (' + ids.map(() => '?').join(',') + ')';
+      query.params.push(...ids);
+    }
+    connection = await pool.getConnection();
+    await connection.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+    await connection.query('START TRANSACTION WITH CONSISTENT SNAPSHOT');
+    const [count] = await connection.execute(`SELECT COUNT(*) AS total FROM application ${query.whereSql}`, query.params);
+    if (Number(count[0].total) > MAX_EXPORT_ROWS) throw Object.assign(new Error('Экспорт ограничен 100 000 заявок. Выберите меньший период.'), { status: 413 });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="applications-${Date.now()}.xlsx"`);
+    const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res, useStyles: true });
+    const sheet = workbook.addWorksheet('Заявки');
+    sheet.columns = [
+      ['ID','id',8],['Клиент','name',25],['Кабинет','cabinet',15],['Телефон','N_tel',18],
+      ['Заявка','application',45],['Что сделано','process',45],['Исполнитель','executor',25],
+      ['Дата подачи','created_at',25],['Дата начала','start_data',25],['Дата окончания','end_data',25],['Статус','status',20]
+    ].map(([header,key,width]) => ({header,key,width}));
+    sheet.getRow(1).font = { bold: true }; sheet.getRow(1).commit();
+    for (let offset = 0; offset < Number(count[0].total); offset += 500) {
+      if (res.destroyed) throw new Error('Скачивание отменено');
+      const [rows] = await connection.execute(`SELECT id, name, cabinet, N_tel, application, process, executor,
+        ${CREATED_SQL} AS created_at, start_data, end_data, status, fl
+        FROM application ${query.whereSql} ${orderApplications(req.query.sort)} LIMIT 500 OFFSET ${offset}`, query.params);
+      for (const row of rows) {
+        const output = { ...row, status: APPLICATION_STATUS_LABELS[row.status] || (row.fl ? 'Выполнена' : 'Новая') };
+        for (const key of ['created_at','start_data','end_data']) output[key] = row[key] ? new Date(toApplicationTimestamp(row[key])).toLocaleString('ru-RU', { timeZone: 'Asia/Novosibirsk' }) : '';
+        sheet.addRow(output).commit();
+      }
+    }
+    sheet.commit(); await workbook.commit(); await connection.commit();
   } catch (error) {
-    console.error('Ошибка при экспорте заявок:', error);
-    res.status(500).json({ error: 'Ошибка сервера при экспорте заявок' });
-  }
+    await connection?.rollback().catch(() => {});
+    console.error('Ошибка экспорта:', error.message);
+    if (!res.headersSent) res.status(error.status || 500).json({ error: error.status ? error.message : 'Не удалось сформировать файл Excel' });
+    else res.destroy();
+  } finally { connection?.release(); }
 });
-
-// Генерация xlsx-файла на сервере (exceljs) вместо клиентской библиотеки xlsx.
-app.post('/api/applications/export-xlsx', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
-  try {
-    const { applications = [], sheetName = 'Заявки' } = req.body;
-
-    if (!Array.isArray(applications)) {
-      return res.status(400).json({ error: 'Ожидается массив заявок' });
-    }
-    if (applications.length > 10000) {
-      return res.status(400).json({ error: 'Слишком много записей для экспорта' });
-    }
-
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = 'ITS Dashboard';
-    workbook.created = new Date();
-    const worksheet = workbook.addWorksheet(sheetName);
-
-    const headers = [
-      { header: 'ID', key: 'id', width: 8 },
-      { header: 'Клиент', key: 'name', width: 20 },
-      { header: 'Кабинет', key: 'cabinet', width: 10 },
-      { header: 'Телефон', key: 'N_tel', width: 15 },
-      { header: 'Заявка', key: 'application', width: 30 },
-      { header: 'Что сделано', key: 'process', width: 30 },
-      { header: 'Исполнитель', key: 'executor', width: 15 },
-      { header: 'Дата подачи', key: 'data', width: 20 },
-      { header: 'Дата начала', key: 'start_data', width: 20 },
-      { header: 'Дата окончания', key: 'end_data', width: 20 },
-      { header: 'Статус', key: 'status', width: 12 }
-    ];
-    worksheet.columns = headers;
-
-    const STATUS_LABELS = {
-      new: 'Новая',
-      reopened: 'Переоткрыта',
-      accepted: 'Принята',
-      in_progress: 'В работе',
-      waiting_employee_confirmation: 'Ждёт подтверждения',
-      done: 'Выполнено'
-    };
-
-    applications.forEach((app) => {
-      worksheet.addRow({
-        id: app.id,
-        name: app.name || '',
-        cabinet: app.cabinet || '',
-        N_tel: app.N_tel || '',
-        application: app.application || '',
-        process: app.process || '',
-        executor: app.executor || '',
-        data: app.data ? new Date(app.data).toLocaleString('ru-RU') : '',
-        start_data: app.start_data ? new Date(app.start_data).toLocaleString('ru-RU') : '',
-        end_data: app.end_data ? new Date(app.end_data).toLocaleString('ru-RU') : '',
-        status: STATUS_LABELS[app.status] || (app.fl ? 'Выполнено' : 'Новая')
-      });
-    });
-
-    worksheet.getRow(1).font = { bold: true };
-
-    res.setHeader(
-      'Content-Type',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    );
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="applications-${Date.now()}.xlsx"`
-    );
-
-    await workbook.xlsx.write(res);
-    res.end();
-  } catch (error) {
-    console.error('Ошибка генерации xlsx:', error);
-    if (!res.headersSent) {
-      res.status(500).json({ error: 'Не удалось сформировать файл Excel' });
-    }
-  }
-});
-
 
 const APPLICATION_OVERDUE_SQL = `(
   COALESCE(\`fl\`, 0) = 0 AND (
     (\`sla_paused_at\` IS NOT NULL AND \`status\` IN ('new', 'reopened', 'accepted', 'in_progress', 'waiting_employee_confirmation'))
     OR
-    (\`status\` IN ('new', 'reopened') AND (\`source\` = 'chat' OR COALESCE(\`employee_login\`, '') <> '') AND TIMESTAMPDIFF(MINUTE, COALESCE(\`created_at\`, \`data\`, NOW()), NOW()) > 15)
-    OR (\`status\` IN ('accepted', 'in_progress') AND TIMESTAMPDIFF(MINUTE, COALESCE(\`work_started_at\`, \`accepted_at\`, \`start_data\`, \`created_at\`, \`data\`, NOW()), NOW()) > 30)
+    (\`status\` IN ('new', 'reopened') AND (\`source\` = 'chat' OR COALESCE(\`employee_login\`, '') <> '') AND TIMESTAMPDIFF(MINUTE, COALESCE(\`created_at\`, \`data\`, UTC_TIMESTAMP()), UTC_TIMESTAMP()) > 15)
+    OR (\`status\` IN ('accepted', 'in_progress') AND TIMESTAMPDIFF(MINUTE, COALESCE(\`work_started_at\`, \`accepted_at\`, \`start_data\`, \`created_at\`, \`data\`, UTC_TIMESTAMP()), UTC_TIMESTAMP()) > 30)
   )
 )`;
 
@@ -804,144 +703,46 @@ const markApplicationViewed = async (applicationId, adminLogin) => {
 
 app.use('/api/application-statistics', requireAuth, requireRole('admin', 'manager'), require('./routes/applicationStatistics').createStatisticsRouter(pool));
 
-app.get('/api/applications', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
-  const page = Math.max(1, parseInt(req.query.page) || 1);
-  const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit) || 10));
-  const offset = (page - 1) * limit;
-
-  const { status, from, to, search, employee_login, queue, assignee, sort } = req.query; // Добавлен параметр search
-  const statusGroups = {
-    done: ['done'],
-    pending: ['new', 'accepted', 'in_progress', 'waiting_employee_confirmation', 'reopened'],
-    queue: ['new', 'reopened'],
-    active: ['accepted', 'in_progress'],
-    inwork: ['accepted', 'in_progress', 'waiting_employee_confirmation'],
-    confirmation: ['waiting_employee_confirmation']
-  };
-
-  let whereClause = ['`deleted_at` IS NULL'];
-  const queryParams = [];
-
-  if (status && status !== 'all') {
-    if (status === 'overdue') {
-      whereClause.push(APPLICATION_OVERDUE_SQL);
-    } else {
-      const statuses = statusGroups[status] || [status];
-      const statusSql = '`status` IN (' + statuses.map(() => '?').join(',') + ')';
-      whereClause.push(status === 'done' ? `(${statusSql} OR COALESCE(\`fl\`, 0) = 1)` : `COALESCE(\`fl\`, 0) = 0 AND ${statusSql}`);
-      queryParams.push(...statuses);
-    }
-  }
-
-  if (from) {
-    const fromDate = new Date(from);
-    if (isNaN(fromDate)) {
-      return res.status(400).json({ error: 'Неверный формат даты "from". Используйте YYYY-MM-DD' });
-    }
-    whereClause.push('data >= ?');
-    queryParams.push(fromDate.toISOString().split('T')[0] + ' 00:00:00');
-  }
-
-  if (to) {
-    const toDate = new Date(to);
-    if (isNaN(toDate)) {
-      return res.status(400).json({ error: 'Неверный формат даты "to". Используйте YYYY-MM-DD' });
-    }
-    whereClause.push('data <= ?');
-    queryParams.push(toDate.toISOString().split('T')[0] + ' 23:59:59');
-  }
-
-  // Добавлен поиск по тексту заявки
-  if (search && search.trim()) {
-    whereClause.push('(`application` LIKE ? OR `name` LIKE ? OR `cabinet` LIKE ? OR `N_tel` LIKE ? OR `executor` LIKE ? OR `category` LIKE ? OR `priority` LIKE ?)');
-    const like = `%${search.trim()}%`;
-    queryParams.push(like, like, like, like, like, like, like);
-  }
-
-  if (employee_login && employee_login.trim()) {
-    whereClause.push('LOWER(`employee_login`) = ?');
-    queryParams.push(employee_login.trim().toLowerCase());
-  }
-
-  if (queue === 'unassigned') {
-    whereClause.push("COALESCE(`fl`, 0) = 0 AND COALESCE(NULLIF(TRIM(`executor`), ''), NULLIF(TRIM(`accepted_by`), '')) IS NULL");
-  }
-
-  if (queue === 'my' && assignee && assignee.trim()) {
-    const normalizedAssignee = assignee.trim().toLowerCase();
-    whereClause.push('(LOWER(COALESCE(`executor`, \'\')) LIKE ? OR LOWER(COALESCE(`accepted_by`, \'\')) = ?)');
-    queryParams.push(`%${normalizedAssignee}%`, normalizedAssignee);
-  }
-
-  const whereSql = whereClause.length > 0 ? 'WHERE ' + whereClause.join(' AND ') : '';
-  const sortSqlMap = {
-    status: 'ORDER BY FIELD(`status`, \'new\', \'reopened\', \'accepted\', \'in_progress\', \'waiting_employee_confirmation\', \'done\'), `data` DESC',
-    date_asc: 'ORDER BY `data` ASC, `id` ASC',
-    date_desc: 'ORDER BY `data` DESC, `id` DESC',
-    executor: 'ORDER BY COALESCE(NULLIF(TRIM(`executor`), \'\'), \'яяя\') ASC, `data` DESC',
-    sla: `ORDER BY CASE WHEN ${APPLICATION_OVERDUE_SQL} THEN 0 WHEN \`status\` IN ('new', 'reopened') THEN 1 WHEN \`status\` IN ('accepted', 'in_progress') THEN 2 ELSE 3 END ASC, \`data\` DESC`
-  };
-  const orderSql = sortSqlMap[sort] || sortSqlMap.date_desc;
-
+const readApplicationStats = async (query = {}) => {
+  const { whereSql, params } = buildApplicationQuery(query, APPLICATION_OVERDUE_SQL);
+  const [rows] = await pool.execute(`SELECT ${aggregateSql(APPLICATION_OVERDUE_SQL)} FROM application ${whereSql}`, params);
+  return numericStats(rows[0]);
+};
+app.get('/api/applications/stats', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
+  try { await ensureApplicationWorkflowSchema(); res.json({ stats: await readApplicationStats() }); }
+  catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Не удалось загрузить статистику' }); }
+});
+app.get('/api/applications/:id/position', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   try {
     await ensureApplicationWorkflowSchema();
-    // Запрос общего количества с учетом фильтров
-    const totalQuery = `SELECT COUNT(*) AS total FROM application ${whereSql}`;
-    const [totalResult] = await pool.execute(totalQuery, whereSql ? queryParams : []);
-
-    // Запрос количества выполненных заявок с учетом фильтров
-    const completedQuery = 'SELECT COUNT(*) AS count FROM application ' + (whereSql ? whereSql + ' AND `fl` = ?' : 'WHERE `fl` = ?');
-    const [completedResult] = await pool.execute(
-      completedQuery,
-      whereSql ? [...queryParams, 1] : [1]
-    );
-
-    // Запрос количества заявок в работе с учетом фильтров
-    const pendingQuery = 'SELECT COUNT(*) AS count FROM application ' + (whereSql ? whereSql + ' AND COALESCE(`fl`, 0) = 0 AND `status` IN (?, ?, ?, ?, ?)' : 'WHERE COALESCE(`fl`, 0) = 0 AND `status` IN (?, ?, ?, ?, ?)');
-    const [pendingResult] = await pool.execute(
-      pendingQuery,
-      whereSql ? [...queryParams, 'new', 'accepted', 'in_progress', 'waiting_employee_confirmation', 'reopened'] : ['new', 'accepted', 'in_progress', 'waiting_employee_confirmation', 'reopened']
-    );
-    const [queueResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `deleted_at` IS NULL AND COALESCE(`fl`, 0) = 0 AND `status` IN (?, ?)', ['new', 'reopened']);
-    const [acceptedResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `deleted_at` IS NULL AND COALESCE(`fl`, 0) = 0 AND `status` = ?', ['accepted']);
-    const [inProgressResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `deleted_at` IS NULL AND COALESCE(`fl`, 0) = 0 AND `status` = ?', ['in_progress']);
-    const [activeResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `deleted_at` IS NULL AND COALESCE(`fl`, 0) = 0 AND `status` IN (?, ?)', ['accepted', 'in_progress']);
-    const [confirmationResult] = await pool.execute('SELECT COUNT(*) AS count FROM application WHERE `deleted_at` IS NULL AND COALESCE(`fl`, 0) = 0 AND `status` = ?', ['waiting_employee_confirmation']);
-    const [overdueResult] = await pool.execute(`SELECT COUNT(*) AS count FROM application WHERE \`deleted_at\` IS NULL AND ${APPLICATION_OVERDUE_SQL}`);
-
-    const total = totalResult[0].total;
-    const completed = completedResult[0].count;
-    const pending = pendingResult[0].count;
-    const totalPages = Math.ceil(total / limit);
-
-    // Запрос заявок с пагинацией
-    const applicationsQuery = `
-	      SELECT ${APPLICATION_WORKFLOW_COLUMNS}
-	      FROM application
-	      ${whereSql}
-      ${orderSql}
-      LIMIT ${limit} OFFSET ${offset}
-    `;
-
-    // MySQL 8.4 can reject LIMIT/OFFSET placeholders in a prepared statement
-    // in this query shape. Both values are validated integers above, so keep
-    // the filter values parameterized and inject only the safe pagination.
-    const [applications] = await pool.execute(applicationsQuery, queryParams);
-
-    const formattedApplications = await enrichApplicationsWithEmployeeDirectory(applications.map(normalizeApplication));
-
-    res.json({
-      applications: formattedApplications,
-      totalPages,
-      currentPage: page,
-      stats: { total, completed, pending, queue: queueResult[0].count, accepted: acceptedResult[0].count, in_progress: inProgressResult[0].count, active: activeResult[0].count, inwork: Number(activeResult[0].count) + Number(confirmationResult[0].count), confirmation: confirmationResult[0].count, overdue: overdueResult[0].count }
-    });
+    const app = await getApplicationById(req.params.id);
+    if (!app) return res.status(404).json({ error: 'Заявка не найдена' });
+    const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit) || 10));
+    const { whereSql, params } = buildApplicationQuery(req.query, APPLICATION_OVERDUE_SQL);
+    const op = req.query.sort === 'date_asc' ? '<' : '>';
+    const created = app.created_at || app.data;
+    const [rows] = await pool.execute(`SELECT COUNT(*) AS preceding FROM application ${whereSql}
+      AND (${CREATED_SQL} ${op} ? OR (${CREATED_SQL} = ? AND id ${op} ?))`, [...params, created, created, app.id]);
+    res.json({ page: Math.floor(Number(rows[0].preceding) / limit) + 1 });
+  } catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Не удалось определить страницу заявки' }); }
+});
+app.get('/api/applications', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    await ensureApplicationWorkflowSchema();
+    const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit) || 10));
+    const { whereSql, params } = buildApplicationQuery(req.query, APPLICATION_OVERDUE_SQL);
+    const stats = await readApplicationStats(req.query);
+    const totalPages = Math.max(1, Math.ceil(stats.total / limit));
+    const page = Math.min(totalPages, Math.max(1, parseInt(req.query.page) || 1));
+    const [rows] = await pool.execute(`SELECT ${APPLICATION_WORKFLOW_COLUMNS} FROM application ${whereSql}
+      ${orderApplications(req.query.sort)} LIMIT ${limit} OFFSET ${(page - 1) * limit}`, params);
+    res.json({ applications: await enrichApplicationsWithEmployeeDirectory(rows.map(normalizeApplication)),
+      totalPages, currentPage: page, stats });
   } catch (error) {
-    console.error('Ошибка при запросе к БД:', error);
-    res.status(500).json({ error: 'Ошибка сервера при получении заявок' });
+    console.error('Ошибка загрузки заявок:', error);
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Ошибка сервера при получении заявок' });
   }
 });
-
 
 app.get('/api/applications/unseen-count', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   try {
@@ -1009,6 +810,8 @@ app.get('/api/applications/:id', requireAuth, requireApplicationOwnerOrManager, 
 });
 
 app.post('/api/applications', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
+  const errors = validateApplication(req.body, { requireCabinet: true });
+  if (Object.keys(errors).length) return res.status(400).json({ error: 'Пожалуйста, исправьте ошибки в форме', errors });
   const {
     name, cabinet, N_tel, application, process, executor,
     fl, status, employee_login, category,
@@ -1171,9 +974,13 @@ app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), a
 
   try {
     await ensureApplicationWorkflowSchema();
-    const existingApp = await getApplicationById(id);
-    if (!existingApp) {
-      return res.status(404).json({ error: 'Заявка не найдена' });
+    const errors = validateApplication(req.body);
+    if (Object.keys(errors).length) return res.status(400).json({ error: 'Пожалуйста, исправьте ошибки в форме', errors });
+    const updatedApplication = await withApplicationTransaction(async (connection) => {
+    const existingApp = await getApplicationByIdForUpdate(connection, id);
+    if (!existingApp) return null;
+    if (req.body.revision == null || Number(req.body.revision) !== existingApp.revision) {
+      throw Object.assign(new Error('Заявка изменена другим администратором. Загрузите актуальную версию перед сохранением.'), { status: 409 });
     }
 
     const has = (field) => Object.prototype.hasOwnProperty.call(req.body, field);
@@ -1208,7 +1015,7 @@ app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), a
         ? existingApp.resolved_at
         : (existingApp.work_started_at || existingApp.accepted_at || null);
       const cycleSeconds = gapFrom ? (secondsBetween(gapFrom, closedAt) || 0) : 0;
-      computedWorkSeconds = gapFrom ? base + cycleSeconds : base || null;
+      computedWorkSeconds = gapFrom ? applicationWorkSeconds(existingApp, new Date(closedAt.replace(' ', 'T') + 'Z')) : base || null;
       if (gapFrom) {
         const hasOpenCycle = workCycles.some((cycle) => !cycle.closed_at);
         nextWorkCycles = hasOpenCycle
@@ -1232,7 +1039,7 @@ app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), a
     const isEmployeeApplication = existingApp.source === 'chat' || Boolean(existingApp.employee_login);
     let manualClosureExecutor = '';
     if (isManualClosure && isEmployeeApplication) {
-      const [actorRows] = await pool.execute(
+      const [actorRows] = await connection.execute(
         'SELECT full_name FROM users WHERE LOWER(login) = ? LIMIT 1',
         [req.auth.login]
       );
@@ -1263,9 +1070,8 @@ app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), a
       work_cycles_json: JSON.stringify(nextWorkCycles)
     };
 
-    const updatedApplication = await withApplicationTransaction(async (connection) => {
     await connection.execute(
-      'UPDATE application SET ' +
+      'UPDATE application SET `revision` = `revision` + 1, ' +
         '`name` = ?, `cabinet` = ?, `N_tel` = ?, `application` = ?, `process` = ?, `executor` = ?, `data` = ?, ' +
         '`start_data` = ?, `end_data` = ?, `fl` = ?, `status` = ?, `employee_login` = ?, `category` = ?, `priority` = ?, ' +
         '`accepted_by` = ?, `accepted_at` = ?, `work_started_at` = ?, `resolved_at` = ?, `employee_confirmed_at` = ?, ' +
@@ -1290,27 +1096,31 @@ app.put('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), a
     await addApplicationEvent(connection, id, req.auth.login, req.auth.role, eventType, eventComment);
     return getApplicationByIdForUpdate(connection, id);
     });
+    if (!updatedApplication) return res.status(404).json({ error: 'Заявка не найдена' });
     publishApplicationUpdate(updatedApplication, 'manual_update');
 
     res.status(200).json({ message: 'Заявка успешно обновлена', application: updatedApplication });
   } catch (error) {
     console.error('Ошибка при обновлении заявки:', error);
-    res.status(500).json({ error: 'Не удалось обновить заявку' });
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Не удалось обновить заявку' });
   }
 });
 
 
 const updateApplicationWorkflow = async (id, updater, event) => {
+  let changed = false;
   const updated = await withApplicationTransaction(async (connection) => {
     const app = await getApplicationByIdForUpdate(connection, id);
     if (!app) return null;
+    if (event?.nextStatus && app.status === event.nextStatus) return app;
     const next = updater(app);
     if (event?.nextStatus) assertApplicationTransition(app.status, event.nextStatus);
-    await connection.execute(next.sql, next.params);
+    await connection.execute(next.sql.replace('UPDATE application SET ', 'UPDATE application SET `revision` = `revision` + 1, '), next.params);
+    changed = true;
     if (event) await addApplicationEvent(connection, id, event.actorLogin, event.actorRole, event.eventType, event.comment);
     return getApplicationByIdForUpdate(connection, id);
   });
-  if (updated) publishApplicationUpdate(updated, event?.eventType || 'updated');
+  if (updated && changed) publishApplicationUpdate(updated, event?.eventType || 'updated');
   return updated;
 };
 
@@ -1322,6 +1132,29 @@ const getCurrentSlaSeconds = (app = {}, now = new Date()) => {
   }
   return secondsBetween(app.created_at || app.data, now) || 0;
 };
+
+app.post('/api/applications/:id/assign', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
+  const executor = String(req.body.executor || '').trim();
+  const error = require('../src/utils/applicationValidation').validateApplicationField('executor', executor);
+  if (!executor || error) return res.status(400).json({ error: error || 'Укажите исполнителя' });
+  try {
+    await ensureApplicationWorkflowSchema();
+    let changed = false;
+    const updated = await withApplicationTransaction(async (connection) => {
+      const app = await getApplicationByIdForUpdate(connection, req.params.id);
+      if (!app) return null;
+      if (app.fl || app.status === 'done') throw Object.assign(new Error('Нельзя назначить исполнителя закрытой заявке'), { status: 409 });
+      if (app.executor === executor) return app;
+      const cycles = parseWorkCycles(app.work_cycles_json).map((cycle) => cycle.closed_at ? cycle : { ...cycle, executor });
+      await connection.execute('UPDATE application SET executor = ?, work_cycles_json = ?, revision = revision + 1 WHERE id = ?', [executor, JSON.stringify(cycles), app.id]);
+      changed = true;
+      await addApplicationEvent(connection, app.id, req.auth.login, req.auth.role, 'assigned', 'Назначен исполнитель');
+      return getApplicationByIdForUpdate(connection, app.id);
+    });
+    if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
+    if (changed) publishApplicationUpdate(updated, 'assigned'); res.json({ message: 'Исполнитель назначен', application: updated });
+  } catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Не удалось назначить исполнителя' }); }
+});
 
 app.post('/api/applications/:id/accept', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   const { id } = req.params;
@@ -1347,7 +1180,7 @@ app.post('/api/applications/:id/accept', requireAuth, requireRole('admin', 'mana
     res.json({ message: 'Заявка взята в работу', application: updated });
   } catch (error) {
     console.error('Ошибка при взятии заявки:', error);
-    res.status(500).json({ error: 'Не удалось взять заявку' });
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Не удалось взять заявку' });
   }
 });
 
@@ -1366,7 +1199,7 @@ app.post('/api/applications/:id/start-work', requireAuth, requireRole('admin', '
     res.json({ message: 'Работа начата', application: updated });
   } catch (error) {
     console.error('Ошибка при старте работы:', error);
-    res.status(500).json({ error: 'Не удалось начать работу' });
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Не удалось начать работу' });
   }
 });
 
@@ -1377,18 +1210,17 @@ app.post('/api/applications/:id/resolve', requireAuth, requireRole('admin', 'man
     await ensureApplicationWorkflowSchema();
     const updated = await updateApplicationWorkflow(id, (app) => {
       const now = formatNowForMySQL();
-      const previousWorkSeconds = Number(app.work_seconds || 0);
-      const currentWorkSeconds = secondsBetween(app.work_started_at || app.accepted_at || app.created_at || app.data, now) || 0;
+      const workSeconds = applicationWorkSeconds(app, new Date(now.replace(' ', 'T') + 'Z'));
       return {
         sql: 'UPDATE application SET `status` = ?, `resolved_at` = ?, `process` = ?, `work_seconds` = ?, `fl` = 0 WHERE `id` = ?',
-        params: ['waiting_employee_confirmation', now, process || app.process || '', previousWorkSeconds + currentWorkSeconds, id]
+        params: ['waiting_employee_confirmation', now, process || app.process || '', workSeconds, id]
       };
     }, { actorLogin: req.auth.login, actorRole: req.auth.role, eventType: 'resolved', nextStatus: 'waiting_employee_confirmation', comment: process || 'Работа выполнена, ожидается подтверждение' });
     if (!updated) return res.status(404).json({ error: 'Заявка не найдена' });
     res.json({ message: 'Заявка отправлена на подтверждение', application: updated });
   } catch (error) {
     console.error('Ошибка при завершении работы:', error);
-    res.status(500).json({ error: 'Не удалось завершить работу' });
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Не удалось завершить работу' });
   }
 });
 
@@ -1399,9 +1231,7 @@ app.post('/api/applications/:id/confirm', requireAuth, requireApplicationOwnerOr
     await ensureApplicationWorkflowSchema();
     const updated = await updateApplicationWorkflow(id, (app) => {
       const now = formatNowForMySQL();
-      const previousWorkSeconds = Number(app.work_seconds || 0);
-      const activeWorkSeconds = secondsBetween(app.resolved_at || app.work_started_at || app.accepted_at || app.created_at || app.data, now) || 0;
-      const workSeconds = previousWorkSeconds + activeWorkSeconds;
+      const workSeconds = applicationWorkSeconds(app, new Date(now.replace(' ', 'T') + 'Z'));
       const workCycles = closeOpenWorkCycle(parseWorkCycles(app.work_cycles_json), now);
       return {
         sql: 'UPDATE application SET `status` = ?, `resolved_at` = ?, `work_seconds` = ?, `employee_confirmed_at` = ?, `employee_comment` = ?, `end_data` = ?, `work_cycles_json` = ?, `fl` = 1 WHERE `id` = ?',
@@ -1418,7 +1248,7 @@ app.post('/api/applications/:id/confirm', requireAuth, requireApplicationOwnerOr
     res.json({ message: 'Заявка подтверждена', application: updated });
   } catch (error) {
     console.error('Ошибка при подтверждении заявки:', error);
-    res.status(500).json({ error: 'Не удалось подтвердить заявку' });
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Не удалось подтвердить заявку' });
   }
 });
 
@@ -1430,13 +1260,10 @@ app.post('/api/applications/:id/reopen', requireAuth, requireApplicationOwnerOrM
     const updated = await updateApplicationWorkflow(id, (app) => {
       const now = formatNowForMySQL();
       const workCycles = closeOpenWorkCycle(parseWorkCycles(app.work_cycles_json), now);
-      const currentSegmentSeconds = secondsBetween(
-        app.resolved_at || app.work_started_at || app.accepted_at || app.created_at || app.data,
-        now
-      ) || 0;
+      const workSeconds = applicationWorkSeconds(app, new Date(now.replace(' ', 'T') + 'Z'));
       return {
         sql: 'UPDATE application SET `status` = ?, `employee_comment` = ?, `work_started_at` = NULL, `resolved_at` = NULL, `work_seconds` = ?, `work_cycles_json` = ?, `fl` = 0 WHERE `id` = ?',
-        params: ['reopened', employee_comment || '', Number(app.work_seconds || 0) + currentSegmentSeconds, JSON.stringify(workCycles), id]
+        params: ['reopened', employee_comment || '', workSeconds, JSON.stringify(workCycles), id]
       };
     }, {
       actorLogin: req.auth.login,
@@ -1449,7 +1276,7 @@ app.post('/api/applications/:id/reopen', requireAuth, requireApplicationOwnerOrM
     res.json({ message: 'Заявка переоткрыта', application: updated });
   } catch (error) {
     console.error('Ошибка при переоткрытии заявки:', error);
-    res.status(500).json({ error: 'Не удалось переоткрыть заявку' });
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Не удалось переоткрыть заявку' });
   }
 });
 
@@ -1488,7 +1315,7 @@ app.delete('/api/applications/:id', requireAuth, requireRole('admin', 'manager')
       const existing = await getApplicationByIdForUpdate(connection, applicationId);
       if (!existing) return null;
       const [result] = await connection.execute(
-        'UPDATE application SET `deleted_at` = NOW(), `deleted_by` = ? WHERE `id` = ? AND `deleted_at` IS NULL',
+        'UPDATE application SET `revision` = `revision` + 1, `deleted_at` = NOW(), `deleted_by` = ? WHERE `id` = ? AND `deleted_at` IS NULL',
         [req.auth.login, applicationId]
       );
       if (result.affectedRows !== 1) throw new Error('Не удалось пометить заявку как удалённую');
@@ -1559,4 +1386,5 @@ const startServer = (port) => {
   });
 };
 
-startServer(PORT);
+if (require.main === module) startServer(PORT);
+module.exports = { app };

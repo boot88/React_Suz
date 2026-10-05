@@ -41,3 +41,6 @@ yarn-error.log*
 
 # Exported reports
 /все_заявки_*.xlsx
+
+# One-time provisioning credentials (server-only, never commit)
+/server/data/initial-admin-credentials.json

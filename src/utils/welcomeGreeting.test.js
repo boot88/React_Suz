@@ -9,7 +9,7 @@ import {
 } from './welcomeGreeting';
 
 // 15 сентября 2026 года — вторник, это пример из требования к приветствию.
-const TUESDAY_SEPTEMBER_15 = new Date(2026, 8, 15, 12, 0, 0);
+const TUESDAY_SEPTEMBER_15 = new Date('2026-09-15T05:00:00Z');
 
 // Сокращённые названия месяцев — надпись должна использовать именно их.
 const RU_MONTHS_SHORT = ['янв.', 'февр.', 'мар.', 'апр.', 'мая', 'июн.', 'июл.', 'авг.', 'сент.', 'окт.', 'нояб.', 'дек.'];
@@ -69,7 +69,7 @@ test('собирает английский вариант приветстви�
 
 test('название месяца всегда сокращено', () => {
   RU_MONTHS_SHORT.forEach((month, index) => {
-    const notice = buildWelcomeGreeting('Евгений', false, new Date(2026, index, 15, 12, 0, 0));
+    const notice = buildWelcomeGreeting('Евгений', false, new Date(Date.UTC(2026, index, 15, 5, 0, 0)));
     expect(notice).toMatch(new RegExp(`^Добро пожаловать, Евгений! Сегодня [а-яё]+, 15 ${month.replace('.', '\\.')}$`));
   });
 });

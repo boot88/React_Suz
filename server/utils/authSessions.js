@@ -22,7 +22,7 @@ const ensureSessions = () => {
 
 const issueSession = async (user) => {
   await ensureSessions();
-  const token = createAccessToken({ login: user.login, role: user.role });
+  const token = createAccessToken({ login: user.login, role: user.role, mustChangePassword: Boolean(user.must_change_password) });
   const identity = verifyAccessToken(token);
   await db.execute('INSERT INTO auth_sessions (token_hash, user_id, credential_stamp, expires_at) VALUES (?, ?, ?, ?)',
     [digest(token), user.id, credentialStamp(user), new Date(identity.expiresAt)]);

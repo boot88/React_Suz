@@ -1,28 +1,30 @@
+import MaintenanceNotice from './components/MaintenanceNotice';
+import MandatoryPasswordChange from './components/MandatoryPasswordChange';
 import AdminNotice from './components/AdminNotice';
 import { translateAdminText as t } from './utils/adminTranslation';
 import { userSettingsStorage, PREFERENCES_EVENT, flushPreferenceSync } from './utils/userPreferences';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate, useParams, Link } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
-import Dashboard from './pages/Dashboard';
-import AddApplication from './pages/AddApplication';
-import EditApplication from './pages/EditApplicationsTable';
 import Login from './pages/Login';
-import EmployeeSearch from './pages/EmployeeSearch';
-import KnowledgeBase from './pages/KnowledgeBase';
-import NetworkMap from './pages/NetworkMap';
-import AdminSettings from './pages/AdminSettings';
-import EmployeeChat from './pages/EmployeeChat';
-import { ApplicationsProvider } from './context/ApplicationsProvider';
 import './App.css';
 import './styles/admin-system.css';
-import Support from './components/Support';
-import Statistics from './pages/StatisticsOverview';
 import { API_BASE_URL } from './utils/apiConfig';
 import { authFetch } from './utils/authFetch';
 import { ADMIN_WORKSPACE_TRANSITION_EVENT, requestAdminWorkspaceTransition } from './utils/adminWorkspaceTransition';
 import { WELCOME_NOTICE_DURATION_MS, requestWelcomeGreeting, hasSeenWelcomeGreeting, markWelcomeGreetingSeen } from './utils/welcomeGreeting';
 
+
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const AddApplication = lazy(() => import('./pages/AddApplication'));
+const EditApplication = lazy(() => import('./pages/EditApplicationsTable'));
+const EmployeeSearch = lazy(() => import('./pages/EmployeeSearch'));
+const KnowledgeBase = lazy(() => import('./pages/KnowledgeBase'));
+const NetworkMap = lazy(() => import('./pages/NetworkMap'));
+const AdminSettings = lazy(() => import('./pages/AdminSettings'));
+const EmployeeChat = lazy(() => import('./pages/EmployeeChat'));
+const Support = lazy(() => import('./components/Support'));
+const Statistics = lazy(() => import('./pages/StatisticsOverview'));
 
 function ChatAdministration() {
   const { section } = useParams();
@@ -69,9 +71,7 @@ function AdminWelcomeNotice({ language }) {
 function App() {
   return (
     <Router>
-      <ApplicationsProvider>
-        <AppWorkspace />
-      </ApplicationsProvider>
+      <AppWorkspace />
     </Router>
   );
 }
@@ -153,6 +153,8 @@ function AppWorkspace() {
     );
   }
 
+  if (isAuthenticated && user?.mustChangePassword) return <MandatoryPasswordChange />;
+
   const isAdmin = user?.role === 'admin' || user?.serverRole === 'admin';
   const isEmployee = !isAdmin && (user?.role === 'employee' || user?.role === 'manager');
   const isAdminWorkspace = isAuthenticated && isAdmin;
@@ -164,8 +166,10 @@ function AppWorkspace() {
       {showAdminShell && <Sidebar language={adminLanguage} />}
       <div className={`app-content ${showAdminShell ? 'app-content--with-sidebar admin-shell-content' : ''}`}>
         {isAuthenticated && preferenceSyncError && (showAdminShell ? <AdminNotice type="error">{t(preferenceSyncError, adminLanguage)} <button type="button" onClick={flushPreferenceSync}>{t('Повторить сохранение', adminLanguage)}</button></AdminNotice> : <div role="alert" className="settings-sync-error">{t(preferenceSyncError, adminLanguage)} <button type="button" onClick={flushPreferenceSync}>{t('Повторить сохранение', adminLanguage)}</button></div>)}
+        {showAdminShell && <MaintenanceNotice />}
         {showAdminShell && <AdminWelcomeNotice language={adminLanguage} />}
         <div key={showAdminShell ? location.pathname : 'public'} className={showAdminShell ? 'admin-route-content' : undefined}>
+        <Suspense fallback={<div className="app-loading" role="status">{t("Загрузка данных...")}</div>}>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/admin" element={<Login mode="admin" />} />
@@ -185,6 +189,7 @@ function AppWorkspace() {
           <Route path="/support" element={<Support />} />
           <Route path="*" element={<Navigate to={isEmployee ? '/employee' : '/'} replace />} />
         </Routes>
+        </Suspense>
         </div>
       </div>
       {workspaceTransition && (

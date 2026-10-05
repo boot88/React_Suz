@@ -21,6 +21,9 @@ export const useAdminTranslation = () => {
 // Match complete UI messages. Captured names, file names and search queries
 // are preserved; there are no global replacements in user-entered content.
 const MESSAGE_TRANSLATIONS = [
+  [/^Максимум (\d+) символов$/, (_, count) => `Maximum ${count} characters`],
+  [/^Закрыто: (\d+)\. Не удалось: (\d+)\.$/, (_, succeeded, failed) => `Closed: ${succeeded}. Failed: ${failed}.`],
+  [/^Новых аккаунтов: (\d+)\. Для новых администраторов выданы индивидуальные временные пароли\.$/, (_, count) => `New accounts: ${count}. New administrators have individual temporary passwords.`],
   [/^Назначено: (\d+)\. Не удалось: (\d+)\.$/, (_, succeeded, failed) => `Assigned: ${succeeded}. Failed: ${failed}.`],
   [/^В сравнении не учтено заявок без корректных дат: (\d+)\.$/, (_, count) => `Requests with missing or invalid dates excluded from the comparison: ${count}.`],
   [/^Экспорт найденных — (\d+) заяв(?:ок|ка|ки)$/, (_, count) => `Export matching — ${count} ${count === '1' ? 'request' : 'requests'}`],

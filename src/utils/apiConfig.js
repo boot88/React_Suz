@@ -9,7 +9,8 @@ export const getApiBaseUrl = () => {
 
   // Development: используем тот же host, что открыт в браузере (localhost или LAN-IP)
   if (hostname === 'localhost' || hostname === '127.0.0.1' || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
-    return `http://${hostname}:5000/api`;
+    const port = Number(process.env.REACT_APP_API_PORT || 5000);
+    return `http://${hostname}:${Number.isInteger(port) && port > 0 && port <= 65535 ? port : 5000}/api`;
   }
 
   // Production: относительный путь

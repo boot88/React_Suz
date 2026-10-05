@@ -11,6 +11,7 @@ const { isMysqlDatabase } = require('../utils/chatState');
 const {
   getRequestValue
 } = require('../utils/profileState');
+const { provisioningCredentials } = require('../utils/provisioningCredentials');
 const { issueSession, revokeSession, notifySessionChange } = require('../utils/authSessions');
 const {
   hashPassword,
@@ -153,6 +154,7 @@ const ensureUsersSchema = async () => {
       external_phone VARCHAR(100) NULL,
       room VARCHAR(100) NULL,
       provisioned_from_directory TINYINT(1) NOT NULL DEFAULT 0,
+      must_change_password TINYINT(1) NOT NULL DEFAULT 0,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       UNIQUE KEY uniq_users_login (login),
@@ -164,6 +166,7 @@ const ensureUsersSchema = async () => {
     if (!existing.has('provisioned_from_directory')) {
       await db.execute('ALTER TABLE users ADD COLUMN provisioned_from_directory TINYINT(1) NOT NULL DEFAULT 0');
     }
+    if (!existing.has('must_change_password')) await db.execute('ALTER TABLE users ADD COLUMN must_change_password TINYINT(1) NOT NULL DEFAULT 0');
     if (!existing.has('position')) {
       await db.execute('ALTER TABLE users ADD COLUMN position VARCHAR(255) NULL');
     }
@@ -257,15 +260,18 @@ const provisionUsersFromPhoneBook = async ({ actingLogin = '' } = {}) => {
      ORDER BY full_name`
   );
 
-  const [existingRows] = await db.execute(
-    'SELECT id, login, password, role, full_name, provisioned_from_directory FROM users'
+  const connection = await db.getConnection();
+  try {
+  await connection.beginTransaction();
+  const [existingRows] = await connection.execute(
+    'SELECT id, login, password, role, full_name, provisioned_from_directory, must_change_password FROM users FOR UPDATE'
   );
-  const [sessionRows] = await db.execute(
+  const [sessionRows] = await connection.execute(
     `SELECT DISTINCT u.login AS login
        FROM auth_sessions s JOIN users u ON u.id = s.user_id
       WHERE s.expires_at > ?`,
     [new Date()]
-  );
+  ).catch((error) => { if (error.code === 'ER_NO_SUCH_TABLE') return [[]]; throw error; });
 
   const { desiredUsers, deletedLogins, skippedDeletions, reusedLogins } = planProvisionedUsers({
     phoneRows,
@@ -283,25 +289,30 @@ const provisionUsersFromPhoneBook = async ({ actingLogin = '' } = {}) => {
 
   const existingByLogin = new Map(existingRows.map((item) => [normalizeLogin(item.login), item]));
   let newAccountPasswordHash = '';
+  const temporaryAccounts = [];
 
   if (deletedLogins.length) {
-    await db.execute('DELETE FROM users WHERE login IN (?)', [deletedLogins]);
+    await connection.execute(`DELETE FROM users WHERE login IN (${deletedLogins.map(() => '?').join(',')})`, deletedLogins);
   }
 
   for (const user of desiredUsers) {
     const existingUser = existingByLogin.get(normalizeLogin(user.login));
     let passwordHash = existingUser?.password || '';
 
-    if (!passwordHash) {
+    if (!passwordHash && user.role === 'admin') {
+      const password = crypto.randomBytes(15).toString('base64url') + 'A1!';
+      passwordHash = await hashPassword(password);
+      temporaryAccounts.push({ login: user.login, full_name: user.full_name, password });
+    } else if (!passwordHash) {
       if (!newAccountPasswordHash) {
         newAccountPasswordHash = await hashPassword(NEW_DIRECTORY_ACCOUNT_PASSWORD);
       }
       passwordHash = newAccountPasswordHash;
     }
 
-    await db.execute(
-      `INSERT INTO users (login, password, role, full_name, position, department, phone, external_phone, room, provisioned_from_directory)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+    await connection.execute(
+      `INSERT INTO users (login, password, role, full_name, position, department, phone, external_phone, room, provisioned_from_directory, must_change_password)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
        ON DUPLICATE KEY UPDATE
          /* password намеренно не обновляется: сохраняем пароль, который сотрудник сменил вручную */
          role = VALUES(role),
@@ -312,11 +323,22 @@ const provisionUsersFromPhoneBook = async ({ actingLogin = '' } = {}) => {
          external_phone = VALUES(external_phone),
          room = VALUES(room),
          provisioned_from_directory = 1`,
-      [user.login, passwordHash, user.role, user.full_name, user.position, user.department, user.phone, user.external_phone, user.room]
+      [user.login, passwordHash, user.role, user.full_name, user.position, user.department, user.phone, user.external_phone, user.room, !existingUser && user.role === 'admin' ? 1 : 0]
     );
   }
 
+  // Keep pending initial credentials recoverable if the synchronization response is lost.
+  const pendingCredentials = await provisioningCredentials.update((previous) => [
+    ...previous.filter((entry) => !temporaryAccounts.some((account) => account.login === entry.login)), ...temporaryAccounts
+  ]);
+  for (const account of pendingCredentials) {
+    const existing = existingByLogin.get(normalizeLogin(account.login));
+    if (existing?.must_change_password && existing.role === 'admin' && !temporaryAccounts.some((entry) => entry.login === account.login) && await isPasswordValid(account.password, existing.password)) temporaryAccounts.push(account);
+  }
+  await connection.commit();
+  notifySessionChange();
   return {
+    temporaryAccounts,
     total: desiredUsers.length,
     created: desiredUsers.filter((item) => !existingByLogin.has(normalizeLogin(item.login))).length,
     updated: desiredUsers.filter((item) => existingByLogin.has(normalizeLogin(item.login))).length,
@@ -327,6 +349,8 @@ const provisionUsersFromPhoneBook = async ({ actingLogin = '' } = {}) => {
     admins: desiredUsers.filter((item) => item.role === 'admin').length,
     adminLogins: desiredUsers.filter((item) => item.role === 'admin').map((item) => ({ login: item.login, full_name: item.full_name }))
   };
+  } catch (error) { await connection.rollback().catch(() => {}); throw error; }
+  finally { connection.release(); }
 };
 
 const ensureNotificationStorage = async () => {
@@ -666,6 +690,7 @@ const mapUser = (user) => ({
 router.post('/provision-from-phone-book', requireAuth, requireRole('admin'), async (req, res) => {
   try {
     const stats = await provisionUsersFromPhoneBook({ actingLogin: req.auth?.login || '' });
+    res.set('Cache-Control', 'no-store');
     res.json({ message: 'Пользователи синхронизированы со справочником сотрудников', ...stats });
   } catch (error) {
     console.error('Provision users error:', error);
@@ -1153,6 +1178,7 @@ router.delete('/profile/avatar', requireAuth, async (req, res) => {
 
 router.put('/change-password', requireAuth, async (req, res) => {
   try {
+    await ensureUsersSchema();
     const normalizedLogin = req.auth.login;
     const currentPassword = String(req.body?.currentPassword || '');
     const newPassword = String(req.body?.newPassword || '');
@@ -1173,8 +1199,10 @@ router.put('/change-password', requireAuth, async (req, res) => {
       return res.status(400).json({ message: 'Текущий пароль указан неверно' });
     }
 
-    await db.execute('UPDATE users SET password = ? WHERE id = ?', [await hashPassword(newPassword), users[0].id]);
+    if (newPassword.length > 256 || newPassword === currentPassword) return res.status(400).json({ message: 'Выберите новый пароль от 8 до 256 символов, отличный от временного' });
+    await db.execute('UPDATE users SET password = ?, must_change_password = 0 WHERE id = ?', [await hashPassword(newPassword), users[0].id]);
     notifySessionChange();
+    await provisioningCredentials.update((entries) => entries.filter((entry) => entry.login !== normalizedLogin)).catch((error) => console.error('Не удалось удалить использованный временный пароль:', error.message));
     res.json({ message: 'Пароль обновлён. Войдите снова.' });
   } catch (error) {
     console.error('Change password error:', error);
@@ -1278,6 +1306,7 @@ router.post('/login', async (req, res) => {
       preferences: sanitizeProfilePreferences(profile.preferences),
       user: {
         ...mapUser(user),
+        mustChangePassword: Boolean(user.must_change_password),
         position: profile.position || user.position || ''
       }
     });

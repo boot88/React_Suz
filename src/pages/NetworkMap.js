@@ -4,92 +4,13 @@ import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useStat
 import './NetworkMap.css';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
+import networkZone from '../utils/networkZone';
 import { getVisibleNetworkRows } from '../utils/networkMapRows';
 
+const { parseNetworkZone, ipToNumber } = networkZone;
+
 const OFFICIAL_SITE_URL = 'http://nioch.nioch.nsc.ru/nioch/';
-const IP_LAST_OCTET_MIN = 1;
-const IP_LAST_OCTET_MAX = 254;
 const NETWORK_MAP_CACHE_KEY = 'network-map-cache';
-
-const ipToNumber = (ip) => ip.split('.').reduce((sum, part) => (sum * 256) + Number(part), 0);
-const getNetworkKey = (ip) => ip.split('.').slice(0, 3).join('.');
-const getNetworkCidr = (networkKey) => `${networkKey}.0/24`;
-
-const getFreeIpRanges = (freeIps) => {
-  if (freeIps.length === 0) return [];
-  const ranges = [];
-  let start = freeIps[0];
-  let previous = freeIps[0];
-
-  for (let index = 1; index < freeIps.length; index += 1) {
-    const current = freeIps[index];
-    if (ipToNumber(current) === ipToNumber(previous) + 1) {
-      previous = current;
-      continue;
-    }
-    ranges.push(start === previous ? start : `${start} — ${previous}`);
-    start = current;
-    previous = current;
-  }
-
-  ranges.push(start === previous ? start : `${start} — ${previous}`);
-  return ranges;
-};
-
-const parseNetworkZone = (zoneText = '') => {
-  const records = [];
-  let currentSection = 'Без раздела';
-
-  zoneText.split(/\r?\n/).forEach((line) => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-
-    if (trimmed.startsWith(';')) {
-      const label = trimmed.replace(/^;+/, '').replace(/;+$/g, '').trim();
-      if (label) currentSection = label;
-      return;
-    }
-
-    const cleanLine = line.split(';')[0].trim();
-    const match = cleanLine.match(/^(\S+)\s+IN\s+A\s+((?:\d{1,3}\.){3}\d{1,3})\b/i);
-    if (!match) return;
-
-    const [, host, ip] = match;
-    const octets = ip.split('.').map(Number);
-    if (octets.length !== 4 || octets.some((part) => Number.isNaN(part) || part < 0 || part > 255)) return;
-
-    records.push({
-      host,
-      ip,
-      networkKey: getNetworkKey(ip),
-      section: currentSection
-    });
-  });
-
-  const byNetwork = records.reduce((acc, record) => {
-    if (!acc[record.networkKey]) acc[record.networkKey] = [];
-    acc[record.networkKey].push(record);
-    return acc;
-  }, {});
-
-  return Object.entries(byNetwork).map(([networkKey, networkRecords]) => {
-    const occupiedLastOctets = new Set(networkRecords.map((record) => Number(record.ip.split('.')[3])));
-    const freeIps = [];
-
-    for (let last = IP_LAST_OCTET_MIN; last <= IP_LAST_OCTET_MAX; last += 1) {
-      if (!occupiedLastOctets.has(last)) freeIps.push(`${networkKey}.${last}`);
-    }
-
-    return {
-      networkKey,
-      cidr: getNetworkCidr(networkKey),
-      section: networkRecords[0]?.section || 'Без раздела',
-      occupied: networkRecords.sort((a, b) => ipToNumber(a.ip) - ipToNumber(b.ip)),
-      freeIps,
-      freeRanges: getFreeIpRanges(freeIps)
-    };
-  }).sort((a, b) => ipToNumber(`${a.networkKey}.0`) - ipToNumber(`${b.networkKey}.0`));
-};
 
 // Строка таблицы вынесена в memo-компонент: при смене фильтра или поиска
 // перерисовываются только адреса, у которых реально изменились данные.
@@ -98,7 +19,7 @@ const NetworkRow = memo(({ ip, status, host }) => {
   return (
   <tr className={status === 'free' ? 'ip-free' : 'ip-occupied'}>
     <td>{ip}</td>
-    <td>{t(status === 'free' ? 'Свободен' : 'Занят')}</td>
+    <td>{t(status === 'free' ? 'Нет записи' : 'Есть запись')}</td>
     <td>{host}</td>
   </tr>
 );
@@ -129,10 +50,10 @@ const NetworkMap = () => {
 
       setNetworkZoneText(data.zoneText || '');
       setNetworkUpdatedAt(data.fetchedAt || new Date().toISOString());
-      localStorage.setItem(NETWORK_MAP_CACHE_KEY, JSON.stringify({
+      try { localStorage.setItem(NETWORK_MAP_CACHE_KEY, JSON.stringify({
         zoneText: data.zoneText || '',
         fetchedAt: data.fetchedAt || new Date().toISOString()
-      }));
+      })); } catch {}
     } catch (err) {
       console.error('Ошибка загрузки сетки:', err);
       setNetworkError(err.message || 'Не удалось загрузить сетку');
@@ -142,7 +63,8 @@ const NetworkMap = () => {
   }, []);
 
   useEffect(() => {
-    const cached = localStorage.getItem(NETWORK_MAP_CACHE_KEY);
+    let cached;
+    try { cached = localStorage.getItem(NETWORK_MAP_CACHE_KEY); } catch {};
     if (cached) {
       try {
         const data = JSON.parse(cached);
@@ -198,10 +120,11 @@ const NetworkMap = () => {
       <div className="network-page-header">
         <div>
           <span className="network-eyebrow">{t("Сетка / маска сети")}</span>
-          <h1>{t("Свободные и занятые IP-адреса")}</h1>
+          <h1>{t("IP-адреса в сохранённом справочнике")}</h1>
         </div>
       </div>
 
+      <p className="network-snapshot-note">{t("Отсутствие записи не подтверждает, что IP свободен. Перед назначением проверьте устройство, DHCP и фактическую занятость адреса.")}</p>
       <div className="network-resource-link">
         <span>{t("Полезная ссылка для справочной информации")}</span>
         <a href={OFFICIAL_SITE_URL} target="_blank" rel="noopener noreferrer">{t("Открыть сайт")}</a>
@@ -216,16 +139,16 @@ const NetworkMap = () => {
         />
         <select value={networkFilter} onChange={(e) => setNetworkFilter(e.target.value)}>
           <option value="all">{t("Все адреса")}</option>
-          <option value="free">{t("Только свободные")}</option>
-          <option value="occupied">{t("Только занятые")}</option>
+          <option value="free">{t("Без записи в справочнике")}</option>
+          <option value="occupied">{t("С записью в справочнике")}</option>
         </select>
         <span className="network-snapshot-note">{t(networkLoading ? 'Загрузка сохранённого снимка…' : 'Обновление выполняется в настройках')}</span>
       </div>
 
       <div className="network-summary-grid">
         <div><strong>{networkStats.networks}</strong><span>{t("подсетей /24")}</span></div>
-        <div><strong>{networkStats.occupied}</strong><span>{t("занятых IP")}</span></div>
-        <div><strong>{networkStats.free}</strong><span>{t("свободных IP")}</span></div>
+        <div><strong>{networkStats.occupied}</strong><span>{t("уникальных IP с записью")}</span></div>
+        <div><strong>{networkStats.free}</strong><span>{t("IP без записи")}</span></div>
         <div><strong>{t(networkUpdatedAt ? new Date(networkUpdatedAt).toLocaleString(getAdminLocale()) : '—')}</strong><span>{t("последнее обновление")}</span></div>
       </div>
 
@@ -246,12 +169,12 @@ const NetworkMap = () => {
                   <p>{t(network.section)}</p>
                 </div>
                 <div className="network-card-stats">
-                  <span className="occupied">{t("Занято: ")}{network.occupied.length}</span>
-                  <span className="free">{t("Свободно: ")}{network.freeIps.length}</span>
+                  <span className="occupied">{t("С записью: ")}{network.occupied.length}</span>
+                  <span className="free">{t("Без записи: ")}{network.freeIps.length}</span>
                 </div>
               </header>
               <div className="free-ranges">
-                <strong>{t("Свободные диапазоны:")}</strong>
+                <strong>{t("Диапазоны без записей:")}</strong>
                 <span>{t(network.freeRanges.slice(0, 8).join(', ') || 'нет')}</span>
                 {network.freeRanges.length > 8 && <em>{t("ещё ")}{network.freeRanges.length - 8}</em>}
               </div>
