@@ -77,7 +77,7 @@ export default function EmployeeFeedWorkspace({ AttachmentCard, FEED_CATEGORIES,
                   ? sortedPostComments
                   : (commentSort === 'old' ? sortedPostComments.slice(-2) : sortedPostComments.slice(0, 2));
                 const totalPostComments = Math.max(Number(post.commentCount) || 0, sortedPostComments.length);
-                const hiddenCommentsCount = Math.max(0, totalPostComments - previewComments.length);
+                const hiddenCommentsCount = expandedCommentPosts[post.id] && post.commentsHasMore === false ? 0 : Math.max(0, totalPostComments - previewComments.length);
                 const postAttachments = getFeedAttachments(post);
                 const postMediaAttachments = postAttachments.filter(isMediaAttachment);
                 const singlePhotoPost = postMediaAttachments.length === 1 && isImageAttachment(postMediaAttachments[0]);

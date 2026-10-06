@@ -1,5 +1,6 @@
 import { PREFERENCES_EVENT } from '../utils/userPreferences';
 import useChatDraftStorage, { readChatDrafts, saveChatDrafts } from '../components/employeeChat/useChatDraftStorage';
+import { readChatOperationIds, saveChatOperationIds } from '../utils/chatOperationIds';
 import VirtualMessageList from '../components/employeeChat/VirtualMessageList';
 import EmployeeFeedWorkspace from '../components/employeeChat/EmployeeFeedWorkspace';
 import EmployeeProfileWorkspace from '../components/employeeChat/EmployeeProfileWorkspace';
@@ -92,6 +93,23 @@ const EmployeeChat = ({ adminSection = null }) => {
   const selectedEmailRef = useRef('');
   selectedEmailRef.current = selectedEmail;
   const cancelledUploadsRef = useRef(new Set());
+  const [chatLoadError, setChatLoadError] = useState('');
+  const [storageError, setStorageError] = useState(false);
+  const searchScopeRef = useRef('');
+  const feedSearchScopeRef = useRef('');
+  const dateRequestRef = useRef(0);
+  const synchronizeRequestsRef = useRef({});
+  const inlineEditRevisionRef = useRef(null);
+  const feedEditRevisionRef = useRef(null);
+  const feedScrollAnchorRef = useRef(null);
+  const [savedFeedOperations] = useState(() => readChatOperationIds(user?.username || 'guest'));
+  const feedOperationRef = useRef(savedFeedOperations.feed);
+  const commentOperationsRef = useRef(savedFeedOperations.comments);
+  const persistFeedOperations = () => {
+    if (!saveChatOperationIds(user?.username || 'guest', { feed: feedOperationRef.current, comments: commentOperationsRef.current })) setStorageError(true);
+  };
+  const feedPagingInitializedRef = useRef(false);
+  const feedUploadBusyRef = useRef(false);
   const [connectionState, setConnectionState] = useState('connecting');
   const historyCursorRef = useRef({});
   const historyRequestRef = useRef({});
@@ -116,7 +134,6 @@ const EmployeeChat = ({ adminSection = null }) => {
   const [dialogSearchContext, setDialogSearchContext] = useState(null);
   const [dialogSearchContextLoading, setDialogSearchContextLoading] = useState(false);
   const [dialogFilter, setDialogFilter] = useState('all');
-  const [visibleDialogMessageCount, setVisibleDialogMessageCount] = useState(CHAT_MESSAGES_PAGE_SIZE);
   const [mediaPanelOpen, setMediaPanelOpen] = useState(false);
   const [conversationMenuOpen, setConversationMenuOpen] = useState(false);
   const [mediaPanelTab, setMediaPanelTab] = useState('media');
@@ -406,7 +423,6 @@ const EmployeeChat = ({ adminSection = null }) => {
   ));
 
   useEffect(() => {
-    setVisibleDialogMessageCount(CHAT_MESSAGES_PAGE_SIZE);
     chatPrependAnchorRef.current = null;
   }, [currentConversationId, dialogFilter, dialogSearch]);
 
@@ -605,6 +621,7 @@ const EmployeeChat = ({ adminSection = null }) => {
         });
       }
     } catch (error) {
+      setChatLoadError(error.message || 'Не удалось обновить диалоги');
       console.error('Ошибка загрузки переписки:', error);
     }
   }, [chatAuthHeaders, user.username]);
@@ -646,6 +663,7 @@ const EmployeeChat = ({ adminSection = null }) => {
       return messages;
     } catch (error) {
       if (error?.name === 'AbortError') return null;
+      setChatLoadError(error.message || 'Не удалось обновить переписку');
       console.error('Ошибка загрузки выбранного диалога:', error);
       setThreads((prev) => (
         Object.prototype.hasOwnProperty.call(prev, conversationId)
@@ -1140,9 +1158,14 @@ const EmployeeChat = ({ adminSection = null }) => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, isManager, receivedArchiveAccessId]);
 
+  const dialogSearchKey = `${currentConversationId}:${dialogSearch.trim()}`;
+  if (searchScopeRef.current?.key !== dialogSearchKey) searchScopeRef.current = { key: dialogSearchKey };
+  if (feedSearchScopeRef.current?.key !== feedSearch.trim()) feedSearchScopeRef.current = { key: feedSearch.trim() };
+
   const fetchDialogSearchPage = useCallback(async ({ append = false, before = '', signal } = {}) => {
     const query = dialogSearch.trim();
     if (!currentConversationId || query.length < 2) return;
+    const scope = searchScopeRef.current;
     setDialogSearchLoading(true);
     try {
       const params = new URLSearchParams({ q: query, limit: String(CHAT_MESSAGES_PAGE_SIZE) });
@@ -1152,6 +1175,7 @@ const EmployeeChat = ({ adminSection = null }) => {
         { headers: chatAuthHeaders, signal }
       );
       const data = await readApiJson(response, 'Не удалось выполнить поиск по переписке');
+      if (signal?.aborted || searchScopeRef.current !== scope) return;
       const messages = Array.isArray(data?.messages) ? data.messages : [];
       setServerDialogSearchResults((current) => {
         const combined = append ? [...current, ...messages] : messages;
@@ -1163,7 +1187,7 @@ const EmployeeChat = ({ adminSection = null }) => {
     } catch (error) {
       if (error?.name !== 'AbortError') notifyRef.current(error.message || 'Не удалось выполнить поиск', 'Чат');
     } finally {
-      if (!signal?.aborted) setDialogSearchLoading(false);
+      if (!signal?.aborted && searchScopeRef.current === scope) setDialogSearchLoading(false);
     }
   }, [chatAuthHeaders, currentConversationId, dialogSearch]);
 
@@ -1209,7 +1233,6 @@ const EmployeeChat = ({ adminSection = null }) => {
         return { ...prev, [currentConversationId]: merged };
       });
       setThreadHasMore((prev) => ({ ...prev, [currentConversationId]: Boolean(data?.hasMore) && olderMessages.length >= CHAT_MESSAGES_PAGE_SIZE }));
-      setVisibleDialogMessageCount((prev) => prev + CHAT_MESSAGES_PAGE_SIZE);
     } catch (error) {
       chatPrependAnchorRef.current = null;
       notify(error.message || 'Не удалось загрузить предыдущие сообщения', 'Чат');
@@ -1237,17 +1260,42 @@ const EmployeeChat = ({ adminSection = null }) => {
         || mutationVersionAtStart !== feedMutationVersionRef.current
         || pendingFeedActionsRef.current.size > 0
       ) return;
+      const knownIds = feedPostsRef.current.filter(post => !['sending', 'waiting', 'error'].includes(post.deliveryStatus)).map(post => post.id);
+      const reconciled = [];
+      const removed = new Set();
+      for (let offset = 0; offset < knownIds.length; offset += 200) {
+        const response = await authFetch(`${API_BASE_URL}/chat/feed/sync`, { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: knownIds.slice(offset, offset + 200) }) });
+        const known = await readApiJson(response, 'Не удалось сверить ленту');
+        reconciled.push(...(known.posts || []));
+        (known.removedIds || []).forEach(id => removed.add(id));
+      }
+      if (requestSequence !== feedFetchSequenceRef.current || mutationVersionAtStart !== feedMutationVersionRef.current || pendingFeedActionsRef.current.size) return;
+      const wrap = feedListRef.current;
+      if (wrap && wrap.scrollTop > 80) {
+        const top = wrap.getBoundingClientRect().top;
+        const anchor = [...wrap.querySelectorAll('[data-feed-post-id]')].find(node => node.getBoundingClientRect().bottom > top);
+        if (anchor) feedScrollAnchorRef.current = { id: anchor.dataset.feedPostId, top: anchor.getBoundingClientRect().top - top };
+      }
       const nextPosts = getVisibleFeedPosts(data?.posts);
-      setFeedPosts((current) => (getFeedPostsSignature(current) === getFeedPostsSignature(nextPosts) ? current : nextPosts));
+      setFeedPosts((current) => {
+        const byId = new Map(current.filter(post => !removed.has(post.id)).map(post => [post.id, post]));
+        reconciled.forEach(post => byId.set(post.id, { ...byId.get(post.id), ...post }));
+        nextPosts.forEach(post => byId.set(post.id, { ...byId.get(post.id), ...post, comments: [...new Map([...(byId.get(post.id)?.comments || []), ...(post.comments || [])].map(comment => [comment.id, comment])).values()] }));
+        return sortFeedPosts([...byId.values()]);
+      });
       prefetchMediaTokens(collectFeedFileIds(nextPosts), 'feed');
-      setFeedHasMore(Boolean(data?.hasMore));
-      setFeedBefore(data?.cursor || '');
-      setVisibleFeedPostCount(FEED_POSTS_PAGE_SIZE);
+      if (!feedPagingInitializedRef.current) {
+        feedPagingInitializedRef.current = true;
+        setFeedHasMore(Boolean(data?.hasMore));
+        setFeedBefore(data?.cursor || '');
+        setVisibleFeedPostCount(FEED_POSTS_PAGE_SIZE);
+      }
       setFeedError('');
     } catch (error) {
       if (error?.name === 'AbortError') return;
       const message = isNetworkFailure(error) ? getFriendlyNetworkMessage('Лента временно недоступна') : (error.message || 'Не удалось загрузить ленту');
       console.error('Ошибка загрузки ленты:', error);
+      setFeedError(message);
       if (!silent && feedPostsRef.current.length === 0) {
         setFeedError(message);
         notify(message, 'Лента');
@@ -1260,6 +1308,15 @@ const EmployeeChat = ({ adminSection = null }) => {
       }
     }
   }, [notify]);
+
+  useLayoutEffect(() => {
+    const anchor = feedScrollAnchorRef.current;
+    const wrap = feedListRef.current;
+    if (!anchor || !wrap) return;
+    const node = [...wrap.querySelectorAll('[data-feed-post-id]')].find(item => item.dataset.feedPostId === anchor.id);
+    if (node) wrap.scrollTop += node.getBoundingClientRect().top - wrap.getBoundingClientRect().top - anchor.top;
+    feedScrollAnchorRef.current = null;
+  }, [feedPosts]);
 
   const loadMoreFeedPosts = useCallback(async () => {
     if (feedLoadingMore || !feedHasMore || !feedBefore || pendingFeedActionsRef.current.size > 0) return;
@@ -1287,13 +1344,14 @@ const EmployeeChat = ({ adminSection = null }) => {
   const fetchFeedSearchPage = useCallback(async ({ append = false, cursor = '', signal } = {}) => {
     const query = feedSearch.trim();
     if (query.length < 2) return;
+    const scope = feedSearchScopeRef.current;
     setFeedSearchLoading(true);
     try {
       const params = new URLSearchParams({ q: query, limit: String(FEED_POSTS_PAGE_SIZE), commentsLimit: '3' });
       if (cursor) params.set('cursor', cursor);
       const response = await authFetch(`${API_BASE_URL}/chat/feed/search?${params.toString()}`, { signal });
       const data = await readApiJson(response, 'Не удалось выполнить поиск по ленте');
-      if (signal?.aborted) return;
+      if (signal?.aborted || feedSearchScopeRef.current !== scope) return;
       const posts = getVisibleFeedPosts(data?.posts);
       setFeedSearchResults((current) => {
         const combined = append ? [...current, ...posts] : posts;
@@ -1310,7 +1368,7 @@ const EmployeeChat = ({ adminSection = null }) => {
     } catch (error) {
       if (error?.name !== 'AbortError') notify(error.message || 'Не удалось выполнить поиск по ленте', 'Лента');
     } finally {
-      if (!signal?.aborted) setFeedSearchLoading(false);
+      if (!signal?.aborted && feedSearchScopeRef.current === scope) setFeedSearchLoading(false);
     }
   }, [feedSearch, notify]);
 
@@ -1379,11 +1437,11 @@ const EmployeeChat = ({ adminSection = null }) => {
     } finally { window.clearTimeout(timeout); }
   }, [chatAuthHeaders]);
 
-  const persistMessagePatch = useCallback(async (conversationId, messageId, message) => {
+  const persistMessagePatch = useCallback(async (conversationId, messageId, message, previous) => {
     const result = await fetchJsonWithRetry(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', ...chatAuthHeaders },
-      body: JSON.stringify({ message })
+      body: JSON.stringify({ patch: Object.fromEntries(['text', 'attachment', 'attachments', 'pinned', 'deletedAt'].filter(key => JSON.stringify(message[key] ?? null) !== JSON.stringify(previous[key] ?? null)).map(key => [key, message[key]])), expectedRevision: Number(previous.revision) || 0 })
     }, { attempts: 1, fallbackMessage: 'Не удалось сохранить изменение' });
     return result.item;
   }, [chatAuthHeaders]);
@@ -1455,7 +1513,22 @@ const EmployeeChat = ({ adminSection = null }) => {
   }, [currentConversationId, fetchConversationMessages, user.username]);
 
   const synchronizeConversation = useCallback(async (id) => {
-    const knownIds = (threadsRef.current[id] || []).filter(message => !['waiting', 'sending', 'error'].includes(message.deliveryStatus)).map(message => message.id);
+    const request = (synchronizeRequestsRef.current[id] || 0) + 1;
+    synchronizeRequestsRef.current[id] = request;
+    const knownMessages = (threadsRef.current[id] || []).filter(message => !['waiting', 'sending', 'error'].includes(message.deliveryStatus)).sort(compareMessages);
+    const knownIds = knownMessages.map(message => message.id);
+    const latest = knownMessages[knownMessages.length - 1];
+    let after = latest?._cursor || (latest ? btoa(JSON.stringify({ at: latest.createdAt, id: latest.id, sequence: latest.sequence || 0 })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_') : '');
+    while (after && synchronizeRequestsRef.current[id] === request) {
+      try {
+        const response = await authFetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(id)}/messages?after=${encodeURIComponent(after)}&limit=200`, { headers: chatAuthHeaders });
+        const data = await readApiJson(response, 'Не удалось восстановить историю');
+        if (synchronizeRequestsRef.current[id] !== request) return;
+        setThreads(current => ({ ...current, [id]: mergeMessages(current[id], data.messages || []) }));
+        if (!data.hasMore || !data.after || data.after === after) break;
+        after = data.after;
+      } catch (error) { setChatLoadError(error.message || 'Не удалось восстановить историю'); return; }
+    }
     for (let offset = 0; offset < knownIds.length; offset += 200) {
       const version = conversationMutationRef.current[id] || 0;
       try {
@@ -1476,7 +1549,8 @@ const EmployeeChat = ({ adminSection = null }) => {
     const lastEventStorageKey = `employeeChatLastEventId:${user.username.toLowerCase()}`;
     const query = new URLSearchParams();
     if (user.accessToken) query.set('access_token', user.accessToken);
-    const savedLastEventId = localStorage.getItem(lastEventStorageKey);
+    let savedLastEventId = '';
+    try { savedLastEventId = localStorage.getItem(lastEventStorageKey) || ''; } catch { setStorageError(true); }
     if (savedLastEventId) query.set('last_event_id', savedLastEventId);
     const stream = new EventSource(`${API_BASE_URL}/chat/threads/stream?${query.toString()}`);
     let summaryTimer;
@@ -1502,7 +1576,7 @@ const EmployeeChat = ({ adminSection = null }) => {
           if (seenStreamEventIdsRef.current.size > 1000) {
             seenStreamEventIdsRef.current = new Set([...seenStreamEventIdsRef.current].slice(-500));
           }
-          localStorage.setItem(lastEventStorageKey, eventId);
+          try { localStorage.setItem(lastEventStorageKey, eventId); } catch { setStorageError(true); }
         }
         return payload;
       } catch {
@@ -1704,7 +1778,7 @@ const EmployeeChat = ({ adminSection = null }) => {
       feedMutationVersionRef.current += 1;
       setFeedPosts((current) => sortFeedPosts(current.map((post) => (
         post.id === payload.postId
-          ? { ...post, pinned: Boolean(payload.pinned), updatedAt: payload.updatedAt || post.updatedAt }
+          ? { ...post, pinned: Boolean(payload.pinned), revision: payload.revision ?? post.revision, updatedAt: payload.updatedAt || post.updatedAt }
           : post
       ))));
     };
@@ -1938,7 +2012,8 @@ const EmployeeChat = ({ adminSection = null }) => {
   useChatDraftStorage(user?.username || 'guest', chatDrafts);
 
   useEffect(() => {
-    savePendingMessages(user?.username || 'guest', pendingMessages);
+    const saved = savePendingMessages(user?.username || 'guest', pendingMessages);
+    if (!saved && pendingMessages.length) setStorageError(true);
   }, [pendingMessages, user?.username]);
 
   useEffect(() => {
@@ -2334,24 +2409,22 @@ const EmployeeChat = ({ adminSection = null }) => {
 
   const jumpToMessageDate = async (dateValue) => {
     if (!dateValue || !currentConversationId) return;
-    let dateMessages = currentMessages.filter((message) => {
-      const messageDate = new Date(message.createdAt);
-      if (Number.isNaN(messageDate.getTime())) return false;
-      return messageDate.toISOString().slice(0, 10) === dateValue;
-    });
+    const conversation = currentConversationId;
+    const request = ++dateRequestRef.current;
+    let dateMessages = [];
+    let after = '';
     try {
-      if (!dateMessages.length) {
-        const response = await authFetch(
-          `${API_BASE_URL}/chat/threads/${encodeURIComponent(currentConversationId)}/date?date=${encodeURIComponent(dateValue)}&limit=${CHAT_MESSAGES_PAGE_SIZE}`,
-          { headers: chatAuthHeaders }
-        );
+      do {
+        const params = new URLSearchParams({ date: dateValue, limit: '200' });
+        if (after) params.set('after', after);
+        const response = await authFetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversation)}/date?${params}`, { headers: chatAuthHeaders });
         const data = await readApiJson(response, 'Не удалось перейти к выбранной дате');
-        dateMessages = Array.isArray(data?.messages) ? data.messages : [];
-        if (dateMessages.length) {
-          setDateSearchMessages(dateMessages);
-          setVisibleDialogMessageCount((count) => Math.max(count, currentMessages.length + dateMessages.length));
-        }
-      }
+        if (dateRequestRef.current !== request || getConversationId(user.username, selectedEmailRef.current) !== conversation) return;
+        dateMessages = mergeMessages(dateMessages, data.messages || []);
+        setDateSearchMessages(dateMessages);
+        if (!data.hasMore || !data.after || data.after === after) break;
+        after = data.after;
+      } while (true);
       const target = dateMessages[0];
       if (!target) {
         notify('В этот день сообщений нет', 'Календарь');
@@ -2656,6 +2729,7 @@ const EmployeeChat = ({ adminSection = null }) => {
       setThreads(current => ({ ...current, [currentConversationId]: (current[currentConversationId] || []).filter(item => item.id !== message.id) }));
       return;
     }
+    inlineEditRevisionRef.current = { id: message.id, revision: Number(message.revision) || 0 };
     setInlineEditMessageId(message.id);
     setInlineEditText(message.text || '');
     setSelectedMessageId('');
@@ -2789,9 +2863,14 @@ const EmployeeChat = ({ adminSection = null }) => {
     setThreads((prev) => ({ ...prev, [targetConversationId]: nextMessages }));
 
     try {
-      const saved = await persistMessagePatch(targetConversationId, messageId, nextMessages.find((item) => item.id === messageId));
+      const next = nextMessages.find(item => item.id === messageId);
+      const previous = previousMessages.find(item => item.id === messageId);
+      const expected = next.text !== previous.text && inlineEditRevisionRef.current?.id === messageId ? { ...previous, revision: inlineEditRevisionRef.current.revision } : previous;
+      const saved = await persistMessagePatch(targetConversationId, messageId, next, expected);
       if (saved) setThreads(current => ({ ...current, [targetConversationId]: mergeMessages(current[targetConversationId], [saved]) }));
     } catch (error) {
+      if (error.data?.item) setThreads(current => ({ ...current, [targetConversationId]: mergeMessages(current[targetConversationId], [error.data.item]) }));
+      else setThreads(current => ({ ...current, [targetConversationId]: (current[targetConversationId] || []).map(item => item.id === messageId ? previousMessages.find(previous => previous.id === messageId) : item) }));
       await fetchConversationMessages(targetConversationId, { silent: true });
       throw new Error(error.message || 'Не удалось сохранить изменение');
     }
@@ -2912,6 +2991,7 @@ const EmployeeChat = ({ adminSection = null }) => {
 
   const openForwardMessagePicker = (message) => {
     if (!message || message.deletedAt) return;
+    if (getMessageAttachments(message).length > 10 || String(message.text || '').length > 2000) { notify('Для одной пересылки выберите до 10 файлов и до 2000 символов текста.', 'Пересылка'); return; }
     setForwardSourceMessage(message);
     setSelectedMessageId('');
     setMessageReactionExpanded(false);
@@ -3244,8 +3324,9 @@ const EmployeeChat = ({ adminSection = null }) => {
     }
     if (!dialogSearchHasMore || dialogSearchLoading) return;
     const nextIndex = dialogSearchResults.length;
+    const scope = searchScopeRef.current;
     await fetchDialogSearchPage({ append: true, before: dialogSearchBefore });
-    setDialogSearchIndex(nextIndex);
+    if (searchScopeRef.current === scope) setDialogSearchIndex(nextIndex);
   };
 
   const highlightText = (text = '') => {
@@ -3283,9 +3364,8 @@ const EmployeeChat = ({ adminSection = null }) => {
   }), [dialogMediaItems, mediaPanelSearch, mediaPanelTab]);
 
   const paginatedVisibleMessages = useMemo(() => {
-    const startIndex = normalizedDialogSearch || dialogSearchContext || dateSearchMessages ? 0 : Math.max(0, visibleMessages.length - visibleDialogMessageCount);
-    return visibleMessages.slice(startIndex);
-  }, [visibleMessages, visibleDialogMessageCount, normalizedDialogSearch, dialogSearchContext, dateSearchMessages]);
+    return visibleMessages;
+  }, [visibleMessages]);
   const hiddenDialogMessagesCount = Math.max(0, visibleMessages.length - paginatedVisibleMessages.length);
 
   useLayoutEffect(() => {
@@ -3341,8 +3421,9 @@ const EmployeeChat = ({ adminSection = null }) => {
     }
     if (!feedSearchHasMore || feedSearchLoading) return;
     const nextIndex = feedSearchResults.length;
+    const scope = feedSearchScopeRef.current;
     await fetchFeedSearchPage({ append: true, cursor: feedSearchCursor });
-    setFeedSearchIndex(nextIndex);
+    if (feedSearchScopeRef.current === scope) setFeedSearchIndex(nextIndex);
   };
 
   const pinnedFeedPosts = useMemo(() => visibleFeedPosts.filter((post) => post.pinned), [visibleFeedPosts]);
@@ -3425,6 +3506,7 @@ const EmployeeChat = ({ adminSection = null }) => {
   const addFeedPost = async (event) => {
     event.preventDefault();
     if (isPublishingFeed || (!feedDraft.trim() && feedAttachments.length === 0)) return;
+    if (feedUploadBusyRef.current) { notify('Дождитесь загрузки файлов', 'Вложения'); return; }
     setIsPublishingFeed(true);
     if (feedAttachments.length > 1) {
       const confirmed = await confirmAction(`Опубликовать ${feedAttachments.length} файлов одной записью?`, 'Подтверждение публикации');
@@ -3436,8 +3518,11 @@ const EmployeeChat = ({ adminSection = null }) => {
 
     const previousDraft = feedDraft;
     const previousAttachments = feedAttachments;
+    const signature = JSON.stringify([previousDraft.trim(), previousAttachments.map(file => file.id), feedCategory]);
+    if (feedOperationRef.current?.signature !== signature) feedOperationRef.current = { signature, id: createMessageId() };
+    persistFeedOperations();
     const optimisticPost = {
-      id: createMessageId(),
+      id: feedOperationRef.current.id,
       author: user?.username || 'employee',
       authorName: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
       text: previousDraft.trim(),
@@ -3463,6 +3548,7 @@ const EmployeeChat = ({ adminSection = null }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          operationId: optimisticPost.id,
           text: optimisticPost.text,
           attachment: optimisticPost.attachment,
           attachments: optimisticPost.attachments,
@@ -3470,6 +3556,8 @@ const EmployeeChat = ({ adminSection = null }) => {
         })
       }, { attempts: 2, fallbackMessage: 'Не удалось опубликовать запись' });
 
+      feedOperationRef.current = null;
+      persistFeedOperations();
       const serverPost = data?.post ? { ...data.post, deliveryStatus: 'sent' } : null;
       setFeedPosts((current) => {
         const nextPosts = serverPost
@@ -3487,7 +3575,7 @@ const EmployeeChat = ({ adminSection = null }) => {
       });
     } catch (error) {
       setFeedPosts((current) => current.filter((post) => post.id !== optimisticPost.id));
-      setFeedDraft(previousDraft);
+      setFeedDraft(current => current || previousDraft);
       setFeedAttachments(previousAttachments);
       notify(
         isNetworkFailure(error) ? getFriendlyNetworkMessage('Не удалось опубликовать запись') : (error.message || 'Не удалось опубликовать запись'),
@@ -3511,12 +3599,20 @@ const EmployeeChat = ({ adminSection = null }) => {
       notify(`Файл ${tooLarge.name} слишком большой. Максимум ${maxAttachmentSizeMb} МБ.`, 'Вложения');
       return;
     }
+    if (feedUploadBusyRef.current) { notify('Предыдущие файлы ещё загружаются', 'Вложения'); return; }
+    if (feedAttachments.length + files.length > 10) { notify('В публикации можно прикрепить до 10 файлов', 'Вложения'); return; }
+    feedUploadBusyRef.current = true;
+    const failed = [];
     try {
-      const preparedFiles = await Promise.all(files.map((file) => uploadAttachmentFile(file, 'feed')));
-      setFeedAttachments((prev) => [...prev, ...preparedFiles]);
-    } catch {
-      notify('Не удалось прикрепить файл.', 'Вложения');
-    }
+      for (const file of files) {
+        try {
+          const uploaded = await uploadAttachmentFile(file, 'feed');
+          setFeedAttachments(prev => [...prev, uploaded]);
+        } catch { failed.push(file.name); }
+      }
+      if (failed.length) notify(`Не удалось загрузить: ${failed.join(', ')}. Остальные файлы прикреплены.`, 'Вложения');
+    } finally { feedUploadBusyRef.current = false; }
+
   };
 
   const removeFeedAttachment = (attachmentId) => {
@@ -3536,10 +3632,10 @@ const EmployeeChat = ({ adminSection = null }) => {
     const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch)
-    }, { attempts: 2, fallbackMessage: 'Не удалось обновить публикацию' });
+      body: JSON.stringify({ ...patch, expectedRevision: Object.prototype.hasOwnProperty.call(patch, 'text') && feedEditRevisionRef.current?.id === postId ? feedEditRevisionRef.current.revision : Number(feedPostsRef.current.find(post => post.id === postId)?.revision) || 0 })
+    }, { attempts: 1, fallbackMessage: 'Не удалось обновить публикацию' });
     updateFeedPostFromServer(postId, {
-      ...patch,
+      ...data?.post,
       updatedAt: data?.post?.updatedAt || new Date().toISOString()
     });
     return data.post;
@@ -3553,7 +3649,8 @@ const EmployeeChat = ({ adminSection = null }) => {
     if (hasPendingCommentChange || !beginFeedAction(actionKey, postId)) return;
     try {
       const currentPost = feedPostsRef.current.find((post) => post.id === postId);
-      const before = append ? currentPost?.comments?.[0]?.createdAt || '' : '';
+      const oldest = currentPost?.comments?.[0];
+      const before = append ? currentPost?.commentsBefore || (oldest ? btoa(JSON.stringify([0, new Date(Math.floor(new Date(oldest.createdAt).getTime() / 1000) * 1000).toISOString(), oldest.id])).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_') : '') : '';
       const beforeQuery = before ? `&before=${encodeURIComponent(before)}` : '';
       const response = await authFetch(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments?limit=${FEED_COMMENTS_PAGE_SIZE}${beforeQuery}`);
       const data = await response.json().catch(() => ({}));
@@ -3566,6 +3663,8 @@ const EmployeeChat = ({ adminSection = null }) => {
             comments: append
               ? [...new Map([...comments, ...(post.comments || [])].map((comment) => [comment.id, comment])).values()]
               : comments,
+            commentsBefore: data.before || '',
+            commentsHasMore: Boolean(data.hasMore),
             commentCount: Math.max(Number(post.commentCount) || 0, comments.length)
           }
           : post
@@ -3587,8 +3686,10 @@ const EmployeeChat = ({ adminSection = null }) => {
     const actionKey = `comment-add:${postId}`;
     if (!beginFeedAction(actionKey, postId)) return;
 
+    if (commentOperationsRef.current[postId]?.text !== text) commentOperationsRef.current[postId] = { text, id: createMessageId() };
+    persistFeedOperations();
     const optimisticComment = {
-      id: createMessageId(),
+      id: commentOperationsRef.current[postId].id,
       author: user?.username || 'employee',
       authorName: profileForm.full_name || user?.name || user?.username || 'Сотрудник',
       text,
@@ -3617,8 +3718,10 @@ const EmployeeChat = ({ adminSection = null }) => {
       const data = await fetchJsonWithRetry(`${API_BASE_URL}/chat/feed/posts/${encodeURIComponent(postId)}/comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
+        body: JSON.stringify({ text, operationId: optimisticComment.id })
       }, { attempts: 4, fallbackMessage: 'Не удалось добавить комментарий' });
+      delete commentOperationsRef.current[postId];
+      persistFeedOperations();
       const savedComment = data.comment || optimisticComment;
       setFeedPosts((current) => current.map((post) => (
         post.id !== postId ? post : (() => {
@@ -3647,7 +3750,7 @@ const EmployeeChat = ({ adminSection = null }) => {
           }
           : post
       )));
-      setCommentDrafts((prev) => ({ ...prev, [postId]: text }));
+      setCommentDrafts((prev) => ({ ...prev, [postId]: prev[postId] || text }));
       notify(
         isNetworkFailure(error) ? getFriendlyNetworkMessage('Не удалось добавить комментарий') : (error.message || 'Не удалось добавить комментарий'),
         'Лента'
@@ -3658,6 +3761,7 @@ const EmployeeChat = ({ adminSection = null }) => {
   };
 
   const startEditFeedPost = (post) => {
+    feedEditRevisionRef.current = { id: post.id, revision: Number(post.revision) || 0 };
     setEditingFeedPostId(post.id);
     setEditingFeedText(post.text || '');
     setOpenFeedMenuId('');
@@ -3913,7 +4017,7 @@ const EmployeeChat = ({ adminSection = null }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pinned })
       }, { attempts: 2, fallbackMessage: 'Не удалось закрепить публикацию' });
-      updateFeedPostFromServer(postId, data?.post ? { pinned: data.post.pinned, updatedAt: data.post.updatedAt } : { pinned });
+      updateFeedPostFromServer(postId, data?.post ? { pinned: data.post.pinned, updatedAt: data.post.updatedAt, revision: data.post.revision } : { pinned });
     } catch (error) {
       setFeedPosts((current) => current.map((item) => (item.id === postId ? { ...item, pinned: post.pinned } : item)));
       notify(
@@ -3937,6 +4041,21 @@ const EmployeeChat = ({ adminSection = null }) => {
   const handleToggleFavoriteContact = useCallback((email) => {
     toggleLocalListValue('favorites', email);
   }, [toggleLocalListValue]);
+
+  const loadQuotedMessage = async (messageId) => {
+    const conversation = currentConversationId;
+    try {
+      const response = await authFetch(`${API_BASE_URL}/chat/threads/${encodeURIComponent(conversation)}/context?messageId=${encodeURIComponent(messageId)}&limit=50`, { headers: chatAuthHeaders });
+      const data = await readApiJson(response, 'Не удалось открыть цитату');
+      if (getConversationId(user.username, selectedEmailRef.current) !== conversation) return;
+      if (!data.messages?.some(message => message.id === messageId)) { notify('Исходное сообщение удалено или недоступно', 'Чат'); return; }
+      setDialogFilter('all');
+      setDialogSearch('');
+      setDialogSearchContext(null);
+      setDateSearchMessages(data.messages);
+      window.setTimeout(() => messageListRef.current?.scrollToId(messageId), 50);
+    } catch (error) { notify(error.message || 'Не удалось открыть цитату', 'Чат'); }
+  };
 
   const messageItemProps = useStableMessageProps({ messageListRef, AttachmentCard, AuthenticatedAvatar, REACTION_EMOJIS, activeDialogSearchResult, chatLocalSettings, copyMessageText, createRequestFromMessage, currentConversationId, deleteMessage, employeeByLogin, extractLinks, formatFeedLogin, getEmployeeAvatar, getLinkPreview, getMessageAttachments, highlightText, inlineEditMessageId, inlineEditText, interfaceLocale, isEnglishInterface, isManager, isMessageRead, isVideoAttachment, messageReactionExpanded, multiSelectMode, openAttachmentInNewTab, openChatMediaViewer, openEmployeeProfile, openForwardMessagePicker, openSelectedMessageMenu, profileForm, retryMessageSend, saveInlineEditMessage, selectedMessageId, selectedMessageIds, selectedMessageMenuPlacement, selectedMessageMenuStyle, setInlineEditMessageId, setInlineEditText, setMessageReactionExpanded, setMultiSelectMode, setReplyTo, setSelectedMessageId, startInlineEditMessage, t, threadSummaries, togglePinned, toggleReaction, toggleSelectedMessage, user });
 
@@ -4026,6 +4145,8 @@ const EmployeeChat = ({ adminSection = null }) => {
 
       <section className="employee-chat-main">
         {!adminSection && <button type="button" className="mobile-chat-back" onClick={() => { setSelectedEmail(''); setActiveTab('chat'); }}>{isEnglishInterface ? '← Conversations' : '← Диалоги'}</button>}
+        {!adminSection && storageError && <div role="alert">Не удалось сохранить данные в браузере. Не закрывайте вкладку до отправки сообщений.</div>}
+        {!adminSection && chatLoadError && <div role="alert">{chatLoadError} <button type="button" onClick={() => { setChatLoadError(''); fetchThreads(); if (currentConversationId) synchronizeConversation(currentConversationId); }}>Повторить</button></div>}
         {!adminSection && <div className={`chat-connection-state ${connectionState}`} role="status"><span />{isEnglishInterface ? ({ connected: 'Connected', connecting: 'Connecting…', reconnecting: 'Reconnecting…', offline: 'Offline' })[connectionState] : ({ connected: 'На связи', connecting: 'Подключение…', reconnecting: 'Восстанавливаем связь…', offline: 'Нет соединения' })[connectionState]}</div>}
         {activeTab === 'chat' && (
           <div
@@ -4118,13 +4239,14 @@ const EmployeeChat = ({ adminSection = null }) => {
 	                {chatLocalSettings.showDialogDateJump === true && <div className="date-jump-row"><label>{t('jumpToDate')} <input type="date" onChange={(event) => jumpToMessageDate(event.target.value)} /></label></div>}
                 {chatLocalSettings.showDialogMediaPanel === true && mediaPanelOpen && <div className="dialog-media-panel"><div className="dialog-media-tabs">{CHAT_MEDIA_TABS.map((tab) => <button key={tab.id} type="button" className={mediaPanelTab === tab.id ? 'active' : ''} onClick={() => setMediaPanelTab(tab.id)}>{getOptionLabel(tab)}</button>)}</div><input type="search" placeholder={t('mediaSearch')} value={mediaPanelSearch} onChange={(e) => setMediaPanelSearch(e.target.value)} /><div className="dialog-media-grid">{filteredDialogMediaItems.length === 0 && <small>{t('noResults')}</small>}{filteredDialogMediaItems.map(({ message, file, fileIndex, type }, index) => <button key={`${message.id}-${file.name}-${index}`} type="button" onClick={() => type === 'link' ? window.open(file.dataUrl, '_blank', 'noopener,noreferrer') : isMediaAttachment(file) ? setMediaViewer({ message, file, fileIndex, scope: 'dialog' }) : openAttachmentInNewTab(file)}>{type === 'link' ? <span>🔗 {file.name}</span> : isMediaAttachment(file) ? (isVideoAttachment(file) ? <VideoPosterFrame file={file} alt={file.name || t('media')} isEnglish={isEnglishInterface} /> : <img src={getAttachmentUrl(file)} alt={file.name || t('media')} loading="lazy" decoding="async" />) : <span>{getFileIcon(file.type)} {file.name}</span>}<em>{new Date(message.createdAt).toLocaleDateString(interfaceLocale)}</em></button>)}</div></div>}
 
+                <div className="chat-history-scope">Фильтры, файлы и закрепления — в загруженной истории. Поиск по тексту — во всей переписке за год.</div>
                 {pinnedMessages.length > 0 && (
                   <div className="pinned-box">
                     <strong>📌 {t('pinnedMessages')} {pinnedMessageIndex + 1} {t('of')} {pinnedMessages.length}</strong><div className="pinned-controls"><button type="button" onClick={() => setPinnedMessageIndex((prev) => Math.max(0, prev - 1))}>‹</button><button type="button" onClick={() => setPinnedMessageIndex((prev) => Math.min(pinnedMessages.length - 1, prev + 1))}>›</button></div>{pinnedMessages[pinnedMessageIndex] && <button type="button" onClick={() => messageListRef.current?.scrollToId(pinnedMessages[pinnedMessageIndex].id)}>• {pinnedMessages[pinnedMessageIndex].text || (getMessageAttachments(pinnedMessages[pinnedMessageIndex]).some(isImageAttachment) ? `📷 ${t('photo')}` : `📎 ${t('document')}`)}</button>}
                   </div>
                 )}
 
-                {multiSelectMode && <div className="multi-select-toolbar"><strong>{t('selectedCount')}: {selectedMessageIds.length}</strong><button type="button" onClick={copySelectedMessages}>{t('copy')}</button><button type="button" onClick={() => { const selected = getSelectedMessages(); if (selected[0]) openForwardMessagePicker({ ...selected[0], text: selected.map((msg) => `${msg.sender}: ${msg.text || `[${t('attachmentPlaceholder')}]`}`).join('\n') }); }}>{t('forward')}</button><button type="button" onClick={() => { const selected = getSelectedMessages(); setRequestText(selected.map((msg) => `${msg.sender}: ${msg.text || `[${t('attachmentPlaceholder')}]`}`).join('\n')); setActiveTab('request'); }}>{t('createRequest')}</button><button type="button" className="danger-action" onClick={deleteSelectedMessages}>{t('delete')}</button><button type="button" onClick={clearSelectedMessages}>{t('cancel')}</button></div>}
+                {multiSelectMode && <div className="multi-select-toolbar"><strong>{t('selectedCount')}: {selectedMessageIds.length}</strong><button type="button" onClick={copySelectedMessages}>{t('copy')}</button><button type="button" onClick={() => { const selected = getSelectedMessages(); if (selected[0]) openForwardMessagePicker({ ...selected[0], attachments: selected.flatMap(getMessageAttachments), attachment: selected.flatMap(getMessageAttachments)[0] || null, text: selected.map((msg) => `${msg.sender}: ${msg.text || `[${t('attachmentPlaceholder')}]`}`).join('\n') }); }}>{t('forward')}</button><button type="button" onClick={() => { const selected = getSelectedMessages(); setRequestText(selected.map((msg) => `${msg.sender}: ${msg.text || `[${t('attachmentPlaceholder')}]`}`).join('\n')); setActiveTab('request'); }}>{t('createRequest')}</button><button type="button" className="danger-action" onClick={deleteSelectedMessages}>{t('delete')}</button><button type="button" onClick={clearSelectedMessages}>{t('cancel')}</button></div>}
                 <div
                   className="messages-wrap"
                   ref={messagesWrapRef}
@@ -4155,14 +4277,10 @@ const EmployeeChat = ({ adminSection = null }) => {
                       scrollHeight: wrap.scrollHeight,
                       scrollTop: wrap.scrollTop
                     };
-                    if (hiddenDialogMessagesCount > 0) {
-                      setVisibleDialogMessageCount((current) => current + CHAT_MESSAGES_PAGE_SIZE);
-                    } else {
-                      loadOlderDialogMessages();
-                    }
+                    loadOlderDialogMessages();
                   }}
                 >
-                  {(dialogSearchContext || dateSearchMessages) && <button type="button" className="chat-pagination-button" onClick={() => { setDialogSearchContext(null); setDateSearchMessages(null); if (dialogSearchContext) setDialogSearch(''); }}>{isEnglishInterface ? 'Back to conversation' : 'Вернуться в переписку'}</button>}
+                  {(dialogSearchContext || dateSearchMessages) && <button type="button" className="chat-pagination-button" onClick={() => { dateRequestRef.current += 1; setDialogSearchContext(null); setDateSearchMessages(null); if (dialogSearchContext) setDialogSearch(''); }}>{isEnglishInterface ? 'Back to conversation' : 'Вернуться в переписку'}</button>}
                   {normalizedDialogSearch.length >= 2 && dialogSearchLoading && (
                     <div className="chat-search-status">{t('searchingMessages')}</div>
                   )}
@@ -4170,7 +4288,7 @@ const EmployeeChat = ({ adminSection = null }) => {
                     <div className="chat-search-status">{t('loading')}…</div>
                   )}
                   {!isCurrentConversationLoading && messagesWithDateSeparators.length === 0 && <div className="empty-chat">{dialogSearch ? t('noMessageSearchResults') : t('noMessages')}</div>}
-                  {<VirtualMessageList key={currentConversationId} items={messagesWithDateSeparators} viewportRef={messagesWrapRef} listRef={messageListRef} renderItem={item => <ChatMessageItem item={item} {...messageItemProps} />} />}
+                  {<VirtualMessageList key={currentConversationId} items={messagesWithDateSeparators} onMissingMessage={loadQuotedMessage} viewportRef={messagesWrapRef} listRef={messageListRef} renderItem={item => <ChatMessageItem item={item} {...messageItemProps} />} />}
                 </div>
 
                 <div className="composer-wrap" onDrop={handleAttachmentDrop} onDragOver={handleDragOver} onDragEnter={handleDragOver}>

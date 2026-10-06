@@ -13,10 +13,10 @@ const ChatMessageItem = memo(function ChatMessageItem({ item, messageListRef, At
                     const isDeleted = Boolean(message.deletedAt);
                     const attachments = !isDeleted && message.attachments?.length ? message.attachments : !isDeleted && message.attachment ? [message.attachment] : [];
                     const hasTextContent = !isDeleted && String(message.text || '').trim() && message.text !== '📎 Вложения';
-                    const photoMetaLabel = new Date(message.createdAt).toLocaleTimeString(interfaceLocale, { hour: '2-digit', minute: '2-digit' });
+                    const photoMetaLabel = new Date(message.createdAt).toLocaleTimeString(interfaceLocale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Novosibirsk' });
                     const statusLabel = isMine ? (isMessageRead(message, threadSummaries[currentConversationId]?.peerRead) ? '✓✓' : '✓') : '';
                     const photoStatusLabel = isMine ? (message.deliveryStatus === 'error' ? '!' : message.deliveryStatus === 'waiting' ? '◷' : statusLabel) : '';
-                    const messageTimeLabel = new Date(message.createdAt).toLocaleTimeString(interfaceLocale, { hour: '2-digit', minute: '2-digit' });
+                    const messageTimeLabel = new Date(message.createdAt).toLocaleTimeString(interfaceLocale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Novosibirsk' });
                     const deliveryLabel = message.deliveryStatus === 'sending' ? t('deliverySending') : message.deliveryStatus === 'waiting' ? t('deliveryWaiting') : message.deliveryStatus === 'error' ? t('deliveryError') : statusLabel;
                     const isPhotoCollage = attachments.length > 1 && attachments.every((file) => String(file?.type || '').startsWith('image/'));
                     const isMediaOnly = attachments.length > 0

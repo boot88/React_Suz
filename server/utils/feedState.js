@@ -124,15 +124,16 @@ const buildFeedPostsPageQuery = ({ limit = 50, cursor = '', before = '' } = {}) 
 };
 
 const buildFeedCommentsPageQuery = (postId, { limit = 50, before = '' } = {}) => {
-  const safeLimit = toSafeSqlLimit(limit);
+  const safeLimit = toSafeSqlLimit(limit, 50, 100);
   const params = [postId];
   let where = 'post_id = ? AND deleted_at IS NULL';
   if (before) {
-    where += ' AND created_at < ?';
-    params.push(new Date(before));
+    const cursor = decodeFeedCursor(before);
+    where += ' AND (created_at < ? OR (created_at = ? AND id < ?))';
+    params.push(cursor.createdAt, cursor.createdAt, cursor.id);
   }
   return {
-    sql: `SELECT comment_json FROM feed_comments WHERE ${where} ORDER BY created_at DESC LIMIT ${safeLimit}`,
+    sql: `SELECT comment_json FROM feed_comments WHERE ${where} ORDER BY created_at DESC, id DESC LIMIT ${safeLimit}`,
     params
   };
 };
@@ -144,13 +145,13 @@ const buildFeedCommentPreviewsQuery = (postIds = [], limit = 3) => {
   return {
     sql: `SELECT post_id, comment_json
       FROM (
-        SELECT post_id, comment_json, created_at,
-          ROW_NUMBER() OVER (PARTITION BY post_id ORDER BY created_at DESC) AS row_number
+        SELECT post_id, comment_json, created_at, id,
+          ROW_NUMBER() OVER (PARTITION BY post_id ORDER BY created_at DESC, id DESC) AS row_number
         FROM feed_comments
         WHERE deleted_at IS NULL AND post_id IN (${placeholders})
       ) AS ranked_comments
       WHERE row_number <= ${safeLimit}
-      ORDER BY post_id, created_at ASC`,
+      ORDER BY post_id, created_at ASC, id ASC`,
     params: safeIds
   };
 };

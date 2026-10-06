@@ -165,3 +165,11 @@ test('a failed write does not poison later feed mutations', async () => {
 
   assert.equal(stored[0].text, 'recovered');
 });
+
+test('comment cursor includes ID so same-second boundary records are not skipped', () => {
+  const before = encodeFeedCursor({ id: 'comment-20', createdAt: '2026-10-06T00:00:00.987Z' });
+  const page = buildFeedCommentsPageQuery('post-1', { before, limit: 21 });
+  assert.match(page.sql, /created_at = \? AND id < \?/);
+  assert.match(page.sql, /ORDER BY created_at DESC, id DESC/);
+  assert.deepEqual(page.params, ['post-1', new Date('2026-10-06T00:00:00Z'), new Date('2026-10-06T00:00:00Z'), 'comment-20']);
+});

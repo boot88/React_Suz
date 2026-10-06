@@ -50,8 +50,12 @@ const exclusive = async (operation, mode = 'restore') => {
       if (Date.now() > deadline) throw fail('Дождитесь завершения текущих загрузок и повторите операцию', 409);
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
+    for (const listener of maintenanceEvents.listeners('before-operation')) await listener({ mode });
     return await operation();
-  } finally { paused = false; maintenanceStarted = null; maintenanceEvents.emit('change', maintenanceStatus()); }
+  } finally {
+    try { for (const listener of maintenanceEvents.listeners('after-operation')) await listener({ mode }); }
+    finally { paused = false; maintenanceStarted = null; maintenanceEvents.emit('change', maintenanceStatus()); }
+  }
 };
 
 const inventory = async (connection = db) => {

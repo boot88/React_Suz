@@ -85,7 +85,7 @@ const getMessageAttachmentFileIds = (message = {}) => [...new Set(
 )];
 
 const encodeMessageCursor = (message = {}) => message._cursor || Buffer.from(JSON.stringify({
-  at: message.createdAt, id: message.id
+  at: message.createdAt, id: message.id, sequence: message.sequence || 0
 })).toString('base64url');
 
 const decodeMessageCursor = (value) => {
@@ -94,23 +94,25 @@ const decodeMessageCursor = (value) => {
   try { cursor = JSON.parse(Buffer.from(String(value), 'base64url').toString()); } catch { cursor = { at: value, id: '' }; }
   const at = new Date(cursor.at);
   if (!Number.isFinite(at.getTime()) || typeof cursor.id !== 'string') {
-    throw Object.assign(new Error('Некорректный курсор сообщений'), { status: 400 });
+    throw Object.assign(new Error('Некорректный курсор сообщений'), { status: 400, code: 'INVALID_MESSAGE_CURSOR' });
   }
-  return { at, id: cursor.id };
+  return { at, id: cursor.id, sequence: Number(cursor.sequence) || 0 };
 };
 
-const buildConversationMessagesPageQuery = (conversationId, { limit = 50, before = '', withinLastYear = false } = {}) => {
+const buildConversationMessagesPageQuery = (conversationId, { limit = 50, before = '', after = '', withinLastYear = false } = {}) => {
   const safeLimit = Math.min(200, Math.max(1, Math.floor(Number(limit) || 50)));
   const params = [conversationId];
   let where = 'conversation_id = ?';
   if (withinLastYear) where += ' AND created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)';
-  const cursor = decodeMessageCursor(before);
+  const cursor = decodeMessageCursor(after || before);
   if (cursor) {
-    where += ' AND (created_at < ? OR (created_at = ? AND id < ?))';
-    params.push(cursor.at, cursor.at, cursor.id);
+    const op = after ? '>' : '<';
+    const tie = cursor.sequence ? 'sequence' : 'id';
+    where += ` AND (created_at ${op} ? OR (created_at = ? AND ${tie} ${op} ?))`;
+    params.push(cursor.at, cursor.at, cursor.sequence || cursor.id);
   }
-  return { sql: `SELECT message_json, created_at, id FROM chat_messages WHERE ${where}
-    ORDER BY created_at DESC, id DESC LIMIT ${safeLimit}`, params, safeLimit };
+  return { sql: `SELECT message_json, created_at, id, sequence FROM chat_messages WHERE ${where}
+    ORDER BY created_at ${after ? 'ASC' : 'DESC'}, sequence ${after ? 'ASC' : 'DESC'} LIMIT ${safeLimit}`, params, safeLimit };
 };
 
 const mergeThreadMessages = (archiveMessages = [], sqlMessages = []) => {

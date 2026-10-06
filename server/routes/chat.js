@@ -8,6 +8,7 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 const db = require('../config/database');
 const uploadSettings = require('../utils/uploadSettingsStore');
+const { createFeedBackupJournal } = require('../utils/feedBackupJournal');
 const { createBroadcastStore } = require('../utils/chatBroadcasts');
 const { getUploadMime, getDownloadHeaders } = require('../utils/chatFileTypes');
 const {
@@ -116,8 +117,8 @@ const ensureChatSqlSchema = async () => {
       conversation_id VARCHAR(255) NOT NULL,
       sender_login VARCHAR(255) NULL,
       message_json LONGTEXT NOT NULL,
-      created_at DATETIME NOT NULL,
-      updated_at DATETIME NOT NULL,
+      created_at DATETIME(3) NOT NULL,
+      updated_at DATETIME(3) NOT NULL,
       deleted_at DATETIME NULL,
       participant_a VARCHAR(255) GENERATED ALWAYS AS (SUBSTRING_INDEX(conversation_id, '::', 1)) STORED,
       participant_b VARCHAR(255) GENERATED ALWAYS AS (SUBSTRING_INDEX(conversation_id, '::', -1)) STORED,
@@ -126,6 +127,12 @@ const ensureChatSqlSchema = async () => {
       INDEX idx_chat_messages_participant_a_created (participant_a, created_at),
       INDEX idx_chat_messages_participant_b_created (participant_b, created_at)
     )`);
+    const [sequenceColumns] = await db.query("SHOW COLUMNS FROM chat_messages LIKE 'sequence'");
+    if (!sequenceColumns.length) {
+      await db.execute('ALTER TABLE chat_messages ADD COLUMN sequence BIGINT UNSIGNED NOT NULL AUTO_INCREMENT UNIQUE, MODIFY created_at DATETIME(3) NOT NULL, MODIFY updated_at DATETIME(3) NOT NULL');
+      await db.execute("UPDATE chat_messages SET message_json = JSON_SET(message_json, '$.sequence', sequence) WHERE JSON_VALID(message_json)");
+      await db.execute('CREATE INDEX idx_chat_messages_position ON chat_messages (conversation_id, created_at, sequence)');
+    }
     await db.execute(
       "ALTER TABLE chat_messages ADD COLUMN participant_a VARCHAR(255) GENERATED ALWAYS AS (SUBSTRING_INDEX(conversation_id, '::', 1)) STORED"
     ).catch(() => {});
@@ -162,6 +169,11 @@ const ensureChatSqlSchema = async () => {
     // The archive foundation is additive. If it cannot be created yet (for
     // example because the database user lacks DDL rights), the live chat must
     // remain available and the helper will retry on a later request.
+    const [readColumns] = await db.query("SHOW COLUMNS FROM chat_read_state LIKE 'last_read_sequence'");
+    if (!readColumns.length) {
+      await db.execute('ALTER TABLE chat_read_state ADD COLUMN last_read_sequence BIGINT UNSIGNED NOT NULL DEFAULT 0, MODIFY last_read_at DATETIME(3) NULL');
+      await db.execute('UPDATE chat_read_state r JOIN chat_messages m ON m.id = r.last_read_message_id SET r.last_read_sequence = m.sequence');
+    }
     await ensureRecordsArchiveSchema(db);
 
     chatSqlReady = true;
@@ -214,9 +226,10 @@ const writeSqlMessage = async (conversationId, message = {}, { insertOnly = fals
     params
   );
   }
+  await database.execute("UPDATE chat_messages SET message_json = JSON_SET(message_json, '$.sequence', sequence) WHERE id = ? AND conversation_id = ?", [message.id, conversationId]);
   const [savedOwner] = await database.execute('SELECT conversation_id, sender_login, message_json FROM chat_messages WHERE id = ?', [message.id]);
   if (savedOwner[0]?.conversation_id !== conversationId || !isSameLogin(savedOwner[0]?.sender_login, message.sender)) throw Object.assign(new Error('Идентификатор сообщения уже занят'), { status: 409 });
-  if (insertOnly) message = parseSqlMessage(savedOwner[0].message_json);
+  Object.assign(message, parseSqlMessage(savedOwner[0].message_json));
   const [participantA = '', participantB = ''] = String(conversationId || '')
     .toLowerCase()
     .split('::')
@@ -237,15 +250,15 @@ const writeSqlMessage = async (conversationId, message = {}, { insertOnly = fals
   return true;
 };
 
-const readSqlConversationMessages = async (conversationId, { limit = CHAT_SQL_PAGE_SIZE, before = '', withinLastYear = false } = {}) => {
+const readSqlConversationMessages = async (conversationId, { limit = CHAT_SQL_PAGE_SIZE, before = '', after = '', withinLastYear = false } = {}) => {
   if (!await ensureChatSqlSchema()) return null;
-  const { sql, params } = buildConversationMessagesPageQuery(conversationId, { limit, before, withinLastYear });
+  const { sql, params } = buildConversationMessagesPageQuery(conversationId, { limit, before, after, withinLastYear });
 
   // The limit is a server-clamped integer. Keeping it out of the prepared
   // statement avoids MySQL 8.4/mysql2 LIMIT marker incompatibilities.
   const [rows] = await db.query(sql, params);
 
-  return (rows || []).map((row) => { const message = parseSqlMessage(row.message_json); return message ? { ...message, _cursor: encodeMessageCursor({ id: row.id, createdAt: row.created_at }) } : null; }).filter(Boolean).reverse();
+  return (rows || []).map((row) => { const message = parseSqlMessage(row.message_json); return message ? { ...message, _cursor: encodeMessageCursor({ id: row.id, createdAt: row.created_at, sequence: row.sequence }) } : null; }).filter(Boolean).reverse();
 };
 
 const readSqlMessageRecordById = async (conversationId, messageId) => {
@@ -337,9 +350,9 @@ const searchSqlConversationMessages = async (
   const params = [conversationId, `%${normalizedQuery.toLowerCase()}%`];
   let cursorSql = '';
   const cursor = decodeMessageCursor(before);
-  if (cursor) { cursorSql = 'AND (created_at < ? OR (created_at = ? AND id < ?))'; params.push(cursor.at, cursor.at, cursor.id); }
+  if (cursor) { cursorSql = `AND (created_at < ? OR (created_at = ? AND ${cursor.sequence ? 'sequence' : 'id'} < ?))`; params.push(cursor.at, cursor.at, cursor.sequence || cursor.id); }
   const [rows] = await db.query(
-    `SELECT message_json, created_at, id
+    `SELECT message_json, created_at, id, sequence
      FROM chat_messages
      WHERE conversation_id = ?
        AND deleted_at IS NULL
@@ -350,12 +363,12 @@ const searchSqlConversationMessages = async (
          ELSE ''
        END) LIKE ?
        ${cursorSql}
-     ORDER BY created_at DESC, id DESC
+     ORDER BY created_at DESC, sequence DESC
      LIMIT ${safeLimit}`,
     params
   );
   return (rows || [])
-    .map((row) => ({ ...parseSqlMessage(row.message_json), _cursor: encodeMessageCursor({ id: row.id, createdAt: row.created_at }) }))
+    .map((row) => ({ ...parseSqlMessage(row.message_json), _cursor: encodeMessageCursor({ id: row.id, createdAt: row.created_at, sequence: row.sequence }) }))
     .filter(Boolean);
 };
 
@@ -384,7 +397,7 @@ const readSqlConversationContext = async (conversationId, messageId, limit = CHA
   const olderLimit = Math.ceil(safeLimit / 2);
   const newerLimit = Math.floor(safeLimit / 2);
   const [targetRows] = await db.execute(
-    `SELECT id, created_at
+    `SELECT id, created_at, sequence
      FROM chat_messages
      WHERE conversation_id = ? AND id = ? AND deleted_at IS NULL
        AND created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
@@ -400,10 +413,10 @@ const readSqlConversationContext = async (conversationId, messageId, limit = CHA
      WHERE conversation_id = ?
        AND deleted_at IS NULL
        AND created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
-       AND (created_at < ? OR (created_at = ? AND id <= ?))
-     ORDER BY created_at DESC, id DESC
+       AND (created_at < ? OR (created_at = ? AND sequence <= ?))
+     ORDER BY created_at DESC, sequence DESC
      LIMIT ${olderLimit}`,
-    [conversationId, target.created_at, target.created_at, target.id]
+    [conversationId, target.created_at, target.created_at, target.sequence]
   );
   const [newerRows] = await db.query(
     `SELECT message_json
@@ -411,10 +424,10 @@ const readSqlConversationContext = async (conversationId, messageId, limit = CHA
      WHERE conversation_id = ?
        AND deleted_at IS NULL
        AND created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
-       AND (created_at > ? OR (created_at = ? AND id > ?))
-     ORDER BY created_at ASC, id ASC
+       AND (created_at > ? OR (created_at = ? AND sequence > ?))
+     ORDER BY created_at ASC, sequence ASC
      LIMIT ${newerLimit}`,
-    [conversationId, target.created_at, target.created_at, target.id]
+    [conversationId, target.created_at, target.created_at, target.sequence]
   );
 
   const messages = [...(olderRows || [])].reverse()
@@ -445,28 +458,29 @@ const writeSqlReadState = async (conversationId, login, messageId) => {
   if (!message) return null;
   // The cursor is the last displayed message, not wall-clock time. Messages
   // arriving during this request must remain unread, including timestamp ties.
-  const [positions] = await db.execute('SELECT created_at FROM chat_messages WHERE conversation_id = ? AND id = ?', [conversationId, messageId]);
+  const [positions] = await db.execute('SELECT created_at, sequence FROM chat_messages WHERE conversation_id = ? AND id = ?', [conversationId, messageId]);
   const readAt = new Date(positions[0].created_at);
   await db.execute(
     `INSERT INTO chat_read_state
-       (conversation_id, user_login, last_read_message_id, last_read_at)
-     VALUES (?, ?, ?, ?)
+       (conversation_id, user_login, last_read_message_id, last_read_at, last_read_sequence)
+     VALUES (?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        last_read_message_id = IF(
-         last_read_at IS NULL OR VALUES(last_read_at) > last_read_at OR (VALUES(last_read_at) = last_read_at AND VALUES(last_read_message_id) > COALESCE(last_read_message_id, '')),
+         last_read_at IS NULL OR VALUES(last_read_at) > last_read_at OR (VALUES(last_read_at) = last_read_at AND VALUES(last_read_sequence) > last_read_sequence),
          VALUES(last_read_message_id),
          last_read_message_id
        ),
+       last_read_sequence = IF(last_read_at IS NULL OR VALUES(last_read_at) > last_read_at, VALUES(last_read_sequence), IF(VALUES(last_read_at) = last_read_at, GREATEST(last_read_sequence, VALUES(last_read_sequence)), last_read_sequence)),
        last_read_at = GREATEST(COALESCE(last_read_at, '1970-01-01'), VALUES(last_read_at)),
        updated_at = CURRENT_TIMESTAMP`,
-    [conversationId, login, messageId, readAt]
+    [conversationId, login, messageId, readAt, positions[0].sequence]
   );
   const [stored] = await db.execute('SELECT last_read_message_id, last_read_at FROM chat_read_state WHERE conversation_id = ? AND user_login = ?', [conversationId, login]);
   await broadcastStore.recordRead(login, conversationId).catch((error) => console.warn('Broadcast read status unavailable:', error.message));
   return { conversationId, login, lastReadMessageId: stored[0].last_read_message_id, lastReadAt: new Date(stored[0].last_read_at).toISOString() };
 };
 
-const readSqlThreadSummaries = async (login) => {
+const querySqlThreadSummaries = async (login) => {
   if (!await ensureChatSqlSchema()) return null;
   const normalizedLogin = String(login || '').trim().toLowerCase();
   if (!normalizedLogin) return {};
@@ -485,7 +499,7 @@ const readSqlThreadSummaries = async (login) => {
          message_json,
          created_at,
          id,
-         ROW_NUMBER() OVER (PARTITION BY conversation_id ORDER BY created_at DESC, id DESC) AS message_rank,
+         ROW_NUMBER() OVER (PARTITION BY conversation_id ORDER BY created_at DESC, sequence DESC) AS message_rank,
          COUNT(*) OVER (PARTITION BY conversation_id) AS message_count,
          SUM(deleted_at IS NOT NULL) OVER (PARTITION BY conversation_id) AS deleted_count
        FROM chat_messages
@@ -516,13 +530,13 @@ const readSqlThreadSummaries = async (login) => {
     WHERE (m.participant_a = ? OR m.participant_b = ?) AND m.sender_login <> ? AND m.deleted_at IS NULL
       AND m.created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
       AND (m.created_at > COALESCE(anchor.created_at, r.last_read_at, '1970-01-01')
-        OR (m.created_at = anchor.created_at AND m.id > anchor.id)) GROUP BY m.conversation_id`,
+        OR (m.created_at = anchor.created_at AND m.sequence > anchor.sequence)) GROUP BY m.conversation_id`,
     [normalizedLogin, normalizedLogin, normalizedLogin, normalizedLogin]);
   const unread = new Map(unreadRows.map(row => [row.conversation_id, Number(row.unread_count)]));
-  const [peerRows] = await db.execute(`SELECT r.conversation_id, r.last_read_message_id, r.last_read_at, m.created_at
+  const [peerRows] = await db.execute(`SELECT r.conversation_id, r.last_read_message_id, r.last_read_at, m.created_at, m.sequence
     FROM chat_read_state r JOIN chat_messages m ON m.id = r.last_read_message_id AND m.conversation_id = r.conversation_id
     WHERE (m.participant_a = ? OR m.participant_b = ?) AND r.user_login <> ?`, [normalizedLogin, normalizedLogin, normalizedLogin]);
-  const peers = new Map(peerRows.map(row => [row.conversation_id, { messageId: row.last_read_message_id, createdAt: row.created_at, readAt: row.last_read_at }]));
+  const peers = new Map(peerRows.map(row => [row.conversation_id, { messageId: row.last_read_message_id, createdAt: row.created_at, sequence: row.sequence, readAt: row.last_read_at }]));
   return Object.fromEntries((rows || []).map((row) => {
     const lastMessage = parseSqlMessage(row.message_json);
     return [row.conversation_id, {
@@ -537,6 +551,17 @@ const readSqlThreadSummaries = async (login) => {
       attachmentsCount: Number(row.attachment_count) || 0
     }];
   }));
+};
+
+const threadSummaryCache = new Map();
+const readSqlThreadSummaries = async (login) => {
+  const key = String(login || '').toLowerCase();
+  const cached = threadSummaryCache.get(key);
+  if (cached && Date.now() - cached.at < 2000) return cached.promise;
+  const entry = { at: Date.now(), promise: querySqlThreadSummaries(login) };
+  threadSummaryCache.set(key, entry);
+  if (threadSummaryCache.size > 500) threadSummaryCache.delete(threadSummaryCache.keys().next().value);
+  try { return await entry.promise; } catch (error) { if (threadSummaryCache.get(key) === entry) threadSummaryCache.delete(key); throw error; }
 };
 
 const getActiveLegalHoldsForConversation = async (conversationId) => {
@@ -1131,9 +1156,10 @@ const prepareClientMessage = async (req, conversationId, input, existing = null)
     if (original && !original.deletedAt) replyTo = { id: original.id, sender: original.sender, text: original.text };
   }
   const now = new Date().toISOString();
-  const createdAt = existing?.createdAt || new Date(Math.floor(Date.now() / 1000) * 1000).toISOString();
+  const createdAt = existing?.createdAt || now;
   return { ...(existing || {}), id, sender: existing?.sender || req.auth.login, text,
-    createdAt, updatedAt: now,
+    createdAt, updatedAt: now, revision: Number(input.revision ?? existing?.revision) || 0,
+    forwardedFrom: existing?.forwardedFrom || (typeof input.forwardedFrom === 'string' ? input.forwardedFrom.slice(0, 255) : null),
     editedAt: existing ? now : null, reactions: existing?.reactions || {}, pinned: existing?.pinned || false,
     readAt: existing?.readAt || null, deliveryStatus: 'sent', replyTo,
     attachments, attachment: attachments[0] || null, audit: existing?.audit || [] };
@@ -1313,9 +1339,8 @@ const ensureFileDownloadAccess = async (req, fileId) => {
   const access = hasRole(req, 'admin')
     || isUploader
     || await hasActiveRecordsArchiveFileAccess(file.id, login)
-    || (file.scope === 'feed'
-      ? await findFeedFileReference(file)
-      : await hasIndexedChatFileAccess(file.id, login));
+    || await hasIndexedChatFileAccess(file.id, login)
+    || (file.scope === 'feed' && await findFeedFileReference(file));
   if (!access) {
     const error = new Error('Нет прав на скачивание файла');
     error.status = 403;
@@ -1466,12 +1491,20 @@ const readJsonWithRecovery = async (filePath, fallback, validate, label, { throw
   }
 };
 
-const readFeed = async () => readJsonWithRecovery(feedFilePath, [], Array.isArray, 'Chat feed', { throwOnUnrecoverable: true });
-
-const feedMutationQueue = createSerialMutationQueue({
-  read: readFeed,
-  write: (posts) => atomicWriteJson(feedFilePath, Array.isArray(posts) ? posts : [])
+const feedMutationQueue = createFeedBackupJournal({
+  journalPath: path.join(backupDir, 'feed-journal', 'changes.jsonl'),
+  readSnapshot: () => readJsonWithRecovery(feedFilePath, [], Array.isArray, 'Chat feed', { throwOnUnrecoverable: true }),
+  writeSnapshot: (posts) => atomicWriteJson(feedFilePath, Array.isArray(posts) ? posts : []),
+  onError: (error) => console.warn('Feed checkpoint failed:', error.message)
 });
+const readFeed = () => feedMutationQueue.read();
+const { maintenanceEvents: chatMaintenanceEvents } = require('./adminBackups');
+chatMaintenanceEvents.on('before-operation', () => feedMutationQueue.pause());
+chatMaintenanceEvents.on('after-operation', ({ mode }) => {
+  threadSummaryCache.clear();
+  return feedMutationQueue.resume({ reset: mode === 'restore' });
+});
+
 
 const writeFeed = async (posts, { allowEmpty = false } = {}) => {
   const safePosts = Array.isArray(posts) ? posts : [];
@@ -1791,24 +1824,36 @@ const compactFeedPostForSql = (post = {}) => {
   return rest;
 };
 
-const writeSqlFeedPost = async (post = {}) => {
+const writeSqlFeedPost = async (post = {}, { expectedRevision, insertOnly = false } = {}) => {
   if (!await ensureFeedSqlSchema()) return false;
   const createdAt = normalizeFeedDate(post);
   const updatedAt = new Date(post.updatedAt || post.createdAt || Date.now());
   const deletedAt = post.deletedAt ? new Date(post.deletedAt) : null;
+  if (expectedRevision !== undefined) post.revision = expectedRevision + 1;
   const values = [post.id, post.author || null, JSON.stringify(compactFeedPostForSql(post)), Boolean(post.pinned), createdAt, updatedAt, deletedAt];
+  if (expectedRevision !== undefined) {
+    const [result] = await db.execute(`UPDATE feed_posts SET post_json = ?, pinned = ?, updated_at = ?, deleted_at = ?
+      WHERE id = ? AND deleted_at IS NULL AND COALESCE(JSON_EXTRACT(post_json, '$.revision'), 0) = ?`,
+      [values[2], values[3] ? 1 : 0, values[5], values[6], post.id, expectedRevision]);
+    if (!result.affectedRows) throw Object.assign(new Error('Публикация изменена или удалена. Обновите ленту и повторите действие.'), { status: 409 });
+  } else {
   await db.execute(
     `INSERT INTO feed_posts (id, author_login, post_json, pinned, created_at, updated_at, deleted_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
+     ON DUPLICATE KEY UPDATE ${insertOnly ? 'id = id' : `
        author_login = VALUES(author_login),
        post_json = VALUES(post_json),
        pinned = VALUES(pinned),
        created_at = VALUES(created_at),
        updated_at = VALUES(updated_at),
-       deleted_at = VALUES(deleted_at)`,
+       deleted_at = VALUES(deleted_at)`}`,
     [values[0], values[1], values[2], values[3] ? 1 : 0, values[4], values[5], values[6]]
   );
+  }
+  if (insertOnly) {
+    const [saved] = await db.execute('SELECT post_json FROM feed_posts WHERE id = ?', [post.id]);
+    Object.assign(post, parseSqlJson(saved[0]?.post_json));
+  }
   const fileIds = [...new Set(getFeedAttachmentsFromPost(post).map(getAttachmentFileId).filter(Boolean))];
   // Preserve historical links when a post or attachment is hidden. The live
   // post JSON controls visibility; this table controls retention and restore.
@@ -1819,7 +1864,7 @@ const writeSqlFeedPost = async (post = {}) => {
   return true;
 };
 
-const writeSqlFeedComment = async (postId, comment = {}) => {
+const writeSqlFeedComment = async (postId, comment = {}, { insertOnly = false } = {}) => {
   if (!await ensureFeedSqlSchema()) return false;
   const createdAt = normalizeFeedDate(comment);
   const updatedAt = new Date(comment.updatedAt || comment.createdAt || Date.now());
@@ -1828,13 +1873,13 @@ const writeSqlFeedComment = async (postId, comment = {}) => {
   await db.execute(
     `INSERT INTO feed_comments (id, post_id, author_login, comment_json, created_at, updated_at, deleted_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
+     ON DUPLICATE KEY UPDATE ${insertOnly ? 'id = id' : `
        post_id = VALUES(post_id),
        author_login = VALUES(author_login),
        comment_json = VALUES(comment_json),
        created_at = VALUES(created_at),
        updated_at = VALUES(updated_at),
-       deleted_at = VALUES(deleted_at)`,
+       deleted_at = VALUES(deleted_at)`}`,
     values
   );
   return true;
@@ -2011,10 +2056,10 @@ const countSqlFeedSearchResults = async (query = '') => {
   return Number(rows?.[0]?.total || 0);
 };
 
-const readSqlFeedPost = async (postId) => {
+const readSqlFeedPost = async (postId, { includeDeleted = false } = {}) => {
   if (!await ensureFeedSqlSchema()) return null;
   const [rows] = await db.execute(
-    'SELECT post_json FROM feed_posts WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+    `SELECT post_json FROM feed_posts WHERE id = ? ${includeDeleted ? '' : 'AND deleted_at IS NULL'} LIMIT 1`,
     [postId]
   );
   return parseSqlJson(rows?.[0]?.post_json);
@@ -2131,7 +2176,9 @@ const publishStreamEvent = (eventName, payload, { recipients = null, excludeLogi
   return event.id;
 };
 
-const broadcastThreadEvent = (eventName, conversationId, payload = {}, options = {}) => (
+const broadcastThreadEvent = (eventName, conversationId, payload = {}, options = {}) => {
+  getParticipantsFromConversationId(conversationId).forEach(login => threadSummaryCache.delete(login));
+  return (
   publishStreamEvent(
     eventName,
     { conversationId, ...payload },
@@ -2140,7 +2187,8 @@ const broadcastThreadEvent = (eventName, conversationId, payload = {}, options =
       recipients: getParticipantsFromConversationId(conversationId)
     }
   )
-);
+  );
+};
 
 const broadcastFeedEvent = (eventName, payload = {}) => publishStreamEvent(eventName, payload);
 
@@ -2476,7 +2524,7 @@ router.post('/storage/recover', requireRole('admin'), async (req, res) => {
     }
     const restored = await restoreJsonBackup(filePath, validate);
     if (!restored) return res.status(404).json({ message: 'Резервная копия не найдена' });
-    if (target === 'threads') cachedThreads = cloneThreads(restored);
+    await writeFeed(restored, { allowEmpty: true });
     res.json({ message: 'Восстановлено из резервной копии', target, restored });
   } catch (error) {
     console.error('Chat storage recover error:', error);
@@ -2723,12 +2771,30 @@ const mergeActorReactionState = (currentReactions = {}, requestedReactions = {},
   return result;
 };
 
+const feedOperationId = (req, kind) => {
+  const key = String(req.body?.operationId || '');
+  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(key)) throw Object.assign(new Error('Нужен идентификатор операции'), { status: 400 });
+  return `${kind}_${crypto.createHash('sha256').update(`${getRequestLogin(req)}:${req.params.postId || ''}:${key}`).digest('hex')}`;
+};
+
+router.post('/feed/sync', async (req, res) => {
+  try {
+    const ids = [...new Set(Array.isArray(req.body?.ids) ? req.body.ids : [])];
+    if (ids.length > 200 || ids.some(id => typeof id !== 'string' || id.length > 128)) return res.status(400).json({ message: 'Некорректные идентификаторы публикаций' });
+    if (!await ensureFeedSqlSchema()) return res.sendStatus(503);
+    if (!ids.length) return res.json({ posts: [], removedIds: [] });
+    const [rows] = await db.query('SELECT id, post_json FROM feed_posts WHERE id IN (?) AND deleted_at IS NULL AND created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)', [ids]);
+    const found = new Set(rows.map(row => row.id));
+    res.json({ posts: rows.map(row => parseSqlJson(row.post_json)).filter(Boolean), removedIds: ids.filter(id => !found.has(id)) });
+  } catch { res.status(503).json({ message: 'Не удалось сверить ленту' }); }
+});
+
 router.post('/feed/posts', async (req, res) => {
   try {
     const now = new Date().toISOString();
     const actor = await getAuthenticatedActor(req);
     const post = {
-      id: createId('post'),
+      id: feedOperationId(req, 'post'),
       author: actor.login,
       authorName: actor.name,
       text: String(req.body?.text || '').trim(),
@@ -2748,15 +2814,18 @@ router.post('/feed/posts', async (req, res) => {
 
     post.attachments = await validateClientAttachments(req, post);
     post.attachment = post.attachments[0] || null;
-    if (!await writeSqlFeedPost(post)) {
+    if (!await writeSqlFeedPost(post, { insertOnly: true })) {
       return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
     }
+    const savedPost = await readSqlFeedPost(post.id, { includeDeleted: true });
+    if (savedPost?.deletedAt) return res.status(410).json({ message: 'Эта публикация уже была создана и удалена' });
+    if (savedPost) Object.assign(post, savedPost);
     backupFeedMutation((items) => [post, ...items.filter((item) => item.id !== post.id)]);
     broadcastFeedEvent('feed-post-created', { post });
     res.status(201).json({ message: 'Публикация создана', post });
   } catch (error) {
     console.error('Chat POST /feed/posts error:', error);
-    res.status(500).json({ message: 'Не удалось создать публикацию' });
+    res.status(error.status || 500).json({ message: 'Не удалось создать публикацию' });
   }
 });
 
@@ -2765,13 +2834,14 @@ router.delete('/feed/posts/:postId', async (req, res) => {
     const { postId } = req.params;
     const deletedBy = req.auth.login;
     const now = new Date().toISOString();
-    const currentPost = await readSqlFeedPost(postId);
+    const currentPost = await readSqlFeedPost(postId, { includeDeleted: true });
     if (!currentPost) return res.status(404).json({ message: 'Публикация не найдена' });
     if (!canManageFeedRecord(req.auth, currentPost)) {
       return res.status(403).json({ message: 'Нет прав на удаление этой публикации' });
     }
+    if (currentPost.deletedAt) return res.json({ postId, alreadyDeleted: true, deletedAt: currentPost.deletedAt, deletedBy: currentPost.deletedBy });
     const deletedPost = { ...currentPost, deletedAt: now, deletedBy, updatedAt: now };
-    if (!await writeSqlFeedPost(deletedPost)) {
+    if (!await writeSqlFeedPost(deletedPost, { expectedRevision: Number(currentPost.revision) || 0 })) {
       return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
     }
     backupFeedMutation((items) => items.map((post) => (post.id === postId ? deletedPost : post)));
@@ -2786,7 +2856,7 @@ router.delete('/feed/posts/:postId', async (req, res) => {
     });
   } catch (error) {
     console.error('Chat DELETE /feed/posts error:', error);
-    res.status(500).json({ message: 'Не удалось удалить публикацию' });
+    res.status(error.status || 500).json({ message: error.status ? error.message : 'Не удалось удалить публикацию' });
   }
 });
 
@@ -2800,6 +2870,7 @@ router.patch('/feed/posts/:postId', async (req, res) => {
     if (!canManageFeedRecord(req.auth, currentPost)) {
       return res.status(403).json({ message: 'Нет прав на изменение этой публикации' });
     }
+    if (currentPost.deletedAt || Number(req.body.expectedRevision) !== (Number(currentPost.revision) || 0)) return res.status(409).json({ message: 'Публикация изменена или удалена. Обновите ленту и повторите действие.' });
     const updatedPost = {
       ...currentPost,
       text: Object.prototype.hasOwnProperty.call(patch, 'text') ? String(patch.text || '').trim() : currentPost.text,
@@ -2819,7 +2890,7 @@ router.patch('/feed/posts/:postId', async (req, res) => {
     }
     updatedPost.attachments = await validateClientAttachments(req, updatedPost);
     updatedPost.attachment = updatedPost.attachments[0] || null;
-    if (!await writeSqlFeedPost(updatedPost)) {
+    if (!await writeSqlFeedPost(updatedPost, { expectedRevision: Number(currentPost.revision) || 0 })) {
       return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
     }
     backupFeedMutation((items) => items.map((post) => (post.id === postId ? updatedPost : post)));
@@ -2828,33 +2899,33 @@ router.patch('/feed/posts/:postId', async (req, res) => {
     res.json({ message: 'Публикация обновлена', post: publicPost });
   } catch (error) {
     console.error('Chat PATCH /feed/posts error:', error);
-    res.status(500).json({ message: 'Не удалось обновить публикацию' });
+    res.status(error.status || 500).json({ message: error.status ? error.message : 'Не удалось обновить публикацию' });
   }
 });
 
 router.get('/feed/posts/:postId/comments', async (req, res) => {
   try {
     const { postId } = req.params;
-    const limit = Math.min(100, Math.max(1, Math.floor(Number(req.query?.limit)) || 20));
+    const limit = Math.min(99, Math.max(1, Math.floor(Number(req.query?.limit)) || 20));
     const before = req.query?.before || '';
     const post = await readSqlFeedPost(postId);
     if (!post) return res.status(404).json({ message: 'Публикация не найдена' });
-    const comments = await readSqlFeedComments(postId, { limit, before });
+    const loadedComments = await readSqlFeedComments(postId, { limit: limit + 1, before });
+    const comments = Array.isArray(loadedComments) ? loadedComments.slice(-limit) : null;
     if (!Array.isArray(comments)) {
       return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
     }
-    const [counts] = await Promise.all([countSqlFeedComments([postId])]);
     res.set('Cache-Control', 'no-store');
     res.json({
       postId,
       comments,
-      before: comments[0]?.createdAt || '',
-      hasMore: Number(counts[postId]) > comments.length,
+      before: comments[0] ? encodeFeedCursor(comments[0]) : '',
+      hasMore: loadedComments.length > limit,
       storage: 'mysql'
     });
   } catch (error) {
     console.error('Chat GET /feed/comments error:', error);
-    res.status(500).json({ message: 'Не удалось загрузить комментарии' });
+    res.status(error.status || 500).json({ message: 'Не удалось загрузить комментарии' });
   }
 });
 
@@ -2864,7 +2935,7 @@ router.post('/feed/posts/:postId/comments', async (req, res) => {
     const now = new Date().toISOString();
     const actor = await getAuthenticatedActor(req);
     const comment = {
-      id: createId('comment'),
+      id: feedOperationId(req, 'comment'),
       author: actor.login,
       authorName: actor.name,
       text: String(req.body?.text || '').trim(),
@@ -2876,9 +2947,11 @@ router.post('/feed/posts/:postId/comments', async (req, res) => {
 
     const currentPost = await readSqlFeedPost(postId);
     if (!currentPost) return res.status(404).json({ message: 'Публикация не найдена' });
-    if (!await writeSqlFeedComment(postId, comment)) {
+    if (!await writeSqlFeedComment(postId, comment, { insertOnly: true })) {
       return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
     }
+    const savedComment = await readSqlFeedComment(postId, comment.id);
+    if (savedComment) Object.assign(comment, savedComment);
     const counts = await countSqlFeedComments([postId]);
     const updatedPost = {
       ...currentPost,
@@ -2904,7 +2977,7 @@ router.post('/feed/posts/:postId/comments', async (req, res) => {
     });
   } catch (error) {
     console.error('Chat POST /feed/posts/:postId/comments error:', error);
-    res.status(500).json({ message: 'Не удалось добавить комментарий' });
+    res.status(error.status || 500).json({ message: 'Не удалось добавить комментарий' });
   }
 });
 
@@ -2955,7 +3028,7 @@ router.delete('/feed/posts/:postId/comments/:commentId', async (req, res) => {
     });
   } catch (error) {
     console.error('Chat DELETE /feed/comments error:', error);
-    res.status(500).json({ message: 'Не удалось удалить комментарий' });
+    res.status(error.status || 500).json({ message: 'Не удалось удалить комментарий' });
   }
 });
 
@@ -2992,7 +3065,7 @@ router.post('/feed/posts/:postId/reactions', async (req, res) => {
     });
   } catch (error) {
     console.error('Chat POST /feed/reactions error:', error);
-    res.status(500).json({ message: 'Не удалось обновить реакцию' });
+    res.status(error.status || 500).json({ message: 'Не удалось обновить реакцию' });
   }
 });
 
@@ -3003,16 +3076,17 @@ router.post('/feed/posts/:postId/pin', requireRole('admin', 'manager'), async (r
     const now = new Date().toISOString();
     const currentPost = await readSqlFeedPost(postId);
     if (!currentPost) return res.status(404).json({ message: 'Публикация не найдена' });
+    if (currentPost.deletedAt) return res.status(409).json({ message: 'Публикация удалена' });
     const updatedPost = { ...currentPost, pinned, updatedAt: now };
-    if (!await writeSqlFeedPost(updatedPost)) {
+    if (!await writeSqlFeedPost(updatedPost, { expectedRevision: Number(currentPost.revision) || 0 })) {
       return res.status(503).json({ message: 'Хранилище ленты временно недоступно' });
     }
     backupFeedMutation((items) => items.map((post) => (post.id === postId ? updatedPost : post)));
-    broadcastFeedEvent('feed-pin-updated', { postId, pinned, updatedAt: now });
-    res.json({ message: 'Закрепление обновлено', post: { id: updatedPost.id, pinned: updatedPost.pinned, updatedAt: updatedPost.updatedAt } });
+    broadcastFeedEvent('feed-pin-updated', { postId, pinned, updatedAt: now, revision: updatedPost.revision });
+    res.json({ message: 'Закрепление обновлено', post: { id: updatedPost.id, pinned: updatedPost.pinned, updatedAt: updatedPost.updatedAt, revision: updatedPost.revision } });
   } catch (error) {
     console.error('Chat POST /feed/pin error:', error);
-    res.status(500).json({ message: 'Не удалось закрепить публикацию' });
+    res.status(error.status || 500).json({ message: 'Не удалось закрепить публикацию' });
   }
 });
 
@@ -3045,8 +3119,14 @@ router.get('/threads/unread-count', async (req, res) => {
     if (!await ensureChatSqlSchema()) {
       return res.json({ count: 0 });
     }
-    const summaries = await readSqlThreadSummaries(login);
-    const count = Object.values(summaries || {}).reduce((sum, item) => sum + item.unreadCount, 0);
+    const [rows] = await db.execute(`SELECT COUNT(*) AS count FROM chat_messages m
+      LEFT JOIN chat_read_state r ON r.conversation_id = m.conversation_id AND r.user_login = ?
+      LEFT JOIN chat_messages anchor ON anchor.id = r.last_read_message_id AND anchor.conversation_id = m.conversation_id
+      WHERE (m.participant_a = ? OR m.participant_b = ?) AND m.sender_login <> ? AND m.deleted_at IS NULL
+        AND m.created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
+        AND NOT EXISTS (SELECT 1 FROM chat_conversations c WHERE c.conversation_id = m.conversation_id AND c.state = 'archived')
+        AND (m.created_at > COALESCE(anchor.created_at, r.last_read_at, '1970-01-01') OR (m.created_at = anchor.created_at AND m.sequence > anchor.sequence))`, [login, login, login, login]);
+    const count = Number(rows[0]?.count) || 0;
     res.set('Cache-Control', 'no-store');
     res.json({ count });
   } catch (error) {
@@ -3190,23 +3270,22 @@ router.get('/threads/:conversationId/date', async (req, res) => {
     if (!await ensureChatSqlSchema()) {
       return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
     }
-    const [rows] = await db.query(
-      `SELECT message_json
-       FROM chat_messages
-       WHERE conversation_id = ?
-         AND created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
-         AND created_at >= CONCAT(?, ' 00:00:00')
-         AND created_at < DATE_ADD(CONCAT(?, ' 00:00:00'), INTERVAL 1 DAY)
-       ORDER BY created_at ASC, id ASC
-       LIMIT ${limit}`,
-      [conversationId, date, date]
-    );
-    const messages = (rows || [])
-      .map((row) => parseSqlMessage(row.message_json))
-      .filter(Boolean)
-      .map((message) => sanitizeMessageForResponse(message));
+    const start = new Date(`${date}T00:00:00+07:00`);
+    if (!Number.isFinite(start.getTime()) || new Date(start.getTime() + 7 * 3600000).toISOString().slice(0, 10) !== date) return res.status(400).json({ message: 'Некорректная дата' });
+    const end = new Date(start.getTime() + 86400000);
+    const cursor = decodeMessageCursor(req.query.after || '');
+    const params = [conversationId, start, end];
+    const position = cursor ? ` AND (created_at > ? OR (created_at = ? AND ${cursor.sequence ? 'sequence' : 'id'} > ?))` : '';
+    if (cursor) params.push(cursor.at, cursor.at, cursor.sequence || cursor.id);
+    const [rows] = await db.query(`SELECT message_json, id, created_at, sequence FROM chat_messages
+      WHERE conversation_id = ? AND created_at >= ? AND created_at < ?
+        AND created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR) ${position}
+      ORDER BY created_at ASC, sequence ASC LIMIT ${limit + 1}`, params);
+    const page = rows.slice(0, limit);
+    const messages = page.map(row => sanitizeMessageForResponse({ ...parseSqlMessage(row.message_json), _cursor: encodeMessageCursor({ id: row.id, createdAt: row.created_at, sequence: row.sequence }) }));
     res.set('Cache-Control', 'no-store');
-    res.json({ conversationId, date, messages, hasMore: messages.length >= limit });
+    res.json({ conversationId, date, messages, hasMore: rows.length > limit, after: messages[messages.length - 1]?._cursor || '' });
+
   } catch (error) {
     console.error('Chat GET /threads/date error:', error);
     res.status(500).json({ message: 'Не удалось перейти к выбранной дате' });
@@ -3239,7 +3318,9 @@ router.get('/threads/:conversationId/messages', async (req, res) => {
     }
     const limit = Math.min(200, Math.max(1, Math.floor(Number(req.query?.limit)) || CHAT_SQL_PAGE_SIZE));
     const before = req.query?.before || '';
-    const messages = await readSqlConversationMessages(conversationId, { limit, before, withinLastYear: true });
+    const after = req.query?.after || '';
+    const messages = await readSqlConversationMessages(conversationId, { limit, before, after, withinLastYear: true });
+    if (after && Array.isArray(messages)) messages.reverse();
     if (!Array.isArray(messages)) {
       return res.status(503).json({ message: 'Хранилище сообщений временно недоступно' });
     }
@@ -3257,6 +3338,7 @@ router.get('/threads/:conversationId/messages', async (req, res) => {
       messages: publicMessages,
       hasMore: messages.length >= limit,
       before: earliest,
+      after: messages.length ? encodeMessageCursor(messages[messages.length - 1]) : '',
       storage: 'mysql',
       includesRetainedDeletedContent: includeRetainedContent
     });
@@ -3465,6 +3547,7 @@ router.post('/threads/:conversationId/messages/:messageId/reactions', async (req
     const now = new Date().toISOString();
     const updatedItem = {
       ...existingMessage,
+      revision: (Number(existingMessage.revision) || 0) + 1,
       reactions,
       updatedAt: now,
       deliveryStatus: 'sent'
@@ -3526,6 +3609,9 @@ router.patch('/threads/:conversationId/messages/:messageId', async (req, res) =>
       }
       return res.status(409).json({ message: 'Скрытое сообщение нельзя изменить или восстановить из чата' });
     }
+    if (Number(req.body?.expectedRevision) !== (Number(existingMessage.revision) || 0)) {
+      return res.status(409).json({ message: 'Сообщение изменено в другой вкладке. Обновите его и повторите действие.', item: sanitizeMessageForResponse(existingMessage) });
+    }
     const canEditContent = isSameLogin(existingMessage.sender, req.auth.login) || hasRole(req, 'admin', 'manager');
     const contentFields = ['text', 'attachment', 'attachments'];
     const isDeleteRequest = Boolean(patch.deletedAt);
@@ -3540,6 +3626,7 @@ router.patch('/threads/:conversationId/messages/:messageId', async (req, res) =>
     const now = new Date().toISOString();
     const nextMessage = {
       ...existingMessage,
+      revision: (Number(existingMessage.revision) || 0) + 1,
       updatedAt: now,
       deliveryStatus: 'sent',
       reactions: patch.reactions && typeof patch.reactions === 'object'
@@ -3641,6 +3728,7 @@ router.post('/threads/:conversationId/messages/bulk-delete', async (req, res) =>
       if (existingMessage.deletedAt) return existingMessage;
       return {
         ...existingMessage,
+        revision: (Number(existingMessage.revision) || 0) + 1,
         deletedAt,
         deletedBy: req.auth.login,
         updatedAt: deletedAt,
@@ -3719,7 +3807,7 @@ router.put('/threads/:conversationId/unread', async (req, res) => {
     if (!requireConversationAccess(req, res, conversationId)) return;
     if (!await ensureChatSqlSchema()) return res.sendStatus(503);
     await db.execute(`INSERT INTO chat_read_state (conversation_id, user_login, last_read_message_id, last_read_at)
-      VALUES (?, ?, NULL, '1970-01-01') ON DUPLICATE KEY UPDATE last_read_message_id = NULL, last_read_at = '1970-01-01'`, [conversationId, req.auth.login]);
+      VALUES (?, ?, NULL, '1970-01-01') ON DUPLICATE KEY UPDATE last_read_message_id = NULL, last_read_sequence = 0, last_read_at = '1970-01-01'`, [conversationId, req.auth.login]);
     broadcastThreadEvent('read-state-updated', conversationId, { state: { login: req.auth.login, lastReadMessageId: '', lastReadAt: '1970-01-01T00:00:00.000Z' } });
     res.sendStatus(204);
   } catch { res.sendStatus(503); }
@@ -4728,6 +4816,7 @@ const upsertPeriodRows = async (connection, table, rows) => {
       `INSERT INTO \`${table}\` (${columns.map((column) => `\`${column}\``).join(',')}) VALUES (${columns.map(() => '?').join(',')}) ON DUPLICATE KEY UPDATE ${updates}`,
       columns.map((column) => normalizePeriodImportValue(column, row[column]))
     );
+    if (table === 'chat_messages') await connection.execute("UPDATE chat_messages SET message_json = JSON_SET(message_json, '$.sequence', sequence) WHERE id = ?", [row.id]);
   }
 };
 

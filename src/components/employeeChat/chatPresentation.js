@@ -1030,8 +1030,9 @@ const savePendingMessages = (username = 'guest', messages = []) => {
     const all = JSON.parse(localStorage.getItem(CHAT_PENDING_MESSAGES_KEY) || '{}');
     all[username] = messages;
     localStorage.setItem(CHAT_PENDING_MESSAGES_KEY, JSON.stringify(all));
+    return true;
   } catch {
-    // noop
+    return false;
   }
 };
 
@@ -1226,6 +1227,7 @@ const readApiJson = async (response, fallbackMessage = 'Ошибка API') => {
     const error = new Error(data?.message || data?.error || fallbackMessage);
     error.status = response.status;
     error.code = data?.code || '';
+    error.data = data;
     throw error;
   }
 
@@ -1368,16 +1370,16 @@ const normalizeText = (value = '') => String(value || '').toLowerCase().trim();
 const formatDateLabel = (dateValue, isEnglish = false) => {
   const date = new Date(dateValue);
   const today = new Date();
-  const yesterday = new Date();
-  yesterday.setDate(today.getDate() - 1);
+  const yesterday = new Date(today.getTime() - 86400000);
 
-  const key = date.toDateString();
-  if (key === today.toDateString()) return isEnglish ? 'Today' : 'Сегодня';
-  if (key === yesterday.toDateString()) return isEnglish ? 'Yesterday' : 'Вчера';
-  return date.toLocaleDateString(isEnglish ? 'en-US' : 'ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+  const key = getDateKey(date);
+  if (key === getDateKey(today)) return isEnglish ? 'Today' : 'Сегодня';
+  if (key === getDateKey(yesterday)) return isEnglish ? 'Yesterday' : 'Вчера';
+  return date.toLocaleDateString(isEnglish ? 'en-US' : 'ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Novosibirsk' });
 };
 
-const getDateKey = (dateValue) => new Date(dateValue).toDateString();
+const chatDateFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Novosibirsk', year: 'numeric', month: '2-digit', day: '2-digit' });
+const getDateKey = (dateValue) => chatDateFormatter.format(new Date(dateValue));
 
 const isVideoAttachment = (file = {}) => String(file.type || '').startsWith('video/') || VIDEO_EXTENSION_PATTERN.test(String(file.name || ''));
 

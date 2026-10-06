@@ -11,7 +11,7 @@ const GROUPS = {
       'chat_message_versions', 'feed_posts', 'feed_comments', 'feed_reactions', 'feed_post_files',
       'records_archives', 'records_archive_items', 'records_archive_files', 'records_archive_periods',
       'records_archive_access', 'records_legal_holds', 'records_legal_hold_items', 'records_audit_log'],
-    roots: ['uploads/chat', 'uploads/feed', 'data/records-archives', 'data/backups/message-journal'],
+    roots: ['uploads/chat', 'uploads/feed', 'data/records-archives', 'data/backups/message-journal', 'data/backups/feed-journal'],
     files: ['data/chatThreads.json', 'data/employeeFeed.json']
   }
 };

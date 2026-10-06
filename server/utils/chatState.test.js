@@ -120,3 +120,14 @@ test('serial chat mutations do not lose messages sent together', async () => {
 
   assert.deepEqual(stored['ivanov::petrov'].map((message) => message.id), ['message-1', 'message-2']);
 });
+
+test('reconnect cursor pages forward by server sequence on timestamp ties', () => {
+  const { encodeMessageCursor, decodeMessageCursor } = require('./chatState');
+  const after = encodeMessageCursor({ id: 'random-z', createdAt: '2026-10-06T00:00:00.123Z', sequence: 50 });
+  const page = buildConversationMessagesPageQuery('anna::boris', { after, limit: 200 });
+  assert.match(page.sql, /created_at > \?/);
+  assert.match(page.sql, /sequence > \?/);
+  assert.match(page.sql, /ORDER BY created_at ASC, sequence ASC/);
+  assert.equal(page.params[3], 50);
+  assert.equal(decodeMessageCursor(after).sequence, 50);
+});
