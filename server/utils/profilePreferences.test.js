@@ -8,7 +8,8 @@ const dbPath = require.resolve('../config/database');
 const execute = async (sql, args = []) => {
   if (/^(CREATE|ALTER|SHOW)/.test(sql.trim())) return [[]];
   if (/SELECT .* FROM employee_profiles/.test(sql)) return [Object.entries(profiles).filter(([login]) => !args.length || login === args[0]).map(([login, profile]) => ({ login, profile_json: JSON.stringify(profile) }))];
-  if (/INSERT INTO employee_profiles/.test(sql)) { profiles[args[0]] = JSON.parse(args[1]); return [{ affectedRows: 1 }]; }
+  if (/INSERT (?:IGNORE )?INTO employee_profiles/.test(sql)) { if (!/IGNORE/.test(sql) || !profiles[args[0]]) profiles[args[0]] = JSON.parse(args[1]); return [{ affectedRows: 1 }]; }
+  if (/UPDATE employee_profiles SET profile_json/.test(sql)) { if (JSON.stringify(profiles[args[2]]) !== args[3]) return [{ affectedRows: 0 }]; profiles[args[2]] = JSON.parse(args[0]); return [{ affectedRows: 1 }]; }
   throw new Error(`Unexpected SQL: ${sql}`);
 };
 require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { execute, query: execute } };

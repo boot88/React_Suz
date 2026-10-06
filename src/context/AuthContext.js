@@ -203,6 +203,7 @@ export const AuthProvider = ({ children }) => {
     stopPreferenceSync();
     clearSessionTimer();
     setIsAuthenticated(false);
+    window.dispatchEvent(new Event('auth:avatar-cache-clear'));
     setUser(null);
     persistAuthState(null);
   }, [clearSessionTimer, mergeEmployeeDirectory, persistAuthState, user]);

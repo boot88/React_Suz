@@ -1,7 +1,7 @@
 import React, { memo, useEffect, useState } from 'react';
 import { authFetch } from '../../utils/authFetch';
 
-const avatarCache = new Map();
+import { avatarCache } from '../../utils/avatarCache';
 
 const removeQueryTokens = (source = '') => {
   try {
@@ -31,6 +31,7 @@ const loadAvatar = (source) => {
   const cached = avatarCache.get(requestUrl);
   if (cached) return cached instanceof Promise ? cached : Promise.resolve(cached);
 
+  const epoch = avatarCache.generation;
   const request = authFetch(requestUrl, { cache: 'no-store' })
     .then(async (response) => {
       if (!response.ok) throw new Error(`Avatar request failed: ${response.status}`);
@@ -39,15 +40,15 @@ const loadAvatar = (source) => {
       return blobToDataUrl(blob);
     })
     .then((dataUrl) => {
-      avatarCache.set(requestUrl, dataUrl);
+      avatarCache.set(requestUrl, dataUrl, epoch);
       return dataUrl;
     })
     .catch((error) => {
-      avatarCache.delete(requestUrl);
+      if (epoch === avatarCache.generation) avatarCache.delete(requestUrl);
       throw error;
     });
 
-  avatarCache.set(requestUrl, request);
+  avatarCache.set(requestUrl, request, epoch);
   return request;
 };
 

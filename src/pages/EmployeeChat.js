@@ -1,3 +1,6 @@
+import useProfilePassword from '../components/employeeChat/useProfilePassword';
+import useEmployeeProfile from '../components/employeeChat/useEmployeeProfile';
+import AvatarCropDialog from '../components/employeeChat/AvatarCropDialog';
 import { PREFERENCES_EVENT } from '../utils/userPreferences';
 import useChatDraftStorage, { readChatDrafts, saveChatDrafts } from '../components/employeeChat/useChatDraftStorage';
 import { readChatOperationIds, saveChatOperationIds } from '../utils/chatOperationIds';
@@ -38,7 +41,7 @@ import AuthenticatedAvatar from '../components/employeeChat/AuthenticatedAvatar'
 import './EmployeeChat.css';
 import './EmployeeChatModern.css';
 
-import { MANAGER_TEMPLATE_MESSAGES, EMPLOYEE_TEMPLATE_MESSAGES, MANAGER_TEMPLATE_MESSAGES_EN, EMPLOYEE_TEMPLATE_MESSAGES_EN, REACTION_EMOJIS, QUICK_EMOJIS, CHAT_MESSAGES_PAGE_SIZE, FEED_POSTS_PAGE_SIZE, FEED_COMMENTS_PAGE_SIZE, EMPLOYEE_TABS, MANAGER_TABS, REQUEST_CATEGORIES, REQUEST_PRIORITIES, DEFAULT_PROFILE_WEBSITE_LANGUAGE, PROFILE_LANGUAGE_OPTIONS, RUSSIAN_LABELS, ENGLISH_LABELS, ENGLISH_TAB_LABELS, ENGLISH_CONTACT_FILTER_LABELS, translateRuntimeText, FEED_CATEGORIES, ENGLISH_FEED_CATEGORY_LABELS, ENGLISH_REQUEST_CATEGORY_LABELS, ENGLISH_REQUEST_PRIORITY_LABELS, CHAT_FILTERS, CONTACT_FILTERS, CHAT_MEDIA_TABS, CHAT_THEMES, CHAT_DENSITIES, CHAT_TEXT_SIZES, formatEnglishProfileLogin, getWebsiteByLanguage, getConversationId, getParticipantsFromThreadId, getAvatarKey, createMessageId, readReadState, saveReadState, getReadTimestamp, getReadMessageId, readChatLocalSettings, saveChatLocalSettings, readPendingMessages, savePendingMessages, getMessageAttachments, getMessageMediaAttachments, extractLinks, getSafeExternalUrl, getLinkPreview, readFeedReadAt, saveFeedReadAt, readCustomTemplates, saveCustomTemplates, getFeedItemTimestamp, getFeedLatestTimestamp, getForwardedMessageText, readDirectoryCache, saveDirectoryCache, readProfileDraft, getProfileValue, saveProfileDraft, processAvatar, sleep, isNetworkFailure, getFriendlyNetworkMessage, readApiJson, fetchJsonWithRetry, createAttachmentThumbnailDataUrl, nudgeVideoToFirstFrame, normalizeText, formatDateLabel, getDateKey, isVideoAttachment, formatFileSize, getFileIcon, dataUrlToBlob, openAttachmentInNewTab, formatFeedLogin, getFeedAttachments, getFeedPostsSignature, getVisibleFeedPosts, sortFeedPosts, setFeedReactionForUser, sameLogin, readSavedFeedDraft, saveFeedDraft, clearSavedFeedDraft, readHiddenFeedPosts, saveHiddenFeedPosts, isImageAttachment, isMediaAttachment, resolveAttachmentUrl, getAttachmentUrl, getOriginalAttachmentUrl, getVideoPosterUrl, getPostShareUrl, isPostAuthor, collectThreadFileIds, collectFeedFileIds, prefetchMediaTokens, canManageFeedPost, VideoPosterFrame, AttachmentCard, FeedMediaCard, getApplicationStatusMeta } from '../components/employeeChat/chatPresentation';
+import { MANAGER_TEMPLATE_MESSAGES, EMPLOYEE_TEMPLATE_MESSAGES, MANAGER_TEMPLATE_MESSAGES_EN, EMPLOYEE_TEMPLATE_MESSAGES_EN, REACTION_EMOJIS, QUICK_EMOJIS, CHAT_MESSAGES_PAGE_SIZE, FEED_POSTS_PAGE_SIZE, FEED_COMMENTS_PAGE_SIZE, EMPLOYEE_TABS, MANAGER_TABS, REQUEST_CATEGORIES, REQUEST_PRIORITIES, DEFAULT_PROFILE_WEBSITE_LANGUAGE, PROFILE_LANGUAGE_OPTIONS, RUSSIAN_LABELS, ENGLISH_LABELS, ENGLISH_TAB_LABELS, ENGLISH_CONTACT_FILTER_LABELS, translateRuntimeText, FEED_CATEGORIES, ENGLISH_FEED_CATEGORY_LABELS, ENGLISH_REQUEST_CATEGORY_LABELS, ENGLISH_REQUEST_PRIORITY_LABELS, CHAT_FILTERS, CONTACT_FILTERS, CHAT_MEDIA_TABS, CHAT_THEMES, CHAT_DENSITIES, CHAT_TEXT_SIZES, formatEnglishProfileLogin, getConversationId, getParticipantsFromThreadId, createMessageId, readReadState, saveReadState, getReadTimestamp, getReadMessageId, readChatLocalSettings, saveChatLocalSettings, readPendingMessages, savePendingMessages, getMessageAttachments, getMessageMediaAttachments, extractLinks, getSafeExternalUrl, getLinkPreview, readFeedReadAt, saveFeedReadAt, readCustomTemplates, saveCustomTemplates, getFeedItemTimestamp, getFeedLatestTimestamp, getForwardedMessageText, readDirectoryCache, saveDirectoryCache, readProfileDraft, sleep, isNetworkFailure, getFriendlyNetworkMessage, readApiJson, fetchJsonWithRetry, createAttachmentThumbnailDataUrl, nudgeVideoToFirstFrame, normalizeText, formatDateLabel, getDateKey, isVideoAttachment, formatFileSize, getFileIcon, openAttachmentInNewTab, formatFeedLogin, getFeedAttachments, getFeedPostsSignature, getVisibleFeedPosts, sortFeedPosts, setFeedReactionForUser, sameLogin, readSavedFeedDraft, saveFeedDraft, clearSavedFeedDraft, readHiddenFeedPosts, saveHiddenFeedPosts, isImageAttachment, isMediaAttachment, resolveAttachmentUrl, getAttachmentUrl, getOriginalAttachmentUrl, getVideoPosterUrl, getPostShareUrl, isPostAuthor, collectThreadFileIds, collectFeedFileIds, prefetchMediaTokens, canManageFeedPost, VideoPosterFrame, AttachmentCard, FeedMediaCard, getApplicationStatusMeta } from '../components/employeeChat/chatPresentation';
 
 const sameViewerFile = (left, right) => left === right || Boolean(left && right && (
   (left.id && right.id && String(left.id) === String(right.id))
@@ -69,7 +72,7 @@ const setChatReactionForUser = (message = {}, emoji, login, active) => {
 
 const EmployeeChat = ({ adminSection = null }) => {
   const location = useLocation();
-  const { user, logout, employeeDirectory, changeServicePassword } = useAuth();
+  const { user, logout, employeeDirectory } = useAuth();
   const isManager = user?.role === 'manager' || user?.role === 'admin';
   const baseDisplayName = user?.name || user?.username || 'Сотрудник';
   const isAdmin = user?.serverRole === 'admin' || user?.role === 'admin';
@@ -79,8 +82,6 @@ const EmployeeChat = ({ adminSection = null }) => {
    
   const avatarInputRef = useRef(null); 
   const messageTextareaRef = useRef(null);
-  const profileDirtyRef = useRef(false);
-  const profileLoadedForRef = useRef('');
   const notifyRef = useRef(() => {});
   const directoryEmployeesRef = useRef([]);
    
@@ -223,23 +224,8 @@ const EmployeeChat = ({ adminSection = null }) => {
   const [feedReadAt, setFeedReadAt] = useState(() => readFeedReadAt(user?.username || 'guest'));
   const [directoryEmployees, setDirectoryEmployees] = useState(() => readDirectoryCache());
   const [isDirectoryLoaded, setIsDirectoryLoaded] = useState(() => readDirectoryCache().length > 0);
-  const [avatarUrl, setAvatarUrl] = useState('');
   const [welcomeNotice, setWelcomeNotice] = useState(null);
   const [avatarViewerOpen, setAvatarViewerOpen] = useState(false);
-  const [profileViewLogin, setProfileViewLogin] = useState('');
-  const [profilePreview, setProfilePreview] = useState(null);
-  const [profileForm, setProfileForm] = useState({
-    full_name: user?.name || '',
-    department: '',
-    phone: '',
-    external_phone: '',
-    room: '',
-    position: user?.position || '',
-    bio: '',
-    websiteLanguage: DEFAULT_PROFILE_WEBSITE_LANGUAGE,
-    website: getWebsiteByLanguage(),
-    statusText: ''
-  });
   const isEnglishInterface = (chatLocalSettings.uiLanguage || 'en') === 'en';
   const interfaceLocale = isEnglishInterface ? 'en-US' : 'ru-RU';
   const t = useCallback((key) => (isEnglishInterface ? ENGLISH_LABELS[key] : RUSSIAN_LABELS[key]) || key, [isEnglishInterface]);
@@ -251,7 +237,6 @@ const EmployeeChat = ({ adminSection = null }) => {
   const getFeedCategoryLabel = useCallback((value) => isEnglishInterface ? (ENGLISH_FEED_CATEGORY_LABELS[value] || value) : value, [isEnglishInterface]);
   const formatVisibleLogin = useCallback((login = '') => (isEnglishInterface ? formatEnglishProfileLogin(login) : login), [isEnglishInterface]);
   const localizeRuntimeText = useCallback((value) => translateRuntimeText(value, isEnglishInterface), [isEnglishInterface]);
-  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
   const [requestText, setRequestText] = useState('');
   const [requestCategory, setRequestCategory] = useState(REQUEST_CATEGORIES[0]);
   const [requestPriority, setRequestPriority] = useState(REQUEST_PRIORITIES[0]);
@@ -390,20 +375,19 @@ const EmployeeChat = ({ adminSection = null }) => {
     });
   }, [user?.username]);
 
-  const updateProfileField = useCallback((field, value) => {
-    profileDirtyRef.current = true;
-    setProfileForm((prev) => {
-      const next = {
-        ...prev,
-        [field]: value,
-        ...(field === 'websiteLanguage' ? { website: getWebsiteByLanguage(value) } : {})
-      };
-      if (user?.username) {
-        saveProfileDraft(user.username, { ...next, avatar: avatarUrl });
-      }
-      return next;
+  const applyOwnProfile = useCallback(profile => {
+    const fields = ['bio', 'statusText', 'full_name', 'position', 'department', 'room', 'phone', 'external_phone', 'avatar'];
+    const patch = Object.fromEntries(fields.filter(key => Object.prototype.hasOwnProperty.call(profile, key)).map(key => [key, profile[key]]));
+    setDirectoryEmployees(current => {
+      const next = current.map(employee => sameLogin(employee.login, user.username) ? { ...employee, ...patch, profile: { ...(employee.profile || {}), ...patch } } : employee);
+      saveDirectoryCache(next); return next;
     });
-  }, [avatarUrl, user?.username]);
+  }, [user.username]);
+  const { profileForm, avatarUrl, profileViewLogin, profilePreview, profileState, dirty: profileDirty, pendingAvatar,
+    updateProfileField, saveMyProfile, loadProfile, openProfileCard, setProfileViewLogin,
+    restoreDraft, discardChanges, resolveConflict, handleAvatarUpload, saveAvatar, removeAvatar, cancelAvatar
+  } = useEmployeeProfile({ user, active: activeTab === 'profile', english: isEnglishInterface, onProfileSaved: applyOwnProfile });
+  const { passwordForm, setPasswordForm, passwordBusy, passwordError, changeMyPassword } = useProfilePassword({ english: isEnglishInterface, logout });
 
   const currentConversationId = selectedEmail ? getConversationId(user.username, selectedEmail) : null;
   const templateMessages = useMemo(() => [
@@ -515,10 +499,6 @@ const EmployeeChat = ({ adminSection = null }) => {
 
   useEffect(() => {
     if (!user?.username) return;
-    const cachedAvatar = localStorage.getItem(getAvatarKey(user.username)) || '';
-    if (cachedAvatar) {
-      setAvatarUrl(cachedAvatar);
-    }
     // Общий маркер сеанса не повторяет приветствие при переходе из админки.
     if (hasSeenWelcomeGreeting(user.username)) return undefined;
 
@@ -535,74 +515,9 @@ const EmployeeChat = ({ adminSection = null }) => {
   }, [welcomeNotice]);
 
   const handleLogout = () => {
+    if (profileDirty && !window.confirm(isEnglishInterface ? 'You have unsaved profile changes. Sign out?' : 'Есть несохранённые изменения профиля. Выйти?')) return;
     logout();
   };
-
-  const loadProfile = useCallback(async (login, mode = 'form') => {
-    const response = await authFetch(`${API_BASE_URL}/auth/profile?login=${encodeURIComponent(login)}`);
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(data.message || 'Не удалось загрузить анкету');
-    }
-
-    const profile = data?.profile || {};
-    const cachedProfile = readProfileDraft(login);
-    const directoryProfile = directoryEmployeesRef.current.find((employee) => employee.login === login) || {};
-    const serverAvatar = resolveAttachmentUrl(profile?.avatar || '');
-    const cachedAvatar = resolveAttachmentUrl(
-      cachedProfile?.avatar || localStorage.getItem(getAvatarKey(login)) || ''
-    );
-    const mergedProfile = {
-      full_name: getProfileValue(profile, cachedProfile, 'full_name', 'fullName', 'name'),
-      department: getProfileValue(profile, cachedProfile, 'department'),
-      phone: getProfileValue(profile, cachedProfile, 'phone', 'internalPhone', 'internal_phone', 'N_tel'),
-      external_phone: getProfileValue(profile, cachedProfile, 'external_phone', 'externalPhone'),
-      room: getProfileValue(profile, cachedProfile, 'room', 'cabinet'),
-      position: getProfileValue(profile, cachedProfile, 'position'),
-      bio: getProfileValue(profile, cachedProfile, 'bio'),
-      websiteLanguage: getProfileValue(profile, cachedProfile, 'websiteLanguage', 'website_language') || DEFAULT_PROFILE_WEBSITE_LANGUAGE,
-      website: getWebsiteByLanguage(),
-      statusText: getProfileValue(profile, cachedProfile, 'statusText', 'status_text'),
-      // A profile request may have started before a new avatar was uploaded.
-      // Do not let that stale empty response erase the freshly saved photo.
-      avatar: serverAvatar || cachedAvatar
-    };
-
-    if (!mergedProfile.full_name) mergedProfile.full_name = directoryProfile.full_name || '';
-    if (!mergedProfile.department) mergedProfile.department = directoryProfile.department || '';
-    if (!mergedProfile.phone) mergedProfile.phone = directoryProfile.phone || directoryProfile.internal_phone || directoryProfile.N_tel || '';
-    if (!mergedProfile.external_phone) mergedProfile.external_phone = directoryProfile.external_phone || directoryProfile.externalPhone || '';
-    if (!mergedProfile.room) mergedProfile.room = directoryProfile.room || directoryProfile.cabinet || '';
-    if (!mergedProfile.position) mergedProfile.position = directoryProfile.position || '';
-    if (mode === 'form') {
-      const shouldHydrateForm = !profileDirtyRef.current || profileLoadedForRef.current !== login;
-
-      if (shouldHydrateForm) {
-        setProfileForm({
-          full_name: mergedProfile.full_name,
-          department: mergedProfile.department,
-          phone: mergedProfile.phone,
-          external_phone: mergedProfile.external_phone,
-          room: mergedProfile.room,
-          position: mergedProfile.position,
-          bio: mergedProfile.bio,
-          websiteLanguage: mergedProfile.websiteLanguage,
-          website: mergedProfile.website,
-          statusText: mergedProfile.statusText
-        });
-        profileLoadedForRef.current = login;
-        saveProfileDraft(login, mergedProfile);
-      }
-
-      const nextAvatar = mergedProfile.avatar || '';
-      setAvatarUrl(nextAvatar);
-      if (nextAvatar) localStorage.setItem(getAvatarKey(user.username), nextAvatar);
-      else localStorage.removeItem(getAvatarKey(user.username));
-      return;
-    }
-
-    setProfilePreview({ ...mergedProfile, login: profile.login || login });
-  }, [user.username]);
 
   const fetchThreads = useCallback(async () => {
     try {
@@ -1403,28 +1318,13 @@ const EmployeeChat = ({ adminSection = null }) => {
       const employees = Array.isArray(data?.employees) ? data.employees : [];
       setDirectoryEmployees(employees);
       saveDirectoryCache(employees);
-      const ownEmployee = employees.find((employee) => sameLogin(employee.login, user?.username || ''));
-      if (ownEmployee) {
-        const currentAvatar = resolveAttachmentUrl(
-          ownEmployee.avatar
-          || ownEmployee.profile?.avatar
-          || localStorage.getItem(getAvatarKey(user.username))
-          || ''
-        );
-        setAvatarUrl(currentAvatar);
-        if (currentAvatar) localStorage.setItem(getAvatarKey(user.username), currentAvatar);
-        else localStorage.removeItem(getAvatarKey(user.username));
-        saveProfileDraft(user.username, {
-          ...readProfileDraft(user.username),
-          avatar: currentAvatar
-        });
-      }
+
     } catch (error) {
       console.error('Ошибка загрузки сотрудников:', error);
     } finally {
       setIsDirectoryLoaded(true);
     }
-  }, [user?.username]);
+  }, []);
 
   const persistNewMessage = useCallback(async (conversationId, message) => {
     const controller = new AbortController();
@@ -1910,20 +1810,6 @@ const EmployeeChat = ({ adminSection = null }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (!user?.username) return;
-    loadProfile(user.username, 'form').catch((error) => {
-      console.error('Profile bootstrap error:', error);
-    });
-  }, [loadProfile, user?.username]);
-
-  useEffect(() => {
-    if (!user?.username || activeTab !== 'profile') return;
-    loadProfile(user.username, 'form').catch((error) => {
-      console.error('Profile panel refresh error:', error);
-    });
-  }, [activeTab, loadProfile, user?.username]);
-
   const chatCandidates = useMemo(() => {
     if (!isManager && !isDirectoryLoaded) {
       return [];
@@ -2169,71 +2055,6 @@ const EmployeeChat = ({ adminSection = null }) => {
     writeCachedConversation(user.username, currentConversationId, currentMessages);
   }, [currentConversationId, currentMessages, user.username]);
 
-  const handleAvatarUpload = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
-      notify('Разрешены только PNG, JPG, WEBP.', 'Фото профиля');
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      notify('Фото слишком большое. Рекомендуется до 5MB.', 'Фото профиля');
-      return;
-    }
-
-    try {
-      const optimizedAvatar = await processAvatar(file);
-      const avatarBlob = dataUrlToBlob(optimizedAvatar);
-      const response = await authFetch(`${API_BASE_URL}/auth/profile/avatar`, {
-        method: 'POST',
-        headers: { 'Content-Type': avatarBlob.type || 'image/jpeg' },
-        body: avatarBlob
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data.message || 'Не удалось сохранить аватар');
-      }
-      const savedAvatar = resolveAttachmentUrl(data.avatar);
-      if (!savedAvatar) throw new Error('Сервер не вернул адрес аватара');
-      setAvatarUrl(savedAvatar);
-      localStorage.setItem(getAvatarKey(user.username), savedAvatar);
-      saveProfileDraft(user.username, { ...profileForm, avatar: savedAvatar });
-      setDirectoryEmployees((current) => {
-        const next = current.map((employee) => (
-          sameLogin(employee.login, user.username)
-            ? {
-                ...employee,
-                avatar: savedAvatar,
-                profile: { ...(employee.profile || {}), avatar: savedAvatar }
-              }
-            : employee
-        ));
-        saveDirectoryCache(next);
-        return next;
-      });
-    } catch (error) {
-      notify(error.message || 'Не удалось обработать изображение. Попробуйте другое фото.', 'Фото профиля');
-    } finally {
-      event.target.value = '';
-    }
-  };
-
-  const removeAvatar = async () => {
-    const response = await authFetch(`${API_BASE_URL}/auth/profile/avatar`, {
-      method: 'DELETE'
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      notify(data.message || 'Не удалось удалить аватар', 'Фото профиля');
-      return;
-    }
-    setAvatarUrl('');
-    localStorage.removeItem(getAvatarKey(user.username));
-    saveProfileDraft(user.username, { ...profileForm, avatar: '' });
-    await fetchEmployees();
-  };
-
   const queuePendingMessage = (conversationId, message) => {
     setPendingMessages((prev) => {
       if (prev.some((item) => item.message?.id === message.id)) return prev;
@@ -2462,75 +2283,6 @@ const EmployeeChat = ({ adminSection = null }) => {
       }).catch(() => {});
     }
   };
-
-  const saveMyProfile = async (event) => {
-    event.preventDefault();
-    const response = await authFetch(`${API_BASE_URL}/auth/profile`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...profileForm,
-        avatar: avatarUrl
-      })
-    });
-
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      notify(data.message || 'Не удалось сохранить анкету', 'Профиль');
-      return;
-    }
-
-    notify('Анкета сохранена', 'Профиль');
-    profileDirtyRef.current = false;
-    profileLoadedForRef.current = user.username;
-    saveProfileDraft(user.username, { ...profileForm, avatar: avatarUrl });
-    await fetchEmployees();
-  };
-
-  const changeMyPassword = async (event) => {
-    event.preventDefault();
-
-    if (user?.role === 'manager' || user?.role === 'admin') {
-      try {
-        await changeServicePassword({
-          currentPassword: passwordForm.currentPassword,
-          newPassword: passwordForm.newPassword
-        });
-        notify('Пароль обновлён. При следующем входе используйте новый пароль.', 'Пароль');
-        setPasswordForm({ currentPassword: '', newPassword: '' });
-        logout({ reason: 'expired' });
-      } catch (error) {
-        notify(error.message || 'Не удалось сменить пароль', 'Пароль');
-      }
-      return;
-    }
-
-    const response = await authFetch(`${API_BASE_URL}/auth/change-password`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        currentPassword: passwordForm.currentPassword,
-        newPassword: passwordForm.newPassword
-      })
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      notify(data.message || 'Не удалось сменить пароль', 'Пароль');
-      return;
-    }
-    notify('Пароль обновлён', 'Пароль');
-    setPasswordForm({ currentPassword: '', newPassword: '' });
-    logout({ reason: 'expired' });
-  };
-
-  const openProfileCard = useCallback(async (login) => {
-    try {
-      await loadProfile(login, 'preview');
-      setProfileViewLogin(login);
-    } catch (error) {
-      notify(error.message || 'Не удалось открыть профиль сотрудника', 'Профиль');
-    }
-  }, [loadProfile, notify]);
 
   const openEmployeeProfile = (login, event) => {
     event?.stopPropagation?.();
@@ -4090,7 +3842,7 @@ const EmployeeChat = ({ adminSection = null }) => {
             <span>{profileForm.position || user?.position || profileForm.department || t('workingChat')}</span>
           </div>
           <div className="brand-actions">
-            {isAdmin && <button type="button" className="icon-btn admin-panel-return-btn" onClick={() => requestAdminWorkspaceTransition('/')}>{t('adminPanel')}</button>}
+            {isAdmin && <button type="button" className="icon-btn admin-panel-return-btn" onClick={() => { if (!profileDirty || window.confirm(isEnglishInterface ? 'You have unsaved profile changes. Leave chat?' : 'Есть несохранённые изменения профиля. Выйти из чата?')) requestAdminWorkspaceTransition('/'); }}>{t('adminPanel')}</button>}
             <button type="button" className="icon-btn" onClick={() => { setActiveTab('profile'); setProfileViewLogin(''); }}>{t('profile')}</button>
           </div>
         </div>
@@ -4396,7 +4148,7 @@ const EmployeeChat = ({ adminSection = null }) => {
         )}
 
         {activeTab === 'profile' && (
-          <EmployeeProfileWorkspace AuthenticatedAvatar={AuthenticatedAvatar} CHAT_DENSITIES={CHAT_DENSITIES} CHAT_TEXT_SIZES={CHAT_TEXT_SIZES} CHAT_THEMES={CHAT_THEMES} ChatAppearanceSettings={ChatAppearanceSettings} DEFAULT_PROFILE_WEBSITE_LANGUAGE={DEFAULT_PROFILE_WEBSITE_LANGUAGE} PROFILE_LANGUAGE_OPTIONS={PROFILE_LANGUAGE_OPTIONS} avatarInputRef={avatarInputRef} avatarUrl={avatarUrl} changeMyPassword={changeMyPassword} chatLocalSettings={chatLocalSettings} formatVisibleLogin={formatVisibleLogin} getOptionLabel={getOptionLabel} getSafeExternalUrl={getSafeExternalUrl} handleLogout={handleLogout} isAdmin={isAdmin} isEnglishInterface={isEnglishInterface} passwordForm={passwordForm} profileForm={profileForm} profilePreview={profilePreview} profileViewLogin={profileViewLogin} receivedArchivesPanel={!isManager && <section className="profile-received-archives received-archives-panel"><h3>{t('receivedArchives')}</h3><p className="received-archives-hint">{t('receivedArchivesHint')}</p><div className="threads-grid archive-grid"><div className="threads-list">{receivedArchiveLoading && receivedArchives.length === 0 && <div className="empty-chat">{t('loading')}…</div>}{!receivedArchiveLoading && receivedArchives.length === 0 && <div className="empty-chat">{t('receivedArchivesEmpty')}</div>}{receivedArchives.map((archive) => <button key={archive.access_id} type="button" className={`thread-item ${String(receivedArchiveAccessId) === String(archive.access_id) ? 'active' : ''}`} onClick={() => setReceivedArchiveAccessId(String(archive.access_id))}><span className="thread-title">{archive.name}</span><span className="thread-stats">{getParticipantsFromThreadId(archive.scope?.conversationId || '').join(' ↔ ')}</span><span className="thread-last">{t('receivedArchiveExpires')}: {archive.expires_at ? new Date(archive.expires_at).toLocaleString(interfaceLocale) : '—'}</span><span className="thread-last">{t('receivedArchiveGrantedBy')}: {archive.granted_by || '—'}</span></button>)}</div><div className="threads-messages archive-message-viewer">{!receivedArchiveAccessId && <div className="empty-chat">{t('receivedArchiveChoose')}</div>}{receivedArchiveAccessId && receivedArchiveHasMore && <button type="button" className="chat-pagination-button" disabled={receivedArchiveLoading} onClick={() => fetchReceivedArchiveMessages(receivedArchiveAccessId, { append: true })}>{t('loadPreviousMessages')}</button>}{receivedArchiveAccessId && receivedArchiveMessages.map((message) => { const attachments = getMessageAttachments(message); return <article key={message.id} className={`audit-message ${message.deletedAt ? 'deleted' : ''}`}><div className="message-meta"><span>{message.sender}</span><span>{new Date(message.createdAt).toLocaleString(interfaceLocale)}</span></div>{message.deletedAt && <em>{t('deletedMessage')}</em>}{message.text && <div className="archive-original-text">{message.text}</div>}{attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <AttachmentCard key={`${message.id}-received-archive-${index}`} cardKey={`${message.id}-received-archive-${index}`} file={file} variant="archive" isEnglish={isEnglishInterface} />)}</div>}</article>; })}</div></div></section>} removeAvatar={removeAvatar} saveMyProfile={saveMyProfile} setActiveTab={setActiveTab} setPasswordForm={setPasswordForm} setProfileViewLogin={setProfileViewLogin} setSelectedEmail={setSelectedEmail} t={t} toggleDialogToolSetting={toggleDialogToolSetting} toggleFeedToolSetting={toggleFeedToolSetting} updateChatUiSetting={updateChatUiSetting} updateProfileField={updateProfileField} user={user} />
+          <EmployeeProfileWorkspace profileState={profileState} profileDirty={profileDirty} loadProfile={loadProfile} openProfileCard={openProfileCard} restoreDraft={restoreDraft} discardChanges={discardChanges} resolveConflict={resolveConflict} passwordBusy={passwordBusy} passwordError={passwordError} AuthenticatedAvatar={AuthenticatedAvatar} CHAT_DENSITIES={CHAT_DENSITIES} CHAT_TEXT_SIZES={CHAT_TEXT_SIZES} CHAT_THEMES={CHAT_THEMES} ChatAppearanceSettings={ChatAppearanceSettings} DEFAULT_PROFILE_WEBSITE_LANGUAGE={DEFAULT_PROFILE_WEBSITE_LANGUAGE} PROFILE_LANGUAGE_OPTIONS={PROFILE_LANGUAGE_OPTIONS} avatarInputRef={avatarInputRef} avatarUrl={avatarUrl} changeMyPassword={changeMyPassword} chatLocalSettings={chatLocalSettings} formatVisibleLogin={formatVisibleLogin} getOptionLabel={getOptionLabel} getSafeExternalUrl={getSafeExternalUrl} handleLogout={handleLogout} isAdmin={isAdmin} isEnglishInterface={isEnglishInterface} passwordForm={passwordForm} profileForm={profileForm} profilePreview={profilePreview} profileViewLogin={profileViewLogin} receivedArchivesPanel={!isManager && <section className="profile-received-archives received-archives-panel"><h3>{t('receivedArchives')}</h3><p className="received-archives-hint">{t('receivedArchivesHint')}</p><div className="threads-grid archive-grid"><div className="threads-list">{receivedArchiveLoading && receivedArchives.length === 0 && <div className="empty-chat">{t('loading')}…</div>}{!receivedArchiveLoading && receivedArchives.length === 0 && <div className="empty-chat">{t('receivedArchivesEmpty')}</div>}{receivedArchives.map((archive) => <button key={archive.access_id} type="button" className={`thread-item ${String(receivedArchiveAccessId) === String(archive.access_id) ? 'active' : ''}`} onClick={() => setReceivedArchiveAccessId(String(archive.access_id))}><span className="thread-title">{archive.name}</span><span className="thread-stats">{getParticipantsFromThreadId(archive.scope?.conversationId || '').join(' ↔ ')}</span><span className="thread-last">{t('receivedArchiveExpires')}: {archive.expires_at ? new Date(archive.expires_at).toLocaleString(interfaceLocale) : '—'}</span><span className="thread-last">{t('receivedArchiveGrantedBy')}: {archive.granted_by || '—'}</span></button>)}</div><div className="threads-messages archive-message-viewer">{!receivedArchiveAccessId && <div className="empty-chat">{t('receivedArchiveChoose')}</div>}{receivedArchiveAccessId && receivedArchiveHasMore && <button type="button" className="chat-pagination-button" disabled={receivedArchiveLoading} onClick={() => fetchReceivedArchiveMessages(receivedArchiveAccessId, { append: true })}>{t('loadPreviousMessages')}</button>}{receivedArchiveAccessId && receivedArchiveMessages.map((message) => { const attachments = getMessageAttachments(message); return <article key={message.id} className={`audit-message ${message.deletedAt ? 'deleted' : ''}`}><div className="message-meta"><span>{message.sender}</span><span>{new Date(message.createdAt).toLocaleString(interfaceLocale)}</span></div>{message.deletedAt && <em>{t('deletedMessage')}</em>}{message.text && <div className="archive-original-text">{message.text}</div>}{attachments.length > 0 && <div className="message-attachments-grid">{attachments.map((file, index) => <AttachmentCard key={`${message.id}-received-archive-${index}`} cardKey={`${message.id}-received-archive-${index}`} file={file} variant="archive" isEnglish={isEnglishInterface} />)}</div>}</article>; })}</div></div></section>} removeAvatar={removeAvatar} saveMyProfile={saveMyProfile} setActiveTab={setActiveTab} setPasswordForm={setPasswordForm} setProfileViewLogin={setProfileViewLogin} setSelectedEmail={setSelectedEmail} t={t} toggleDialogToolSetting={toggleDialogToolSetting} toggleFeedToolSetting={toggleFeedToolSetting} updateChatUiSetting={updateChatUiSetting} updateProfileField={updateProfileField} user={user} />
         )}
 
         {adminSection && activeTab === 'archive' && isAdmin && (
@@ -4508,12 +4260,15 @@ const EmployeeChat = ({ adminSection = null }) => {
         </div>
       )}
 
+      {pendingAvatar && <AvatarCropDialog source={pendingAvatar.src} english={isEnglishInterface} busy={profileState.avatarBusy} errorMessage={profileState.error} onCancel={cancelAvatar} onSave={saveAvatar} />}
+
       {avatarViewerOpen && (
         <div className="app-modal-backdrop" onMouseDown={() => setAvatarViewerOpen(false)}>
           <div className="avatar-viewer" onMouseDown={(event) => event.stopPropagation()}>
+            {profileState.error && <p role="alert">{profileState.error}</p>}
             <header><strong>{t('profilePhoto')}</strong><button type="button" onClick={() => setAvatarViewerOpen(false)}>×</button></header>
             <AuthenticatedAvatar src={avatarUrl} alt={t('profilePhoto')} decoding="async" fallback={<div className="avatar-full-placeholder">{String(baseDisplayName || user?.username || '?').slice(0, 1).toUpperCase()}</div>} />
-            <div className="avatar-actions-row"><button type="button" onClick={() => avatarInputRef.current?.click()}>{t('edit')}</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl}>{t('delete')}</button></div>
+            <div className="avatar-actions-row"><button type="button" disabled={profileState.avatarBusy} onClick={() => avatarInputRef.current?.click()}>{t('edit')}</button><button type="button" onClick={removeAvatar} disabled={!avatarUrl || profileState.avatarBusy}>{t('delete')}</button></div>
           </div>
         </div>
       )}
