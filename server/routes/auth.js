@@ -117,6 +117,7 @@ const PROFILE_PREFERENCE_BOOLEAN_KEYS = new Set([
   'enterToSend', 'showApplicationActionHistory', 'showEditApplicationTable', 'auditTestMode'
 ]);
 const PROFILE_PREFERENCE_ENUMS = {
+  chatAppearanceVersion: new Set([1]),
   uiDesign: new Set(['classic', 'modern']),
   uiLanguage: new Set(['ru', 'en']),
   uiTheme: new Set(['light', 'dark']),

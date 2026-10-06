@@ -11,7 +11,7 @@ jest.mock('../utils/authFetch', () => ({ authFetch: jest.fn() }));
 test('editing the limit leaves it unchanged until a successful Save', async () => {
   global.IS_REACT_ACT_ENVIRONMENT = true;
   localStorage.setItem('authState', JSON.stringify({ user: { username: 'admin' } }));
-  initializeUserPreferences('admin', { uiLanguage: 'ru' });
+  initializeUserPreferences('admin', { chatAppearanceVersion: 1, uiLanguage: 'ru' });
   authFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ limitMb: 10 }) });
   const container = document.createElement('div');
   document.body.appendChild(container);

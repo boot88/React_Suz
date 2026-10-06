@@ -26,13 +26,13 @@ test('two accounts keep independent settings and language is shared by chat, log
 });
 
 test('settings restore from SQL on a fresh computer and explicit login language wins over an old unsent language', () => {
-  initializeUserPreferences('alice', { uiLanguage: 'ru', uiTheme: 'dark', requestCardDesign: 'legacy' });
+  initializeUserPreferences('alice', { chatAppearanceVersion: 1, uiLanguage: 'ru', uiTheme: 'dark', requestCardDesign: 'legacy' });
   updateUserPreferences('alice', { uiLanguage: 'en', uiDensity: 'compact' });
-  initializeUserPreferences('alice', { uiLanguage: 'ru', uiTheme: 'dark' }, { uiLanguage: 'ru' });
+  initializeUserPreferences('alice', { chatAppearanceVersion: 1, uiLanguage: 'ru', uiTheme: 'dark' }, { uiLanguage: 'ru' });
   expect(getUserPreferences('alice')).toMatchObject({ uiLanguage: 'ru', uiDensity: 'compact' });
   expect(JSON.parse(localStorage.getItem('user.preferences.pending.alice'))).toEqual({ uiDensity: 'compact' });
-  localStorage.clear(); initializeUserPreferences('alice', { uiLanguage: 'ru', uiTheme: 'dark', requestCardDesign: 'legacy' });
-  expect(getUserPreferences('alice')).toMatchObject({ uiLanguage: 'ru', uiTheme: 'dark', requestCardDesign: 'legacy' });
+  localStorage.clear(); initializeUserPreferences('alice', { chatAppearanceVersion: 1, uiLanguage: 'ru', uiTheme: 'dark', requestCardDesign: 'legacy' });
+  expect(getUserPreferences('alice')).toMatchObject({ chatAppearanceVersion: 1, uiLanguage: 'ru', uiTheme: 'dark', requestCardDesign: 'legacy' });
 });
 
 test('in-flight saves use the owning token and preserve newer pending changes across an account switch', async () => {
@@ -58,4 +58,24 @@ test('a network failure keeps personal pending settings for retry at the next lo
   expect(getUserPreferences('alice').requestCardDesign).toBe('legacy');
   configurePreferenceSync('alice', 'new-token'); await flushPreferenceSync();
   expect(JSON.parse(localStorage.getItem('user.preferences.pending.alice'))).toEqual({});
+});
+
+test.each(['employee', 'admin'])('old %s appearance migrates once and a later choice survives sign-out and stale login data', async (login) => {
+  const old = { uiDesign: 'classic', uiLanguage: 'ru', uiTheme: 'dark', uiDensity: 'compact', uiTextSize: 'large' };
+  initializeUserPreferences(login, old);
+  expect(getChatPreferences(login)).toMatchObject({ uiDesign: 'modern', uiLanguage: 'en', uiTheme: 'light', uiDensity: 'regular', uiTextSize: 'medium' });
+  authFetch.mockResolvedValue({ ok: true });
+  configurePreferenceSync(login, 'token'); await flushPreferenceSync(); stopPreferenceSync();
+  // Selecting a default value explicitly must also be saved to SQL.
+  updateUserPreferences(login, { uiDesign: 'modern' });
+  configurePreferenceSync(login, 'next-token'); await flushPreferenceSync(); stopPreferenceSync();
+  expect(JSON.parse(authFetch.mock.calls.at(-1)[1].body).preferences).toEqual({ uiDesign: 'modern' });
+  initializeUserPreferences(login, old);
+  expect(getChatPreferences(login).uiDesign).toBe('modern');
+  updateUserPreferences(login, { uiDesign: 'classic', uiLanguage: 'ru' });
+  configurePreferenceSync(login, 'last-token'); await flushPreferenceSync(); stopPreferenceSync();
+  const stored = getUserPreferences(login);
+  localStorage.clear();
+  initializeUserPreferences(login, stored);
+  expect(getChatPreferences(login)).toMatchObject({ uiDesign: 'classic', uiLanguage: 'ru', uiTheme: 'light', uiDensity: 'regular', uiTextSize: 'medium' });
 });

@@ -9,7 +9,9 @@ export const DEFAULT_CHAT_PREFERENCES = {
   showDialogFilters: false, showDialogDateJump: false, showConversationMenu: false,
   showFeedCategorySelect: false, showFeedFilters: false, enterToSend: true
 };
-export const DEFAULT_PREFERENCES = { ...DEFAULT_CHAT_PREFERENCES, loginDesign: 'service', adminTheme: 'light',
+const CHAT_APPEARANCE_VERSION = 1;
+const CHAT_APPEARANCE_KEYS = ['uiDesign', 'uiLanguage', 'uiTheme', 'uiDensity', 'uiTextSize'];
+export const DEFAULT_PREFERENCES = { ...DEFAULT_CHAT_PREFERENCES, chatAppearanceVersion: CHAT_APPEARANCE_VERSION, loginDesign: 'service', adminTheme: 'light',
   requestCardDesign: 'modern', requestViewMode: 'timeline', requestSortMode: 'date_desc', requestPageSize: '10',
   showApplicationActionHistory: false, showEditApplicationTable: false, auditTestMode: false };
 const SETTING_KEYS = {
@@ -35,17 +37,31 @@ export const getChatPreferences = (login) => {
   return Object.fromEntries(Object.keys(DEFAULT_CHAT_PREFERENCES).map((key) => [key, preferences[key]]));
 };
 export const initializeUserPreferences = (login, serverPreferences = {}, overrides = {}) => {
-  const pending = read(pendingKey(login));
+  let pending = read(pendingKey(login));
   Object.keys(overrides).forEach((key) => { delete pending[key]; });
   const legacy = read('chatLocalSettings');
-  const preferences = { ...(legacy[login] || legacy[normalize(login)] || {}), ...read(cacheKey(login)), ...serverPreferences, ...pending, ...overrides };
+  const cached = read(cacheKey(login));
+  const server = { ...serverPreferences };
+  const migrated = [cached, pending, server].some(item => item.chatAppearanceVersion === CHAT_APPEARANCE_VERSION);
+  // A response from a server that has not yet saved the migration must not
+  // roll back the appearance already selected on this device.
+  if (cached.chatAppearanceVersion === CHAT_APPEARANCE_VERSION && server.chatAppearanceVersion !== CHAT_APPEARANCE_VERSION) {
+    CHAT_APPEARANCE_KEYS.forEach(key => { delete server[key]; });
+  }
+  const preferences = { ...(legacy[login] || legacy[normalize(login)] || {}), ...cached, ...server, ...pending, ...overrides };
+  if (!migrated) {
+    const appearance = Object.fromEntries(CHAT_APPEARANCE_KEYS.map(key => [key, DEFAULT_CHAT_PREFERENCES[key]]));
+    const migration = { ...appearance, ...overrides, chatAppearanceVersion: CHAT_APPEARANCE_VERSION };
+    Object.assign(preferences, migration);
+    pending = { ...pending, ...migration };
+  }
   write(cacheKey(login), preferences); write(pendingKey(login), pending); emit(login);
   return getUserPreferences(login);
 };
 export const updateUserPreferences = (login, patch) => {
   if (!normalize(login)) return;
   const current = getUserPreferences(login);
-  const changed = Object.fromEntries(Object.entries(patch).filter(([key, value]) => key in DEFAULT_PREFERENCES && JSON.stringify(current[key]) !== JSON.stringify(value)));
+  const changed = Object.fromEntries(Object.entries(patch).filter(([key, value]) => key in DEFAULT_PREFERENCES && (CHAT_APPEARANCE_KEYS.includes(key) || JSON.stringify(current[key]) !== JSON.stringify(value))));
   if (!Object.keys(changed).length) return;
   write(cacheKey(login), { ...read(cacheKey(login)), ...changed });
   write(pendingKey(login), { ...read(pendingKey(login)), ...changed });

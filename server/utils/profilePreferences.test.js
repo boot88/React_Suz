@@ -63,3 +63,12 @@ test('daily greeting changes day at midnight in Novosibirsk, regardless of serve
   assert.equal(getWelcomeDay(new Date('2026-09-30T16:59:59Z')), '2026-09-30');
   assert.equal(getWelcomeDay(new Date('2026-09-30T17:00:00Z')), '2026-10-01');
 });
+
+test('chat appearance migration marker and chosen design persist in SQL preferences', async () => {
+  await update('alice', { chatAppearanceVersion: 1, uiDesign: 'modern', uiLanguage: 'en', uiTheme: 'light', uiDensity: 'regular', uiTextSize: 'medium' });
+  assert.equal(profiles.alice.preferences.chatAppearanceVersion, 1);
+  assert.equal(profiles.alice.preferences.uiDesign, 'modern');
+  await update('alice', { uiDesign: 'classic' });
+  assert.equal(profiles.alice.preferences.uiDesign, 'classic');
+  assert.equal(profiles.alice.preferences.chatAppearanceVersion, 1);
+});

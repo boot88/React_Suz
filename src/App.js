@@ -1,3 +1,4 @@
+import useNewApplicationCount from './hooks/useNewApplicationCount';
 import MaintenanceNotice from './components/MaintenanceNotice';
 import MandatoryPasswordChange from './components/MandatoryPasswordChange';
 import AdminNotice from './components/AdminNotice';
@@ -79,6 +80,7 @@ function App() {
 function AppWorkspace() {
   const { isAuthenticated, isLoading, user } = useAuth();
   const location = useLocation();
+  const adminRequestsCount = useNewApplicationCount(isAuthenticated && (user?.role === 'admin' || user?.serverRole === 'admin') ? user : null);
   const navigate = useNavigate();
   const [adminLanguage, setAdminLanguage] = useState(() => userSettingsStorage.getItem('adminLanguage') || 'en');
   const [adminTheme, setAdminTheme] = useState(() => userSettingsStorage.getItem('adminTheme') || 'light');
@@ -163,7 +165,7 @@ function AppWorkspace() {
 
   return (
     <div className={`app-container ${showAdminShell ? `admin-workspace admin-theme-${adminTheme}` : ''}`} data-admin-language={adminLanguage}>
-      {showAdminShell && <Sidebar language={adminLanguage} />}
+      {showAdminShell && <Sidebar language={adminLanguage} requestsCount={adminRequestsCount} />}
       <div className={`app-content ${showAdminShell ? 'app-content--with-sidebar admin-shell-content' : ''}`}>
         {isAuthenticated && preferenceSyncError && (showAdminShell ? <AdminNotice type="error">{t(preferenceSyncError, adminLanguage)} <button type="button" onClick={flushPreferenceSync}>{t('Повторить сохранение', adminLanguage)}</button></AdminNotice> : <div role="alert" className="settings-sync-error">{t(preferenceSyncError, adminLanguage)} <button type="button" onClick={flushPreferenceSync}>{t('Повторить сохранение', adminLanguage)}</button></div>)}
         {showAdminShell && <MaintenanceNotice />}
@@ -223,19 +225,14 @@ const SIDEBAR_COPY = {
   }
 };
 
-export function Sidebar({ language }) {
+export function Sidebar({ language, requestsCount }) {
   const { logout, user } = useAuth();
   const location = useLocation();
   const copy = SIDEBAR_COPY[language] || SIDEBAR_COPY.ru;
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-  const [newRequestsCount, setNewRequestsCount] = useState(() => {
-    try {
-      return Number(localStorage.getItem('cachedNewRequests') || 0);
-    } catch {
-      return 0;
-    }
-  });
+  const localRequestsCount = useNewApplicationCount(requestsCount === undefined ? user : null);
+  const newRequestsCount = requestsCount ?? localRequestsCount;
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
   // Ответы на подсчёт непрочитанных могут приходить не в том же порядке,
   // в котором были отправлены запросы. Храним версию, чтобы старый ответ
@@ -253,28 +250,7 @@ export function Sidebar({ language }) {
 
   useEffect(() => {
     let isCancelled = false;
-    let requestsBusy = false, chatBusy = false;
-    let requestsPending = false, chatPending = false;
-
-    const fetchNewRequests = async () => {
-      if (isCancelled || document.visibilityState === 'hidden') return;
-      if (requestsBusy) { requestsPending = true; return; }
-      requestsBusy = true;
-      try {
-        const adminLogin = encodeURIComponent(user?.username || user?.name || 'admin');
-        const response = await authFetch(`${API_BASE_URL}/applications/unseen-count?admin_login=${adminLogin}`);
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok || isCancelled) return;
-        const fresh = Number(data?.count || 0);
-        setNewRequestsCount(fresh);
-        localStorage.setItem('cachedNewRequests', String(fresh));
-      } catch (error) {
-        console.error('Ошибка загрузки новых заявок:', error);
-      } finally {
-        requestsBusy = false;
-        if (requestsPending) { requestsPending = false; fetchNewRequests(); }
-      }
-    };
+    let chatBusy = false, chatPending = false;
 
     const fetchChatUnread = async () => {
       if (isCancelled || document.visibilityState === 'hidden') return;
@@ -295,7 +271,6 @@ export function Sidebar({ language }) {
     };
 
     const refreshAll = () => {
-      fetchNewRequests();
       fetchChatUnread();
     };
 
@@ -314,35 +289,18 @@ export function Sidebar({ language }) {
       }
       fetchChatUnread();
     };
-    const handleApplicationStatusChanged = (event) => {
-      const from = String(event?.detail?.from || '');
-      const to = String(event?.detail?.to || '');
-      const wasNew = ['new', 'reopened'].includes(from);
-      const isNew = ['new', 'reopened'].includes(to);
-      if (wasNew !== isNew) {
-        setNewRequestsCount((current) => Math.max(0, current + (isNew ? 1 : -1)));
-      }
-      fetchNewRequests();
-    };
-
     window.addEventListener('focus', refreshAll);
     document.addEventListener('visibilitychange', refreshOnVisible);
-    window.addEventListener('applications:refresh', fetchNewRequests);
-    window.addEventListener('applications:viewed', fetchNewRequests);
     window.addEventListener('chat:read-all', fetchChatUnread);
     window.addEventListener('chat:read', handleChatRead);
-    window.addEventListener('applications:status-changed', handleApplicationStatusChanged);
 
     return () => {
       isCancelled = true;
       clearInterval(interval);
       window.removeEventListener('focus', refreshAll);
       document.removeEventListener('visibilitychange', refreshOnVisible);
-      window.removeEventListener('applications:refresh', fetchNewRequests);
-      window.removeEventListener('applications:viewed', fetchNewRequests);
       window.removeEventListener('chat:read-all', fetchChatUnread);
       window.removeEventListener('chat:read', handleChatRead);
-      window.removeEventListener('applications:status-changed', handleApplicationStatusChanged);
     };
   }, [user?.name, user?.username]);
 
