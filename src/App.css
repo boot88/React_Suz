@@ -155,8 +155,9 @@
   background: linear-gradient(180deg, #1a365d 0%, #2c5aa0 100%);
   color: white;
   padding: 0;
-  min-height: 100vh;
-  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
   position: fixed;
   top: 0;
   left: 0;
@@ -213,6 +214,7 @@
 
 .sidebar-nav {
   flex: 1;
+  min-height: 0;
   padding: 20px 15px;
   overflow-y: auto; /* Прокрутка для навигации если нужно */
 }
@@ -577,7 +579,6 @@ body {
 /* Предотвращение масштабирования на iOS */
 @supports (-webkit-touch-callout: none) {
   .app-container,
-  .sidebar,
   .app-content {
     min-height: -webkit-fill-available;
   }

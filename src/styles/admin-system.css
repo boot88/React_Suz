@@ -130,7 +130,10 @@
 /* Sidebar */
 .admin-workspace .sidebar {
   width: 264px;
-  overflow: hidden;
+  /* The menu scrolls independently; this fallback keeps the footer reachable
+     when even the header and footer exceed a very short viewport. */
+  overflow-x: hidden;
+  overflow-y: auto;
   border-right: 1px solid rgba(255, 255, 255, .1);
   background:
     radial-gradient(circle at -15% 20%, rgba(79, 134, 167, .22), transparent 17rem),
@@ -312,7 +315,8 @@
   background: rgba(255, 255, 255, .035);
   padding: 9px;
 }
-.admin-workspace .user-avatar { margin-right: 9px; }
+.admin-workspace .user-avatar { margin-right: 9px; flex-shrink: 0; }
+.admin-workspace .user-details { min-width: 0; flex: 1; }
 .admin-workspace .user-icon {
   display: grid;
   width: 31px;
@@ -325,7 +329,7 @@
   font-family: Georgia, 'Times New Roman', serif;
   font-size: 12px;
 }
-.admin-workspace .user-name { color: rgba(255, 255, 255, .86); font-size: 11px; }
+.admin-workspace .user-name { color: rgba(255, 255, 255, .86); font-size: 11px; overflow-wrap: anywhere; }
 .admin-workspace .user-role { color: rgba(255, 255, 255, .38); font-size: 9px; }
 .admin-workspace .logout-btn {
   min-height: 34px;
