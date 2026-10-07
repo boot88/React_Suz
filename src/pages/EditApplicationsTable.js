@@ -255,7 +255,7 @@ function EditApplicationsTable() {
         baselineRef.current = appToSave; clearDraft();
         window.dispatchEvent(new Event('applications:refresh'));
         if (directEditingMode) {
-          navigate('/');
+          navigate('/', { state: { savedApplicationId: appToSave.id } });
         } else {
           await fetchApplications();
           setEditing(false);

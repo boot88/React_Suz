@@ -17,9 +17,11 @@ import { initializeUserPreferences, userSettingsStorage } from '../utils/userPre
 import { translateAdminText, getAdminLocale } from '../utils/adminTranslation';
 
 const mockNavigate = jest.fn();
+let mockRouteState = null;
+let mockEditId;
 
 jest.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { username: 'admin', name: 'Повисок Евгений Вячеславович', role: 'admin', accessToken: JSON.parse(global.localStorage.getItem('authState') || '{}')?.user?.accessToken }, isLoading: false }) }));
-jest.mock('react-router-dom', () => ({ useNavigate: () => mockNavigate, useLocation: () => ({ pathname: '/', search: '' }), useParams: () => ({}) }));
+jest.mock('react-router-dom', () => ({ useNavigate: () => mockNavigate, useLocation: () => ({ pathname: '/', search: '', state: mockRouteState }), useParams: () => ({ id: mockEditId }) }));
 jest.mock('../utils/authFetch', () => ({ authFetch: jest.fn(), withAccessToken: (url) => url }));
 jest.mock('recharts', () => {
   const React = require('react');
@@ -45,6 +47,7 @@ beforeEach(() => {
   localStorage.setItem('authState', JSON.stringify({ user: { username: 'admin' } }));
   initializeUserPreferences('admin', { uiLanguage: 'en', requestViewMode: 'table' });
   mockNavigate.mockReset();
+  mockRouteState = null; mockEditId = undefined;
   authFetch.mockReset();
   authFetch.mockImplementation(async (url, options) => {
     let data = {};
@@ -637,4 +640,54 @@ test('editing blocks invalid fields and exposes a version conflict without disca
   expect(container.textContent).toContain('Another administrator has changed this request.');
   expect(container.querySelector('[name="application"]').value).toBe('My unsaved changes');
   expect(container.textContent).toContain('Load the current version');
+});
+
+test.each(['en', 'ru'])('direct request editing hands a confirmed save to the list in %s and consumes the notification', async language => {
+  jest.useFakeTimers();
+  try {
+    mockEditId = '7';
+    await setLanguage(language);
+    let finishSave;
+    authFetch.mockImplementation(async (url, options) => {
+      if (options?.method === 'PUT') return new Promise(resolve => { finishSave = resolve; });
+      const data = url.endsWith('/applications/7') ? { application: { ...application, revision: 2 } }
+        : url.includes('/applications') ? { applications: [application], totalPages: 1, stats: { total: 1 } } : { employees: [] };
+      return { ok: true, json: async () => data };
+    });
+    await render(<EditApplicationsTable />);
+    act(() => Simulate.change(container.querySelector('[name="application"]'), { target: { name: 'application', value: 'Edited description' } }));
+    await act(async () => Simulate.click(container.querySelector('.save-button')));
+    expect(mockNavigate).not.toHaveBeenCalled(); expect(container.querySelector('.save-button').disabled).toBe(true);
+    await act(async () => finishSave({ ok: true, json: async () => ({ application }) }));
+    expect(mockNavigate).toHaveBeenCalledWith('/', { state: { savedApplicationId: 7 } });
+    mockRouteState = mockNavigate.mock.calls.at(-1)[1].state;
+    await render(<Dashboard />);
+    const message = language === 'ru' ? 'Изменения заявки #7 успешно сохранены.' : 'Changes to request #7 saved successfully.';
+    expect(container.querySelector('.admin-notice--floating[role=status]').textContent).toContain(message);
+    expect(mockNavigate).toHaveBeenLastCalledWith(expect.objectContaining({ pathname: '/' }), { replace: true, state: null });
+    await act(async () => jest.advanceTimersByTime(5000));
+    expect(container.querySelector('.admin-notice--floating').textContent).toContain(message);
+    if (language === 'ru') {
+      await act(async () => Simulate.click(container.querySelector('.admin-notice-dismiss')));
+    } else {
+      await act(async () => jest.advanceTimersByTime(3000));
+    }
+    expect(container.querySelector('.admin-notice--floating')).toBeNull();
+    // Reopening the list with the consumed navigation state shows no old success.
+    mockRouteState = null;
+    await render(<div />); await render(<Dashboard />);
+    expect(container.querySelector('.admin-notice--floating')).toBeNull();
+  } finally { jest.useRealTimers(); }
+});
+
+test('a rejected direct edit remains in the form without navigating or showing a successful save', async () => {
+  mockEditId = '7';
+  authFetch.mockImplementation(async (url, options) => options?.method === 'PUT'
+    ? { ok: false, status: 409, json: async () => ({ error: 'Заявка изменена другим администратором. Загрузите актуальную версию перед сохранением.' }) }
+    : { ok: true, json: async () => url.endsWith('/applications/7') ? { application: { ...application, revision: 2 } } : { employees: [] } });
+  await render(<EditApplicationsTable />);
+  act(() => Simulate.change(container.querySelector('[name="application"]'), { target: { name: 'application', value: 'Keep this text' } }));
+  await act(async () => Simulate.click(container.querySelector('.save-button')));
+  expect(mockNavigate).not.toHaveBeenCalled(); expect(container.querySelector('[name="application"]').value).toBe('Keep this text');
+  expect(container.querySelector('.admin-notice--error')).not.toBeNull(); expect(container.querySelector('.admin-notice--success')).toBeNull();
 });

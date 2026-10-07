@@ -348,6 +348,22 @@ const Dashboard = () => {
   const [showApplicationActionHistory, setShowApplicationActionHistory] = useState(() => userSettingsStorage.getItem(SHOW_APPLICATION_ACTION_HISTORY_KEY) === 'true');
   const [workflowModal, setWorkflowModal] = useState(null);
   const [toast, setToast] = useState(null);
+  useEffect(() => {
+    const id = location.state?.savedApplicationId;
+    if (!/^[1-9]\d*$/.test(String(id || ''))) return;
+    setToast({ message: `Изменения заявки #${id} успешно сохранены.`, type: 'success', duration: 8000 });
+    // Consume the confirmation so reload/Back cannot report an old save again.
+    const nextState = { ...location.state };
+    delete nextState.savedApplicationId;
+    navigate({ pathname: location.pathname, search: location.search, hash: location.hash }, {
+      replace: true, state: Object.keys(nextState).length ? nextState : null
+    });
+  }, [location.state, location.pathname, location.search, location.hash, navigate]);
+  useEffect(() => {
+    if (!toast) return undefined;
+    const timer = window.setTimeout(() => setToast(null), toast.duration || 3600);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
   const [dashboardNow, setDashboardNow] = useState(Date.now());
   const applicationsRequestIdRef = useRef(0);
   const applicationsRequestUrlRef = useRef('');
@@ -609,8 +625,6 @@ const Dashboard = () => {
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
-    window.clearTimeout(showToast.timer);
-    showToast.timer = window.setTimeout(() => setToast(null), 3600);
   };
 
   const eventsRequestRef = useRef(0);
@@ -1811,7 +1825,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      {toast && <AdminNotice type={toast.type} className="admin-notice--floating">{t(toast.message)}</AdminNotice>}
+      {toast && <AdminNotice type={toast.type} className="admin-notice--floating" onDismiss={() => setToast(null)} dismissLabel={t('Закрыть уведомление')}>{t(toast.message)}</AdminNotice>}
     </div>
   );
 };

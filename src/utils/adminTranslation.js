@@ -21,6 +21,7 @@ export const useAdminTranslation = () => {
 // Match complete UI messages. Captured names, file names and search queries
 // are preserved; there are no global replacements in user-entered content.
 const MESSAGE_TRANSLATIONS = [
+  [/^Изменения заявки #(\d+) успешно сохранены\.$/, (_, id) => `Changes to request #${id} saved successfully.`],
   [/^Максимум (\d+) символов$/, (_, count) => `Maximum ${count} characters`],
   [/^Закрыто: (\d+)\. Не удалось: (\d+)\.$/, (_, succeeded, failed) => `Closed: ${succeeded}. Failed: ${failed}.`],
   [/^Новых аккаунтов: (\d+)\. Для новых администраторов выданы индивидуальные временные пароли\.$/, (_, count) => `New accounts: ${count}. New administrators have individual temporary passwords.`],
