@@ -385,7 +385,7 @@ export const ADMIN_TRANSLATIONS = {
   "Сотрудник подал заявку, ожидает взятия в работу.": "The employee submitted a request. It is waiting for work to start.",
   "Заявка переоткрыта сотрудником, ожидает взятия в работу.": "The employee reopened the request. It is waiting for work to start.",
   "Заявка в работе (назначена исполнителю).": "The request is in progress and assigned.",
-  "Заявка в работе. Закроет сотрудник либо администратор через редактирование.": "The request is in progress. The employee can close it, or an administrator can close it through editing.",
+  "Заявка в работе. Закроет сотрудник либо администратор.": "The request is in progress. The employee or an administrator can close it.",
   "Работа выполнена. Заявку можно закрыть сотруднику или администратору.": "Work is complete. The employee or an administrator can close the request.",
   "Заявка закрыта.": "The request is closed.",
   "Статус заявки уточняется.": "Request status is being checked.",
