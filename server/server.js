@@ -27,6 +27,7 @@ const {
   normalizeApplicationStatus
 } = require('./utils/applicationWorkflow');
 
+const { createApplicationCancellationHandler } = require('./routes/applicationCancellation');
 const app = express();
 const PORT = Number(process.env.PORT || 5000);
 
@@ -550,9 +551,9 @@ const getApplicationById = async (id) => {
   return application || null;
 };
 
-const getApplicationByIdForUpdate = async (executor, id) => {
+const getApplicationByIdForUpdate = async (executor, id, includeDeleted = false) => {
   const [rows] = await executor.execute(
-    `SELECT ${APPLICATION_WORKFLOW_COLUMNS} FROM application WHERE \`id\` = ? AND \`deleted_at\` IS NULL FOR UPDATE`,
+    `SELECT ${APPLICATION_WORKFLOW_COLUMNS} FROM application WHERE \`id\` = ? ${includeDeleted ? '' : 'AND `deleted_at` IS NULL'} FOR UPDATE`,
     [id]
   );
   return rows?.[0] ? normalizeApplication(rows[0]) : null;
@@ -789,7 +790,7 @@ app.get('/api/applications/my', requireAuth, async (req, res) => {
   try {
     await ensureApplicationWorkflowSchema();
     const [applications] = await pool.execute(
-      `SELECT ${APPLICATION_WORKFLOW_COLUMNS} FROM application WHERE LOWER(\`employee_login\`) = ? AND \`deleted_at\` IS NULL ORDER BY \`data\` DESC LIMIT 100`,
+      `SELECT ${APPLICATION_WORKFLOW_COLUMNS} FROM application WHERE LOWER(\`employee_login\`) = ? AND \`deleted_at\` IS NULL ${orderApplications('date_desc')} LIMIT 100`,
       [login]
     );
     res.json({ applications: applications.map(normalizeApplication) });
@@ -1300,6 +1301,14 @@ app.post('/api/applications/:id/pause-overdue', requireAuth, requireRole('admin'
     res.status(500).json({ error: 'Не удалось остановить таймер просрочки' });
   }
 });
+
+app.post('/api/applications/:id/cancel', requireAuth, createApplicationCancellationHandler({
+  ensureSchema: ensureApplicationWorkflowSchema,
+  withTransaction: withApplicationTransaction,
+  getForUpdate: getApplicationByIdForUpdate,
+  addEvent: addApplicationEvent,
+  publish: publishApplicationUpdate
+}));
 
 app.delete('/api/applications/:id', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
   try {

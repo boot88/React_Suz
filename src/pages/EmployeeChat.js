@@ -1,3 +1,5 @@
+import useApplicationCancellation from '../components/employeeChat/useApplicationCancellation';
+import { mergeEmployeeApplications } from '../utils/employeeApplications';
 import useProfilePassword from '../components/employeeChat/useProfilePassword';
 import useEmployeeProfile from '../components/employeeChat/useEmployeeProfile';
 import AvatarCropDialog from '../components/employeeChat/AvatarCropDialog';
@@ -242,6 +244,9 @@ const EmployeeChat = ({ adminSection = null }) => {
   const [requestPriority, setRequestPriority] = useState(REQUEST_PRIORITIES[0]);
   const [requestStatus, setRequestStatus] = useState({ state: 'idle', text: 'Черновик', ticketId: '' });
   const [myApplications, setMyApplications] = useState([]);
+  const deletedApplicationIdsRef = useRef(new Set());
+  const myApplicationsRequestRef = useRef(0);
+  const myApplicationsMutationRef = useRef(0);
   const [applicationsLoading, setApplicationsLoading] = useState(false);
   const [applicationsError, setApplicationsError] = useState('');
   const [remoteTypingByConversation, setRemoteTypingByConversation] = useState({});
@@ -1289,21 +1294,25 @@ const EmployeeChat = ({ adminSection = null }) => {
 
   const fetchMyApplications = useCallback(async ({ silent = true } = {}) => {
     if (!user?.username) return;
+    const request = ++myApplicationsRequestRef.current;
+    const mutation = myApplicationsMutationRef.current;
     if (!silent) setApplicationsLoading(true);
     try {
       const response = await authFetch(`${API_BASE_URL}/applications/my`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || data.message || 'Не удалось загрузить заявки');
-      setMyApplications(Array.isArray(data?.applications) ? data.applications : []);
+      if (request !== myApplicationsRequestRef.current) return;
+      setMyApplications(current => mergeEmployeeApplications(current, Array.isArray(data?.applications) ? data.applications : [], deletedApplicationIdsRef.current, mutation === myApplicationsMutationRef.current));
       setApplicationsError('');
     } catch (error) {
+      if (request !== myApplicationsRequestRef.current) return;
       const message = error.message || 'Не удалось загрузить заявки';
       if (!silent) {
         setApplicationsError(message);
         notifyRef.current(message, 'Заявки');
       }
     } finally {
-      if (!silent) setApplicationsLoading(false);
+      if (request === myApplicationsRequestRef.current) setApplicationsLoading(false);
     }
   }, [user?.username]);
 
@@ -2323,7 +2332,7 @@ const EmployeeChat = ({ adminSection = null }) => {
           throw new Error(data.error || data.message || 'Не удалось отправить заявку');
         }
         const createdTicket = data?.application || null;
-        if (createdTicket) setMyApplications((prev) => [createdTicket, ...prev.filter((item) => item.id !== createdTicket.id)]);
+        if (createdTicket) { myApplicationsMutationRef.current += 1; setMyApplications(prev => mergeEmployeeApplications(prev, [createdTicket], deletedApplicationIdsRef.current)); }
         setRequestStatus({ state: 'sent', textKey: 'requestSubmitted', text: '', ticketId: data?.id || data?.insertId || createMessageId().slice(0, 8) });
         setRequestText('');
         return;
@@ -2340,7 +2349,8 @@ const EmployeeChat = ({ adminSection = null }) => {
 
   const refreshApplicationInList = (application) => {
     if (!application) return;
-    setMyApplications((prev) => [application, ...prev.filter((item) => item.id !== application.id)]);
+    myApplicationsMutationRef.current += 1;
+    setMyApplications(prev => mergeEmployeeApplications(prev, [application], deletedApplicationIdsRef.current));
   };
 
   useEffect(() => {
@@ -2351,10 +2361,15 @@ const EmployeeChat = ({ adminSection = null }) => {
       try {
         const payload = JSON.parse(event.data || '{}');
         const application = payload?.application;
-        if (!application?.id) return;
+        if (!application?.id || !sameLogin(application.employee_login, user.username)) return;
+        myApplicationsMutationRef.current += 1;
+        if (payload.eventType === 'deleted' || application.deleted_at) {
+          deletedApplicationIdsRef.current.add(String(application.id));
+          setRequestStatus(current => String(current.ticketId) === String(application.id) ? { state: 'idle', text: '', ticketId: '' } : current);
+        }
         setMyApplications((previous) => payload.eventType === 'deleted'
-          ? previous.filter((item) => item.id !== application.id)
-          : [application, ...previous.filter((item) => item.id !== application.id)]);
+          ? previous.filter((item) => String(item.id) !== String(application.id))
+          : mergeEmployeeApplications(previous, [application], deletedApplicationIdsRef.current));
       } catch { /* Ignore a malformed realtime event and keep the current list. */ }
     };
     stream.addEventListener('application', onApplication);
@@ -2362,7 +2377,19 @@ const EmployeeChat = ({ adminSection = null }) => {
       stream.removeEventListener('application', onApplication);
       stream.close();
     };
-  }, [user?.accessToken]);
+  }, [user?.accessToken, user?.username]);
+
+  const markApplicationCancelled = id => {
+    deletedApplicationIdsRef.current.add(String(id));
+    myApplicationsMutationRef.current += 1;
+    setMyApplications(current => current.filter(item => String(item.id) !== String(id)));
+    setRequestStatus(current => String(current.ticketId) === String(id) ? { state: 'idle', text: '', ticketId: '' } : current);
+    window.dispatchEvent(new Event('applications:refresh'));
+  };
+  const { cancelApplication, cancellingApplicationIds, cancellationErrors, cancellationNotice } = useApplicationCancellation({
+    english: isEnglishInterface, confirmAction, onCancelled: markApplicationCancelled,
+    refresh: () => fetchMyApplications({ silent: true })
+  });
 
   const confirmApplicationDone = async (applicationId) => {
     const employeeComment = await promptAction('Если хотите, оставьте комментарий к закрытию заявки. Можно оставить пустым.', '', 'Комментарий к закрытию');
@@ -3005,7 +3032,7 @@ const EmployeeChat = ({ adminSection = null }) => {
     )).length;
     return count + postUnread + commentsUnread;
   }, 0);
-  const requestBadge = activeApplications.length || (requestStatus.state === 'sent' ? 1 : 0);
+  const requestBadge = activeApplications.length;
   const normalizedDialogSearch = normalizeText(dialogSearch);
   const visibleMessages = useMemo(() => {
     const now = Date.now();
@@ -4138,7 +4165,7 @@ const EmployeeChat = ({ adminSection = null }) => {
         )}
 
         {activeTab === 'request' && !isManager && (
-          <EmployeeRequestsWorkspace REQUEST_CATEGORIES={REQUEST_CATEGORIES} REQUEST_PRIORITIES={REQUEST_PRIORITIES} RequestTimerMetrics={RequestTimerMetrics} activeApplications={activeApplications} applicationsError={applicationsError} applicationsLoading={applicationsLoading} completedApplications={completedApplications} confirmApplicationDone={confirmApplicationDone} fetchMyApplications={fetchMyApplications} formatApplicationDateTime={formatApplicationDateTime} getApplicationStatusMeta={getApplicationStatusMeta} getApplicationTiming={getApplicationTiming} getRequestCategoryLabel={getRequestCategoryLabel} getRequestPriorityLabel={getRequestPriorityLabel} interfaceLocale={interfaceLocale} isEnglishInterface={isEnglishInterface} localizeRuntimeText={localizeRuntimeText} reopenApplication={reopenApplication} requestCategory={requestCategory} requestPriority={requestPriority} requestStatus={requestStatus} requestText={requestText} setRequestCategory={setRequestCategory} setRequestPriority={setRequestPriority} setRequestText={setRequestText} submitRequest={submitRequest} t={t} />
+          <EmployeeRequestsWorkspace cancelApplication={cancelApplication} cancellingApplicationIds={cancellingApplicationIds} cancellationErrors={cancellationErrors} cancellationNotice={cancellationNotice} REQUEST_CATEGORIES={REQUEST_CATEGORIES} REQUEST_PRIORITIES={REQUEST_PRIORITIES} RequestTimerMetrics={RequestTimerMetrics} activeApplications={activeApplications} applicationsError={applicationsError} applicationsLoading={applicationsLoading} completedApplications={completedApplications} confirmApplicationDone={confirmApplicationDone} fetchMyApplications={fetchMyApplications} formatApplicationDateTime={formatApplicationDateTime} getApplicationStatusMeta={getApplicationStatusMeta} getApplicationTiming={getApplicationTiming} getRequestCategoryLabel={getRequestCategoryLabel} getRequestPriorityLabel={getRequestPriorityLabel} interfaceLocale={interfaceLocale} isEnglishInterface={isEnglishInterface} localizeRuntimeText={localizeRuntimeText} reopenApplication={reopenApplication} requestCategory={requestCategory} requestPriority={requestPriority} requestStatus={requestStatus} requestText={requestText} setRequestCategory={setRequestCategory} setRequestPriority={setRequestPriority} setRequestText={setRequestText} submitRequest={submitRequest} t={t} />
         )}
 
         {activeTab === 'broadcast' && isAdmin && <AdminBroadcastWorkspace login={user.username} uploadFile={uploadAttachmentFile} confirmAction={confirmAction} isEnglish={isEnglishInterface} onSent={() => fetchThreadsRef.current?.()} />}

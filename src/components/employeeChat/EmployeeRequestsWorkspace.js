@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function EmployeeRequestsWorkspace({ REQUEST_CATEGORIES, REQUEST_PRIORITIES, RequestTimerMetrics, activeApplications, applicationsError, applicationsLoading, completedApplications, confirmApplicationDone, fetchMyApplications, formatApplicationDateTime, getApplicationStatusMeta, getApplicationTiming, getRequestCategoryLabel, getRequestPriorityLabel, interfaceLocale, isEnglishInterface, localizeRuntimeText, reopenApplication, requestCategory, requestPriority, requestStatus, requestText, setRequestCategory, setRequestPriority, setRequestText, submitRequest, t }) {
+export default function EmployeeRequestsWorkspace({ cancelApplication, cancellingApplicationIds = [], cancellationErrors = {}, cancellationNotice = '', REQUEST_CATEGORIES, REQUEST_PRIORITIES, RequestTimerMetrics, activeApplications, applicationsError, applicationsLoading, completedApplications, confirmApplicationDone, fetchMyApplications, formatApplicationDateTime, getApplicationStatusMeta, getApplicationTiming, getRequestCategoryLabel, getRequestPriorityLabel, interfaceLocale, isEnglishInterface, localizeRuntimeText, reopenApplication, requestCategory, requestPriority, requestStatus, requestText, setRequestCategory, setRequestPriority, setRequestText, submitRequest, t }) {
   return (<div className="request-workspace">
             <header className="section-hero">
               <span className="eyebrow">{t('requestEyebrow')}</span>
@@ -13,6 +13,7 @@ export default function EmployeeRequestsWorkspace({ REQUEST_CATEGORIES, REQUEST_
                 {requestStatus.ticketId && <span>{t('ticketNumber')}: #{requestStatus.ticketId}</span>}
               </div>
             )}
+            {cancellationNotice && <div className="request-status-card sent" role="status">{cancellationNotice}</div>}
             <details className="request-support-card"><summary>{t('techSupportContacts')}</summary>
               <div>
                 <span className="eyebrow">{t('techSupport')}</span>
@@ -42,6 +43,7 @@ export default function EmployeeRequestsWorkspace({ REQUEST_CATEGORIES, REQUEST_
               {activeApplications.length === 0 && <div className="empty-mini">{t('noActiveRequests')}</div>}
               {activeApplications.map((ticket) => {
                 const meta = getApplicationStatusMeta(ticket.status, isEnglishInterface);
+                const cancelling = cancellingApplicationIds.includes(String(ticket.id));
                 return (
                   <article key={ticket.id} className={`employee-ticket-card ${meta.tone}`}>
                     <header><div><strong>#{ticket.id} · {meta.label}</strong><span>{getRequestCategoryLabel(ticket.category || 'Другое')} · {getRequestPriorityLabel(ticket.priority || 'Обычный')}</span></div><em>{meta.hint}</em></header>
@@ -50,7 +52,9 @@ export default function EmployeeRequestsWorkspace({ REQUEST_CATEGORIES, REQUEST_
                     {(ticket.executor || ticket.accepted_by || ticket.admin_comment || ticket.eta_minutes) && <div className="ticket-admin-note"><strong>{ticket.executor || ticket.accepted_by || t('administrator')}</strong><span>{ticket.admin_comment || (ticket.eta_minutes ? t('administratorEta').replace('{minutes}', ticket.eta_minutes) : t('administratorAccepted'))}</span></div>}
                     {Array.isArray(ticket.timeline) && <ol className="ticket-timeline" aria-label={isEnglishInterface ? 'Request progress' : 'Ход заявки'}>{ticket.timeline.filter((step) => step.completed && (step.key === 'created' || step.key === 'done' || step.key.startsWith('accepted'))).map((step) => <li key={step.key} className="completed"><span>{isEnglishInterface && step.key.startsWith('accepted') ? (step.key === 'accepted_1' || step.key === 'accepted' ? 'Taken into work' : 'Taken into work again') : step.label}</span><time>{formatApplicationDateTime(step.at, interfaceLocale)}</time></li>)}</ol>}
                     {ticket.process && <div className="ticket-admin-note"><strong>{t('workCompleted')}</strong><span>{ticket.process}</span></div>}
-                    {['in_progress', 'waiting_employee_confirmation'].includes(ticket.status) && <div className="ticket-actions"><button type="button" onClick={() => confirmApplicationDone(ticket.id)}>✅ {t('requestDone')}</button><button type="button" onClick={() => reopenApplication(ticket.id)}>{t('issueRemains')}</button></div>}
+                    {['in_progress', 'waiting_employee_confirmation'].includes(ticket.status) && <div className="ticket-actions"><button type="button" disabled={cancelling} onClick={() => confirmApplicationDone(ticket.id)}>✅ {t('requestDone')}</button><button type="button" disabled={cancelling} onClick={() => reopenApplication(ticket.id)}>{t('issueRemains')}</button></div>}
+                    {ticket.source === 'chat' && <div className="ticket-actions"><button type="button" className="ticket-cancel-btn" disabled={cancelling} onClick={() => cancelApplication(ticket.id)}>{cancelling ? (isEnglishInterface ? 'Cancelling…' : 'Отмена…') : (isEnglishInterface ? 'Cancel request' : 'Отменить заявку')}</button></div>}
+                    {cancellationErrors[String(ticket.id)] && <p className="request-inline-error" role="alert">{cancellationErrors[String(ticket.id)]}</p>}
                   </article>
                 );
               })}
