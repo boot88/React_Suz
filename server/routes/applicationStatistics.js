@@ -14,6 +14,9 @@ const matches = (executor, selected) => {
 const CREATED = 'COALESCE(created_at, CAST(data AS DATETIME))';
 const CLOSED = "CASE WHEN fl = 1 OR status = 'done' THEN COALESCE(employee_confirmed_at, end_data, resolved_at) ELSE NULL END";
 const BASE = `SELECT executor, COALESCE(status, 'new') AS status, COALESCE(fl, 0) AS fl, ${CREATED} AS created, ${CLOSED} AS closed FROM application WHERE deleted_at IS NULL`;
+// Для суточной разбивки состояние заявки считаем внутри подзапроса: только так
+// GROUP BY не ссылается на `fl`/`status` напрямую и работает с only_full_group_by.
+const BASE_STATES = `SELECT executor, ${CREATED} AS created, CASE WHEN fl = 1 OR status = 'done' THEN 'done' ELSE COALESCE(status, 'new') END AS state FROM application WHERE deleted_at IS NULL`;
 const sqlDate = (ms) => new Date(ms).toISOString().slice(0, 23).replace('T', ' ');
 const options = (query) => {
   const days = query.days === 'all' ? null : Number(query.days || 90);
@@ -31,7 +34,7 @@ function createStatisticsRouter(pool) {
     const now = Date.now(), end = now + 1, start = days ? end - days * 86400000 : null;
     try {
       const [meta] = await pool.execute(`SELECT MIN(${CREATED}) AS earliest FROM application WHERE deleted_at IS NULL`);
-      const [groups] = await pool.execute(`SELECT DATE_FORMAT(DATE_ADD(created, INTERVAL 7 HOUR), '%Y-%m-%d') AS day, executor, CASE WHEN fl = 1 OR status = 'done' THEN 'done' ELSE COALESCE(status, 'new') END AS status, COUNT(*) AS count FROM (${BASE}) records WHERE created < ? ${start ? 'AND created >= ?' : ''} GROUP BY day, executor, status`, start ? [sqlDate(end), sqlDate(start)] : [sqlDate(end)]);
+      const [groups] = await pool.execute(`SELECT DATE_FORMAT(DATE_ADD(created, INTERVAL 7 HOUR), '%Y-%m-%d') AS day, executor, state AS status, COUNT(*) AS count FROM (${BASE_STATES}) records WHERE created < ? ${start ? 'AND created >= ?' : ''} GROUP BY day, executor, state`, start ? [sqlDate(end), sqlDate(start)] : [sqlDate(end)]);
       let comparison = null;
       if (days) {
         const previousStart = start - days * 86400000;

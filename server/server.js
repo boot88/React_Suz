@@ -26,6 +26,7 @@ const {
   assertApplicationTransition,
   normalizeApplicationStatus
 } = require('./utils/applicationWorkflow');
+const { readCorsOrigins, isAllowedCorsOrigin } = require('./utils/corsPolicy');
 
 const { createApplicationCancellationHandler } = require('./routes/applicationCancellation');
 const app = express();
@@ -34,6 +35,15 @@ const PORT = Number(process.env.PORT || 5000);
 if (process.env.NODE_ENV === 'production') {
   app.set('trust proxy', 1);
 }
+
+// Служба отдаётся по обычному HTTP (внутри локальной сети), поэтому:
+//   • upgrade-insecure-requests браузер понимает буквально и переписывает запросы
+//     к ./static/js/main.<hash>.js, favicon.ico, manifest.json и картинкам с http
+//     на https. HTTPS на этом порту нет: файлы не загружаются, React не стартует
+//     и остаётся пустая белая страница. Директива отключена.
+//   • HSTS по http браузеры игнорируют; он нужен только за https-прокси и
+//     включается переменной ENABLE_HSTS=1.
+const hstsEnabled = process.env.ENABLE_HSTS === '1';
 
 app.use(helmet({
   contentSecurityPolicy: process.env.DISABLE_CSP === '1'
@@ -49,42 +59,38 @@ app.use(helmet({
           fontSrc: ["'self'", 'data:'],
           objectSrc: ["'none'"],
           frameAncestors: ["'self'"],
-          baseUri: ["'self'"]
+          baseUri: ["'self'"],
+          // null — директива не добавляется в заголовок CSP.
+          upgradeInsecureRequests: null
         }
       },
+  // strictTransportSecurity: false — заголовок HSTS не отправляем по http.
+  ...(hstsEnabled ? {} : { strictTransportSecurity: false }),
   crossOriginEmbedderPolicy: false,
   referrerPolicy: { policy: 'no-referrer' }
 }));
 
 // Middleware
-const isAllowedCorsOrigin = (origin) => {
-  if (!origin) return true;
-  if (process.env.NODE_ENV === 'production') {
-    return origin === 'https://react-suz.onrender.com';
-  }
-
-  try {
-    const { hostname } = new URL(origin);
-    return (
-      hostname === 'localhost'
-      || hostname === '127.0.0.1'
-      || /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname)
-      || /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)
-      || /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(hostname)
-    );
-  } catch {
-    return false;
-  }
-};
-
-app.use(cors({
-  origin(origin, callback) {
-    if (isAllowedCorsOrigin(origin)) return callback(null, true);
-    return callback(new Error('CORS origin is not allowed'));
-  },
+// Правило источников вынесено в server/utils/corsPolicy.js: браузер присылает
+// заголовок Origin даже для запросов к тому же серверу, поэтому в боевом режиме
+// кроме облачного адреса разрешён и собственный адрес сайта (Origin совпадает с
+// Host запроса). Иначе вход и чат отвечали 500 «CORS origin is not allowed» на
+// http://192.168.129.31:3000. Дополнительные адреса — в CORS_ORIGINS через запятую.
+const extraCorsOrigins = readCorsOrigins(process.env.CORS_ORIGINS);
+const corsOptions = {
+  // origin: true — в ответе повторяется источник запроса (нужно при credentials: true).
+  origin: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   credentials: true,
   exposedHeaders: ['Content-Type', 'Authorization']
+};
+
+app.use(cors((req, callback) => {
+  const { origin, host } = req.headers;
+  if (isAllowedCorsOrigin(origin, host, { extraOrigins: extraCorsOrigins })) {
+    return callback(null, corsOptions);
+  }
+  return callback(new Error('CORS origin is not allowed'));
 }));
 app.use(backupGate);
 app.use('/api/backups', adminBackupRoutes);
@@ -1370,16 +1376,43 @@ app.use((err, req, res, next) => {
 
 // ✅ ОБСЛУЖИВАНИЕ СТАТИЧЕСКИХ ФАЙЛОВ ДЛЯ RENDER
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../build')));
-  
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../build', 'index.html'));
+  const buildDir = path.join(__dirname, '../build');
+
+  // Файлы с хешем в имени (main.<hash>.js, <hash>.chunk.css, static/media/*)
+  // можно кэшировать надолго: после новой сборки у них другое имя.
+  // index.html кэшировать нельзя — в нём ссылки на конкретные хеши, и старая
+  // копия в браузере заставляет искать бандл, которого уже нет (белая страница).
+  app.use(express.static(buildDir, {
+    index: false,
+    setHeaders: (res, filePath) => {
+      const isHashedAsset = /[.-][0-9a-f]{8,}\.(?:js|css|png|jpe?g|gif|svg|webp|avif|woff2?|ttf|eot)$/i.test(filePath);
+      if (isHashedAsset || filePath.includes(`${path.sep}static${path.sep}`)) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      } else {
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+      }
+    }
+  }));
+
+  app.get('*', (req, res, next) => {
+    // Запрос отсутствующего файла (старый бандл после обновления, картинка)
+    // не должен получать index.html: с nosniff браузер откажется исполнять HTML
+    // как JavaScript, и страница станет пустой. Отвечаем честным 404.
+    const looksLikeAsset = req.path.startsWith('/static/')
+      || /\.(?:js|mjs|css|map|json|txt|xml|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|eot|mp4|webm|mp3|pdf|zip|wasm)$/i.test(req.path);
+    if (looksLikeAsset) return res.status(404).type('txt').send('404 Not Found');
+
+    // SPA: любой клиентский маршрут отдаёт свежий index.html без кэша.
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    return res.sendFile(path.join(buildDir, 'index.html'), (error) => {
+      if (error) next(error);
+    });
   });
 }
 
 // Клиент разработки обращается к API на порту 5000. Не переключаемся на другой
 // порт молча: иначе новый интерфейс начинает работать со старым сервером.
-const startServer = (port) => {
+const startServer = (port, { fatal = true } = {}) => {
   const server = app.listen(port, '0.0.0.0', () => {
     console.log(`✅ Сервер запущен на порту ${port}`);
     console.log(`✅ Режим: ${process.env.NODE_ENV || 'development'}`);
@@ -1388,6 +1421,8 @@ const startServer = (port) => {
   server.on('error', (error) => {
     if (error.code === 'EADDRINUSE') {
       console.error(`❌ Порт ${port} занят. Остановите предыдущий запуск проекта и запустите npm run dev снова.`);
+      // Дополнительный порт просто пропускаем: основной обязан работать.
+      if (!fatal) return;
     } else {
       console.error('❌ Не удалось запустить сервер:', error.message);
     }
@@ -1395,5 +1430,17 @@ const startServer = (port) => {
   });
 };
 
-if (require.main === module) startServer(PORT);
+const parsePorts = (value) => String(value || '')
+  .split(',')
+  .map((item) => Number(item.trim()))
+  .filter((port) => Number.isInteger(port) && port > 0 && port <= 65535);
+
+if (require.main === module) {
+  startServer(PORT);
+  // Дополнительные порты (через запятую). Нужны, чтобы после переезда на новый
+  // порт продолжали открываться старые ссылки: EXTRA_PORTS=5000 npm start.
+  parsePorts(process.env.EXTRA_PORTS)
+    .filter((port) => port !== PORT)
+    .forEach((port) => startServer(port, { fatal: false }));
+}
 module.exports = { app };

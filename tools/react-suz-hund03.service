@@ -1,0 +1,28 @@
+[Unit]
+# Боевая служба React_Suz для сервера hund03: production-сборка + API на одном порту.
+# Пользовательская служба (systemctl --user) + linger -> автозапуск при включении
+# компьютера без входа в систему. Устанавливается скриптом hund03-setup-service.sh.
+Description=React_Suz (ITS) - боевая версия на hund03, порт 3000
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/qwest/React_Suz
+Environment=NODE_ENV=production
+# Основной адрес: http://<ip>:3000
+Environment=PORT=3000
+# Старые ссылки на порт 5000 продолжают работать (одна и та же служба).
+# Убрать строку — и порт 5000 освободится.
+Environment=EXTRA_PORTS=5000
+Environment=HOME=/home/qwest
+Environment=USER=qwest
+Environment=PATH=/home/qwest/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/node /home/qwest/React_Suz/server/server.js
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+StandardOutput=append:/home/qwest/react-suz.log
+StandardError=append:/home/qwest/react-suz.log
+
+[Install]
+WantedBy=default.target
