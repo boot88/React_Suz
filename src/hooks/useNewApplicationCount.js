@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { authFetch } from '../utils/authFetch';
+import { createApplicationCountFavicon } from '../utils/applicationCountFavicon';
 
 export default function useNewApplicationCount(user) {
   const login = user?.username || user?.name || '';
@@ -10,6 +11,7 @@ export default function useNewApplicationCount(user) {
   useEffect(() => {
     if (!login) return undefined;
     const originalTitle = baseTitle.current;
+    const favicon = createApplicationCountFavicon();
     let active = true, busy = false, pending = false, connected = false;
     let stream;
     const controller = new AbortController();
@@ -18,6 +20,7 @@ export default function useNewApplicationCount(user) {
       const next = Math.max(0, Math.floor(Number(value) || 0));
       setCount(next);
       document.title = next ? `(${next}) ${originalTitle}` : originalTitle;
+      favicon.update(next);
     };
     apply(0);
     const refresh = async () => {
@@ -58,6 +61,7 @@ export default function useNewApplicationCount(user) {
       window.removeEventListener('applications:viewed', refresh);
       window.removeEventListener('applications:status-changed', refresh);
       document.title = originalTitle;
+      favicon.restore();
     };
   }, [login, user?.accessToken]);
   return login ? count : 0;
