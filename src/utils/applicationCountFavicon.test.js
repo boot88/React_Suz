@@ -16,7 +16,7 @@ test('shows a red count on all favicon variants and restores their original attr
   icons.forEach(icon => {
     expect(icon.type).toBe('image/svg+xml');
     const svg = decodeURIComponent(icon.getAttribute('href').split(',')[1]);
-    expect(svg).toContain('fill="#dc2626"');
+    expect(svg).toContain('fill="#b91c1c"');
     expect(svg).toContain('fill="#fff">3</text>');
   });
   notification.update(120);

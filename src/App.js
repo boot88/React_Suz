@@ -332,7 +332,7 @@ export function Sidebar({ language, requestsCount }) {
               <Link to="/" className="nav-link">
                 <span className="nav-icon nav-icon--requests" aria-hidden="true" />
                 <span className="nav-text">{copy.requests}</span>
-                {newRequestsCount > 0 && <span className="nav-badge nav-badge--requests">{newRequestsCount}</span>}
+                {newRequestsCount > 0 && <span className="nav-badge">{newRequestsCount}</span>}
               </Link>
             </li>
             <li className={isActive('/add') ? 'nav-item active' : 'nav-item'}><Link to="/add" className="nav-link"><span className="nav-icon nav-icon--add" aria-hidden="true" /><span className="nav-text">{copy.add}</span></Link></li>

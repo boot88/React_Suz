@@ -11,6 +11,7 @@ export default function useNewApplicationCount(user) {
   useEffect(() => {
     if (!login) return undefined;
     const originalTitle = baseTitle.current;
+    document.title = originalTitle;
     const favicon = createApplicationCountFavicon();
     let active = true, busy = false, pending = false, connected = false;
     let stream;
@@ -19,7 +20,6 @@ export default function useNewApplicationCount(user) {
       if (!active) return;
       const next = Math.max(0, Math.floor(Number(value) || 0));
       setCount(next);
-      document.title = next ? `(${next}) ${originalTitle}` : originalTitle;
       favicon.update(next);
     };
     apply(0);

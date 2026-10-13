@@ -28,8 +28,8 @@ export function createApplicationCountFavicon() {
       if (!count) { restore(); return; }
       if (createdIcon && !createdIcon.isConnected) document.head.appendChild(createdIcon);
       const label = count > 99 ? '99+' : String(count);
-      const fontSize = label.length === 1 ? 25 : label.length === 2 ? 22 : 16;
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="#dc2626" stroke="#fff" stroke-width="2"/><text x="16" y="17" text-anchor="middle" dominant-baseline="central" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="700" fill="#fff">${label}</text></svg>`;
+      const fontSize = label.length === 1 ? 24 : label.length === 2 ? 21 : 15;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><rect x="1" y="1" width="30" height="30" rx="5" fill="#b91c1c"/><text x="16" y="17" text-anchor="middle" dominant-baseline="central" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="700" fill="#fff">${label}</text></svg>`;
       const href = `data:image/svg+xml,${encodeURIComponent(svg)}`;
       icons.forEach(icon => {
         icon.setAttribute('href', href);

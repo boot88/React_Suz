@@ -247,11 +247,6 @@
   background: rgba(166, 78, 78, .82);
   font-size: 10px;
 }
-.admin-workspace .nav-badge--requests {
-  background: #dc2626;
-  color: #fff;
-  border-color: rgba(255, 255, 255, .65);
-}
 .admin-workspace .nav-icon--settings::before {
   inset: 3px;
   border: 2px solid currentColor;

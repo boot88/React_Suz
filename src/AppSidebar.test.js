@@ -55,7 +55,7 @@ test('sidebar coalesces overlapping refreshes without concurrent requests for a 
   expect(authFetch).toHaveBeenCalledTimes(4);
 });
 
-test('server events update the badge and browser title while hidden, and zero restores the title', async () => {
+test('server events update the badge and favicon while hidden without adding a title count', async () => {
   mockUser.accessToken = 'test-token';
   const listeners = {};
   const stream = { addEventListener: (name, listener) => { listeners[name] = listener; }, close: jest.fn() };
@@ -66,18 +66,21 @@ test('server events update the badge and browser title while hidden, and zero re
   expect(document.title).toBe('НИОХ Система — центр управления');
   visibility = 'hidden'; count = 3;
   await act(async () => listeners.application());
-  expect(document.title).toBe('(3) НИОХ Система — центр управления');
+  expect(document.title).toBe('НИОХ Система — центр управления');
+  expect(decodeURIComponent(document.querySelector('link[rel="icon"]').href)).toContain('>3</text>');
   expect(container.querySelector('.nav-badge').textContent).toBe('3');
   count = 2;
   await act(async () => listeners.application());
-  expect(document.title).toBe('(2) НИОХ Система — центр управления');
+  expect(document.title).toBe('НИОХ Система — центр управления');
+  expect(decodeURIComponent(document.querySelector('link[rel="icon"]').href)).toContain('>2</text>');
   count = 0;
   await act(async () => listeners.application());
   expect(document.title).toBe('НИОХ Система — центр управления');
   expect(container.querySelector('.nav-badge')).toBeNull();
+  expect(document.querySelector('link[rel="icon"]')).toBeNull();
 });
 
-test('late responses from a previous account cannot restore its title notification', async () => {
+test('late responses from a previous account cannot restore its favicon notification', async () => {
   let finish;
   authFetch.mockImplementation(url => url.includes('unseen-count') ? new Promise(resolve => { finish = resolve; }) : Promise.resolve({ ok: true, json: async () => ({ count: 0 }) }));
   await act(async () => root.render(<Sidebar language="en" />));
@@ -86,6 +89,8 @@ test('late responses from a previous account cannot restore its title notificati
   await act(async () => root.render(<Sidebar language="en" />));
   await act(async () => finishOld({ ok: true, json: async () => ({ count: 9 }) }));
   expect(document.title).toBe('НИОХ Система — центр управления');
+  expect(document.querySelector('link[rel="icon"]')).toBeNull();
   await act(async () => finish({ ok: true, json: async () => ({ count: 1 }) }));
-  expect(document.title).toBe('(1) НИОХ Система — центр управления');
+  expect(document.title).toBe('НИОХ Система — центр управления');
+  expect(decodeURIComponent(document.querySelector('link[rel="icon"]').href)).toContain('>1</text>');
 });
