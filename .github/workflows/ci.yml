@@ -2,7 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main, codex/fix-feed-mutations]
+    branches:
+      - main
+      - codex/fix-feed-mutations
+      - dev/test-stand
   pull_request:
 
 jobs:
@@ -36,3 +39,33 @@ jobs:
 
       - name: Server syntax check
         run: node --check server/server.js
+   
+  docker:
+    needs: test-and-build
+    runs-on: ubuntu-latest
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev/test-stand'
+
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      IMAGE: ghcr.io/boot88/react_suz
+      REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Login to GHCR
+        run: |
+          printf '%s' "$REGISTRY_TOKEN" |
+            docker login ghcr.io \
+              -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build and publish image
+        run: |
+          docker build -t "$IMAGE:$GITHUB_SHA" .
+          docker tag "$IMAGE:$GITHUB_SHA" "$IMAGE:test"
+          docker push "$IMAGE:$GITHUB_SHA"
+          docker push "$IMAGE:test" 
