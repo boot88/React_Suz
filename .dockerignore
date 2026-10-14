@@ -1,0 +1,15 @@
+.git
+node_modules
+build
+coverage
+.env
+.env.*
+runtime
+server/uploads
+server/data
+its-test.sql
+*.bundle
+*.log
+
+/runtime/
+/its-test.sql
