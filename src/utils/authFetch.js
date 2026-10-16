@@ -72,16 +72,19 @@ export const withAccessToken = (url = '') => {
 export const authFetch = (input, init = {}) => {
   const headers = new Headers(init.headers || {});
   const token = getStoredAccessToken();
-  if (token && isTrustedApiUrl(typeof input === 'string' ? input : input.url) && !headers.has('Authorization')) {
+  const requestUrl = typeof input === 'string' ? input : input.url;
+  const trusted = isTrustedApiUrl(requestUrl);
+  if (token && trusted && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`);
   }
   return fetch(input, { ...init, headers }).then(async (response) => {
-    if (response.status === 503 && isTrustedApiUrl(typeof input === 'string' ? input : input.url) && !String(input).includes('/backups/status')) {
+    if (response.status === 503 && trusted && !requestUrl.includes('/backups/status')) {
       response.clone().json().then((data) => { if (String(data.message || '').includes('резервное копирование')) window.dispatchEvent(new CustomEvent('admin:maintenance', { detail: { active: true } })); }).catch(() => {});
     }
-    if (response.status === 401 && token && getStoredAccessToken() === token && !String(input).includes('/auth/login')) {
+    if (response.status === 401 && trusted && token && headers.get('Authorization') === `Bearer ${token}` && getStoredAccessToken() === token && !requestUrl.includes('/auth/login')) {
       const stillActive = await confirmSessionActive(token);
-      if (!stillActive) window.dispatchEvent(new Event('auth:expired'));
+      // The account can change while the session check is in flight.
+      if (!stillActive && getStoredAccessToken() === token) window.dispatchEvent(new Event('auth:expired'));
     }
     return response;
   });
