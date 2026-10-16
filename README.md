@@ -1,71 +1,58 @@
-# Getting Started with Create React App
+# Service Desk / React_Suz
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Веб-приложение для учёта обращений сотрудников и работы технической поддержки: административная панель, корпоративный чат и база знаний.
 
-## Available Scripts
+**[Открыть актуальную версию → dev/test-stand](https://github.com/boot88/React_Suz/tree/dev/test-stand)** · [Документация запуска и сопровождения](https://github.com/boot88/React_Suz/blob/dev/test-stand/README.md) · [GitHub Actions](https://github.com/boot88/React_Suz/actions/workflows/ci.yml)
 
-In the project directory, you can run:
+## Где находится текущая разработка
 
-### `npm start`
+Этот README находится в ветке `main`, где сохранена ранняя версия приложения. Описанные ниже возможности относятся к **`dev/test-stand`**. Для просмотра современного клиента, API, тестов и Docker-конфигурации переходите в эту ветку.
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+## Возможности актуальной версии
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+- Подача и отмена сотрудником собственной заявки из чата.
+- Очередь заявок для администраторов: назначение исполнителя, статусы, редактирование и история действий.
+- Проверка версии заявки при сохранении, чтобы обнаруживать конкурирующие изменения.
+- Корпоративные переписки, вложения, лента и рассылки сотрудникам.
+- Справочник сотрудников и база знаний.
+- Статистика, фильтры и экспорт заявок в Excel.
+- Резервное копирование и восстановление данных.
+- Персональные настройки, русский и английский интерфейсы.
 
-### `npm test`
+## Технологии
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+| Часть | Стек |
+| --- | --- |
+| Интерфейс | React, React Router, JavaScript, CSS, Recharts |
+| API | Node.js, Express |
+| Данные | MySQL, файловое хранилище вложений |
+| Проверки | Jest, node:test, ESLint |
+| Сборка и доставка | Docker, Docker Compose, GitHub Actions |
 
-### `npm run build`
+## Навигация по коду
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+- [Страницы административной панели](https://github.com/boot88/React_Suz/tree/dev/test-stand/src/pages).
+- [Компоненты чата и профиля](https://github.com/boot88/React_Suz/tree/dev/test-stand/src/components/employeeChat).
+- [Маршруты API](https://github.com/boot88/React_Suz/tree/dev/test-stand/server/routes).
+- [Серверные проверки и служебные функции](https://github.com/boot88/React_Suz/tree/dev/test-stand/server/utils).
+- [Dockerfile](https://github.com/boot88/React_Suz/blob/dev/test-stand/Dockerfile), [Compose](https://github.com/boot88/React_Suz/blob/dev/test-stand/compose.yaml) и [CI](https://github.com/boot88/React_Suz/blob/dev/test-stand/.github/workflows/ci.yml).
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+## Получить актуальный код
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+```bash
+git clone --branch dev/test-stand --single-branch https://github.com/boot88/React_Suz.git
+cd React_Suz
+npm ci
+```
 
-### `npm run eject`
+Для запуска требуется настроенная MySQL и переменные окружения. Порядок настройки, миграций и восстановления описан в [README актуальной ветки](https://github.com/boot88/React_Suz/blob/dev/test-stand/README.md).
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+Проверки в актуальной ветке:
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+```bash
+npm run lint
+npm run test:all
+npm run build
+```
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
-
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
-# React_Suz
+Клиент и сервер обновляются вместе. Демонстрационные и тестовые окружения должны использовать отдельные базы данных.
