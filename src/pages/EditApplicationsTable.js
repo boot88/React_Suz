@@ -448,7 +448,7 @@ function EditApplicationsTable() {
   if (error) {
     return (
       <div className="edit-container">
-        <AdminNotice type="error"><span>{t(error)}</span><button onClick={fetchApplications} className="retry-button">{t("Повторить попытку")}</button></AdminNotice>
+        <AdminNotice type="error"><span>{t(error)}</span><button onClick={() => fetchApplications()} className="retry-button">{t("Повторить попытку")}</button></AdminNotice>
       </div>
     );
   }
@@ -458,7 +458,7 @@ function EditApplicationsTable() {
       {!directEditingMode && <div className="edit-header">
         <h2>{t("Редактирование заявок")}</h2>
         <div className="header-actions">
-          <button onClick={fetchApplications} className="refresh-button">{t("Обновить")}</button>
+          <button onClick={() => fetchApplications()} className="refresh-button">{t("Обновить")}</button>
           <select
             value={statusFilter}
             onChange={handleStatusFilterChange}
@@ -486,7 +486,7 @@ function EditApplicationsTable() {
       </div>}
 
       {error && (
-        <AdminNotice type="error"><span>{t(error)}</span><button onClick={fetchApplications} className="retry-button">{t("Повторить попытку")}</button></AdminNotice>
+        <AdminNotice type="error"><span>{t(error)}</span><button onClick={() => fetchApplications()} className="retry-button">{t("Повторить попытку")}</button></AdminNotice>
       )}
 
       {notice && <AdminNotice type={notice.type} onDismiss={() => setNotice(null)} dismissLabel={t("Закрыть уведомление")}>{t(notice.text)}</AdminNotice>}

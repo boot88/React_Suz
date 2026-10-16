@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react';
 import { AUTH_STATE_KEY, LOCAL_EMPLOYEES_KEY } from '../config/authConfig';
 import { API_BASE_URL } from '../utils/apiConfig';
-import { authFetch } from '../utils/authFetch';
+import { authFetch, getStoredAccessToken } from '../utils/authFetch';
 import { clearWelcomeGreeting } from '../utils/welcomeGreeting';
 import { initializeUserPreferences, configurePreferenceSync, stopPreferenceSync, flushPreferenceSync } from '../utils/userPreferences';
 
@@ -295,7 +295,9 @@ export const AuthProvider = ({ children }) => {
             const response = await authFetch(`${API_BASE_URL}/auth/profile?login=${encodeURIComponent(savedUser.username)}`, { headers: { Authorization: `Bearer ${savedUser.accessToken}` } });
             if (response.ok) preferences = (await response.json()).profile?.preferences || {};
           } catch { /* Personal cache remains available during a network outage. */ }
-          if (cancelled) return;
+          // A rejected session or logout may clear/change the stored token
+          // while the profile request is pending. Never restore that account.
+          if (cancelled || getStoredAccessToken() !== savedUser.accessToken) return;
           initializeUserPreferences(savedUser.username, preferences);
           configurePreferenceSync(savedUser.username, savedUser.accessToken);
           setIsAuthenticated(true); setUser(savedUser);

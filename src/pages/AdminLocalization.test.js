@@ -521,6 +521,22 @@ test('initial 500 response retries twice then shows a load error instead of an e
   } finally { jest.useRealTimers(); }
 });
 
+test('manual editing-table refresh retries a transient failure before showing an error', async () => {
+  jest.useFakeTimers();
+  const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    await render(<EditApplicationsTable />);
+    authFetch.mockClear();
+    authFetch.mockRejectedValueOnce(new Error('Temporary network failure'));
+    await act(async () => Simulate.click(container.querySelector('.refresh-button')));
+    expect(container.querySelector('.loading')).not.toBeNull();
+    await act(async () => jest.advanceTimersByTime(400));
+    expect(authFetch).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('.loading')).toBeNull();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  } finally { jest.useRealTimers(); consoleError.mockRestore(); }
+});
+
 test('retry after a lost creation response reuses its operation key and preserves plain text', async () => {
   let fail = true;
   const sent = [];
