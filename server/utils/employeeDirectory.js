@@ -7,6 +7,8 @@
 // поэтому справочник загружается несколькими проходами с объединением
 // результата до стабилизации набора записей.
 
+const { createHash } = require('crypto');
+
 const PHONE_BOOK_URL = process.env.PHONE_BOOK_URL || 'http://web3.nioch.nsc.ru/nioch/index.php/ru/kontakty/telefonnyj-spravochnik';
 const MIN_SYNC_EMPLOYEES = Number(process.env.EMPLOYEE_SYNC_MIN_ROWS || 50);
 const PHONE_BOOK_PAGE_SIZE = Number(process.env.PHONE_BOOK_PAGE_SIZE || 20);
@@ -40,18 +42,16 @@ const normalizeValue = (value = '') => cleanText(value).replace(/^[-–—]+$/, 
 
 const normalizeSourceKeyPart = (value = '') => normalizeValue(value).toLowerCase().replace(/\s+/g, ' ');
 
-const createEmployeeIdentity = (employee) => [
-  employee.full_name || '',
-  employee.department || ''
-].map(normalizeSourceKeyPart).filter(Boolean).join('|');
+// Appointment identity includes the position: one person may hold several
+// positions in the same department. Contacts stay attached to their own row.
+const createEmployeeIdentity = (employee) => JSON.stringify([
+  employee.full_name || '', employee.department || '', employee.position || ''
+].map(normalizeSourceKeyPart));
 
-const createSourceKey = (employee) => createEmployeeIdentity(employee) || [
-  employee.full_name || '',
-  employee.room || '',
-  employee.internal_phone || '',
-  employee.external_phone || '',
-  employee.email || ''
-].map(normalizeSourceKeyPart).filter(Boolean).join('|');
+const createSourceKey = (employee) => `v2:${createHash('sha256').update(JSON.stringify([
+  employee.full_name, employee.department, employee.position, employee.room,
+  employee.internal_phone, employee.external_phone, employee.email
+].map(normalizeSourceKeyPart))).digest('hex')}`;
 
 const buildPhoneBookPageUrl = (start = 0) => {
   const pageUrl = new URL(PHONE_BOOK_URL);

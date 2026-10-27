@@ -32,15 +32,19 @@ const isFemaleEmployee = (fullName = '') => {
     || /(ова|ева|ёва|ина|ына|ая|ская|цкая)$/i.test(surname);
 };
 
-const EmployeeDetails = ({ employee = {} }) => (
-  <dl className="directory-person-details">
-    {EMPLOYEE_DETAIL_FIELDS.map(([field, label]) => (
-      <div key={field}>
-        <dt>{t(label)}</dt>
-        <dd>{employee[field] || '—'}</dd>
-      </div>
+export const EmployeeDetails = ({ employee = {} }) => (
+  <>
+    {(employee.assignments?.length ? employee.assignments : [employee]).map((assignment, index) => (
+      <dl className="directory-person-details" key={assignment.source_key || index}>
+        {EMPLOYEE_DETAIL_FIELDS.map(([field, label]) => (
+          <div key={field}>
+            <dt>{t(label)}</dt>
+            <dd>{assignment[field] || '—'}</dd>
+          </div>
+        ))}
+      </dl>
     ))}
-  </dl>
+  </>
 );
 
 const DirectoryReportGroup = ({ title, count = 0, items = [], tone, renderItem }) => {
@@ -54,12 +58,14 @@ const DirectoryReportGroup = ({ title, count = 0, items = [], tone, renderItem }
   );
 };
 
-const DirectorySyncReport = ({ report }) => {
+export const DirectorySyncReport = ({ report }) => {
   if (!report) return null;
   const inserted = report.inserted || { count: 0, items: [] };
   const updated = report.updated || { count: 0, items: [] };
   const deactivated = report.deactivated || { count: 0, items: [] };
-  const totalChanges = Number(inserted.count || 0) + Number(updated.count || 0) + Number(deactivated.count || 0);
+  const initialized = report.initialized || { count: 0, items: [] };
+  const restored = report.restored || { count: 0, items: [] };
+  const totalChanges = [inserted, updated, deactivated, initialized, restored].reduce((total, group) => total + Number(group.count || 0), 0);
 
   return (
     <div className="directory-sync-report" aria-live="polite">
@@ -68,6 +74,18 @@ const DirectorySyncReport = ({ report }) => {
         {report.updatedAt && <time>{t(new Date(report.updatedAt).toLocaleString(getAdminLocale()))}</time>}
       </div>
       {!totalChanges && <p className="directory-report-empty">{t("Изменений нет. Данные сотрудников уже актуальны.")}</p>}
+      {[{ group: initialized, title: 'Первичная загрузка справочника', label: 'Первичная загрузка данных' },
+        { group: restored, title: 'Восстановленные сотрудники', label: 'Запись восстановлена в справочнике' }].map(({ group, title, label }) => (
+        <DirectoryReportGroup key={title} title={title} tone="hired" count={group.count} items={group.items || []}
+          renderItem={(employee) => (
+            <article key={employee.source_key}>
+              <strong>{t(label)}</strong>
+              <h4>{employee.full_name}</h4>
+              <EmployeeDetails employee={employee} />
+            </article>
+          )}
+        />
+      ))}
       <DirectoryReportGroup
         title={t("Новые сотрудники")}
         tone="hired"
@@ -93,19 +111,28 @@ const DirectorySyncReport = ({ report }) => {
           const employee = item.after || item.before || {};
           return (
             <article key={employee.source_key || `${employee.full_name}-${index}`}>
-              <strong>{t("Перевели / изменили данные")}</strong>
+              <strong>{t(item.reason === 'directory_repaired' ? 'Уточнены должности и контакты справочника' : 'Изменены данные сотрудника')}</strong>
               <h4>{employee.full_name || t('ФИО не указано')}</h4>
-              <div className="directory-field-changes">
-                {(item.changes || []).map((change) => (
-                  <div key={change.field}>
-                    <b>{t(change.label)}</b>
-                    <span><small>{t("Было")}</small>{change.oldValue || '—'}</span>
-                    <i aria-hidden="true">→</i>
-                    <span><small>{t("Стало")}</small>{change.newValue || '—'}</span>
+              {item.before?.assignments && item.after?.assignments ? (
+                <div className="directory-assignments-comparison">
+                  <section><h5>{t('Было')}</h5><EmployeeDetails employee={item.before} /></section>
+                  <section><h5>{t('Стало')}</h5><EmployeeDetails employee={item.after} /></section>
+                </div>
+              ) : (
+                <>
+                  <div className="directory-field-changes">
+                    {(item.changes || []).map((change) => (
+                      <div key={change.field}>
+                        <b>{t(change.label)}</b>
+                        <span><small>{t('Было')}</small>{change.oldValue || '—'}</span>
+                        <i aria-hidden="true">→</i>
+                        <span><small>{t('Стало')}</small>{change.newValue || '—'}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              <EmployeeDetails employee={employee} />
+                  <EmployeeDetails employee={employee} />
+                </>
+              )}
             </article>
           );
         }}
@@ -182,7 +209,7 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
         const deactivatedCount = Number(data.changes?.deactivated?.count || 0);
         const skippedRemovals = Number(data.accounts?.skippedRemovals || 0);
         const summary = [
-          `Справочник и учётные записи обновлены. Активных сотрудников: ${data.accounts?.total || data.activeAfter || 0}.`
+          `Справочник и учётные записи обновлены. Активных сотрудников: ${data.accounts?.total || data.activePeople || 0}.`
         ];
         if (deactivatedCount) summary.push(`Снято с учёта: ${deactivatedCount} — проверьте отчёт ниже.`);
         if (createdAccounts) summary.push(`Новых аккаунтов: ${createdAccounts}. Для новых администраторов выданы индивидуальные временные пароли.`);

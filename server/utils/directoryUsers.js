@@ -27,7 +27,7 @@ const getShortPersonName = (fullName = '') => {
   return `${lastName}${initials ? ` ${initials}` : ''}`;
 };
 
-const joinUniqueValues = (values = []) => [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))].join(', ');
+const joinUniqueValues = (values = []) => [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru')).join(', ');
 
 const createBaseLoginFromName = (fullName = '') => getShortPersonName(fullName)
   .toLowerCase()
@@ -121,7 +121,8 @@ const planProvisionedUsers = ({
   const { byLogin, byName } = buildExistingIndex(existingUsers);
   const employeesByName = new Map();
 
-  phoneRows.forEach((employee) => {
+  [...phoneRows].sort((a, b) => String(a.full_name).localeCompare(String(b.full_name), 'ru')
+    || JSON.stringify(a).localeCompare(JSON.stringify(b), 'ru')).forEach((employee) => {
     const key = normalizePersonName(employee.full_name);
     if (!key) return;
     const current = employeesByName.get(key) || {

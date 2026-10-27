@@ -4,14 +4,8 @@ const router = express.Router();
 const pool = require('../config/database');
 const { buildEmployeeSearch } = require('../utils/employeeSearch');
 const { requireRole } = require('../middleware/auth');
-const {
-  PHONE_BOOK_URL,
-  MIN_SYNC_EMPLOYEES,
-  normalizeValue,
-  createEmployeeIdentity,
-  fetchAllPhoneBookEmployees,
-  assertDirectorySnapshot
-} = require('../utils/employeeDirectory');
+const { PHONE_BOOK_URL, fetchAllPhoneBookEmployees } = require('../utils/employeeDirectory');
+const { synchronizeDirectory } = require('../utils/employeeDirectorySync');
 
 const SYNC_CHANGE_PREVIEW_LIMIT = Number(process.env.EMPLOYEE_SYNC_CHANGE_PREVIEW_LIMIT || 1000);
 
@@ -34,6 +28,11 @@ const preparePhoneBookSchema = async () => {
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  await pool.execute(`CREATE TABLE IF NOT EXISTS phone_book_sync_state (
+    id TINYINT PRIMARY KEY,
+    version INT NOT NULL
+  )`);
 
   const [columns] = await pool.execute('SHOW COLUMNS FROM phone_book');
   const existing = new Set((columns || []).map((column) => column.Field));
@@ -81,162 +80,19 @@ const ensurePhoneBookSchema = () => {
   return phoneBookSchemaPromise;
 };
 
-const EMPLOYEE_SYNC_FIELDS = [
-  ['full_name', 'ФИО'],
-  ['position', 'Должность'],
-  ['department', 'Отдел'],
-  ['room', 'Кабинет'],
-  ['internal_phone', 'Телефон вн.'],
-  ['external_phone', 'Телефон внешний'],
-  ['email', 'Email']
-];
-
-const serializeEmployee = (employee = {}) => ({
-  source_key: employee.source_key || '',
-  full_name: employee.full_name || '',
-  position: employee.position || '',
-  department: employee.department || '',
-  room: employee.room || '',
-  internal_phone: employee.internal_phone || '',
-  external_phone: employee.external_phone || '',
-  email: employee.email || ''
+const refreshDirectory = () => synchronizeDirectory({
+  pool,
+  fetchSnapshot: fetchAllPhoneBookEmployees,
+  previewLimit: SYNC_CHANGE_PREVIEW_LIMIT
 });
-
-const getEmployeeChanges = (before = {}, after = {}) => EMPLOYEE_SYNC_FIELDS.reduce((changes, [field, label]) => {
-  const oldValue = normalizeValue(before[field] || '');
-  const newValue = normalizeValue(after[field] || '');
-  if (oldValue !== newValue) changes.push({ field, label, oldValue, newValue });
-  return changes;
-}, []);
-
-const createChangeSummary = (items) => ({
-  count: items.length,
-  items: items.slice(0, SYNC_CHANGE_PREVIEW_LIMIT)
-});
-
-const syncEmployees = async (employees) => {
-  const connection = await pool.getConnection();
-  const now = new Date();
-  const insertedItems = [];
-  const updatedItems = [];
-  const deactivatedItems = [];
-  let previousActive = 0;
-  let activeAfter = 0;
-
-  try {
-    await connection.beginTransaction();
-
-    const [activeRows] = await connection.execute('SELECT * FROM phone_book WHERE is_active = 1');
-    previousActive = activeRows.length;
-    // Неполный снимок источника нельзя применять: иначе отсутствующие в нём
-    // сотрудники будут помечены уволенными, а их аккаунты удалены.
-    assertDirectorySnapshot({ incomingCount: employees.length, currentActiveCount: previousActive });
-    const activeBySourceKey = new Map();
-    const activeByIdentity = new Map();
-
-    for (const row of activeRows) {
-      const serialized = serializeEmployee(row);
-      if (serialized.source_key) activeBySourceKey.set(serialized.source_key, serialized);
-      const identity = createEmployeeIdentity(serialized);
-      if (identity && !activeByIdentity.has(identity)) activeByIdentity.set(identity, serialized);
-    }
-
-    await connection.execute('UPDATE phone_book SET is_active = 0 WHERE is_active = 1');
-    const seenActiveSourceKeys = new Set();
-
-    for (const parsedEmployee of employees) {
-      const identity = createEmployeeIdentity(parsedEmployee);
-      const existingEmployee = activeBySourceKey.get(parsedEmployee.source_key) || activeByIdentity.get(identity) || null;
-      const dbSourceKey = existingEmployee?.source_key || parsedEmployee.source_key;
-      const employee = { ...parsedEmployee, source_key: dbSourceKey };
-      const changes = existingEmployee ? getEmployeeChanges(existingEmployee, employee) : [];
-
-      if (existingEmployee) seenActiveSourceKeys.add(existingEmployee.source_key);
-
-      await connection.execute(
-        `INSERT INTO phone_book
-          (source_key, full_name, position, department, room, internal_phone, external_phone, email, is_active, last_seen_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
-         ON DUPLICATE KEY UPDATE
-          full_name = VALUES(full_name),
-          position = VALUES(position),
-          department = VALUES(department),
-          room = VALUES(room),
-          internal_phone = VALUES(internal_phone),
-          external_phone = VALUES(external_phone),
-          email = VALUES(email),
-          is_active = 1,
-          last_seen_at = VALUES(last_seen_at)`,
-        [
-          employee.source_key,
-          employee.full_name,
-          employee.position || null,
-          employee.department || null,
-          employee.room || null,
-          employee.internal_phone || null,
-          employee.external_phone || null,
-          employee.email || null,
-          now
-        ]
-      );
-
-      if (!existingEmployee) {
-        insertedItems.push(serializeEmployee(employee));
-      } else if (changes.length > 0) {
-        updatedItems.push({ before: existingEmployee, after: serializeEmployee(employee), changes });
-      }
-    }
-
-    for (const row of activeRows) {
-      const serialized = serializeEmployee(row);
-      if (!seenActiveSourceKeys.has(serialized.source_key)) deactivatedItems.push(serialized);
-    }
-
-    const [activeAfterRows] = await connection.execute('SELECT COUNT(*) AS count FROM phone_book WHERE is_active = 1');
-    activeAfter = Number(activeAfterRows?.[0]?.count || 0);
-
-    await connection.commit();
-    return {
-      inserted: insertedItems.length,
-      updated: updatedItems.length,
-      deactivated: deactivatedItems.length,
-      previousActive,
-      activeAfter,
-      updatedAt: now.toISOString(),
-      changes: {
-        inserted: createChangeSummary(insertedItems),
-        updated: createChangeSummary(updatedItems),
-        deactivated: createChangeSummary(deactivatedItems)
-      }
-    };
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
-};
 
 const ensurePhoneBookData = async () => {
   await ensurePhoneBookSchema();
   const [rows] = await pool.execute('SELECT COUNT(*) AS total FROM phone_book WHERE is_active = 1');
   const total = Number(rows?.[0]?.total || 0);
   if (total > 0) return { total, synced: false };
-
-  const { employees, pages, expectedPages, lastStart, sweeps, stable, failedStarts } = await fetchAllPhoneBookEmployees();
-  if (failedStarts.length) {
-    const error = new Error(`Не удалось загрузить страницы справочника: ${failedStarts.map((item) => item.start).join(', ')}`);
-    error.status = 503;
-    throw error;
-  }
-  if (employees.length < MIN_SYNC_EMPLOYEES) {
-    const error = new Error(`Из справочника получено слишком мало записей: ${employees.length}`);
-    error.status = 503;
-    throw error;
-  }
-
-  const stats = await syncEmployees(employees);
-  return { total: stats.activeAfter, synced: true, pages, expectedPages, lastStart, sweeps, stable };
+  const stats = await refreshDirectory();
+  return { ...stats, total: stats.activeAfter, synced: true };
 };
 
 // Полный справочник для служебных экранов администратора. Неактивные записи
@@ -299,44 +155,8 @@ router.post('/sync', requireRole('admin'), async (req, res) => {
   try {
     await ensurePhoneBookSchema();
 
-    const snapshot = await fetchAllPhoneBookEmployees();
-    const { employees, pages, expectedPages, lastStart, sweeps, stable, failedStarts } = snapshot;
-
-    if (failedStarts.length) {
-      return res.status(503).json({
-        error: `Не удалось загрузить страницы справочника: ${failedStarts.map((item) => item.start).join(', ')}. Обновление отменено, данные не изменялись.`,
-        sourceUrl: PHONE_BOOK_URL,
-        pages,
-        expectedPages,
-        lastStart,
-        failedStarts
-      });
-    }
-
-    if (employees.length < MIN_SYNC_EMPLOYEES) {
-      return res.status(422).json({
-        error: `Из источника получено слишком мало записей: ${employees.length}. Проверьте формат страницы или доступ к справочнику.`,
-        parsed: employees.length,
-        sourceUrl: PHONE_BOOK_URL,
-        pages,
-        expectedPages,
-        lastStart
-      });
-    }
-
-    const stats = await syncEmployees(employees);
-
-    res.json({
-      message: 'Справочник сотрудников обновлён',
-      sourceUrl: PHONE_BOOK_URL,
-      parsed: employees.length,
-      pages,
-      expectedPages,
-      lastStart,
-      sweeps,
-      stable,
-      ...stats
-    });
+    const stats = await refreshDirectory();
+    res.json({ message: 'Справочник сотрудников обновлён', sourceUrl: PHONE_BOOK_URL, ...stats });
   } catch (error) {
     console.error('Employee sync error:', error);
     res.status(error.status || 500).json({

@@ -1,5 +1,12 @@
 // Admin interface text only. User-entered content and stored identifiers stay unchanged.
 export const ADMIN_TRANSLATIONS = {
+  "Первичная загрузка справочника": "Initial directory import",
+  "Первичная загрузка данных": "Initial data import",
+  "Восстановленные сотрудники": "Restored employees",
+  "Запись восстановлена в справочнике": "Directory entry restored",
+  "Уточнены должности и контакты справочника": "Directory positions and contacts reconciled",
+  "Изменены данные сотрудника": "Employee details changed",
+  "Места работы и контакты": "Appointments and contact details",
   "Ожидается текстовое значение": "A text value is required",
   "Экспорт ограничен 100 000 заявок. Выберите меньший период.": "Export is limited to 100,000 requests. Select a shorter period.",
   "Загрузить актуальную заявку? Несохранённые изменения будут отменены.": "Load the current request? Unsaved changes will be discarded.",

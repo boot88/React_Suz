@@ -253,15 +253,19 @@ const PROVISION_MIN_USERS = Number(process.env.PROVISION_MIN_USERS || 50);
 const provisionUsersFromPhoneBook = async ({ actingLogin = '' } = {}) => {
   await ensureUsersSchema();
 
-  const [phoneRows] = await db.execute(
+  const connection = await db.getConnection();
+  let directoryLocked = false;
+  try {
+  const [[lock]] = await connection.execute("SELECT GET_LOCK('employee_directory_sync', 0) AS acquired");
+  directoryLocked = Number(lock.acquired) === 1;
+  if (!directoryLocked) throw Object.assign(new Error('Обновление справочника уже выполняется. Повторите обновление аккаунтов позже.'), { status: 409 });
+  const [phoneRows] = await connection.execute(
     `SELECT full_name, position, department, room, internal_phone, external_phone, email
      FROM phone_book
      WHERE is_active = 1 AND full_name IS NOT NULL AND TRIM(full_name) <> ''
      ORDER BY full_name`
   );
 
-  const connection = await db.getConnection();
-  try {
   await connection.beginTransaction();
   const [existingRows] = await connection.execute(
     'SELECT id, login, password, role, full_name, provisioned_from_directory, must_change_password FROM users FOR UPDATE'
@@ -350,7 +354,11 @@ const provisionUsersFromPhoneBook = async ({ actingLogin = '' } = {}) => {
     adminLogins: desiredUsers.filter((item) => item.role === 'admin').map((item) => ({ login: item.login, full_name: item.full_name }))
   };
   } catch (error) { await connection.rollback().catch(() => {}); throw error; }
-  finally { connection.release(); }
+  finally {
+    try {
+      if (directoryLocked) await connection.execute("SELECT RELEASE_LOCK('employee_directory_sync')");
+    } finally { connection.release(); }
+  }
 };
 
 const ensureNotificationStorage = async () => {
