@@ -1,6 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  normalizeValue,
+  normalizeSourceKeyPart,
+  createSourceKey,
   parsePhoneBookEmployees,
   findLastStart,
   buildPageStarts,
@@ -131,4 +134,16 @@ test('refuses an incomplete directory snapshot', () => {
     assertDirectorySnapshot({ incomingCount: 428, currentActiveCount: 427, minRows: 50, minRatio: 0.9 }),
     { incoming: 428, current: 427 }
   );
+});
+
+
+test('SQL NULL, undefined and empty cells have the same normalized value and source key', () => {
+  for (const value of [null, undefined, '', '  ', '—', '-']) {
+    assert.equal(normalizeValue(value), '');
+    assert.equal(normalizeSourceKeyPart(value), '');
+    assert.equal(createSourceKey({ full_name: 'Тестовый Сотрудник', email: value }),
+      createSourceKey({ full_name: 'Тестовый Сотрудник', email: '' }));
+  }
+  assert.equal(normalizeValue('null'), 'null', 'literal source text must not be treated as SQL NULL');
+  assert.equal(normalizeValue('0'), '0');
 });

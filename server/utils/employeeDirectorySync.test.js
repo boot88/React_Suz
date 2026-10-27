@@ -8,14 +8,15 @@ const row = (position = 'инженер', department = 'ГРСА', extra = {}) =
   full_name: person, position, department, room: '131', internal_phone: '330-68-59', external_phone: '1-384', email: 'cf3no@nioch.nsc.ru', ...extra
 });
 const jobs = [row(), row('мнс', 'ЛФМ')];
-const persisted = (rows) => rows.map((entry, index) => ({ ...entry, id: index + 1, source_key: createSourceKey(entry), is_active: 1 }));
+const sqlRow = (entry) => Object.fromEntries(Object.entries(entry).map(([key, value]) => [key, value === '' ? null : value]));
+const persisted = (rows) => rows.map((entry, index) => ({ ...sqlRow(entry), id: index + 1, source_key: createSourceKey(entry), is_active: 1 }));
 const applyPlan = (existingRows, plan) => {
   const rows = existingRows.map((entry) => ({ ...entry }));
   for (const entry of plan.deactivatedRows) rows.find((r) => r.id === entry.id).is_active = 0;
   for (const entry of plan.writes) {
     const old = rows.find((r) => entry.id != null && r.id === entry.id);
-    if (old) Object.assign(old, entry, { is_active: 1 });
-    else rows.push({ ...entry, id: Math.max(0, ...rows.map((r) => r.id)) + 1, is_active: 1 });
+    if (old) Object.assign(old, sqlRow(entry), { is_active: 1 });
+    else rows.push({ ...sqlRow(entry), id: Math.max(0, ...rows.map((r) => r.id)) + 1, is_active: 1 });
   }
   assert.equal(new Set(rows.map((r) => r.source_key)).size, rows.length, 'source keys must remain unique');
   return rows;
@@ -242,4 +243,33 @@ test('a failed initial fetch or too-small snapshot leaves all data unchanged', a
     await assert.rejects(synchronizeDirectory({ pool: db.pool, fetchSnapshot }));
     assert.deepEqual(db.rows(), before); assert.ok(!db.calls.includes('begin')); assert.ok(db.state.released);
   }
+});
+
+test('SQL NULL optional fields equal empty source cells and never produce identical before/after changes', () => {
+  for (const field of ['position', 'department', 'room', 'internal_phone', 'external_phone', 'email']) {
+    const incoming = row('инженер', 'ГРСА', { [field]: '' });
+    const existing = persisted([{ ...incoming, [field]: null }]);
+    const plan = planDirectorySync({ existingRows: existing, employees: [incoming] });
+    assert.ok(noEvents(plan), `SQL NULL in ${field} must equal the empty source cell`);
+    assert.equal(plan.writes[0].id, existing[0].id);
+    assert.equal(plan.deactivatedRows.length, 0);
+  }
+});
+
+test('repeated writer runs with missing contacts in SQL have no false updates; real changes still happen once', async () => {
+  const missing = row('инженер', 'ГРСА', { email: '', external_phone: '', room: '' });
+  const multiple = row('мнс', 'ЛФМ', { email: '', internal_phone: '' });
+  const db = database([missing, multiple]);
+  // The first writer stores the actual SQL NULL parameters. Every subsequent
+  // comparison must read those NULLs, not a test-only all-string snapshot.
+  for (let index = 0; index < 3; index++) {
+    const report = await synchronizeDirectory({ pool: db.pool, fetchSnapshot: async () => snapshot([missing, multiple]) });
+    assert.equal(report.updated + report.inserted + report.deactivated + report.restored, 0, `unchanged run ${index}`);
+  }
+  assert.equal(db.rows().find((entry) => entry.full_name === person && entry.department === 'ГРСА').email, null);
+  const edited = { ...missing, email: 'new@example.org' };
+  const report = await synchronizeDirectory({ pool: db.pool, fetchSnapshot: async () => snapshot([edited, multiple]) });
+  assert.equal(report.updated, 1);
+  const repeat = await synchronizeDirectory({ pool: db.pool, fetchSnapshot: async () => snapshot([multiple, edited]) });
+  assert.equal(repeat.updated + repeat.inserted + repeat.deactivated, 0);
 });

@@ -38,7 +38,9 @@ const cleanText = (value = '') => decodeHtmlEntities(String(value)
   .replace(/\s+/g, ' ')
   .trim();
 
-const normalizeValue = (value = '') => cleanText(value).replace(/^[-–—]+$/, '').trim();
+// MySQL returns NULL for missing contacts; the source parser returns ''.
+// Normalize both before comparison/hashing, without converting NULL to 'null'.
+const normalizeValue = (value = '') => cleanText(value ?? '').replace(/^[-–—]+$/, '').trim();
 
 const normalizeSourceKeyPart = (value = '') => normalizeValue(value).toLowerCase().replace(/\s+/g, ' ');
 
