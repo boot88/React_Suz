@@ -1,10 +1,12 @@
 // server/routes/networkMap.js
 // Маршрут карты сети (вынесен из server.js для декомпозиции монолита).
 const express = require('express');
+const { createHash } = require('crypto');
 const router = express.Router();
 const pool = require('../config/database');
 const { parseNetworkZone } = require('../../src/utils/networkZone');
 const { requireRole } = require('../middleware/auth');
+const { compareNetworkSnapshots } = require('../utils/networkMapChanges');
 
 const NETWORK_MAP_SOURCE_URL = process.env.NETWORK_MAP_SOURCE_URL || 'http://nioch.nioch.nsc.ru/nioch/nioch.txt';
 
@@ -12,17 +14,6 @@ const NETWORK_MAP_SOURCE_URL = process.env.NETWORK_MAP_SOURCE_URL || 'http://nio
 // с коротким max-age и ETag: повторные входы на страницу не гоняют 70+ КБ текста,
 // а при revalidate-запросе отвечаем 304 (см. isClientCacheFresh).
 const SNAPSHOT_CACHE_CONTROL = 'private, max-age=60';
-
-// Фоновое автообновление: снимок нужен свежий, но источник не должен дёргаться
-// на каждый запрос страницы. По умолчанию раз в сутки.
-const AUTO_REFRESH_INTERVAL_MS = Math.max(
-  1,
-  Number(process.env.NETWORK_MAP_REFRESH_HOURS) || 24
-) * 60 * 60 * 1000;
-const AUTO_REFRESH_START_DELAY_MS = Math.max(
-  1000,
-  Number(process.env.NETWORK_MAP_REFRESH_START_DELAY_MS) || 5000
-);
 
 let schemaReadyPromise = null;
 let refreshPromise = null;
@@ -67,14 +58,8 @@ const isClientCacheFresh = (req, etag) => {
   });
 };
 
-const snapshotAgeMs = (snapshot) => {
-  if (!snapshot) return Number.POSITIVE_INFINITY;
-  const fetchedAt = new Date(snapshot.fetched_at).getTime();
-  return Number.isFinite(fetchedAt) ? Date.now() - fetchedAt : Number.NaN;
-};
-
-// Загружает зону из источника и перезаписывает снимок в SQL. Один и тот же
-// вызов обслуживает и кнопку в настройках, и фоновое автообновление.
+// External reads are allowed only from the administrator's POST /refresh.
+// Importing this module, restarting the server and GET / never fetch the source.
 const refreshSnapshot = async () => {
   if (!refreshPromise) {
     refreshPromise = (async () => {
@@ -90,6 +75,8 @@ const refreshSnapshot = async () => {
       if (Buffer.byteLength(zoneText, 'utf8') > 2 * 1024 * 1024 || !parseNetworkZone(zoneText).length) {
         throw Object.assign(new Error('Источник не содержит корректных IP-записей. Прежний снимок сохранён.'), { status: 422 });
       }
+      const previous = await readSnapshot();
+      const changes = compareNetworkSnapshots(previous?.zone_text || '', zoneText, { initialLoad: !previous });
       const fetchedAt = new Date();
       await pool.execute(
         `INSERT INTO network_map_snapshot (id, source_url, zone_text, fetched_at)
@@ -100,7 +87,7 @@ const refreshSnapshot = async () => {
            fetched_at = VALUES(fetched_at)`,
         [NETWORK_MAP_SOURCE_URL, zoneText, fetchedAt]
       );
-      return { sourceUrl: NETWORK_MAP_SOURCE_URL, fetchedAt, zoneText };
+      return { sourceUrl: NETWORK_MAP_SOURCE_URL, fetchedAt, zoneText, changes };
     })();
   }
 
@@ -111,29 +98,6 @@ const refreshSnapshot = async () => {
   }
 };
 
-const refreshSnapshotIfStale = async () => {
-  try {
-    await ensureNetworkMapSchema();
-    const snapshot = await readSnapshot();
-    const ageMs = snapshotAgeMs(snapshot);
-    if (!snapshot || Number.isNaN(ageMs) || ageMs >= AUTO_REFRESH_INTERVAL_MS) {
-      const updated = await refreshSnapshot();
-      console.log(
-        `[network-map] снимок IP-сетки обновлён из ${updated.sourceUrl} (${Buffer.byteLength(updated.zoneText, 'utf8')} байт)`
-      );
-    }
-  } catch (error) {
-    console.warn('[network-map] фоновое обновление снимка не удалось:', error.message);
-  }
-};
-
-const scheduleAutoRefresh = () => {
-  setTimeout(refreshSnapshotIfStale, AUTO_REFRESH_START_DELAY_MS).unref?.();
-  setInterval(refreshSnapshotIfStale, AUTO_REFRESH_INTERVAL_MS).unref?.();
-};
-
-scheduleAutoRefresh();
-
 router.get('/', async (req, res) => {
   try {
     await ensureNetworkMapSchema();
@@ -141,9 +105,8 @@ router.get('/', async (req, res) => {
     if (!snapshot) {
       return res.status(404).json({ error: 'Снимок IP-сетки ещё не создан. Обновите его в настройках.' });
     }
-    // Время чтения источника меняется только при обновлении снимка, поэтому
-    // годится как ETag — не нужно хэшировать 70+ КБ текста на каждый запрос.
-    const version = new Date(snapshot.fetched_at).getTime() || Buffer.byteLength(snapshot.zone_text, 'utf8');
+    // Content-based ETag also detects two manual updates within one second.
+    const version = createHash('sha256').update(snapshot.zone_text).digest('hex');
     const etag = `W/"network-map-${version}"`;
     res.set('Cache-Control', SNAPSHOT_CACHE_CONTROL);
     res.set('ETag', etag);

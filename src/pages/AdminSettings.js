@@ -154,6 +154,39 @@ export const DirectorySyncReport = ({ report }) => {
   );
 };
 
+export const NetworkSyncReport = ({ report }) => {
+  if (!report) return null;
+  const totalChanges = ['added', 'removed', 'updated'].reduce((total, key) => total + Number(report[key]?.count || 0), 0);
+  const details = (record = {}) => (
+    <dl className="directory-person-details">
+      <div><dt>{t('Хост')}</dt><dd>{record.hosts?.join(', ') || '—'}</dd></div>
+      <div><dt>{t('Раздел')}</dt><dd>{record.section || '—'}</dd></div>
+    </dl>
+  );
+  return (
+    <div className="directory-sync-report" aria-live="polite">
+      <div className="directory-report-heading"><h2>{t('Изменения IP-сетки')}</h2></div>
+      {report.initialLoad && <p>{t('Первичная загрузка IP-сетки')}</p>}
+      {!totalChanges && <p>{t('Изменений нет. IP-сетка уже актуальна.')}</p>}
+      {[['added', 'Добавленные IP-адреса', 'hired'], ['removed', 'Удалённые IP-адреса', 'fired'], ['updated', 'Изменённые IP-записи', 'changed']].map(([key, title, tone]) => (
+        <DirectoryReportGroup key={key} title={title} tone={tone} count={report[key]?.count || 0} items={report[key]?.items || []}
+          renderItem={(record) => (
+            <article key={record.ip}>
+              <h4>{record.ip}</h4>
+              {key === 'updated' ? (
+                <div className="directory-assignments-comparison">
+                  <section><h5>{t('Было')}</h5>{details(record.before)}</section>
+                  <section><h5>{t('Стало')}</h5>{details(record.after)}</section>
+                </div>
+              ) : details(record)}
+            </article>
+          )}
+        />
+      ))}
+    </div>
+  );
+};
+
 export default function AdminSettings({ language, theme, onLanguageChange, onThemeChange }) {
   const t = useAdminTranslation();
   const [busy, setBusy] = useState('');
@@ -166,6 +199,7 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
   useEffect(() => { try { if (completedDirectory) sessionStorage.setItem(directoryRetryKey, JSON.stringify(completedDirectory)); else sessionStorage.removeItem(directoryRetryKey); } catch {} }, [completedDirectory, directoryRetryKey]);
   const [temporaryAccounts, setTemporaryAccounts] = useState([]);
   const [directoryReport, setDirectoryReport] = useState(null);
+  const [networkReport, setNetworkReport] = useState(null);
   const [applicationActionHistoryVisible, setApplicationActionHistoryVisible] = useState(() => userSettingsStorage.getItem('admin.showApplicationActionHistory') === 'true');
   const [auditTestModeEnabled, setAuditTestModeEnabled] = useState(() => userSettingsStorage.getItem(AUDIT_TEST_MODE_SETTING_KEY) === 'true');
   const [largeRequestsEnabled, setLargeRequestsEnabled] = useState(() => userSettingsStorage.getItem(DASHBOARD_CARD_SIZE_KEY) === 'modern');
@@ -200,6 +234,7 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
     setOperation({ steps, step: 0 });
     setMessage('');
     if (kind === 'directory') setDirectoryReport(null);
+    else setNetworkReport(null);
     try {
       if (kind === 'directory') {
         const data = await syncEmployees((step, directory) => { setOperation({ steps, step }); setCompletedDirectory(directory); setDirectoryReport({ ...(directory.changes || {}), updatedAt: directory.updatedAt }); }, completedDirectory);
@@ -222,7 +257,8 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || data.message || 'Не удалось обновить IP-сетку');
         setOperation({ steps, step: 1 });
-        localStorage.setItem('network-map-cache', JSON.stringify(data));
+        try { localStorage.setItem('network-map-cache', JSON.stringify({ zoneText: data.zoneText, fetchedAt: data.fetchedAt, sourceUrl: data.sourceUrl })); } catch {}
+        setNetworkReport(data.changes || null);
         setMessage('Данные IP-сетки обновлены и сохранены в SQL.');
       }
       setMessageType('success');
@@ -343,6 +379,7 @@ export default function AdminSettings({ language, theme, onLanguageChange, onThe
           {operation && <OperationProgress {...operation} />}
           {message && <AdminNotice type={messageType}>{Array.isArray(message) ? message.map((part) => t(part)).join(' ') : t(message)}</AdminNotice>}
           <DirectorySyncReport report={directoryReport} />
+          <NetworkSyncReport report={networkReport} />
           {temporaryAccounts.length > 0 && <article><h3>{t('Временный доступ новых администраторов')}</h3><p>{t('Передайте пароль соответствующему администратору. При первом входе потребуется смена пароля.')}</p>{temporaryAccounts.map((account) => <p key={account.login}><strong>{account.full_name}</strong> · {account.login} · <code>{account.password}</code></p>)}<button onClick={() => setTemporaryAccounts([])}>{t('Скрыть пароли')}</button></article>}
         </section>
 

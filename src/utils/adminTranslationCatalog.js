@@ -1,5 +1,11 @@
 // Admin interface text only. User-entered content and stored identifiers stay unchanged.
 export const ADMIN_TRANSLATIONS = {
+  "Изменения IP-сетки": "IP directory changes",
+  "Первичная загрузка IP-сетки": "Initial IP directory import",
+  "Изменений нет. IP-сетка уже актуальна.": "No changes. The IP directory is already up to date.",
+  "Добавленные IP-адреса": "Added IP addresses",
+  "Удалённые IP-адреса": "Removed IP addresses",
+  "Изменённые IP-записи": "Changed IP records",
   "Первичная загрузка справочника": "Initial directory import",
   "Первичная загрузка данных": "Initial data import",
   "Восстановленные сотрудники": "Restored employees",
