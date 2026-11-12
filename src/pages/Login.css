@@ -1384,7 +1384,6 @@
   }
 
   .jp-wrapper--design-new .jp-login-shell {
-    z-index: 7;
     width: min(calc(100% - 20px), 620px);
     padding: 56px 0 144px;
   }
@@ -1435,6 +1434,24 @@
   .jp-wrapper--design-new .jp-password-toggle {
     min-height: 44px;
     margin-top: 8px;
+  }
+
+  .jp-wrapper--design-new .jp-field:has(> .login-suggestions-toggle) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .jp-wrapper--design-new .jp-field > input[name="username"] {
+    grid-area: 2 / 1;
+    padding-right: 54px;
+  }
+
+  .jp-wrapper--design-new .login-suggestions-toggle {
+    position: relative;
+    inset: auto;
+    grid-area: 2 / 1;
+    place-self: center end;
+    margin-right: 10px;
   }
 
   .jp-wrapper--design-new .login-directory-list {
