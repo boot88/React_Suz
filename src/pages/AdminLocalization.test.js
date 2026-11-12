@@ -273,7 +273,7 @@ test('Excel captions match all filtered rows or the selected page rows and expor
     expect(selectedButton.textContent).toBe('Export selected — 1 request');
     await act(async () => Simulate.click(selectedButton));
     call = authFetch.mock.calls.find(([url]) => url.includes('/export-xlsx?'));
-    expect(new URL(call[0]).searchParams.get('ids')).toBe('7');
+    expect(new URL(call[0], 'http://localhost').searchParams.get('ids')).toBe('7');
     await act(async () => Simulate.change(container.querySelector('input[placeholder="Search requests"]'), { target: { value: 'новый поиск' } }));
     expect(container.querySelector('.bulk-actions-bar')).toBeNull();
   } finally { URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke; anchorClick.mockRestore(); }

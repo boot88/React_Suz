@@ -3994,6 +3994,12 @@
   box-shadow: 0 8px 20px color-mix(in srgb, var(--chat-accent) 24%, transparent);
 }
 
+.brand-actions .manager-visitors-link {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
 
 .contact-filter-select {
   display: grid;

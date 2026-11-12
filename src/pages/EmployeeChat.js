@@ -18,7 +18,7 @@ import ModernMediaViewer from '../components/employeeChat/ModernMediaViewer';
 import useStableMessageProps from '../components/employeeChat/useStableMessageProps';
 import ChatAppearanceSettings from '../components/employeeChat/ChatAppearanceSettings';
 import AdminBroadcastWorkspace from '../components/employeeChat/AdminBroadcastWorkspace';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import useMessageOutbox from '../components/employeeChat/useMessageOutbox';
 import { mergeMessages, compareMessages, isMessageRead } from '../utils/chatMessages';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -3870,6 +3870,7 @@ const EmployeeChat = ({ adminSection = null }) => {
           </div>
           <div className="brand-actions">
             {isAdmin && <button type="button" className="icon-btn admin-panel-return-btn" onClick={() => { if (!profileDirty || window.confirm(isEnglishInterface ? 'You have unsaved profile changes. Leave chat?' : 'Есть несохранённые изменения профиля. Выйти из чата?')) requestAdminWorkspaceTransition('/'); }}>{t('adminPanel')}</button>}
+            {user?.role === 'manager' && <Link to="/visitors" className="icon-btn admin-panel-return-btn manager-visitors-link" onClick={(event) => { if (profileDirty && !window.confirm(isEnglishInterface ? 'You have unsaved profile changes. Leave chat?' : 'Есть несохранённые изменения профиля. Выйти из чата?')) event.preventDefault(); }}>{isEnglishInterface ? 'Visitor journal' : 'Журнал посещений'}</Link>}
             <button type="button" className="icon-btn" onClick={() => { setActiveTab('profile'); setProfileViewLogin(''); }}>{t('profile')}</button>
           </div>
         </div>

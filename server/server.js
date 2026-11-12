@@ -10,6 +10,7 @@ const authRoutes = require('./routes/auth');
 const chatRoutes = require('./routes/chat');
 const knowledgeBaseRoutes = require('./routes/knowledgeBase');
 const networkMapRoutes = require('./routes/networkMap');
+const visitsRoutes = require('./routes/visits');
 const { router: adminBackupRoutes, backupGate, maintenanceEvents, maintenanceStatus } = require('./routes/adminBackups');
 const pool = require('./config/database');
 const { applicationWorkSeconds } = require('../src/utils/applicationDuration');
@@ -103,6 +104,7 @@ app.use('/api/settings', require('./routes/appSettings'));
 app.use('/api/chat', chatRoutes);
 app.use('/api/network-map', requireAuth, networkMapRoutes);
 app.use('/api/knowledge-base', requireAuth, knowledgeBaseRoutes);
+app.use('/api/visits', visitsRoutes.createVisitsRouter(pool));
 
 // Функция для преобразования дат в правильный формат MySQL.
 // Пул MySQL настроен на timezone 'Z' (UTC), поэтому используем UTC-компоненты даты,

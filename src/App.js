@@ -14,6 +14,7 @@ import { API_BASE_URL } from './utils/apiConfig';
 import { authFetch } from './utils/authFetch';
 import { ADMIN_WORKSPACE_TRANSITION_EVENT, requestAdminWorkspaceTransition } from './utils/adminWorkspaceTransition';
 import { WELCOME_NOTICE_DURATION_MS, requestWelcomeGreeting, hasSeenWelcomeGreeting, markWelcomeGreetingSeen } from './utils/welcomeGreeting';
+import { startVisitTracking, setVisitPath, setVisitUser } from './utils/visitTracker';
 
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -26,6 +27,7 @@ const AdminSettings = lazy(() => import('./pages/AdminSettings'));
 const EmployeeChat = lazy(() => import('./pages/EmployeeChat'));
 const Support = lazy(() => import('./components/Support'));
 const Statistics = lazy(() => import('./pages/StatisticsOverview'));
+const VisitorsJournal = lazy(() => import('./pages/VisitorsJournal'));
 
 function ChatAdministration() {
   const { section } = useParams();
@@ -92,6 +94,16 @@ function AppWorkspace() {
   useEffect(() => {
     if (isAuthenticated && (user?.role === 'admin' || user?.serverRole === 'admin') && location.pathname !== '/employee') document.documentElement.lang = adminLanguage;
   }, [adminLanguage, isAuthenticated, location.pathname, user?.role, user?.serverRole]);
+
+  // Журнал посещений: одна сессия на вкладку, маршрут и логин передаются
+  // отдельными эффектами, чтобы переходы внутри SPA тоже попадали в отчёт.
+  useEffect(() => startVisitTracking(), []);
+  useEffect(() => {
+    setVisitPath(`${location.pathname}${location.search}`, document.title);
+  }, [location.pathname, location.search]);
+  useEffect(() => {
+    setVisitUser(isAuthenticated ? user : null);
+  }, [isAuthenticated, user]);
 
   useEffect(() => { currentPathRef.current = location.pathname; }, [location.pathname]);
   useEffect(() => { navigateRef.current = navigate; }, [navigate]);
@@ -187,6 +199,7 @@ function AppWorkspace() {
           <Route path="/network-map" element={<AdminRoute><NetworkMap /></AdminRoute>} />
           <Route path="/settings" element={<AdminRoute><AdminSettings language={adminLanguage} theme={adminTheme} onLanguageChange={(value) => userSettingsStorage.setItem('adminLanguage', value)} onThemeChange={(value) => userSettingsStorage.setItem('adminTheme', value)} /></AdminRoute>} />
           <Route path="/statistics" element={<AdminRoute><Statistics /></AdminRoute>} />
+          <Route path="/visitors" element={<VisitorsRoute><VisitorsJournal /></VisitorsRoute>} />
 
           <Route path="/support" element={<Support />} />
           <Route path="*" element={<Navigate to={isEmployee ? '/employee' : '/'} replace />} />
@@ -211,7 +224,7 @@ const SIDEBAR_COPY = {
     product: 'НИОХ Система', descriptor: 'Центр управления', work: 'Работа', requests: 'Заявки', add: 'Новая заявка',
     communication: 'Общение', chat: 'Чат', broadcast: 'Рассылка сотрудникам', chatAdmin: 'Управление чатом',
     directories: 'Справочники', directory: 'Справочник сотрудников', knowledge: 'База знаний',
-    diagnostics: 'Диагностика', statistics: 'Статистика', network: 'Диагностика сети',
+    diagnostics: 'Диагностика', statistics: 'Статистика', visitors: 'Журнал посещений', network: 'Диагностика сети',
     administration: 'Администрирование', settings: 'Настройки', administrator: 'Администратор',
     language: 'Язык', appearance: 'Тема', light: 'Светлая', dark: 'Тёмная', logout: 'Выйти', navigation: 'Основная навигация', openMenu: 'Открыть меню'
   },
@@ -219,7 +232,7 @@ const SIDEBAR_COPY = {
     product: 'NIOCh System', descriptor: 'Control centre', work: 'Workspace', requests: 'Requests', add: 'New request',
     communication: 'Communication', chat: 'Chat', broadcast: 'Employee broadcast', chatAdmin: 'Chat administration',
     directories: 'Reference data', directory: 'Employee directory', knowledge: 'Knowledge base',
-    diagnostics: 'Diagnostics', statistics: 'Statistics', network: 'Network diagnostics',
+    diagnostics: 'Diagnostics', statistics: 'Statistics', visitors: 'Visitor journal', network: 'Network diagnostics',
     administration: 'Administration', settings: 'Settings', administrator: 'Administrator',
     language: 'Language', appearance: 'Theme', light: 'Light', dark: 'Dark', logout: 'Sign out', navigation: 'Primary navigation', openMenu: 'Open menu'
   }
@@ -345,6 +358,7 @@ export function Sidebar({ language, requestsCount }) {
             <li className={isActive('/knowledge-base') ? 'nav-item active' : 'nav-item'}><Link to="/knowledge-base" className="nav-link"><span className="nav-icon nav-icon--book" aria-hidden="true" /><span className="nav-text">{copy.knowledge}</span></Link></li>
             <li className="nav-group-title">{copy.diagnostics}</li>
             <li className={isActive('/statistics') ? 'nav-item active' : 'nav-item'}><Link to="/statistics" className="nav-link"><span className="nav-icon nav-icon--chart" aria-hidden="true" /><span className="nav-text">{copy.statistics}</span></Link></li>
+            <li className={isActive('/visitors') ? 'nav-item active' : 'nav-item'}><Link to="/visitors" className="nav-link"><span className="nav-icon nav-icon--visitors" aria-hidden="true" /><span className="nav-text">{copy.visitors}</span></Link></li>
             <li className={isActive('/network-map') ? 'nav-item active' : 'nav-item'}><Link to="/network-map" className="nav-link"><span className="nav-icon nav-icon--network" aria-hidden="true" /><span className="nav-text">{copy.network}</span></Link></li>
             <li className="nav-group-title">{copy.administration}</li>
             <li className={isActive('/settings') ? 'nav-item active' : 'nav-item'}><Link to="/settings" className="nav-link"><span className="nav-icon nav-icon--settings" aria-hidden="true" /><span className="nav-text">{copy.settings}</span></Link></li>
@@ -386,6 +400,20 @@ function AdminRoute({ children }) {
   return (
     <ProtectedRoute loginPath="/admin">
       {user?.role === 'admin' || user?.serverRole === 'admin' ? children : <Navigate to="/employee" replace />}
+    </ProtectedRoute>
+  );
+}
+
+// Журнал посещений доступен администраторам и менеджерам: менеджеры работают
+// в пространстве чата, поэтому для них нет бокового меню админки.
+function VisitorsRoute({ children }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.serverRole === 'admin';
+  const isManager = user?.role === 'manager';
+
+  return (
+    <ProtectedRoute>
+      {isAdmin || isManager ? children : <Navigate to="/employee" replace />}
     </ProtectedRoute>
   );
 }
